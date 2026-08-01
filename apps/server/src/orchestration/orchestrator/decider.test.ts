@@ -235,6 +235,76 @@ describe("Orchestrator decider", () => {
     expect(Exit.isFailure(result)).toBe(true);
   });
 
+  it("lets only the user restore an archived Root and advances its revision", async () => {
+    let state = await createRoot();
+    const archived = await Effect.runPromise(
+      decideOrchestratorCommand({
+        command: {
+          type: "orchestrator.root.archive",
+          commandId: CommandId.makeUnsafe("archive-root"),
+          rootThreadId,
+          projectId,
+          actor: { kind: "user", actorId: "owner" },
+          protocolVersion: 1,
+          expectedRevision: state.revision,
+          reason: null,
+          createdAt: now,
+        },
+        state,
+        readModel,
+      }),
+    );
+    state = persist(
+      state,
+      (Array.isArray(archived) ? archived : [archived]) as ReadonlyArray<
+        Omit<OrchestratorDomainEvent, "sequence">
+      >,
+    );
+
+    const restored = await Effect.runPromise(
+      decideOrchestratorCommand({
+        command: {
+          type: "orchestrator.root.restore",
+          commandId: CommandId.makeUnsafe("restore-root"),
+          rootThreadId,
+          projectId,
+          actor: { kind: "user", actorId: "owner" },
+          protocolVersion: 1,
+          expectedRevision: state.revision,
+          createdAt: now,
+        },
+        state,
+        readModel,
+      }),
+    );
+    const restoredEvent = Array.isArray(restored) ? restored[0] : restored;
+
+    expect(restoredEvent.type).toBe("orchestrator.root.restored");
+    expect(restoredEvent.payload.root).toMatchObject({
+      state: "active",
+      archivedAt: null,
+      revision: state.revision + 1,
+    });
+
+    const nonUserRestore = await Effect.runPromise(
+      decideOrchestratorCommand({
+        command: {
+          type: "orchestrator.root.restore",
+          commandId: CommandId.makeUnsafe("restore-root-by-thread"),
+          rootThreadId,
+          projectId,
+          actor: { kind: "thread", threadId: rootThreadId },
+          protocolVersion: 1,
+          expectedRevision: state.revision,
+          createdAt: now,
+        },
+        state,
+        readModel,
+      }).pipe(Effect.exit),
+    );
+    expect(Exit.isFailure(nonUserRestore)).toBe(true);
+  });
+
   it("keeps ownership acyclic and parent-child communication separate", async () => {
     let state = await createRoot();
     const attachB = await Effect.runPromise(

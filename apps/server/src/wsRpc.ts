@@ -140,6 +140,11 @@ export function canManageExternalMcp(role: "owner" | "client"): boolean {
   return role === "owner";
 }
 
+export const findAcceptedAggregateEvent = <Event extends { readonly commandId: CommandId }>(
+  events: readonly Event[],
+  commandId: CommandId,
+): Event | undefined => events.find((event) => event.commandId === commandId);
+
 const MAX_DIAGNOSTIC_CHILD_PROCESSES = 80;
 const MAX_DIAGNOSTIC_ARGS_CHARS = 500;
 
@@ -789,6 +794,7 @@ const makeWsRpcHandlersLayer = () =>
       const readAcceptedAggregateEvent = (input: {
         readonly aggregateKind: "orchestrator" | "task_process";
         readonly aggregateId: ThreadId | TaskProcessId;
+        readonly commandId: CommandId;
         readonly sequence: number;
       }) =>
         orchestrationEventStore
@@ -796,16 +802,16 @@ const makeWsRpcHandlersLayer = () =>
             aggregateKind: input.aggregateKind,
             aggregateId: input.aggregateId,
             beforeSequenceExclusive: input.sequence + 1,
-            limit: 1,
+            limit: 8,
           })
           .pipe(
             Effect.flatMap((events) => {
-              const event = events[0];
-              return event?.sequence === input.sequence
+              const event = findAcceptedAggregateEvent(events, input.commandId);
+              return event !== undefined
                 ? Effect.succeed(event)
                 : Effect.fail(
                     new Error(
-                      `Accepted ${input.aggregateKind} event ${input.sequence} could not be read back.`,
+                      `Accepted ${input.aggregateKind} command ${input.commandId} could not be read back through sequence ${input.sequence}.`,
                     ),
                   );
             }),
@@ -817,6 +823,7 @@ const makeWsRpcHandlersLayer = () =>
           const event = yield* readAcceptedAggregateEvent({
             aggregateKind: "orchestrator",
             aggregateId: command.rootThreadId,
+            commandId: command.commandId,
             sequence: result.sequence,
           });
           if (!Schema.is(OrchestratorDomainEvent)(event)) {
@@ -1164,6 +1171,18 @@ const makeWsRpcHandlersLayer = () =>
             ),
             "Failed to archive Orchestrator Root",
           ),
+        [ORCHESTRATION_WS_METHODS.restoreOrchestratorRoot]: (input) =>
+          rpcEffect(
+            requireOwnerSession.pipe(
+              Effect.andThen(
+                dispatchOrchestratorUserCommand({
+                  ...input.command,
+                  actor: { kind: "user" as const, actorId: "owner" },
+                }),
+              ),
+            ),
+            "Failed to restore Orchestrator Root",
+          ),
         [ORCHESTRATION_WS_METHODS.detachOrchestratorChild]: (input) =>
           rpcEffect(
             requireOwnerSession.pipe(
@@ -1262,6 +1281,7 @@ const makeWsRpcHandlersLayer = () =>
                   const event = yield* readAcceptedAggregateEvent({
                     aggregateKind: "task_process",
                     aggregateId: command.processId,
+                    commandId: command.commandId,
                     sequence: result.sequence,
                   });
                   if (!Schema.is(TaskProcessDomainEvent)(event)) {

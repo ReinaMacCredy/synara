@@ -117,6 +117,7 @@ import {
   OrchestratorArtifact,
   OrchestratorCommandResult,
   ReadOrchestratorArtifactInput,
+  RestoreOrchestratorRootInput,
   UpgradeOrchestratorRootInput,
 } from "./orchestrator";
 import {
@@ -415,6 +416,10 @@ export const WsOrchestrationCreateOrchestratorRootRpc = Rpc.make(
 export const WsOrchestrationArchiveOrchestratorRootRpc = Rpc.make(
   ORCHESTRATION_WS_METHODS.archiveOrchestratorRoot,
   { payload: ArchiveOrchestratorRootInput, success: OrchestratorCommandResult, error: WsRpcError },
+);
+export const WsOrchestrationRestoreOrchestratorRootRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.restoreOrchestratorRoot,
+  { payload: RestoreOrchestratorRootInput, success: OrchestratorCommandResult, error: WsRpcError },
 );
 export const WsOrchestrationDetachOrchestratorChildRpc = Rpc.make(
   ORCHESTRATION_WS_METHODS.detachOrchestratorChild,
@@ -1109,6 +1114,7 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsOrchestrationListOrchestratorAuditEventsRpc,
   WsOrchestrationCreateOrchestratorRootRpc,
   WsOrchestrationArchiveOrchestratorRootRpc,
+  WsOrchestrationRestoreOrchestratorRootRpc,
   WsOrchestrationDetachOrchestratorChildRpc,
   WsOrchestrationUpgradeOrchestratorRootRpc,
   WsOrchestrationListTaskProcessesRpc,

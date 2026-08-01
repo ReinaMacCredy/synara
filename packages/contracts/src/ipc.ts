@@ -196,6 +196,7 @@ import type {
   OrchestratorArtifact,
   OrchestratorCommandResult,
   ReadOrchestratorArtifactInput,
+  RestoreOrchestratorRootInput,
   UpgradeOrchestratorRootInput,
 } from "./orchestrator";
 import type {
@@ -788,6 +789,9 @@ export interface NativeApi {
     ) => Promise<OrchestratorCommandResult>;
     archiveOrchestratorRoot: (
       input: ArchiveOrchestratorRootInput,
+    ) => Promise<OrchestratorCommandResult>;
+    restoreOrchestratorRoot: (
+      input: RestoreOrchestratorRootInput,
     ) => Promise<OrchestratorCommandResult>;
     detachOrchestratorChild: (
       input: DetachOrchestratorChildInput,

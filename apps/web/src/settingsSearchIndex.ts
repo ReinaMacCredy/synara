@@ -298,10 +298,10 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
 
   // ── Archived ──────────────────────────────────────────────────────────────────
   {
-    id: "archived:archived-threads",
+    id: "archived:archived-chats",
     section: "archived",
-    title: "Archived threads",
-    keywords: "View and restore archived threads. unarchive history",
+    title: "Archived chats and Roots",
+    keywords: "View and restore archived chats threads Orchestrator Roots unarchive history",
     target: null,
   },
 

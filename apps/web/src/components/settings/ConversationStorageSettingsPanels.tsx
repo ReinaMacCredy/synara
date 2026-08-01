@@ -3,7 +3,7 @@
 // Layer: Settings UI components
 // Exports: WorktreesSettingsPanel, ArchivedSettingsPanel
 
-import type { ThreadId } from "@synara/contracts";
+import type { OrchestratorRoot, ThreadId } from "@synara/contracts";
 import { pluralize } from "@synara/shared/text";
 import { collectSubagentDescendants } from "@synara/shared/threadHierarchy";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -13,12 +13,20 @@ import { Button } from "~/components/ui/button";
 import { gitRemoveWorktreeMutationOptions } from "~/lib/gitReactQuery";
 import { ArchiveIcon } from "~/lib/icons";
 import { deleteArchivedThreadsFromClient } from "~/lib/archivedThreadDelete";
+import {
+  orchestratorQueryKeys,
+  orchestratorRootsQueryOptions,
+  sortOrchestratorRoots,
+} from "~/lib/orchestratorRoots";
 import { formatRelativeTime } from "~/lib/relativeTime";
 import { serverQueryKeys, serverWorktreesQueryOptions } from "~/lib/serverReactQuery";
 import { unarchiveThreadFromClient } from "~/lib/threadArchive";
-import { cn } from "~/lib/utils";
+import { cn, newCommandId } from "~/lib/utils";
 import { ensureNativeApi, readNativeApi } from "~/nativeApi";
-import { SETTINGS_CARD_ROW_DESCRIPTION_CLASS_NAME } from "~/settingsPanelStyles";
+import {
+  SETTINGS_CARD_ROW_DESCRIPTION_CLASS_NAME,
+  SETTINGS_SECTION_LABEL_CLASS_NAME,
+} from "~/settingsPanelStyles";
 import { useStore } from "~/store";
 import { createThreadShellsSelector } from "~/storeSelectors";
 import { formatWorktreePathForDisplay } from "~/worktreeCleanup";
@@ -270,16 +278,45 @@ export function WorktreesSettingsPanel({ active }: { readonly active: boolean })
 }
 
 export function ArchivedSettingsPanel({ active }: { readonly active: boolean }) {
+  const queryClient = useQueryClient();
+  const syncServerShellSnapshot = useStore((store) => store.syncServerShellSnapshot);
   const removeDeletedThreadFromClientState = useStore(
     (store) => store.removeDeletedThreadFromClientState,
   );
   const threadShells = useStore(useMemo(() => createThreadShellsSelector(), []));
   const projects = useStore((store) => store.projects);
+  const rootsQuery = useQuery({
+    ...orchestratorRootsQueryOptions({ includeArchived: true, limit: 100 }),
+    enabled: active,
+  });
+  const roots = useMemo(
+    () => sortOrchestratorRoots(rootsQuery.data?.items ?? []),
+    [rootsQuery.data?.items],
+  );
+  const rootThreadIds = useMemo(
+    () => new Set(roots.map((root) => root.rootThreadId)),
+    [roots],
+  );
+  const archivedRoots = useMemo(
+    () => roots.filter((root) => root.state === "archived"),
+    [roots],
+  );
+  const threadById = useMemo(
+    () => new Map(threadShells.map((thread) => [thread.id, thread] as const)),
+    [threadShells],
+  );
+  const projectById = useMemo(
+    () => new Map(projects.map((project) => [project.id, project] as const)),
+    [projects],
+  );
   const archivedGroups = useMemo(() => {
     // Subagent threads are archived and restored through their parent, so only
     // top-level threads are listed here.
     const archivedThreads = threadShells.filter(
-      (thread) => thread.archivedAt != null && (thread.parentThreadId ?? null) === null,
+      (thread) =>
+        thread.archivedAt != null &&
+        (thread.parentThreadId ?? null) === null &&
+        !rootThreadIds.has(thread.id),
     );
     const knownProjectIds = new Set(projects.map((project) => project.id));
     const groups: Array<{
@@ -298,7 +335,43 @@ export function ArchivedSettingsPanel({ active }: { readonly active: boolean }) 
       groups.push({ project: null, threads: orphanedThreads });
     }
     return groups.filter((group) => group.threads.length > 0);
-  }, [projects, threadShells]);
+  }, [projects, rootThreadIds, threadShells]);
+
+  const restoreRootMutation = useMutation({
+    mutationFn: async (root: OrchestratorRoot) => {
+      const api = readNativeApi() ?? ensureNativeApi();
+      await api.orchestration.restoreOrchestratorRoot({
+        command: {
+          type: "orchestrator.root.restore",
+          commandId: newCommandId(),
+          rootThreadId: root.rootThreadId,
+          projectId: root.projectId,
+          actor: { kind: "user", actorId: "owner" },
+          protocolVersion: root.protocolVersion,
+          expectedRevision: root.revision,
+          createdAt: new Date().toISOString(),
+        },
+      });
+      const shellSnapshot = await api.orchestration.getShellSnapshot();
+      syncServerShellSnapshot(shellSnapshot);
+      queryClient.removeQueries({ queryKey: orchestratorQueryKeys.root(root.rootThreadId) });
+      await queryClient.invalidateQueries({ queryKey: orchestratorQueryKeys.all });
+    },
+    onSuccess: (_result, root) => {
+      toastManager.add({
+        type: "success",
+        title: "Root restored",
+        description: `${threadById.get(root.rootThreadId)?.title ?? "The Orchestrator Root"} is back in the Orchestrator sidebar.`,
+      });
+    },
+    onError: (error) => {
+      toastManager.add({
+        type: "error",
+        title: "Could not restore Root",
+        description: error instanceof Error ? error.message : "Unable to restore the Root.",
+      });
+    },
+  });
 
   const unarchiveThread = useCallback(async (threadId: ThreadId) => {
     const api = readNativeApi();
@@ -377,61 +450,113 @@ export function ArchivedSettingsPanel({ active }: { readonly active: boolean }) 
 
   if (!active) return null;
 
-  if (archivedGroups.length === 0) {
+  if (rootsQuery.isLoading) {
+    return <WorktreesStatus>Loading archived chats and Roots...</WorktreesStatus>;
+  }
+
+  if (rootsQuery.isError) {
+    return (
+      <WorktreesStatus error>
+        {rootsQuery.error instanceof Error
+          ? rootsQuery.error.message
+          : "Unable to load archived Roots."}
+      </WorktreesStatus>
+    );
+  }
+
+  if (archivedGroups.length === 0 && archivedRoots.length === 0) {
     return (
       <SettingsEmptyState>
         <div className="mx-auto mb-3 flex size-11 items-center justify-center rounded-full border border-border/70 bg-background/70 text-muted-foreground">
           <ArchiveIcon className="size-5" />
         </div>
-        <div className="text-sm font-medium text-foreground">No archived threads</div>
+        <div className="text-sm font-medium text-foreground">Nothing archived</div>
         <div className="mt-1 text-sm text-muted-foreground">
-          Archived threads will appear here and can be restored to the sidebar.
+          Archived chats and Orchestrator Roots will appear here for restoration.
         </div>
       </SettingsEmptyState>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {archivedGroups.map(({ project, threads }) => (
-        <SettingsSection
-          key={project?.id ?? "unknown-project"}
-          title={project?.name ?? "Unknown project"}
-        >
-          {threads.map((thread) => (
-            <SettingsListRow
-              key={thread.id}
-              title={thread.title}
-              description={`Archived ${formatRelativeTime(thread.archivedAt ?? thread.createdAt)}`}
-              onContextMenu={(event) => {
-                event.preventDefault();
-                void handleContextMenu(thread.id, thread.title, {
-                  x: event.clientX,
-                  y: event.clientY,
-                });
-              }}
-              actions={
-                <>
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    onClick={() => void unarchiveThread(thread.id)}
-                  >
-                    Restore
-                  </Button>
-                  <Button
-                    size="xs"
-                    variant="destructive"
-                    onClick={() => void deleteArchivedThread(thread.id, thread.title)}
-                  >
-                    Delete
-                  </Button>
-                </>
-              }
-            />
-          ))}
-        </SettingsSection>
-      ))}
+    <div className="space-y-10">
+      <div className="space-y-6">
+        <h2 className={SETTINGS_SECTION_LABEL_CLASS_NAME}>Archived chats</h2>
+        {archivedGroups.length > 0 ? (
+          archivedGroups.map(({ project, threads }) => (
+            <SettingsSection
+              key={project?.id ?? "unknown-project"}
+              title={project?.name ?? "Unknown project"}
+            >
+              {threads.map((thread) => (
+                <SettingsListRow
+                  key={thread.id}
+                  title={thread.title}
+                  description={`Archived ${formatRelativeTime(thread.archivedAt ?? thread.createdAt)}`}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    void handleContextMenu(thread.id, thread.title, {
+                      x: event.clientX,
+                      y: event.clientY,
+                    });
+                  }}
+                  actions={
+                    <>
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        onClick={() => void unarchiveThread(thread.id)}
+                      >
+                        Restore
+                      </Button>
+                      <Button
+                        size="xs"
+                        variant="destructive"
+                        onClick={() => void deleteArchivedThread(thread.id, thread.title)}
+                      >
+                        Delete
+                      </Button>
+                    </>
+                  }
+                />
+              ))}
+            </SettingsSection>
+          ))
+        ) : (
+          <SettingsEmptyState layout="status">No archived chats.</SettingsEmptyState>
+        )}
+      </div>
+
+      <div className="space-y-6">
+        <h2 className={SETTINGS_SECTION_LABEL_CLASS_NAME}>Archived Roots</h2>
+        {archivedRoots.length > 0 ? (
+          <SettingsSection title="Orchestrator">
+            {archivedRoots.map((root) => {
+              const thread = threadById.get(root.rootThreadId);
+              const project = projectById.get(root.projectId);
+              return (
+                <SettingsListRow
+                  key={root.rootThreadId}
+                  title={thread?.title ?? "Untitled Orchestrator Root"}
+                  description={`${project?.name ?? "Unknown project"} · Archived ${formatRelativeTime(root.archivedAt ?? root.createdAt)}`}
+                  actions={
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      disabled={restoreRootMutation.isPending}
+                      onClick={() => restoreRootMutation.mutate(root)}
+                    >
+                      Restore
+                    </Button>
+                  }
+                />
+              );
+            })}
+          </SettingsSection>
+        ) : (
+          <SettingsEmptyState layout="status">No archived Orchestrator Roots.</SettingsEmptyState>
+        )}
+      </div>
     </div>
   );
 }

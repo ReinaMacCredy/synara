@@ -87,6 +87,55 @@ describe("composerDraftStore persisted-state hydration", () => {
     ]);
   });
 
+  it("hydrates a retained Orchestrator draft with its locally staged handoff", () => {
+    const projectId = ProjectId.makeUnsafe("project-orchestrator-draft");
+    const threadId = ThreadId.makeUnsafe("thread-orchestrator-draft");
+    const sourceThreadId = ThreadId.makeUnsafe("thread-orchestrator-source");
+    const mappingKey = `${projectId}::orchestrator`;
+    const hydrated = normalizeCurrentPersistedComposerDraftStoreState({
+      draftsByThreadId: {
+        [threadId]: { prompt: "Continue the architecture discussion", attachments: [] },
+      },
+      draftThreadsByThreadId: {
+        [threadId]: {
+          projectId,
+          createdAt: "2026-08-01T00:00:00.000Z",
+          runtimeMode: "approval-required",
+          interactionMode: "default",
+          entryPoint: "orchestrator",
+          orchestratorSourceThreadId: sourceThreadId,
+          orchestratorHandoffMessages: [
+            {
+              messageId: "handoff-message-1",
+              role: "assistant",
+              text: "Use a durable Root aggregate.",
+              createdAt: "2026-08-01T00:00:00.000Z",
+              updatedAt: "2026-08-01T00:00:01.000Z",
+            },
+          ],
+          branch: null,
+          worktreePath: null,
+          workingDirectory: "/workspace/project",
+          envMode: "local",
+        },
+      },
+      projectDraftThreadIdByProjectId: { [mappingKey]: threadId },
+    });
+
+    expect(hydrated.projectDraftThreadIdByProjectId[mappingKey]).toBe(threadId);
+    expect(hydrated.draftThreadsByThreadId[threadId]).toMatchObject({
+      projectId,
+      entryPoint: "orchestrator",
+      orchestratorSourceThreadId: sourceThreadId,
+      orchestratorHandoffMessages: [
+        {
+          role: "assistant",
+          text: "Use a durable Root aggregate.",
+        },
+      ],
+    });
+  });
+
   it("preserves AI-reviewed auto mode during hydration", () => {
     const projectId = ProjectId.makeUnsafe("project-auto-mode");
     const threadId = ThreadId.makeUnsafe("thread-auto-mode");

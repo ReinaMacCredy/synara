@@ -78,6 +78,7 @@ import {
   MAX_PINNED_PROJECTS,
   type DesktopUpdateState,
   type OrchestrationShellSnapshot,
+  type OrchestratorRoot,
   PROVIDER_DISPLAY_NAMES,
   ProjectId,
   SpaceId,
@@ -147,6 +148,7 @@ import { readNativeApi } from "../nativeApi";
 import { isHomeChatContainerProject, prewarmHomeChatProject } from "../lib/chatProjects";
 import {
   collectOrchestratorThreadIds,
+  orchestratorQueryKeys,
   orchestratorRootsQueryOptions,
   partitionThreadsByOrchestratorMembership,
   sortOrchestratorRoots,
@@ -320,6 +322,7 @@ import {
 } from "~/lib/disclosureMotion";
 import { createClientPointMenuAnchor } from "~/lib/clientPointMenuAnchor";
 import {
+  buildThreadHandoffImportedMessages,
   canCreateThreadHandoff,
   resolveAvailableHandoffTargetProviders,
   resolveThreadHandoffBadgeLabel,
@@ -1335,10 +1338,11 @@ export default function Sidebar() {
   const { handleNewThread } = useHandleNewThread();
   const { handleNewChat } = useHandleNewChat();
   const { createThreadHandoff } = useThreadHandoff();
+  const routePathname = useLocation({ select: (location) => location.pathname });
   const routeThreadId = useParams({
     strict: false,
     select: (params) => {
-      const value = params.threadId ?? params.rootThreadId;
+      const value = params.rootThreadId ?? params.threadId;
       return value ? ThreadId.makeUnsafe(value) : null;
     },
   });
@@ -1527,6 +1531,10 @@ export default function Sidebar() {
     () => new Set(orchestratorRoots.map((root) => root.rootThreadId)),
     [orchestratorRoots],
   );
+  const orchestratorRootByThreadId = useMemo(
+    () => new Map(orchestratorRoots.map((root) => [root.rootThreadId, root] as const)),
+    [orchestratorRoots],
+  );
   const { ordinaryThreads: ordinarySidebarThreads } = useMemo(
     () => partitionThreadsByOrchestratorMembership(sidebarThreads, orchestratorThreadIds),
     [orchestratorThreadIds, sidebarThreads],
@@ -1666,6 +1674,63 @@ export default function Sidebar() {
     sidebarThreadSummaryById,
     threadsHydrated,
   });
+  const archiveOrchestratorRoot = useCallback(
+    async (root: OrchestratorRoot, options: { confirm: boolean }) => {
+      const api = readNativeApi();
+      if (!api) return;
+      const threadTitle = sidebarThreadSummaryById[root.rootThreadId]?.title ?? "Orchestrator Root";
+      if (options.confirm && appSettings.confirmThreadArchive) {
+        const confirmed = await api.dialogs.confirm(
+          [
+            `Archive Root "${threadTitle}"?`,
+            "The Root and its root thread will move to Settings > Archived chats, where they can be restored together.",
+          ].join("\n"),
+        );
+        if (!confirmed) return;
+      }
+      try {
+        await api.orchestration.archiveOrchestratorRoot({
+          command: {
+            type: "orchestrator.root.archive",
+            commandId: newCommandId(),
+            rootThreadId: root.rootThreadId,
+            projectId: root.projectId,
+            actor: { kind: "user", actorId: "owner" },
+            protocolVersion: root.protocolVersion,
+            expectedRevision: root.revision,
+            reason: null,
+            createdAt: new Date().toISOString(),
+          },
+        });
+        const shellSnapshot = await api.orchestration.getShellSnapshot();
+        syncServerShellSnapshot(shellSnapshot);
+        if (routePathname === `/orchestrator/${root.rootThreadId}`) {
+          await navigate({ to: "/orchestrator", search: { projectId: root.projectId } });
+        }
+        queryClient.removeQueries({ queryKey: orchestratorQueryKeys.root(root.rootThreadId) });
+        await queryClient.invalidateQueries({ queryKey: orchestratorQueryKeys.all });
+        toastManager.add({
+          type: "success",
+          title: "Root archived",
+          description: "Restore it from Settings > Archived chats.",
+        });
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: "Could not archive Root",
+          description: error instanceof Error ? error.message : "Unable to archive the Root.",
+        });
+      }
+    },
+    [
+      appSettings.confirmThreadArchive,
+      navigate,
+      queryClient,
+      routePathname,
+      sidebarThreadSummaryById,
+      syncServerShellSnapshot,
+    ],
+  );
   const {
     projectRunsByProjectId,
     projectRunServerByProjectId,
@@ -2184,7 +2249,10 @@ export default function Sidebar() {
   const handleSidebarViewChange = useCallback(
     (view: SidebarView) => {
       if (view === "orchestrator") {
-        void navigate({ to: "/orchestrator" });
+        void navigate({
+          to: "/orchestrator",
+          search: focusedProjectId ? { projectId: focusedProjectId } : {},
+        });
         return;
       }
 
@@ -2194,7 +2262,7 @@ export default function Sidebar() {
 
       void handleNewChat({ fresh: true });
     },
-    [handleNewChat, navigateToBackTarget, navigate, resolveBackToThreadsTarget],
+    [focusedProjectId, handleNewChat, navigateToBackTarget, navigate, resolveBackToThreadsTarget],
   );
 
   useEffect(() => {
@@ -2210,8 +2278,11 @@ export default function Sidebar() {
     await handleNewChat({ fresh: true });
   }, [handleNewChat]);
   const handleCreateOrchestrator = useCallback(() => {
-    void navigate({ to: "/orchestrator", search: { create: true } });
-  }, [navigate]);
+    void navigate({
+      to: "/orchestrator",
+      search: focusedProjectId ? { projectId: focusedProjectId } : {},
+    });
+  }, [focusedProjectId, navigate]);
 
   const addProjectFromPath = useCallback(
     async (
@@ -2653,6 +2724,7 @@ export default function Sidebar() {
       const thread = getThreadFromState(useStore.getState(), threadId);
       if (!thread) return;
       const threadSummary = sidebarThreadSummaryById[threadId];
+      const orchestratorRoot = orchestratorRootByThreadId.get(threadId) ?? null;
       const isPinned = pinnedThreadIdSet.has(threadId);
       const hasPendingApprovals =
         threadSummary?.hasPendingApprovals ??
@@ -2676,7 +2748,8 @@ export default function Sidebar() {
       }));
       const canCreateOrchestratorFromThread =
         projectById.get(thread.projectId)?.kind === "project" &&
-        !orchestratorThreadIds.has(threadId);
+        !orchestratorThreadIds.has(threadId) &&
+        buildThreadHandoffImportedMessages(thread).length > 0;
       const threadWorkspacePath = resolveThreadWorkspaceCwd({
         projectCwd: projectCwdById.get(thread.projectId) ?? null,
         envMode: thread.envMode,
@@ -2711,13 +2784,23 @@ export default function Sidebar() {
           // no sidebar or Archived-panel row to restore it from.
           ...(thread.parentThreadId
             ? []
-            : [{ id: "archive", label: "Archive", separatorBefore: true }]),
-          {
-            id: "delete",
-            label: "Delete",
-            destructive: true,
-            ...(thread.parentThreadId ? { separatorBefore: true } : {}),
-          },
+            : [
+                {
+                  id: "archive",
+                  label: orchestratorRoot ? "Archive Root" : "Archive",
+                  separatorBefore: true,
+                },
+              ]),
+          ...(orchestratorRoot
+            ? []
+            : [
+                {
+                  id: "delete",
+                  label: "Delete",
+                  destructive: true,
+                  ...(thread.parentThreadId ? { separatorBefore: true } : {}),
+                },
+              ]),
         ],
         position,
       );
@@ -2743,7 +2826,7 @@ export default function Sidebar() {
       if (clicked === "create-orchestrator") {
         await navigate({
           to: "/orchestrator",
-          search: { create: true, sourceThreadId: threadId },
+          search: { projectId: thread.projectId, sourceThreadId: threadId },
         });
         return;
       }
@@ -2860,7 +2943,11 @@ export default function Sidebar() {
         return;
       }
       if (clicked === "archive") {
-        await confirmAndArchiveThread(threadId);
+        if (orchestratorRoot) {
+          await archiveOrchestratorRoot(orchestratorRoot, { confirm: true });
+        } else {
+          await confirmAndArchiveThread(threadId);
+        }
         return;
       }
       if (clicked !== "delete") return;
@@ -2868,6 +2955,7 @@ export default function Sidebar() {
     },
     [
       confirmAndArchiveThread,
+      archiveOrchestratorRoot,
       confirmAndDeleteThread,
       copyPathToClipboard,
       copyThreadIdToClipboard,
@@ -2878,6 +2966,7 @@ export default function Sidebar() {
       navigate,
       openRenameThreadDialog,
       orchestratorThreadIds,
+      orchestratorRootByThreadId,
       pinnedThreadIdSet,
       projectById,
       projectCwdById,
@@ -3889,12 +3978,13 @@ export default function Sidebar() {
     },
   ) {
     const compact = options?.compact === true;
+    const orchestratorRoot = orchestratorRootByThreadId.get(threadId) ?? null;
 
     return (
       <SidebarIconButton
         icon={HiOutlineArchiveBox}
-        label="Archive thread"
-        title="Archive thread"
+        label={orchestratorRoot ? "Archive Root" : "Archive thread"}
+        title={orchestratorRoot ? "Archive Root" : "Archive thread"}
         data-testid={`thread-archive-${threadId}`}
         size={compact ? "sm" : "md"}
         // Match the pin and the right-side meta chips (shared trailing-icon size); subagent
@@ -3908,7 +3998,11 @@ export default function Sidebar() {
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
-          void archiveThreadWithUndo(threadId);
+          if (orchestratorRoot) {
+            void archiveOrchestratorRoot(orchestratorRoot, { confirm: false });
+          } else {
+            void archiveThreadWithUndo(threadId);
+          }
         }}
       />
     );

@@ -95,7 +95,7 @@ describe("SettingsSidebarNav", () => {
     expect(markup).toContain("Agent providers");
     expect(markup).toContain("Managed worktrees");
     expect(markup).toContain("System tools");
-    expect(markup).toContain("Archived threads");
+    expect(markup).toContain("Archived chats");
     expect(markup).not.toContain(">App<");
     expect(markup).not.toContain(">Synara<");
   });

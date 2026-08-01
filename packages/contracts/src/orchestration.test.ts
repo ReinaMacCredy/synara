@@ -817,6 +817,45 @@ it.effect("accepts a source proposed plan reference in thread.turn.start", () =>
   }),
 );
 
+it.effect("accepts an atomic Orchestrator Root bootstrap on first turn", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeThreadTurnStartCommand({
+      type: "thread.turn.start",
+      commandId: "cmd-root-first-turn",
+      threadId: "root-thread-1",
+      message: {
+        messageId: "msg-root-first-turn",
+        role: "user",
+        text: "Design the system",
+        attachments: [],
+      },
+      runtimeMode: "approval-required",
+      interactionMode: "default",
+      orchestratorRoot: {
+        protocolVersion: 1,
+        modelTarget: {
+          provider: "codex",
+          model: "gpt-5.6-sol",
+          runtimeMode: "approval-required",
+          workspaceRoot: "/workspace/project-1",
+        },
+        title: "Design the system",
+      },
+      createdAt: "2026-08-01T00:00:00.000Z",
+    });
+    assert.deepStrictEqual(parsed.orchestratorRoot, {
+      protocolVersion: 1,
+      modelTarget: {
+        provider: "codex",
+        model: "gpt-5.6-sol",
+        runtimeMode: "approval-required",
+        workspaceRoot: "/workspace/project-1",
+      },
+      title: "Design the system",
+    });
+  }),
+);
+
 it.effect("rejects normalized thread.turn.start commands with too many attachments", () =>
   Effect.gen(function* () {
     const failed = yield* decodeThreadTurnStartCommand({

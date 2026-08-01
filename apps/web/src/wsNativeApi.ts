@@ -728,6 +728,8 @@ export function createWsNativeApi(): NativeApi {
         transport.request(ORCHESTRATION_WS_METHODS.createOrchestratorRoot, input),
       archiveOrchestratorRoot: (input) =>
         transport.request(ORCHESTRATION_WS_METHODS.archiveOrchestratorRoot, input),
+      restoreOrchestratorRoot: (input) =>
+        transport.request(ORCHESTRATION_WS_METHODS.restoreOrchestratorRoot, input),
       detachOrchestratorChild: (input) =>
         transport.request(ORCHESTRATION_WS_METHODS.detachOrchestratorChild, input),
       upgradeOrchestratorRoot: (input) =>

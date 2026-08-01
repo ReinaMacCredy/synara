@@ -99,6 +99,12 @@ export const OrchestratorModelTarget = Schema.Struct({
   ),
 });
 export type OrchestratorModelTarget = typeof OrchestratorModelTarget.Type;
+export const OrchestratorRootBootstrap = Schema.Struct({
+  protocolVersion: OrchestratorProtocolVersion,
+  modelTarget: OrchestratorModelTarget,
+  title: ShortText,
+});
+export type OrchestratorRootBootstrap = typeof OrchestratorRootBootstrap.Type;
 
 export const OrchestratorDecisionReason = Schema.Struct({
   summary: ShortText,
@@ -576,6 +582,10 @@ export const OrchestratorRootArchiveCommand = Schema.Struct({
   type: Schema.Literal("orchestrator.root.archive"),
   reason: Schema.NullOr(ShortText),
 });
+export const OrchestratorRootRestoreCommand = Schema.Struct({
+  ...OrchestratorCommandBase,
+  type: Schema.Literal("orchestrator.root.restore"),
+});
 export const OrchestratorRootActiveProcessSetCommand = Schema.Struct({
   ...OrchestratorCommandBase,
   type: Schema.Literal("orchestrator.root.active-process.set"),
@@ -752,6 +762,7 @@ export const OrchestratorWriterClaimReleaseCommand = Schema.Struct({
 export const OrchestratorUserCommand = Schema.Union([
   OrchestratorRootCreateCommand,
   OrchestratorRootArchiveCommand,
+  OrchestratorRootRestoreCommand,
 ]);
 export type OrchestratorUserCommand = typeof OrchestratorUserCommand.Type;
 export const OrchestratorCommand = Schema.Union([
@@ -787,6 +798,7 @@ export type OrchestratorCommand = typeof OrchestratorCommand.Type;
 export const OrchestratorEventType = Schema.Literals([
   "orchestrator.root.created",
   "orchestrator.root.archived",
+  "orchestrator.root.restored",
   "orchestrator.root.active-process-set",
   "orchestrator.child.attached",
   "orchestrator.child.retired",
@@ -929,6 +941,10 @@ export const ArchiveOrchestratorRootInput = Schema.Struct({
   command: OrchestratorRootArchiveCommand,
 });
 export type ArchiveOrchestratorRootInput = typeof ArchiveOrchestratorRootInput.Type;
+export const RestoreOrchestratorRootInput = Schema.Struct({
+  command: OrchestratorRootRestoreCommand,
+});
+export type RestoreOrchestratorRootInput = typeof RestoreOrchestratorRootInput.Type;
 export const DetachOrchestratorChildInput = Schema.Struct({
   rootThreadId: ThreadId,
   childThreadId: ThreadId,

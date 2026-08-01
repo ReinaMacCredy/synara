@@ -143,6 +143,7 @@ function commandToAggregateRef(command: OrchestrationCommand): {
       };
     case "orchestrator.root.create":
     case "orchestrator.root.archive":
+    case "orchestrator.root.restore":
     case "orchestrator.root.active-process.set":
     case "orchestrator.child.attach":
     case "orchestrator.child.retire":
@@ -771,7 +772,62 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           });
         }
       }
-      const eventBase = Schema.is(OrchestratorCommand)(command)
+      const rootBootstrapDecision =
+        command.type === "thread.turn.start" && command.orchestratorRoot !== undefined
+          ? yield* Effect.gen(function* () {
+                const storedRootEvents = yield* eventStore
+                  .readAggregateEvents({
+                    aggregateKind: "orchestrator",
+                    aggregateId: command.threadId,
+                  })
+                  .pipe(
+                    Effect.mapError((error) =>
+                      makeCommandInternalError(
+                        command,
+                        `Failed to load Orchestrator aggregate: ${error.message}`,
+                      ),
+                    ),
+                  );
+                const orchestratorEvents = storedRootEvents.filter(
+                  Schema.is(OrchestratorDomainEvent),
+                );
+                if (orchestratorEvents.length !== storedRootEvents.length) {
+                  return yield* makeCommandInternalError(
+                    command,
+                    "Orchestrator stream contains an event with the wrong aggregate schema.",
+                  );
+                }
+                const state = replayOrchestratorEvents(orchestratorEvents);
+                const rootThread = deciderReadModel.threads.find(
+                  (thread) => thread.id === command.threadId && thread.deletedAt === null,
+                );
+                if (!rootThread) {
+                  return yield* new OrchestrationCommandInvariantError({
+                    commandType: command.type,
+                    detail: "The Root draft thread must exist before its first turn starts.",
+                  });
+                }
+                const rootDecision = yield* decideOrchestratorCommand({
+                  command: {
+                    type: "orchestrator.root.create",
+                    commandId: command.commandId,
+                    rootThreadId: command.threadId,
+                    projectId: rootThread.projectId,
+                    actor: { kind: "user", actorId: "owner" },
+                    protocolVersion: command.orchestratorRoot.protocolVersion,
+                    expectedRevision: 0,
+                    createdAt: command.createdAt,
+                    modelTarget: command.orchestratorRoot.modelTarget,
+                    title: command.orchestratorRoot.title,
+                    activeProcessId: null,
+                  },
+                  state,
+                  readModel: deciderReadModel,
+                });
+                return rootDecision;
+              })
+          : null;
+      const commandEventBase = Schema.is(OrchestratorCommand)(command)
         ? yield* Effect.gen(function* () {
             const storedEvents = yield* eventStore
               .readAggregateEvents({
@@ -855,6 +911,40 @@ const makeOrchestrationEngine = Effect.gen(function* () {
               state,
               readModel: deciderReadModel,
             });
+            if (
+              command.type === "orchestrator.root.archive" ||
+              command.type === "orchestrator.root.restore"
+            ) {
+              const rootThread = deciderReadModel.threads.find(
+                (thread) => thread.id === command.rootThreadId && thread.deletedAt === null,
+              );
+              const shouldUpdateThread =
+                rootThread !== undefined &&
+                (command.type === "orchestrator.root.archive"
+                  ? rootThread.archivedAt === null
+                  : rootThread.archivedAt !== null);
+              if (!shouldUpdateThread) {
+                return orchestratorDecision;
+              }
+              const threadDecision = yield* decideOrchestrationCommand({
+                command: {
+                  type:
+                    command.type === "orchestrator.root.archive"
+                      ? "thread.archive"
+                      : "thread.unarchive",
+                  commandId: command.commandId,
+                  threadId: command.rootThreadId,
+                },
+                readModel: deciderReadModel,
+                workspacePaths: deciderWorkspacePaths,
+              });
+              return [
+                ...(Array.isArray(orchestratorDecision)
+                  ? orchestratorDecision
+                  : [orchestratorDecision]),
+                ...(Array.isArray(threadDecision) ? threadDecision : [threadDecision]),
+              ];
+            }
             if (
               command.type !== "orchestrator.assignment.create" &&
               command.type !== "orchestrator.assignment.status.report"
@@ -1057,6 +1147,15 @@ const makeOrchestrationEngine = Effect.gen(function* () {
               readModel: deciderReadModel,
               workspacePaths: deciderWorkspacePaths,
             });
+      const eventBase =
+        rootBootstrapDecision === null
+          ? commandEventBase
+          : [
+              ...(Array.isArray(rootBootstrapDecision)
+                ? rootBootstrapDecision
+                : [rootBootstrapDecision]),
+              ...(Array.isArray(commandEventBase) ? commandEventBase : [commandEventBase]),
+            ];
       const eventBases = Array.isArray(eventBase) ? eventBase : [eventBase];
       const transactionalCommitEffect: Effect.Effect<
         CommittedCommandResult,

@@ -200,6 +200,7 @@ function isRecentViewSwitcherCommitKey(event: KeyboardEvent): boolean {
 
 function ChatRouteGlobalShortcuts() {
   const navigate = useNavigate();
+  const pathname = useLocation({ select: (location) => location.pathname });
   const { toggleSidebar } = useSidebar();
   const [shortcutsDialogOpen, setShortcutsDialogOpen] = useState(false);
   const clearSelection = useThreadSelectionStore((state) => state.clearSelection);
@@ -280,6 +281,8 @@ function ChatRouteGlobalShortcuts() {
     () => handleNewChat({ fresh: true }),
     [handleNewChat],
   );
+  const isOrchestratorMode =
+    pathname === "/orchestrator" || pathname.startsWith("/orchestrator/");
 
   useEffect(() => {
     if (!currentProjectId) {
@@ -433,6 +436,15 @@ function ChatRouteGlobalShortcuts() {
       }
 
       if (command !== "chat.new") return;
+      if (isOrchestratorMode) {
+        event.preventDefault();
+        event.stopPropagation();
+        void navigate({
+          to: "/orchestrator",
+          search: currentProjectId ? { projectId: currentProjectId } : {},
+        });
+        return;
+      }
       // Falls back to the most recent project when none is focused (e.g. the landing
       // view) so the primary "new thread" chord always creates a thread; on that
       // fallback the active branch/worktree context belongs to the absent project, so
@@ -462,9 +474,11 @@ function ChatRouteGlobalShortcuts() {
     currentProjectId,
     handleNewChatForActiveSurface,
     handleNewThread,
+    isOrchestratorMode,
     keybindings,
     latestUsableProjectId,
     openOrAdvanceRecentSwitcher,
+    navigate,
     platform,
     providerStatuses,
     refreshProviderStatuses,

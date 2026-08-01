@@ -171,10 +171,10 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
   {
     id: "archived",
     group: "archived",
-    label: "Archived threads",
-    description: "Find and restore threads you previously archived.",
+    label: "Archived chats",
+    description: "Find and restore archived chats and Orchestrator Roots.",
     icon: "archive",
-    eyebrow: "Thread management",
+    eyebrow: "Conversation history",
   },
 ] as const;
 

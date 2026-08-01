@@ -16,6 +16,7 @@ const CONTROL_METHODS = new Set<string>([
   ORCHESTRATION_WS_METHODS.reconcileProviderDelivery,
   ORCHESTRATION_WS_METHODS.createOrchestratorRoot,
   ORCHESTRATION_WS_METHODS.archiveOrchestratorRoot,
+  ORCHESTRATION_WS_METHODS.restoreOrchestratorRoot,
   ORCHESTRATION_WS_METHODS.detachOrchestratorChild,
   ORCHESTRATION_WS_METHODS.upgradeOrchestratorRoot,
   ORCHESTRATION_WS_METHODS.dispatchTaskProcessCommand,

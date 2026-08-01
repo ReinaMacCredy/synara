@@ -1,5 +1,5 @@
 // FILE: composerDraftPersistence.ts
-// Purpose: Owns composer draft schema v6, migrations, partialization, merge normalization, and hydration.
+// Purpose: Owns composer draft schema v7, migrations, partialization, merge normalization, and hydration.
 // Exports: Persist middleware transitions and persisted state type.
 
 import {
@@ -14,6 +14,7 @@ import {
   ProviderSkillReference,
   ProviderStartOptions,
   RuntimeMode,
+  ThreadHandoffImportedMessage,
   ThreadId,
 } from "@synara/contracts";
 import * as Schema from "effect/Schema";
@@ -61,7 +62,7 @@ import {
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE } from "./types";
 
 const DraftThreadEnvModeSchema = Schema.Literals(["local", "worktree"]);
-const DraftThreadEntryPointSchema = Schema.Literals(["chat", "terminal"]);
+const DraftThreadEntryPointSchema = Schema.Literals(["chat", "terminal", "orchestrator"]);
 
 function cloneBrowserAnnotation(annotation: BrowserAnnotationDraft): BrowserAnnotationDraft {
   return {
@@ -294,6 +295,8 @@ const PersistedDraftThreadState = Schema.Struct({
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
   entryPoint: DraftThreadEntryPointSchema.pipe(Schema.withDecodingDefault(() => "chat")),
+  orchestratorSourceThreadId: Schema.optionalKey(Schema.NullOr(ThreadId)),
+  orchestratorHandoffMessages: Schema.optionalKey(Schema.Array(ThreadHandoffImportedMessage)),
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
   workingDirectory: Schema.optionalKey(Schema.NullOr(Schema.String)),
@@ -732,6 +735,23 @@ function normalizePersistedDraftThreads(
         candidateDraftThread.promotedTo.length > 0
           ? (candidateDraftThread.promotedTo as ThreadId)
           : undefined;
+      const orchestratorSourceThreadId =
+        typeof candidateDraftThread.orchestratorSourceThreadId === "string" &&
+        candidateDraftThread.orchestratorSourceThreadId.length > 0
+          ? (candidateDraftThread.orchestratorSourceThreadId as ThreadId)
+          : candidateDraftThread.orchestratorSourceThreadId === null
+            ? null
+            : undefined;
+      let orchestratorHandoffMessages: ReadonlyArray<ThreadHandoffImportedMessage> | undefined;
+      if (Array.isArray(candidateDraftThread.orchestratorHandoffMessages)) {
+        try {
+          orchestratorHandoffMessages = Schema.decodeUnknownSync(
+            Schema.Array(ThreadHandoffImportedMessage),
+          )(candidateDraftThread.orchestratorHandoffMessages);
+        } catch {
+          orchestratorHandoffMessages = undefined;
+        }
+      }
       if (typeof projectId !== "string" || projectId.length === 0) {
         continue;
       }
@@ -750,6 +770,8 @@ function normalizePersistedDraftThreads(
             ? candidateDraftThread.interactionMode
             : DEFAULT_INTERACTION_MODE,
         entryPoint: normalizeDraftThreadEntryPoint(candidateDraftThread.entryPoint),
+        ...(orchestratorSourceThreadId !== undefined ? { orchestratorSourceThreadId } : {}),
+        ...(orchestratorHandoffMessages !== undefined ? { orchestratorHandoffMessages } : {}),
         branch: typeof branch === "string" ? branch : null,
         worktreePath: normalizedWorktreePath,
         workingDirectory: typeof workingDirectory === "string" ? workingDirectory : null,

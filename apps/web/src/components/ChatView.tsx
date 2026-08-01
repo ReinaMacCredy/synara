@@ -332,6 +332,7 @@ import { runProjectCommandInTerminal } from "~/projectTerminalRunner";
 import { newCommandId, newMessageId, newProjectId, newThreadId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { promoteThreadCreate } from "~/lib/threadCreatePromotion";
+import { orchestratorQueryKeys } from "~/lib/orchestratorRoots";
 import { readFavoriteModelSlugs } from "~/lib/modelFavorites";
 import {
   getCustomBinaryPathForProvider,
@@ -355,6 +356,7 @@ import {
   type QueuedComposerTurn,
   type RestoredComposerSourceProposedPlan,
   captureComposerPromptHistorySavedDraft,
+  markPromotedDraftThreads,
   useComposerDraftStore,
   useComposerThreadDraft,
   useEffectiveComposerModelState,
@@ -1092,6 +1094,9 @@ interface ChatViewProps {
   } | null;
   onChangeThreadInSplitPane?: () => void;
   onCloseThreadPane?: () => void;
+  orchestratorRootDraft?: {
+    readonly onSelectProject: (projectId: ProjectId) => void;
+  };
 }
 
 function normalizeRestoredQueuedPrompt(value: string): string {
@@ -1150,6 +1155,7 @@ export default function ChatView({
   viewModeAction: viewModeActionProp,
   onChangeThreadInSplitPane,
   onCloseThreadPane,
+  orchestratorRootDraft,
 }: ChatViewProps) {
   // Prop defaults are resolved here instead of in the destructuring pattern: an
   // AssignmentPattern in the parameter list makes React Compiler bail out (silently —
@@ -1298,6 +1304,9 @@ export default function ChatView({
     (store) => store.setRestoredSourceProposedPlan,
   );
   const clearComposerDraftContent = useComposerDraftStore((store) => store.clearComposerContent);
+  const rollbackDraftThreadPromotion = useComposerDraftStore(
+    (store) => store.rollbackDraftThreadPromotion,
+  );
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
   const moveDraftThreadToProject = useComposerDraftStore((store) => store.moveDraftThreadToProject);
   const getDraftThreadByProjectId = useComposerDraftStore(
@@ -1810,6 +1819,8 @@ export default function ChatView({
     composerDraft.interactionMode ?? activeThread?.interactionMode ?? DEFAULT_INTERACTION_MODE;
   const isServerThread = serverThread !== undefined;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
+  const isOrchestratorRootDraft =
+    isLocalDraftThread && draftThread?.entryPoint === "orchestrator";
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
   const diffOpen = rawSearch.panel === "diff";
   const browserOpen = rawSearch.panel === "browser";
@@ -7787,11 +7798,21 @@ export default function ChatView({
           threadNotes,
           projectInstructions: inheritedProjectInstructions,
         });
-        await promoteThreadCreate(
-          {
-            type: "thread.create",
+        const orchestratorSourceThreadId = isOrchestratorRootDraft
+          ? (draftThread?.orchestratorSourceThreadId ?? null)
+          : null;
+        if (orchestratorSourceThreadId) {
+          const importedMessages = draftThread?.orchestratorHandoffMessages ?? [];
+          if (importedMessages.length === 0) {
+            throw new Error(
+              "The source thread has no completed user or assistant messages to hand off.",
+            );
+          }
+          await api.orchestration.dispatchCommand({
+            type: "thread.handoff.create",
             commandId: newCommandId(),
             threadId: threadIdForSend,
+            sourceThreadId: orchestratorSourceThreadId,
             projectId: targetProjectIdForSend,
             title,
             modelSelection: threadCreateModelSelection,
@@ -7804,11 +7825,35 @@ export default function ChatView({
             associatedWorktreePath: nextAssociatedWorktreePath,
             associatedWorktreeBranch: nextAssociatedWorktreeBranch,
             associatedWorktreeRef: nextAssociatedWorktreeRef,
-            lastKnownPr: activeThread.lastKnownPr ?? null,
+            createBranchFlowCompleted: false,
+            importedMessages: [...importedMessages],
             createdAt: activeThread.createdAt,
-          },
-          api,
-        );
+          });
+          markPromotedDraftThreads(new Set([threadIdForSend]));
+        } else {
+          await promoteThreadCreate(
+            {
+              type: "thread.create",
+              commandId: newCommandId(),
+              threadId: threadIdForSend,
+              projectId: targetProjectIdForSend,
+              title,
+              modelSelection: threadCreateModelSelection,
+              runtimeMode: nextRuntimeModeForSend,
+              interactionMode: interactionModeForSend,
+              envMode: nextThreadEnvMode,
+              branch: nextThreadBranch,
+              worktreePath: nextThreadWorktreePath,
+              workingDirectory: nextThreadWorkingDirectory,
+              associatedWorktreePath: nextAssociatedWorktreePath,
+              associatedWorktreeBranch: nextAssociatedWorktreeBranch,
+              associatedWorktreeRef: nextAssociatedWorktreeRef,
+              lastKnownPr: activeThread.lastKnownPr ?? null,
+              createdAt: activeThread.createdAt,
+            },
+            api,
+          );
+        }
         // `thread.create` does not carry notes, so seed the freshly created
         // server thread's notepad with the inherited project instructions via a
         // dedicated meta update. Best-effort: a failure here must not abort the turn.
@@ -7909,10 +7954,33 @@ export default function ChatView({
           runtimeMode: nextRuntimeModeForSend,
           interactionMode: interactionModeForSend,
           ...(sourceProposedPlanForSend ? { sourceProposedPlan: sourceProposedPlanForSend } : {}),
+          ...(isOrchestratorRootDraft
+            ? {
+                orchestratorRoot: {
+                  protocolVersion: 1 as const,
+                  modelTarget: {
+                    provider: threadCreateModelSelection.provider,
+                    model: threadCreateModelSelection.model,
+                    runtimeMode: nextRuntimeModeForSend,
+                    workspaceRoot: targetProjectCwdForSend,
+                  },
+                  title,
+                },
+              }
+            : {}),
           createdAt: messageCreatedAt,
         }),
       );
       turnStartSucceeded = true;
+      if (isOrchestratorRootDraft) {
+        const shellSnapshot = await api.orchestration.getShellSnapshot();
+        syncServerShellSnapshot(shellSnapshot);
+        await queryClient.invalidateQueries({ queryKey: orchestratorQueryKeys.all });
+        await navigate({
+          to: "/orchestrator/$rootThreadId",
+          params: { rootThreadId: threadIdForSend },
+        });
+      }
       // Non-Codex steers interrupt the live turn before re-dispatching; hold
       // queued auto-dispatch through that gap so it can't race the steer. The
       // live session provider decides the interrupt path server-side, so the
@@ -7934,6 +8002,34 @@ export default function ChatView({
         setRestoredQueuedSourceProposedPlan(threadIdForSend, null);
       }
     })().catch(async (err: unknown) => {
+      if (isOrchestratorRootDraft && createdServerThreadForLocalDraft && !turnStartSucceeded) {
+        const recovered = await Promise.all([
+          api.orchestration.getShellSnapshot(),
+          api.orchestration.listOrchestratorRoots({
+            projectId: targetProjectIdForSend,
+            includeArchived: true,
+            limit: 100,
+          }),
+        ]).then(
+          ([shellSnapshot, roots]) => {
+            if (!roots.items.some((root) => root.rootThreadId === threadIdForSend)) {
+              return false;
+            }
+            syncServerShellSnapshot(shellSnapshot);
+            return true;
+          },
+          () => false,
+        );
+        if (recovered) {
+          turnStartSucceeded = true;
+          await queryClient.invalidateQueries({ queryKey: orchestratorQueryKeys.all });
+          await navigate({
+            to: "/orchestrator/$rootThreadId",
+            params: { rootThreadId: threadIdForSend },
+          });
+          return;
+        }
+      }
       // Uploads start in parallel with workspace/session preparation. If any
       // earlier step fails, settle that promise and release every staged blob.
       await turnAttachmentsPromise.then(
@@ -7952,6 +8048,7 @@ export default function ChatView({
             threadId: threadIdForSend,
           })
           .catch(() => undefined);
+        rollbackDraftThreadPromotion(threadIdForSend);
       }
       if (createdWorktreeForSendPath && !turnStartSucceeded) {
         const removed = await api.git
@@ -9229,12 +9326,18 @@ export default function ChatView({
         scheduleComposerFocus();
         return;
       }
+      if (isOrchestratorRootDraft && orchestratorRootDraft) {
+        orchestratorRootDraft.onSelectProject(projectId);
+        return;
+      }
       moveEmptyDraftToLocalProject(projectId);
     },
     [
       draftThread?.projectId,
       isLocalDraftThread,
+      isOrchestratorRootDraft,
       moveEmptyDraftToLocalProject,
+      orchestratorRootDraft,
       scheduleComposerFocus,
     ],
   );
@@ -10376,28 +10479,38 @@ export default function ChatView({
         ) : null}
       </div>
       {showEmptyLandingBranchToolbar ? (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          aria-pressed={isThreadTemporary}
-          onClick={toggleDraftTemporary}
-          title={
-            isThreadTemporary
-              ? "Temporary chat — deleted when you leave. Click to keep it."
-              : "Make this a temporary chat (deleted when you leave)"
-          }
-          aria-label="Temporary chat"
-          className={cn(
-            "ml-auto shrink-0 gap-1.5 whitespace-nowrap px-2 text-[length:var(--app-font-size-ui-sm,11px)] font-normal transition-colors sm:px-2.5",
-            isThreadTemporary
-              ? "text-[var(--color-text-accent)] hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-accent)]"
-              : "text-[var(--color-text-foreground-secondary)] hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)]",
-          )}
-        >
-          <TemporaryThreadIcon className="size-3.5" />
-          <span className="sr-only sm:not-sr-only">Temporary</span>
-        </Button>
+        isOrchestratorRootDraft ? (
+          <span
+            title="Local Orchestrator Root draft saved automatically"
+            className="ml-auto inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2 text-[length:var(--app-font-size-ui-sm,11px)] font-normal text-[var(--color-text-foreground-secondary)] sm:px-2.5"
+          >
+            <TemporaryThreadIcon className="size-3.5" />
+            <span className="sr-only sm:not-sr-only">Temporary</span>
+          </span>
+        ) : (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            aria-pressed={isThreadTemporary}
+            onClick={toggleDraftTemporary}
+            title={
+              isThreadTemporary
+                ? "Temporary chat — deleted when you leave. Click to keep it."
+                : "Make this a temporary chat (deleted when you leave)"
+            }
+            aria-label="Temporary chat"
+            className={cn(
+              "ml-auto shrink-0 gap-1.5 whitespace-nowrap px-2 text-[length:var(--app-font-size-ui-sm,11px)] font-normal transition-colors sm:px-2.5",
+              isThreadTemporary
+                ? "text-[var(--color-text-accent)] hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-accent)]"
+                : "text-[var(--color-text-foreground-secondary)] hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)]",
+            )}
+          >
+            <TemporaryThreadIcon className="size-3.5" />
+            <span className="sr-only sm:not-sr-only">Temporary</span>
+          </Button>
+        )
       ) : null}
     </div>
   ) : null;
@@ -11249,7 +11362,9 @@ export default function ChatView({
                         "What should we work on?"
                       ) : (
                         <>
-                          What should we do in{" "}
+                          {isOrchestratorRootDraft
+                            ? "What should we orchestrate in "
+                            : "What should we do in "}
                           {showEmptyLandingProjectPicker ? (
                             <ProjectPicker
                               align="center"

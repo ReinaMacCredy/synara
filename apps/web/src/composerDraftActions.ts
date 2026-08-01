@@ -207,6 +207,12 @@ export const createComposerDraftStoreState =
           runtimeMode: options.runtimeMode ?? DEFAULT_RUNTIME_MODE,
           interactionMode: options.interactionMode ?? DEFAULT_INTERACTION_MODE,
           entryPoint: options.entryPoint ?? "chat",
+          ...(options.orchestratorSourceThreadId !== undefined
+            ? { orchestratorSourceThreadId: options.orchestratorSourceThreadId }
+            : {}),
+          ...(options.orchestratorHandoffMessages !== undefined
+            ? { orchestratorHandoffMessages: options.orchestratorHandoffMessages }
+            : {}),
           branch: options.branch ?? null,
           worktreePath,
           workingDirectory: options.workingDirectory ?? null,
@@ -435,6 +441,24 @@ export const createComposerDraftStoreState =
               ...existing,
               promotedTo: nextPromotedTo,
             },
+          },
+        };
+      });
+    },
+    rollbackDraftThreadPromotion: (threadId) => {
+      if (threadId.length === 0) {
+        return;
+      }
+      set((state) => {
+        const existing = state.draftThreadsByThreadId[threadId];
+        if (!existing?.promotedTo) {
+          return state;
+        }
+        const { promotedTo: _promotedTo, ...restored } = existing;
+        return {
+          draftThreadsByThreadId: {
+            ...state.draftThreadsByThreadId,
+            [threadId]: restored,
           },
         };
       });

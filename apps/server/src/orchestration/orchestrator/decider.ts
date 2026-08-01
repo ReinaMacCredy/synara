@@ -242,6 +242,24 @@ export const decideOrchestratorCommand = Effect.fn("decideOrchestratorCommand")(
       `Revision conflict: expected ${command.expectedRevision}, current ${state.revision}.`,
     );
   }
+  if (command.type === "orchestrator.root.restore") {
+    if (command.actor.kind !== "user") {
+      return yield* reject(command.type, "Only the user may restore an Orchestrator Root.");
+    }
+    if (state.root.state !== "archived") {
+      return yield* reject(command.type, "Only an archived Orchestrator Root can be restored.");
+    }
+    const acceptedRevision = state.revision + 1;
+    return event({
+      command,
+      acceptedRevision,
+      type: "orchestrator.root.restored",
+      root: updatedRoot(state, acceptedRevision, {
+        state: "active",
+        archivedAt: null,
+      }),
+    });
+  }
   if (state.root.state === "archived") {
     return yield* reject(command.type, "Archived Roots reject further mutation.");
   }

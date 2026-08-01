@@ -211,6 +211,41 @@ describe("composerDraftStore project draft thread mapping", () => {
     );
   });
 
+  it("retains a separate Orchestrator Root draft and its staged handoff source", () => {
+    const store = useComposerDraftStore.getState();
+    const sourceThreadId = ThreadId.makeUnsafe("thread-source");
+    store.setProjectDraftThreadId(projectId, threadId, { entryPoint: "chat" });
+    store.setProjectDraftThreadId(projectId, otherThreadId, {
+      entryPoint: "orchestrator",
+      orchestratorSourceThreadId: sourceThreadId,
+      workingDirectory: "/workspace/a",
+    });
+    store.setPrompt(otherThreadId, "Design the orchestration plan");
+
+    expect(
+      useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, "chat"),
+    ).toMatchObject({ threadId, entryPoint: "chat" });
+    expect(
+      useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, "orchestrator"),
+    ).toMatchObject({
+      threadId: otherThreadId,
+      entryPoint: "orchestrator",
+      orchestratorSourceThreadId: sourceThreadId,
+      workingDirectory: "/workspace/a",
+    });
+
+    store.clearProjectDraftThreadId(projectId, "chat");
+
+    expect(useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, "chat")).toBeNull();
+    expect(
+      useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, "orchestrator")
+        ?.threadId,
+    ).toBe(otherThreadId);
+    expect(useComposerDraftStore.getState().draftsByThreadId[otherThreadId]?.prompt).toBe(
+      "Design the orchestration plan",
+    );
+  });
+
   it("clears only matching project draft mapping entries", () => {
     const store = useComposerDraftStore.getState();
     store.setProjectDraftThreadId(projectId, threadId);
@@ -352,6 +387,26 @@ describe("composerDraftStore project draft thread mapping", () => {
 
     expect(useComposerDraftStore.getState().getDraftThread(threadId)).toBeNull();
     expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toBeUndefined();
+  });
+
+  it("restores a failed promotion to the same per-project draft slot", () => {
+    const store = useComposerDraftStore.getState();
+    store.setProjectDraftThreadId(projectId, threadId, { entryPoint: "orchestrator" });
+    store.setPrompt(threadId, "retry this Root");
+    store.markDraftThreadPromoting(threadId);
+
+    expect(
+      useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, "orchestrator"),
+    ).toBeNull();
+
+    useComposerDraftStore.getState().rollbackDraftThreadPromotion(threadId);
+
+    expect(
+      useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, "orchestrator"),
+    ).toMatchObject({ threadId, entryPoint: "orchestrator" });
+    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.prompt).toBe(
+      "retry this Root",
+    );
   });
 
   it("finalizes every promoted draft exposed by the facade batch helper", () => {

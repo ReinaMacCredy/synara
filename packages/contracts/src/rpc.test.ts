@@ -29,6 +29,9 @@ describe("WS RPC contracts", () => {
     expect(WsFeatureRpcGroup.requests.has(ORCHESTRATION_WS_METHODS.listOrchestratorRoots)).toBe(
       true,
     );
+    expect(WsFeatureRpcGroup.requests.has(ORCHESTRATION_WS_METHODS.restoreOrchestratorRoot)).toBe(
+      true,
+    );
     expect(WsFeatureRpcGroup.requests.has(ORCHESTRATION_WS_METHODS.getTaskProcessGraph)).toBe(true);
     expect(WsFeatureRpcGroup.requests.has("studio.listThreadOutputs")).toBe(false);
   });

@@ -8,6 +8,7 @@ import {
   CompiledProposal,
   ListOrchestratorRootsInput,
   OrchestratorAssignmentStatusReportCommand,
+  OrchestratorRootRestoreCommand,
   OrchestratorToolName,
 } from "./orchestrator";
 
@@ -66,6 +67,21 @@ describe("Orchestrator contracts", () => {
 
   it("bounds root list pages", () => {
     assert.throws(() => Schema.decodeUnknownSync(ListOrchestratorRootsInput)({ limit: 101 }));
+  });
+
+  it("decodes the user-owned Root restore command", () => {
+    const command = Schema.decodeUnknownSync(OrchestratorRootRestoreCommand)({
+      type: "orchestrator.root.restore",
+      commandId: "restore-root-1",
+      rootThreadId: "root-1",
+      projectId: "project-1",
+      actor: { kind: "user", actorId: "owner" },
+      protocolVersion: 1,
+      expectedRevision: 4,
+      createdAt: "2026-08-01T00:00:00.000Z",
+    });
+    assert.equal(command.type, "orchestrator.root.restore");
+    assert.equal(command.expectedRevision, 4);
   });
 
   it("validates blind arbiter verdicts without peer-verdict fields", () => {

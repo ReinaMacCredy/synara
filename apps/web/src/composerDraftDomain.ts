@@ -14,6 +14,7 @@ import {
   type ProviderSkillReference,
   type ProviderStartOptions,
   type RuntimeMode,
+  type ThreadHandoffImportedMessage,
   type ThreadId,
 } from "@synara/contracts";
 import * as Equal from "effect/Equal";
@@ -44,9 +45,11 @@ import {
 } from "./types";
 
 export const COMPOSER_DRAFT_STORAGE_KEY = "synara:composer-drafts:v1";
-export const COMPOSER_DRAFT_STORAGE_VERSION = 6;
+export const COMPOSER_DRAFT_STORAGE_VERSION = 7;
 export type DraftThreadEnvMode = "local" | "worktree";
+export type DraftThreadEntryPoint = ThreadPrimarySurface | "orchestrator";
 const TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX = "::terminal";
+const ORCHESTRATOR_DRAFT_THREAD_MAPPING_SUFFIX = "::orchestrator";
 
 const PersistedComposerAppSnapSource = Schema.Struct({
   kind: Schema.Literal("appsnap"),
@@ -191,7 +194,9 @@ export interface DraftThreadState {
   createdAt: string;
   runtimeMode: RuntimeMode;
   interactionMode: ProviderInteractionMode;
-  entryPoint: ThreadPrimarySurface;
+  entryPoint: DraftThreadEntryPoint;
+  orchestratorSourceThreadId?: ThreadId | null;
+  orchestratorHandoffMessages?: ReadonlyArray<ThreadHandoffImportedMessage>;
   branch: string | null;
   worktreePath: string | null;
   workingDirectory?: string | null;
@@ -213,7 +218,9 @@ interface DraftThreadMutationOptions {
   envMode?: DraftThreadEnvMode | undefined;
   runtimeMode?: RuntimeMode;
   interactionMode?: ProviderInteractionMode;
-  entryPoint?: ThreadPrimarySurface;
+  entryPoint?: DraftThreadEntryPoint;
+  orchestratorSourceThreadId?: ThreadId | null;
+  orchestratorHandoffMessages?: ReadonlyArray<ThreadHandoffImportedMessage>;
   isTemporary?: boolean;
 }
 
@@ -231,7 +238,7 @@ export interface ComposerDraftStoreState {
   stickyActiveProvider: ProviderKind | null;
   getDraftThreadByProjectId: (
     projectId: ProjectId,
-    entryPoint?: ThreadPrimarySurface,
+    entryPoint?: DraftThreadEntryPoint,
   ) => ProjectDraftThread | null;
   getDraftThread: (threadId: ThreadId) => DraftThreadState | null;
   setProjectDraftThreadId: (
@@ -257,7 +264,9 @@ export interface ComposerDraftStoreState {
       envMode?: DraftThreadEnvMode;
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
-      entryPoint?: ThreadPrimarySurface;
+      entryPoint?: DraftThreadEntryPoint;
+      orchestratorSourceThreadId?: ThreadId | null;
+      orchestratorHandoffMessages?: ReadonlyArray<ThreadHandoffImportedMessage>;
       isTemporary?: boolean;
     },
   ) => void;
@@ -274,10 +283,11 @@ export interface ComposerDraftStoreState {
     projectId: ProjectId,
     options?: DraftThreadMutationOptions,
   ) => void;
-  clearProjectDraftThreadId: (projectId: ProjectId, entryPoint?: ThreadPrimarySurface) => void;
+  clearProjectDraftThreadId: (projectId: ProjectId, entryPoint?: DraftThreadEntryPoint) => void;
   clearProjectDraftThreads: (projectId: ProjectId) => void;
   clearProjectDraftThreadById: (projectId: ProjectId, threadId: ThreadId) => void;
   markDraftThreadPromoting: (threadId: ThreadId, promotedTo?: ThreadId) => void;
+  rollbackDraftThreadPromotion: (threadId: ThreadId) => void;
   finalizePromotedDraftThread: (threadId: ThreadId) => void;
   clearDraftThread: (threadId: ThreadId) => void;
   setStickyModelSelection: (modelSelection: ModelSelection | null | undefined) => void;
@@ -378,23 +388,29 @@ export interface ComposerDraftStoreState {
 
 export function projectDraftThreadMappingKey(
   projectId: ProjectId,
-  entryPoint: ThreadPrimarySurface = "chat",
+  entryPoint: DraftThreadEntryPoint = "chat",
 ): string {
-  return entryPoint === "terminal"
-    ? `${projectId}${TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX}`
-    : projectId;
+  if (entryPoint === "terminal") return `${projectId}${TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX}`;
+  if (entryPoint === "orchestrator") {
+    return `${projectId}${ORCHESTRATOR_DRAFT_THREAD_MAPPING_SUFFIX}`;
+  }
+  return projectId;
 }
 
-export function projectDraftThreadEntryPointFromKey(key: string): ThreadPrimarySurface {
-  return key.endsWith(TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX) ? "terminal" : "chat";
+export function projectDraftThreadEntryPointFromKey(key: string): DraftThreadEntryPoint {
+  if (key.endsWith(TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX)) return "terminal";
+  if (key.endsWith(ORCHESTRATOR_DRAFT_THREAD_MAPPING_SUFFIX)) return "orchestrator";
+  return "chat";
 }
 
 export function projectIdFromDraftThreadMappingKey(key: string): ProjectId {
-  return (
-    key.endsWith(TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX)
-      ? key.slice(0, -TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX.length)
-      : key
-  ) as ProjectId;
+  if (key.endsWith(TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX)) {
+    return key.slice(0, -TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX.length) as ProjectId;
+  }
+  if (key.endsWith(ORCHESTRATOR_DRAFT_THREAD_MAPPING_SUFFIX)) {
+    return key.slice(0, -ORCHESTRATOR_DRAFT_THREAD_MAPPING_SUFFIX.length) as ProjectId;
+  }
+  return key as ProjectId;
 }
 
 function resolveDraftThreadCreatedAt(input: {
@@ -445,6 +461,16 @@ export function buildDraftThreadState(input: {
     interactionMode:
       options?.interactionMode ?? existingThread?.interactionMode ?? DEFAULT_INTERACTION_MODE,
     entryPoint: nextEntryPoint,
+    ...(options?.orchestratorSourceThreadId !== undefined
+      ? { orchestratorSourceThreadId: options.orchestratorSourceThreadId }
+      : existingThread?.orchestratorSourceThreadId !== undefined
+        ? { orchestratorSourceThreadId: existingThread.orchestratorSourceThreadId }
+        : {}),
+    ...(options?.orchestratorHandoffMessages !== undefined
+      ? { orchestratorHandoffMessages: options.orchestratorHandoffMessages }
+      : existingThread?.orchestratorHandoffMessages !== undefined
+        ? { orchestratorHandoffMessages: existingThread.orchestratorHandoffMessages }
+        : {}),
     branch:
       options?.branch === undefined ? (existingThread?.branch ?? null) : (options.branch ?? null),
     worktreePath: nextWorktreePath,
@@ -477,6 +503,11 @@ export function draftThreadStatesEqual(
     left.runtimeMode === right.runtimeMode &&
     left.interactionMode === right.interactionMode &&
     left.entryPoint === right.entryPoint &&
+    (left.orchestratorSourceThreadId ?? null) === (right.orchestratorSourceThreadId ?? null) &&
+    Equal.equals(
+      left.orchestratorHandoffMessages ?? [],
+      right.orchestratorHandoffMessages ?? [],
+    ) &&
     left.branch === right.branch &&
     left.worktreePath === right.worktreePath &&
     (left.workingDirectory ?? null) === (right.workingDirectory ?? null) &&
@@ -828,9 +859,11 @@ export function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
 
 export function normalizeDraftThreadEntryPoint(
   value: unknown,
-  fallback: ThreadPrimarySurface = "chat",
+  fallback: DraftThreadEntryPoint = "chat",
 ) {
-  return value === "terminal" || value === "chat" ? value : fallback;
+  return value === "terminal" || value === "chat" || value === "orchestrator"
+    ? value
+    : fallback;
 }
 
 const EMPTY_IMAGES: ComposerImageAttachment[] = [];

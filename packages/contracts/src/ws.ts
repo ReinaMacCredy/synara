@@ -44,6 +44,7 @@ import {
   ListOrchestratorExchangesInput,
   ListOrchestratorRootsInput,
   ReadOrchestratorArtifactInput,
+  RestoreOrchestratorRootInput,
   UpgradeOrchestratorRootInput,
 } from "./orchestrator";
 import {
@@ -330,6 +331,7 @@ const WebSocketRequestBody = Schema.Union([
   ),
   tagRequestBody(ORCHESTRATION_WS_METHODS.createOrchestratorRoot, CreateOrchestratorRootInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.archiveOrchestratorRoot, ArchiveOrchestratorRootInput),
+  tagRequestBody(ORCHESTRATION_WS_METHODS.restoreOrchestratorRoot, RestoreOrchestratorRootInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.detachOrchestratorChild, DetachOrchestratorChildInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.upgradeOrchestratorRoot, UpgradeOrchestratorRootInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.listTaskProcesses, ListTaskProcessesInput),

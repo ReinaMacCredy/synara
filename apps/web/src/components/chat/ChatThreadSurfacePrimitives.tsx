@@ -1,5 +1,5 @@
 import type { FileDiffMetadata } from "@pierre/diffs/react";
-import type { ThreadId, TurnId } from "@synara/contracts";
+import type { ProjectId, ThreadId, TurnId } from "@synara/contracts";
 import { lazy, type ReactNode, Suspense, useEffect, useState } from "react";
 
 import ChatView from "../ChatView";
@@ -119,6 +119,9 @@ export function DeferredChatView(props: {
   onChangeThread?: () => void;
   onCloseThreadPane?: () => void;
   onMounted?: () => void;
+  orchestratorRootDraft?: {
+    readonly onSelectProject: (projectId: ProjectId) => void;
+  };
 }) {
   const onMounted = props.onMounted ?? noopChatSurfaceAction;
   const mountKey = `${props.paneScopeId}:${props.threadId}`;
@@ -173,6 +176,9 @@ export function DeferredChatView(props: {
       {...(props.viewModeAction !== undefined ? { viewModeAction: props.viewModeAction } : {})}
       {...(props.onChangeThread ? { onChangeThreadInSplitPane: props.onChangeThread } : {})}
       {...(props.onCloseThreadPane ? { onCloseThreadPane: props.onCloseThreadPane } : {})}
+      {...(props.orchestratorRootDraft
+        ? { orchestratorRootDraft: props.orchestratorRootDraft }
+        : {})}
     />
   );
 }

@@ -231,6 +231,118 @@ describe("OrchestrationEngine", () => {
     await system.dispose();
   });
 
+  it("atomically bootstraps a Root on first send and keeps root-thread archive state aligned", async () => {
+    const system = await createOrchestrationSystem();
+    const createdAt = "2026-08-01T00:00:00.000Z";
+    const projectId = asProjectId("project-root-first-send");
+    const rootThreadId = ThreadId.makeUnsafe("thread-root-first-send");
+    await system.run(
+      system.engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.makeUnsafe("cmd-root-first-send-project"),
+        projectId,
+        title: "First-send Root project",
+        workspaceRoot: "/tmp/project-root-first-send",
+        defaultModelSelection: { provider: "codex", model: "gpt-5-codex" },
+        createdAt,
+      }),
+    );
+    await system.run(
+      system.engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.makeUnsafe("cmd-root-first-send-thread"),
+        threadId: rootThreadId,
+        projectId,
+        title: "Design the release",
+        modelSelection: { provider: "codex", model: "gpt-5-codex" },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        branch: null,
+        worktreePath: null,
+        createdAt,
+      }),
+    );
+
+    const firstSendCommandId = CommandId.makeUnsafe("cmd-root-first-send-turn");
+    await system.run(
+      system.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: firstSendCommandId,
+        threadId: rootThreadId,
+        message: {
+          messageId: asMessageId("message-root-first-send"),
+          role: "user",
+          text: "Design the release",
+          attachments: [],
+        },
+        modelSelection: { provider: "codex", model: "gpt-5-codex" },
+        runtimeMode: "approval-required",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        orchestratorRoot: {
+          protocolVersion: 1,
+          modelTarget: {
+            provider: "codex",
+            model: "gpt-5-codex",
+            runtimeMode: "approval-required",
+            workspaceRoot: "/tmp/project-root-first-send",
+          },
+          title: "Design the release",
+        },
+        createdAt,
+      }),
+    );
+
+    const firstSendEvents = Array.from(
+      await system.run(Stream.runCollect(system.engine.readEvents(0))),
+    ).filter((event) => event.commandId === firstSendCommandId);
+    expect(firstSendEvents.map((event) => event.type)).toEqual([
+      "orchestrator.root.created",
+      "thread.message-sent",
+      "thread.turn-start-requested",
+    ]);
+
+    const archiveCommandId = CommandId.makeUnsafe("cmd-root-first-send-archive");
+    await system.run(
+      system.engine.dispatch({
+        type: "orchestrator.root.archive",
+        commandId: archiveCommandId,
+        rootThreadId,
+        projectId,
+        actor: { kind: "user", actorId: "owner" },
+        protocolVersion: 1,
+        expectedRevision: 1,
+        reason: null,
+        createdAt,
+      }),
+    );
+    const restoreCommandId = CommandId.makeUnsafe("cmd-root-first-send-restore");
+    await system.run(
+      system.engine.dispatch({
+        type: "orchestrator.root.restore",
+        commandId: restoreCommandId,
+        rootThreadId,
+        projectId,
+        actor: { kind: "user", actorId: "owner" },
+        protocolVersion: 1,
+        expectedRevision: 2,
+        createdAt,
+      }),
+    );
+
+    const lifecycleEvents = Array.from(
+      await system.run(Stream.runCollect(system.engine.readEvents(0))),
+    ).filter(
+      (event) => event.commandId === archiveCommandId || event.commandId === restoreCommandId,
+    );
+    expect(lifecycleEvents.map((event) => event.type)).toEqual([
+      "orchestrator.root.archived",
+      "thread.archived",
+      "orchestrator.root.restored",
+      "thread.unarchived",
+    ]);
+    await system.dispose();
+  });
+
   it("serializes TaskProcess graph mutations and rejects stale revisions", async () => {
     const system = await createOrchestrationSystem();
     const createdAt = "2026-08-01T00:00:00.000Z";

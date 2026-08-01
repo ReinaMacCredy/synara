@@ -15,6 +15,7 @@ import {
   OrchestratorCommand,
   OrchestratorDomainEvent,
   OrchestratorEventType,
+  OrchestratorRootBootstrap,
   OrchestratorUserCommand,
 } from "./orchestrator";
 import {
@@ -65,6 +66,7 @@ export const ORCHESTRATION_WS_METHODS = {
   listOrchestratorAuditEvents: "orchestration.listOrchestratorAuditEvents",
   createOrchestratorRoot: "orchestration.createOrchestratorRoot",
   archiveOrchestratorRoot: "orchestration.archiveOrchestratorRoot",
+  restoreOrchestratorRoot: "orchestration.restoreOrchestratorRoot",
   detachOrchestratorChild: "orchestration.detachOrchestratorChild",
   upgradeOrchestratorRoot: "orchestration.upgradeOrchestratorRoot",
   listTaskProcesses: "orchestration.listTaskProcesses",
@@ -1329,6 +1331,7 @@ export const ThreadTurnStartCommand = Schema.Struct({
     Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
   ),
   sourceProposedPlan: Schema.optional(SourceProposedPlanReference),
+  orchestratorRoot: Schema.optional(OrchestratorRootBootstrap),
   createdAt: IsoDateTime,
 });
 
@@ -1354,6 +1357,7 @@ const ClientThreadTurnStartCommand = Schema.Struct({
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
   sourceProposedPlan: Schema.optional(SourceProposedPlanReference),
+  orchestratorRoot: Schema.optional(OrchestratorRootBootstrap),
   createdAt: IsoDateTime,
 });
 
