@@ -91,7 +91,9 @@ describe("SessionProgress browser behavior", () => {
       );
     }
     const mounted = await render(<Harness />);
-    const header = page.getByRole("button", { name: /Foundation persistence/ });
+      const header = page.getByRole("button", {
+        name: /Foundation persistence: Running step 1 of 2/,
+      });
     await expect.element(header).toHaveAttribute("aria-expanded", "true");
     const runningRow = document.querySelector<HTMLElement>(
       "[aria-label='Foundation persistence: active']",

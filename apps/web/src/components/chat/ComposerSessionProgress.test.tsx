@@ -7,8 +7,11 @@ describe("ComposerSessionProgress", () => {
   it("is a canonical Process wrapper rather than a provider ActiveTaskList alias", () => {
     const source = readFileSync(new URL("./ComposerSessionProgress.tsx", import.meta.url), "utf8");
     expect(typeof ComposerSessionProgress).toBe("function");
-    expect(source).toContain("data-canonical-task-process");
-    expect(source).not.toContain("ActiveTaskListState");
+      expect(source).toContain("data-canonical-task-process");
+      expect(source).toContain('activity.state === "inactive"');
+      expect(source).toContain('activity.state === "completed"');
+      expect(source).toContain("dismissFailure");
+      expect(source).not.toContain("ActiveTaskListState");
     expect(source).not.toContain("ActiveTaskListCard");
   });
 });

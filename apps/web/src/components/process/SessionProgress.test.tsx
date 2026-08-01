@@ -8,7 +8,12 @@ import {
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-import { resolveSessionProgressVisualState, SessionProgress } from "./SessionProgress";
+import {
+  resolveSessionProgressVisualState,
+  SessionProgress,
+  SessionProgressCheckpoint,
+} from "./SessionProgress";
+import { deriveSessionProgressActivity } from "./sessionProgressPresentation";
 
 function projection(): SessionProgressProjection {
   const processId = TaskProcessId.makeUnsafe("process");
@@ -102,10 +107,80 @@ describe("SessionProgress", () => {
     );
     expect(markup).toContain('data-session-progress="composer"');
     expect(markup).toContain('aria-expanded="true"');
-    expect(markup).toContain("task-running");
-    expect(markup).toContain("blocked by task-running");
-    expect(markup).toContain("Full process");
-  });
+      expect(markup).toContain("task-running");
+      expect(markup).toContain("blocked by task-running");
+      expect(markup).toContain("Open Process");
+      expect(markup).toContain("View full process");
+      expect(markup).toContain("Running step 2 of 6");
+      expect(markup).not.toContain("opus-4.8");
+      expect(markup).not.toContain("claude");
+      expect(markup).not.toContain("thread</");
+    });
+
+    it("separates active, waiting, review, failed, and completed process activity", () => {
+      const running = projection();
+      expect(deriveSessionProgressActivity(running)).toMatchObject({
+        state: "running",
+        title: "task-running",
+        stepIndex: 2,
+      });
+
+      const waiting = {
+        ...running,
+        primaryTask: {
+          ...running.primaryTask!,
+          executionHealth: "idle" as const,
+        },
+        visibleTasks: running.visibleTasks.map((item) =>
+          item.task.task.id === running.primaryTask!.task.id
+            ? { ...item, task: { ...item.task, executionHealth: "idle" as const } }
+            : item,
+        ),
+      };
+      expect(deriveSessionProgressActivity(waiting).state).toBe("waiting");
+
+      const review = {
+        ...waiting,
+        primaryTask: { ...waiting.primaryTask!, readiness: "blocked" as const },
+        visibleTasks: waiting.visibleTasks.map((item) =>
+          item.task.task.id === waiting.primaryTask!.task.id
+            ? { ...item, task: { ...item.task, readiness: "blocked" as const } }
+            : item,
+        ),
+      };
+      expect(deriveSessionProgressActivity(review).state).toBe("review");
+
+      const failed = {
+        ...running,
+        primaryTask: {
+          ...running.primaryTask!,
+          task: { ...running.primaryTask!.task, lifecycle: "failed" as const },
+        },
+        visibleTasks: running.visibleTasks.map((item) =>
+          item.task.task.id === running.primaryTask!.task.id
+            ? {
+                ...item,
+                task: {
+                  ...item.task,
+                  task: { ...item.task.task, lifecycle: "failed" as const },
+                },
+              }
+            : item,
+        ),
+      };
+      expect(deriveSessionProgressActivity(failed).state).toBe("failed");
+
+      const completed = {
+        ...running,
+        completedCount: running.totalCount,
+      };
+      expect(deriveSessionProgressActivity(completed).state).toBe("completed");
+      const checkpoint = renderToStaticMarkup(
+        <SessionProgressCheckpoint projection={completed} onOpenProcess={vi.fn()} />,
+      );
+      expect(checkpoint).toContain('data-process-completion-checkpoint="true"');
+      expect(checkpoint).toContain("6 of 6 steps complete");
+    });
 
   it("uses shared disclosure motion and contains no simulated lifecycle", () => {
     const source = readFileSync(new URL("./SessionProgress.tsx", import.meta.url), "utf8");
@@ -114,7 +189,8 @@ describe("SessionProgress", () => {
     expect(source).not.toMatch(/LABELS|START_DELAY|STEP_MS|setInterval|setTimeout/);
     expect(css).toContain("@media (prefers-reduced-motion: reduce)");
     expect(css).toContain("session-progress-spin");
-    expect(css).toContain(".active .iconWrap");
+      expect(css).toContain(".active .iconWrap");
+      expect(css).toContain(".checkpoint");
     expect(css).toContain("var(--color-text-foreground)");
     expect(css).not.toContain("prefers-color-scheme");
   });

@@ -1,7 +1,7 @@
 import type { OrchestratorSnapshot, ProjectTaskId, ThreadId } from "@synara/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { RouteInsetSurface } from "~/components/RouteInsetSurface";
 import {
@@ -68,10 +68,10 @@ export function OrchestratorSurface(props: {
   const threads = useStore(useMemo(() => createAllThreadsSelector(), []));
   const dockState = useRightDockStore(
     useMemo(() => selectRightDockState(rootThreadId), [rootThreadId]),
-    );
-    const ensurePanes = useRightDockStore((store) => store.ensurePanes);
-    const setActivePane = useRightDockStore((store) => store.setActivePane);
-    const setDockOpen = useRightDockStore((store) => store.setDockOpen);
+  );
+  const ensurePanes = useRightDockStore((store) => store.ensurePanes);
+  const setActivePane = useRightDockStore((store) => store.setActivePane);
+  const setDockOpen = useRightDockStore((store) => store.setDockOpen);
   const [detachPendingThreadId, setDetachPendingThreadId] = useState<ThreadId | null>(null);
   const exchangesQuery = useQuery(orchestratorExchangesQueryOptions(rootThreadId));
   const artifactsQuery = useQuery(orchestratorArtifactsQueryOptions(rootThreadId));
@@ -110,6 +110,11 @@ export function OrchestratorSurface(props: {
   useEffect(() => {
     ensurePanes(rootThreadId, ORCHESTRATOR_DOCK_PANES, "orchestrator-team");
   }, [ensurePanes, rootThreadId]);
+
+  const openProcessPane = useCallback(() => {
+    setActivePane(rootThreadId, "orchestrator-process");
+    setDockOpen(rootThreadId, true);
+  }, [rootThreadId, setActivePane, setDockOpen]);
 
   const detachChild = async (childThreadId: ThreadId) => {
     if (detachPendingThreadId) return;
@@ -224,6 +229,7 @@ export function OrchestratorSurface(props: {
                 onToggleAdjacentRightDock={() =>
                   setDockOpen(rootThreadId, !displayDockState.open)
                 }
+                onOpenSessionProgressProcess={openProcessPane}
               />
             ) : (
               <PanelStateMessage>

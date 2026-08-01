@@ -5,6 +5,7 @@ import {
   type OrchestratorOwnershipEdge,
 } from "@synara/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -104,7 +105,7 @@ describe("Orchestrator surface view model", () => {
     expect(communicationLinksForSelection(ROOT, CHILD_B, links)).toEqual([links[0]]);
   });
 
-  it("exports every aggregate dock surface as a real component", () => {
+    it("exports every aggregate dock surface as a real component", () => {
     expect(
       [
         TeamPanel,
@@ -114,8 +115,15 @@ describe("Orchestrator surface view model", () => {
         CouncilRunView,
         FinalDecisionPacketView,
       ].every((component) => typeof component === "function"),
-    ).toBe(true);
-  });
+      ).toBe(true);
+    });
+
+    it("routes composer Process actions into the existing Orchestrator Process pane", () => {
+      const source = readFileSync(new URL("./OrchestratorSurface.tsx", import.meta.url), "utf8");
+      expect(source).toContain('setActivePane(rootThreadId, "orchestrator-process")');
+      expect(source).toContain("onOpenSessionProgressProcess={openProcessPane}");
+      expect(source).toContain("setDockOpen(rootThreadId, true)");
+    });
 
   it("matches a task-scoped sibling link for direct peer exchanges without an assignment", () => {
     const peerExchange = {

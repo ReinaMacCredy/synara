@@ -8,8 +8,8 @@
 }
 
 .composer {
-  border: 1px solid var(--session-progress-line);
-  border-radius: 14px 14px 0 0;
+  border-radius: inherit;
+  background: transparent;
 }
 
 .inspector,
@@ -20,22 +20,67 @@
 .header {
   display: flex;
   width: 100%;
-  min-height: 38px;
+  min-height: 44px;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px 5px 10px;
+  border-radius: inherit;
+}
+
+.disclosureTrigger {
+  display: flex;
+  min-width: 0;
+  flex: 1;
   align-items: center;
   gap: 8px;
-  padding: 7px 10px;
-  border-radius: inherit;
+  padding: 2px;
+  border-radius: 8px;
   text-align: left;
   outline: none;
 }
 
-.header:hover,
-.header:focus-visible {
+.disclosureTrigger:hover,
+.disclosureTrigger:focus-visible,
+.chevronButton:hover,
+.chevronButton:focus-visible {
   background: var(--color-background-button-secondary-hover);
 }
 
-.header:focus-visible {
+.disclosureTrigger:focus-visible,
+.chevronButton:focus-visible,
+.headerAction:focus-visible,
+.dismissAction:focus-visible {
+  outline: none;
   box-shadow: inset 0 0 0 1px var(--color-border-focus);
+}
+
+.headerAction,
+.dismissAction {
+  flex: none;
+  border-radius: 7px;
+  padding: 4px 6px;
+  color: var(--color-text-foreground-secondary);
+  font-size: 10px;
+  font-weight: 550;
+}
+
+.headerAction:hover,
+.dismissAction:hover {
+  color: var(--color-text-foreground);
+  background: var(--color-background-button-secondary-hover);
+}
+
+.dismissAction {
+  color: var(--color-destructive, var(--color-text-foreground-secondary));
+}
+
+.chevronButton {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  place-items: center;
+  border-radius: 8px;
 }
 
 .headerBody,
@@ -124,20 +169,34 @@
   transform: scale(0.72);
 }
 
-.header:hover .chevron,
-.header:focus-visible .chevron {
+.chevronButton:hover .chevron,
+.chevronButton:focus-visible .chevron {
   opacity: 0;
   transform: scale(1.18);
 }
 
-.header:hover .chevronHover,
-.header:focus-visible .chevronHover {
+.chevronButton:hover .chevronHover,
+.chevronButton:focus-visible .chevronHover {
   opacity: 1;
   transform: scale(1);
 }
 
 .disclosureContent {
   border-top: 1px solid var(--session-progress-line);
+}
+
+.expandedSummary {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  padding: 7px 12px 1px;
+  color: var(--session-progress-muted);
+  font-size: 10px;
+}
+
+.expandedSummary .count {
+  color: var(--color-text-foreground);
+  font-weight: 600;
 }
 
 .list {
@@ -205,6 +264,14 @@
   color: var(--color-destructive, var(--color-text-foreground));
 }
 
+.reviewRoot .progressPie {
+  color: var(--color-warning, var(--color-text-foreground));
+}
+
+.failedRoot .progressPie {
+  color: var(--color-destructive, var(--color-text-foreground));
+}
+
 .cancelled {
   color: var(--session-progress-muted);
 }
@@ -235,6 +302,57 @@
 .inspector .list,
 .dock .list {
   padding-inline: 2px;
+}
+
+.checkpointFrame {
+  padding: 6px 18px 12px;
+}
+
+.checkpoint {
+  display: flex;
+  width: 100%;
+  max-width: 46rem;
+  align-items: center;
+  gap: 10px;
+  margin: 0 auto;
+  padding: 10px 12px;
+  border: 1px solid var(--session-progress-line);
+  border-radius: 12px;
+  background: var(--color-background-elevated-primary, var(--color-background));
+  text-align: left;
+}
+
+.checkpoint:hover,
+.checkpoint:focus-visible {
+  background: var(--color-background-button-secondary-hover);
+  outline: none;
+}
+
+.checkpointBody {
+  min-width: 0;
+  flex: 1;
+}
+
+.checkpointTitle,
+.checkpointMeta {
+  display: block;
+}
+
+.checkpointTitle {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.checkpointMeta,
+.checkpointAction {
+  color: var(--session-progress-muted);
+  font-size: 10px;
+}
+
+.checkpointAction {
+  flex: none;
+  color: var(--color-text-foreground);
+  font-weight: 550;
 }
 
 @keyframes session-progress-spin {

@@ -367,6 +367,7 @@ interface MessagesTimelineProps {
   worktreeSetup?: WorktreeSetupSnapshot | null;
   followLiveOutput?: boolean;
   emptyStateContent?: ReactNode;
+  footerContent?: ReactNode;
   listRef?: RefObject<LegendListRef | null>;
   /** Receives the scroll-to-message controller so the Environment panel can jump to a pin. */
   controllerRef?: RefObject<MessagesTimelineController | null>;
@@ -474,6 +475,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   timestampFormat,
   workspaceRoot,
   emptyStateContent,
+  footerContent,
   contentInsetRightPx,
 }: MessagesTimelineProps) {
   // Prop defaults are resolved in the body rather than in the destructuring pattern:
@@ -582,8 +584,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const resolvedListRef = listRef ?? fallbackListRef;
   const timelineRootRef = useRef<HTMLDivElement | null>(null);
   const listFooter = useMemo(
-    () => <div aria-hidden="true" style={{ height: BOTTOM_CONTENT_INSET_PX }} />,
-    [],
+    () => (
+      <div>
+        {footerContent}
+        <div aria-hidden="true" style={{ height: BOTTOM_CONTENT_INSET_PX }} />
+      </div>
+    ),
+    [footerContent],
   );
 
   const presentedWorktreeSetup = useWorktreeSetupPresentation(worktreeSetup);
@@ -2054,7 +2061,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
   // Transient rows (for example failed first-send worktree setup) must be able
   // to render even when there are no persisted chat messages yet.
-  const hasRenderableTranscriptContent = hasMessages || rows.length > 0;
+  const hasRenderableTranscriptContent = hasMessages || rows.length > 0 || footerContent != null;
   if (!hasRenderableTranscriptContent && !isWorking) {
     if (emptyStateContent) {
       return <div className="flex h-full items-center justify-center">{emptyStateContent}</div>;

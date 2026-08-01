@@ -494,6 +494,8 @@ import { useChatTerminalController } from "./chat/useChatTerminalController";
 import { useChatAutomationSetup } from "./chat/useChatAutomationSetup";
 import { ComposerActiveTaskListCard } from "./chat/ComposerActiveTaskListCard";
 import { ComposerSessionProgress } from "./chat/ComposerSessionProgress";
+import { SessionProgressCheckpoint } from "./process/SessionProgress";
+import { deriveSessionProgressActivity } from "./process/sessionProgressPresentation";
 import { ComposerSubagentStrip } from "./chat/ComposerSubagentStrip";
 import {
   collectForegroundRunningSubagentStripItems,
@@ -1100,6 +1102,7 @@ interface ChatViewProps {
   orchestratorRootDraft?: {
     readonly onSelectProject: (projectId: ProjectId) => void;
   };
+  onOpenSessionProgressProcess?: () => void;
 }
 
 function normalizeRestoredQueuedPrompt(value: string): string {
@@ -1161,6 +1164,7 @@ export default function ChatView({
   adjacentRightDockOpen: adjacentRightDockOpenProp,
   onToggleAdjacentRightDock,
   orchestratorRootDraft,
+  onOpenSessionProgressProcess,
 }: ChatViewProps) {
   // Prop defaults are resolved here instead of in the destructuring pattern: an
   // AssignmentPattern in the parameter list makes React Compiler bail out (silently —
@@ -1842,9 +1846,13 @@ export default function ChatView({
   const sessionProgress = sessionProgressQuery.data?.progress ?? null;
   const openSessionProgressProcess = useCallback(
     (processId: TaskProcessId) => {
+      if (onOpenSessionProgressProcess) {
+        onOpenSessionProgressProcess();
+        return;
+      }
       void navigate({ to: "/process/$processId", params: { processId } });
     },
-    [navigate],
+    [navigate, onOpenSessionProgressProcess],
   );
   const openSessionProgressTask = useCallback(
     (taskId: ProjectTaskId) => {
@@ -10597,7 +10605,23 @@ export default function ChatView({
     : null;
 
   const showComposerLiveChangesHeader = latestTurnLive && activeTurnLiveDiffState.hasChanges;
-  const showComposerSessionProgress = sessionProgress !== null;
+  const composerProcessActivity = sessionProgress
+    ? deriveSessionProgressActivity(sessionProgress)
+    : null;
+  const showComposerSessionProgress =
+    composerProcessActivity !== null &&
+    composerProcessActivity.state !== "inactive" &&
+    composerProcessActivity.state !== "completed";
+  const sessionProgressCheckpoint = useMemo(
+    () =>
+      sessionProgress ? (
+        <SessionProgressCheckpoint
+          projection={sessionProgress}
+          onOpenProcess={openSessionProgressProcess}
+        />
+      ) : null,
+    [openSessionProgressProcess, sessionProgress],
+  );
   const showComposerActiveTaskListCard = Boolean(
     activeTaskList && !planSidebarOpen && !showComposerSessionProgress,
   );
@@ -11471,6 +11495,7 @@ export default function ChatView({
                     timestampFormat={timestampFormat}
                     workspaceRoot={threadArtifactWorkspaceRoot ?? undefined}
                     emptyStateContent={transcriptEmptyStateContent}
+                    footerContent={sessionProgressCheckpoint}
                     emptyStateProjectName={activeProjectDisplayName}
                     terminalWorkspaceTerminalTabActive={terminalWorkspaceTerminalTabActive}
                     onMessagesScroll={onMessagesScroll}

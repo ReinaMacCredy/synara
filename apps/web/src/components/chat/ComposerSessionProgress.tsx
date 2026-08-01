@@ -2,6 +2,7 @@ import type { ProjectTaskId, SessionProgressProjection, TaskProcessId } from "@s
 
 import { useSessionProgressPreferenceStore } from "~/sessionProgressPreferenceStore";
 import { SessionProgress } from "~/components/process/SessionProgress";
+import { deriveSessionProgressActivity } from "~/components/process/sessionProgressPresentation";
 
 import { ComposerStackedPanel } from "./ComposerStackedPanel";
 
@@ -13,9 +14,21 @@ export function ComposerSessionProgress(props: {
 }) {
   const threadId = props.projection.threadId;
   const collapsed = useSessionProgressPreferenceStore(
-    (state) => state.collapsedByThreadId[threadId] ?? false,
+    (state) => state.collapsedByThreadId[threadId] ?? true,
   );
   const setCollapsed = useSessionProgressPreferenceStore((state) => state.setCollapsed);
+  const failureDismissed = useSessionProgressPreferenceStore((state) =>
+    state.isFailureDismissed(threadId, props.projection.cursor),
+  );
+  const dismissFailure = useSessionProgressPreferenceStore((state) => state.dismissFailure);
+  const activity = deriveSessionProgressActivity(props.projection);
+  if (activity.state === "inactive" || activity.state === "completed") return null;
+  if (activity.state === "failed" && failureDismissed) return null;
+
+  const openTask = (taskId: ProjectTaskId) => {
+    if (activity.state === "failed") dismissFailure(threadId, props.projection.cursor);
+    props.onOpenTask(taskId);
+  };
   return (
     <ComposerStackedPanel
       passthroughSideMargins
@@ -28,8 +41,9 @@ export function ComposerSessionProgress(props: {
         projection={props.projection}
         collapsed={collapsed}
         onCollapsedChange={(next) => setCollapsed(threadId, next)}
-        onOpenTask={props.onOpenTask}
+        onOpenTask={openTask}
         onOpenProcess={props.onOpenProcess}
+        onDismissFailure={() => dismissFailure(threadId, props.projection.cursor)}
       />
     </ComposerStackedPanel>
   );
