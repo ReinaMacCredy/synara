@@ -6056,7 +6056,6 @@ export default function Sidebar() {
                     pinnedThreadIdSet={pinnedThreadIdSet}
                     settledOverrideByThreadId={settledOverrideByThreadId}
                     threadsHydrated={threadsHydrated}
-                    timestampFormat={appSettings.timestampFormat}
                     resolveThreadStatus={resolveThreadStatusForSidebar}
                     onOpenThread={activateThreadFromSidebarIntent}
                     onSetThreadSettled={setThreadSettledWithToast}
