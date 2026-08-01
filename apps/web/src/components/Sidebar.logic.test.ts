@@ -245,6 +245,7 @@ describe("resolveThreadHoverCardMetadata", () => {
         associatedWorktreeBranch: "codex/synara-mobile",
       }),
       project: {
+        kind: "project",
         name: "synara-mobile",
         folderName: "Remodex",
         cwd: "/Users/me/Developer/Remodex",
@@ -266,6 +267,7 @@ describe("resolveThreadHoverCardMetadata", () => {
         branch: "main",
       }),
       project: {
+        kind: "project",
         name: "synara",
         folderName: "synara",
         cwd: "/Users/me/Developer/synara",
@@ -279,6 +281,20 @@ describe("resolveThreadHoverCardMetadata", () => {
       branch: "main",
       worktreeName: null,
     });
+  });
+
+  it("labels project-less chat containers as Synara instead of the slug folder", () => {
+    const metadata = resolveThreadHoverCardMetadata({
+      thread: makeSidebarThreadSummary({ branch: null }),
+      project: {
+        kind: "chat",
+        name: "open-the-browser-search-house-music",
+        folderName: "open-the-browser-search-house-music",
+        cwd: "/Users/me/Documents/Synara/2026-08-01/open-the-browser-search-house-music",
+      },
+    });
+
+    expect(metadata.projectName).toBe("Synara");
   });
 });
 

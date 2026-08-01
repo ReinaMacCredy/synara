@@ -1159,6 +1159,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             : {}),
           ...resolveThreadWorkspaceMetadataPatch(command),
           ...(command.isPinned !== undefined ? { isPinned: command.isPinned } : {}),
+          ...(command.isSettled !== undefined
+            ? { settledAt: command.isSettled ? occurredAt : null }
+            : {}),
           ...(command.parentThreadId !== undefined
             ? { parentThreadId: command.parentThreadId }
             : {}),

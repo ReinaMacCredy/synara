@@ -13,6 +13,7 @@ import {
   FolderOpenIcon,
   GiftIcon,
   KeyboardIcon,
+  ListTodoIcon,
   type LucideIcon,
   NewThreadIcon,
   PencilIcon,
@@ -42,7 +43,6 @@ import { autoAnimate } from "@formkit/auto-animate";
 import { FiGitBranch } from "react-icons/fi";
 import { IoIosGitCompare } from "react-icons/io";
 import { GoRepoForked } from "react-icons/go";
-import { HiOutlineArchiveBox } from "react-icons/hi2";
 import {
   useCallback,
   useEffect,
@@ -192,12 +192,14 @@ import {
   createThreadHoverCardAnchor,
 } from "./sidebarHoverCardAnchors";
 import { PreviewCard, PreviewCardPopup, PreviewCardTrigger } from "./ui/preview-card";
+import { SidebarActivityView } from "./SidebarActivityView";
 import { SidebarIconButton } from "./SidebarIconButton";
 import { SidebarLeadingIcon } from "./SidebarLeadingIcon";
 import { SidebarMetaChipStack } from "./SidebarMetaChip";
 import { SidebarRowHoverActions } from "./SidebarRowHoverActions";
 import { SidebarSectionToolbar } from "./SidebarSectionToolbar";
 import { SidebarGlyph, sidebarGlyphClass, SIDEBAR_TRAILING_ICON_CLASS } from "./sidebarGlyphs";
+import { ThreadArchiveActionButton } from "./ThreadArchiveActionButton";
 import { ThreadPinToggleButton } from "./ThreadPinToggleButton";
 import { ThreadRunningSpinner } from "./ThreadRunningSpinner";
 import {
@@ -308,6 +310,7 @@ import {
   type SettingsBackTarget,
   resolveSidebarNewThreadEnvMode,
   resolveThreadHoverCardMetadata,
+  resolveThreadProjectLabel,
   resolveThreadRowClassName,
   resolveThreadRowTrailingReserveClass,
   resolveThreadStatusPill,
@@ -1534,6 +1537,9 @@ export default function Sidebar() {
   const [lastThreadRoute, setLastThreadRoute] = useState(
     () => readSidebarUiState().lastThreadRoute,
   );
+  const [activityViewEnabled, setActivityViewEnabled] = useState(
+    () => readSidebarUiState().activityViewEnabled,
+  );
   const [optimisticActiveThreadId, setOptimisticActiveThreadId] = useState<ThreadId | null>(null);
   const lastThreadRenameTapRef = useRef<{
     threadId: ThreadId;
@@ -1744,6 +1750,8 @@ export default function Sidebar() {
     pinnedThreadIds,
     pinnedThreadIdSet,
     toggleThreadPinned,
+    setThreadSettledWithToast,
+    settledOverrideByThreadId,
     deleteThread,
     confirmAndDeleteThread,
     archiveThread,
@@ -1880,6 +1888,12 @@ export default function Sidebar() {
         ? []
         : getPinnedThreadsForSidebar(activeSpaceOrdinarySidebarTreeThreads, pinnedThreadIds),
     [activeSpaceOrdinarySidebarTreeThreads, isOnOrchestrator, pinnedThreadIds],
+  );
+  // The Activity feed ignores spaces, so its pinned section must too — the
+  // space-filtered `pinnedThreads` above would silently hide pins from other spaces.
+  const activityPinnedThreads = useMemo(
+    () => getPinnedThreadsForSidebar(nonStudioSidebarTreeThreads, pinnedThreadIds),
+    [nonStudioSidebarTreeThreads, pinnedThreadIds],
   );
   const openPrLink = useCallback((event: MouseEvent<HTMLElement>, prUrl: string) => {
     event.preventDefault();
@@ -3279,9 +3293,11 @@ export default function Sidebar() {
         projectThreadListExtraPagesByCwd: Object.fromEntries(threadListExtraPagesByProjectCwd),
         dismissedThreadStatusKeyByThreadId,
         lastThreadRoute: nextLastThreadRoute,
+        activityViewEnabled,
       });
     },
     [
+      activityViewEnabled,
       chatSectionExpanded,
       chatThreadListExtraPages,
       dismissedThreadStatusKeyByThreadId,
@@ -3912,8 +3928,10 @@ export default function Sidebar() {
       projectThreadListExtraPagesByCwd: Object.fromEntries(threadListExtraPagesByProjectCwd),
       dismissedThreadStatusKeyByThreadId,
       lastThreadRoute,
+      activityViewEnabled,
     });
   }, [
+    activityViewEnabled,
     chatSectionExpanded,
     chatThreadListExtraPages,
     dismissedThreadStatusKeyByThreadId,
@@ -4173,11 +4191,10 @@ export default function Sidebar() {
     };
   }, [activeSidebarThreadId, visibleSidebarThreadIds]);
 
-  // Pinned rows should show the user-facing project label, not the raw folder basename.
-  function resolvePinnedThreadProjectLabel(projectId: ProjectId): string | null {
-    const project = projectById.get(projectId);
-    if (!project) return null;
-    return project.name ?? project.folderName ?? null;
+  // Pinned rows share the thread-container label rule (project name, or
+  // "Synara" for project-less chats) with the hover cards and Activity rows.
+  function resolvePinnedThreadProjectLabel(projectId: ProjectId): string {
+    return resolveThreadProjectLabel(projectById.get(projectId));
   }
 
   // Keep hover actions in the same trailing slot used by the timestamp they replace.
@@ -4188,33 +4205,18 @@ export default function Sidebar() {
       compact?: boolean;
     },
   ) {
-    const compact = options?.compact === true;
     const orchestratorRoot = orchestratorRootByThreadId.get(threadId) ?? null;
 
     return (
-      <SidebarIconButton
-        icon={HiOutlineArchiveBox}
-        label={orchestratorRoot ? "Archive Root" : "Archive thread"}
-        title={orchestratorRoot ? "Archive Root" : "Archive thread"}
-        data-testid={`thread-archive-${threadId}`}
-        size={compact ? "sm" : "md"}
-        // Match the pin and the right-side meta chips (shared trailing-icon size); subagent
-        // rows stay on the denser "compact" scale.
-        iconClassName={compact ? sidebarGlyphClass("compact") : SIDEBAR_TRAILING_ICON_CLASS}
-        className={cn("hover:text-foreground/89", toneClassName)}
-        onMouseDown={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-        }}
-        onClick={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          if (orchestratorRoot) {
-            void archiveOrchestratorRoot(orchestratorRoot, { confirm: false });
-          } else {
-            void archiveThreadWithUndo(threadId);
-          }
-        }}
+      <ThreadArchiveActionButton
+        threadId={threadId}
+        toneClassName={toneClassName}
+        compact={options?.compact === true}
+        onArchive={() =>
+          orchestratorRoot
+            ? void archiveOrchestratorRoot(orchestratorRoot, { confirm: false })
+            : void archiveThreadWithUndo(threadId)
+        }
       />
     );
   }
@@ -6040,6 +6042,38 @@ export default function Sidebar() {
                     </div>
                   </div>
                 </SidebarGroup>
+              ) : activityViewEnabled ? (
+                <SidebarGroup className="px-1.5 py-1.5">
+                  <SidebarActivityView
+                    pinnedThreads={activityPinnedThreads}
+                    renderPinnedThreadRow={renderPinnedThreadRow}
+                    threads={nonStudioSidebarThreads}
+                    projectById={projectById}
+                    activeThreadId={visualActiveSidebarThreadId}
+                    pinnedThreadIdSet={pinnedThreadIdSet}
+                    settledOverrideByThreadId={settledOverrideByThreadId}
+                    threadsHydrated={threadsHydrated}
+                    timestampFormat={appSettings.timestampFormat}
+                    resolveThreadStatus={resolveThreadStatusForSidebar}
+                    onOpenThread={activateThreadFromSidebarIntent}
+                    onSetThreadSettled={setThreadSettledWithToast}
+                    onToggleThreadPinned={toggleThreadPinned}
+                    onArchiveThread={(threadId) => void archiveThreadWithUndo(threadId)}
+                    onMarkThreadRead={markThreadVisited}
+                    renderThreadHoverCard={(thread, anchorId) =>
+                      renderThreadHoverCardPopup(thread, anchorId)
+                    }
+                    headerToolbar={
+                      <SidebarIconButton
+                        icon={FolderOpenIcon}
+                        label="Switch to classic view"
+                        tooltip="Classic view"
+                        tooltipSide="bottom"
+                        onClick={() => setActivityViewEnabled(false)}
+                      />
+                    }
+                  />
+                </SidebarGroup>
               ) : (
                 <SidebarGroup className="px-1.5 py-1.5">
                   <SpaceSwitcher
@@ -6065,6 +6099,13 @@ export default function Sidebar() {
                   {renderListSectionHeader(
                     "Projects",
                     <>
+                      <SidebarIconButton
+                        icon={ListTodoIcon}
+                        label="Switch to activity view"
+                        tooltip="Activity view"
+                        tooltipSide="bottom"
+                        onClick={() => setActivityViewEnabled(true)}
+                      />
                       {standardProjects.length > 0 ? (
                         <SidebarIconButton
                           icon={allProjectsExpanded ? CollapseAllIcon : ExpandAllIcon}
@@ -6170,7 +6211,7 @@ export default function Sidebar() {
             </div>
           </>
         )}
-        {!isOnSettings && !isOnOrchestrator && chatsSectionVisible ? (
+        {!isOnSettings && !isOnOrchestrator && !activityViewEnabled && chatsSectionVisible ? (
           // sidebar-surface-enter: mounts on the Orchestrator -> Projects switch, so it
           // animates in step with the keyed surface wrapper above.
           <SidebarGroup className="sidebar-surface-enter px-1.5 pt-1 pb-2">
