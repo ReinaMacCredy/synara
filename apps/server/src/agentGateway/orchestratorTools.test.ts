@@ -6,6 +6,7 @@ import {
   TaskProcessId,
   ThreadId,
   type OrchestrationCommand,
+  type OrchestratorProviderCapability,
   type TaskProcessGraphProjection,
 } from "@synara/contracts";
 import { Effect, Option } from "effect";
@@ -19,7 +20,11 @@ import type {
   ProjectionOrchestratorRepositoryShape,
 } from "../persistence/Services/ProjectionOrchestrator.ts";
 import type { ProjectionTaskProcessRepositoryShape } from "../persistence/Services/ProjectionTaskProcess.ts";
-import { sealContextBundle } from "../orchestration/orchestrator/contextBundles.ts";
+import type { ProviderDiscoveryServiceShape } from "../provider/Services/ProviderDiscoveryService.ts";
+import {
+  sealContextBundle,
+  verifyContextBundle,
+} from "../orchestration/orchestrator/contextBundles.ts";
 import type { ToolContext } from "./toolRuntime.ts";
 import { makeOrchestratorTools } from "./orchestratorTools.ts";
 
@@ -136,12 +141,19 @@ const makeTools = (
   options: {
     readonly projectedCore?: ProjectionOrchestratorCore;
     readonly standaloneThread?: Readonly<Record<string, unknown>>;
+    readonly liveProviderCapability?: OrchestratorProviderCapability;
   } = {},
 ) => {
   const dispatched: OrchestrationCommand[] = [];
+  const providerCapabilityRequests: Array<{ provider: string; model: string }> = [];
+  const persistedProviderCapabilities: OrchestratorProviderCapability[] = [];
   const orchestratorRepository = {
     findRootForThread: () => Effect.succeed(Option.some(rootThreadId)),
     getCore: () => Effect.succeed(Option.some(options.projectedCore ?? core)),
+    upsertProviderCapability: (capability: OrchestratorProviderCapability) =>
+      Effect.sync(() => {
+        persistedProviderCapabilities.push(capability);
+      }),
   } as unknown as ProjectionOrchestratorRepositoryShape;
   const taskProcessRepository = {
     getGraph: () => Effect.succeed(Option.some(graph)),
@@ -180,14 +192,24 @@ const makeTools = (
         }),
       ),
   } as unknown as ProjectionSnapshotQueryShape;
+  const providerDiscovery = {
+    getOrchestratorCapability: (input: { provider: string; model: string }) =>
+      Effect.sync(() => {
+        providerCapabilityRequests.push(input);
+        return options.liveProviderCapability ?? core.providerCapabilities[0]!;
+      }),
+  } as unknown as ProviderDiscoveryServiceShape;
   return {
     dispatched,
+    providerCapabilityRequests,
+    persistedProviderCapabilities,
     tools: makeOrchestratorTools({
       orchestratorRepository,
       taskProcessRepository,
       artifactRepository,
       orchestrationEngine,
       snapshotQuery,
+      providerDiscovery,
     }),
   };
 };
@@ -372,7 +394,24 @@ describe("Orchestrator tools", () => {
       createdBy: { kind: "thread", threadId: rootThreadId },
       createdAt,
     });
-    const { tools, dispatched } = makeTools();
+    const liveProviderCapability = {
+      ...core.providerCapabilities[0]!,
+      observedAt: "2026-08-01T00:00:01.000Z",
+    };
+    const { tools, dispatched, providerCapabilityRequests, persistedProviderCapabilities } =
+      makeTools({
+        projectedCore: {
+          ...core,
+          providerCapabilities: [
+            {
+              ...liveProviderCapability,
+              orchestratorCapable: false,
+              observedAt: createdAt,
+            },
+          ],
+        },
+        liveProviderCapability,
+      });
     const assignment = tools.find(
       (tool) => tool.definition.name === "synara_orchestrator_assign_task",
     )!;
@@ -427,6 +466,10 @@ describe("Orchestrator tools", () => {
       "orchestrator.assignment.create",
       "thread.turn.start",
     ]);
+    expect(providerCapabilityRequests).toEqual([
+      { provider: "codex", model: "gpt-5.4-mini" },
+    ]);
+    expect(persistedProviderCapabilities).toEqual([liveProviderCapability]);
     const createCommand = dispatched[0];
     if (createCommand?.type !== "thread.create") throw new Error("Expected thread.create.");
     const childThreadId = createCommand.threadId;
@@ -437,11 +480,19 @@ describe("Orchestrator tools", () => {
       sourceThreadId: rootThreadId,
       modelSelection: { provider: "codex", model: "gpt-5.4-mini" },
     });
-    expect(dispatched[1]).toMatchObject({
+    const attachCommand = dispatched[1];
+    expect(attachCommand).toMatchObject({
       type: "orchestrator.child.attach",
       childThreadId,
-      continuity: { kind: "clean", contextBundle: { contentHash: bundle.contentHash } },
+      continuity: { kind: "clean", contextBundle: { id: bundle.id } },
     });
+    if (
+      attachCommand?.type !== "orchestrator.child.attach" ||
+      attachCommand.continuity.kind !== "clean"
+    ) {
+      throw new Error("Expected clean orchestrator.child.attach.");
+    }
+    expect(verifyContextBundle(attachCommand.continuity.contextBundle)).toBe(true);
     expect(dispatched[2]).toMatchObject({
       type: "orchestrator.assignment.create",
       contract: { assignmentId, assigneeThreadId: childThreadId },

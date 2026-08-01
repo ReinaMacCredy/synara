@@ -970,30 +970,6 @@ const makeWsRpcHandlersLayer = () =>
                 );
               }
               const core = coreOption.value;
-              const discoveredCapabilities = yield* Effect.forEach(
-                yield* providerAdapterRegistry.listProviders(),
-                (provider) =>
-                  providerDiscoveryService.listOrchestratorCapabilities({ provider }).pipe(
-                    Effect.catch((cause) =>
-                      Effect.logWarning("Orchestrator provider discovery failed", {
-                        provider,
-                        cause: String(cause),
-                      }).pipe(Effect.as([])),
-                    ),
-                  ),
-                { concurrency: 4 },
-              ).pipe(Effect.map((groups) => groups.flat().slice(0, 256)));
-              const capabilityByKey = new Map(
-                core.providerCapabilities.map((capability) => [
-                  `${capability.provider}:${capability.model}`,
-                  capability,
-                ]),
-              );
-              for (const capability of discoveredCapabilities) {
-                capabilityByKey.set(`${capability.provider}:${capability.model}`, capability);
-                yield* orchestratorProjections.upsertProviderCapability(capability);
-              }
-
               let projectionBehind =
                 Number(core.root.highWaterCursor) <
                 (yield* orchestrationEventStore.getAggregateHighWaterSequence({
@@ -1024,7 +1000,7 @@ const makeWsRpcHandlersLayer = () =>
                   assignments: core.assignments,
                   runs: core.runs,
                   activeProcess,
-                  providerCapabilities: Array.from(capabilityByKey.values()).slice(0, 256),
+                  providerCapabilities: core.providerCapabilities.slice(0, 256),
                   capacity: core.capacity ?? {
                     policyVersion: ORCHESTRATOR_RESOURCE_POLICY_V1.version,
                     activeSessions: 0,

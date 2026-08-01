@@ -43,6 +43,7 @@ import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/Pro
 import type { OrchestratorArtifactRepositoryShape } from "../persistence/Services/OrchestratorArtifacts.ts";
 import type { ProjectionOrchestratorRepositoryShape } from "../persistence/Services/ProjectionOrchestrator.ts";
 import type { ProjectionTaskProcessRepositoryShape } from "../persistence/Services/ProjectionTaskProcess.ts";
+import type { ProviderDiscoveryServiceShape } from "../provider/Services/ProviderDiscoveryService.ts";
 import { sealContextBundle } from "../orchestration/orchestrator/contextBundles.ts";
 import { mcpToolResultError, mcpToolResultJson, type McpToolCallResult } from "./protocol.ts";
 import { summarizeThreadDetail } from "./threadSummary.ts";
@@ -80,6 +81,7 @@ export interface OrchestratorToolsInput {
   readonly artifactRepository: OrchestratorArtifactRepositoryShape;
   readonly orchestrationEngine: OrchestrationEngineShape;
   readonly snapshotQuery: ProjectionSnapshotQueryShape;
+  readonly providerDiscovery: ProviderDiscoveryServiceShape;
 }
 
 const objectSchema = (
@@ -1060,13 +1062,22 @@ export function makeOrchestratorTools(input: OrchestratorToolsInput): ReadonlyAr
             );
           }
           if (continuity.kind !== "reuse") {
-            const providerCapability = authority.core.providerCapabilities.find(
-              (capability) =>
-                capability.provider === modelTarget.provider &&
-                capability.model === modelTarget.model,
-            );
+            const providerCapability = yield* input.providerDiscovery
+              .getOrchestratorCapability({
+                provider: modelTarget.provider,
+                model: modelTarget.model,
+              })
+              .pipe(
+                Effect.mapError(
+                  () =>
+                    new GatewayToolError(
+                      "provider_not_orchestrator_capable",
+                      "Clean/rotate creation requires the exact live provider/model capability entry with role instruction, authenticated MCP, and independent-session support.",
+                    ),
+                ),
+              );
             if (
-              !providerCapability?.orchestratorCapable ||
+              !providerCapability.orchestratorCapable ||
               !providerCapability.authoritativeRoleInstruction ||
               !providerCapability.authenticatedMcp ||
               !providerCapability.independentSession
@@ -1078,6 +1089,9 @@ export function makeOrchestratorTools(input: OrchestratorToolsInput): ReadonlyAr
                 ),
               );
             }
+            yield* input.orchestratorRepository
+              .upsertProviderCapability(providerCapability)
+              .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
             const capacity = authority.core.capacity;
             if (capacity && capacity.activeSessions >= capacity.sessionLimit) {
               return yield* Effect.fail(

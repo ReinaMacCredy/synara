@@ -2,9 +2,13 @@ import { ThreadId } from "@synara/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 
+import { RouteInsetSurface } from "../components/RouteInsetSurface";
+import { PanelStateMessage } from "../components/chat/PanelStateMessage";
+import { CHAT_BACKGROUND_CLASS_NAME } from "../components/chat/composerPickerStyles";
 import { OrchestratorSurface } from "../components/orchestrator/OrchestratorSurface";
 import { orchestratorQueryKeys } from "../lib/orchestratorRoots";
 import { readNativeApi } from "../nativeApi";
+import { resolveOrchestratorRootRouteState } from "./-orchestratorRootRouteState";
 
 export interface OrchestratorRootSearch {
   readonly selectedThreadId?: string;
@@ -24,16 +28,28 @@ function OrchestratorRootRouteView() {
       return api.orchestration.getOrchestratorSnapshot({ rootThreadId });
     },
   });
+  const routeState = resolveOrchestratorRootRouteState(rootQuery);
 
-  if (rootQuery.isPending) return null;
-  if (rootQuery.isError || !rootQuery.data) {
+  if (routeState.kind === "loading") {
     return (
-      <div className="p-4 text-sm text-destructive">Unable to load this Orchestrator Root.</div>
+      <RouteInsetSurface surfaceClassName={CHAT_BACKGROUND_CLASS_NAME}>
+        <PanelStateMessage>Loading Orchestrator Root…</PanelStateMessage>
+      </RouteInsetSurface>
     );
   }
+  if (routeState.kind === "fatal") {
+    return (
+      <RouteInsetSurface surfaceClassName={CHAT_BACKGROUND_CLASS_NAME}>
+        <PanelStateMessage className="text-destructive">
+          Unable to load this Orchestrator Root.
+        </PanelStateMessage>
+      </RouteInsetSurface>
+    );
+  }
+  const rootResult = routeState.result;
   const selectedThreadId =
     search.selectedThreadId &&
-    rootQuery.data.snapshot.ownershipEdges.some(
+    rootResult.snapshot.ownershipEdges.some(
       (edge) => edge.childThreadId === search.selectedThreadId,
     )
       ? ThreadId.makeUnsafe(search.selectedThreadId)
@@ -48,8 +64,8 @@ function OrchestratorRootRouteView() {
   };
   return (
     <OrchestratorSurface
-      snapshot={rootQuery.data.snapshot}
-      projectionBehind={rootQuery.data.projectionBehind}
+      snapshot={rootResult.snapshot}
+      projectionBehind={routeState.projectionBehind}
       selectedThreadId={selectedThreadId}
       onSelectThread={selectThread}
     />

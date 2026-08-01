@@ -621,6 +621,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     artifactRepository,
     orchestrationEngine,
     snapshotQuery,
+    providerDiscovery,
   });
 
   const tools: ReadonlyArray<ToolEntry> = [
