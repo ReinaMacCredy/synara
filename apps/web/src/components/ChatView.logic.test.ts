@@ -38,6 +38,7 @@ import {
   resolveCommittedProviderModel,
   resolveCycledModelSlug,
   resolveDefaultEnvironmentPanelOpen,
+  resolveEnvironmentPanelFloatingOverlay,
   resolveEnvironmentPanelOpen,
   resolveEnvironmentPanelPreferenceAfterFirstSend,
   resolveEnvironmentPanelPreferenceUpdate,
@@ -789,6 +790,59 @@ describe("voice helpers", () => {
 });
 
 describe("environment panel visibility", () => {
+  it("treats an adjacent Orchestrator dock as constrained on the first render", () => {
+    expect(
+      resolveEnvironmentPanelFloatingOverlay({
+        isTerminalEnvironmentContext: false,
+        isMobileViewport: false,
+        localRightDockOpen: false,
+        adjacentRightDockOpen: true,
+        surfaceMode: "single",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not constrain a normal desktop chat without any neighboring surface", () => {
+    expect(
+      resolveEnvironmentPanelFloatingOverlay({
+        isTerminalEnvironmentContext: false,
+        isMobileViewport: false,
+        localRightDockOpen: false,
+        adjacentRightDockOpen: false,
+        surfaceMode: "single",
+      }),
+    ).toBe(false);
+  });
+
+  it.each([
+    { isTerminalEnvironmentContext: true, label: "terminal context" },
+    { isMobileViewport: true, label: "mobile viewport" },
+    { localRightDockOpen: true, label: "local Right Dock" },
+  ])("keeps the existing $label constraint", (override) => {
+    expect(
+      resolveEnvironmentPanelFloatingOverlay({
+        isTerminalEnvironmentContext: false,
+        isMobileViewport: false,
+        localRightDockOpen: false,
+        adjacentRightDockOpen: false,
+        surfaceMode: "single",
+        ...override,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps split chat constrained", () => {
+    expect(
+      resolveEnvironmentPanelFloatingOverlay({
+        isTerminalEnvironmentContext: false,
+        isMobileViewport: false,
+        localRightDockOpen: false,
+        adjacentRightDockOpen: false,
+        surfaceMode: "split",
+      }),
+    ).toBe(true);
+  });
+
   it("keeps normal chat threads closed by default unless the setting opts in", () => {
     expect(
       resolveDefaultEnvironmentPanelOpen({

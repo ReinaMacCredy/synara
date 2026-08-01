@@ -487,6 +487,22 @@ export function resolveDefaultEnvironmentPanelOpen(input: {
   );
 }
 
+export function resolveEnvironmentPanelFloatingOverlay(input: {
+  isTerminalEnvironmentContext: boolean;
+  isMobileViewport: boolean;
+  localRightDockOpen: boolean;
+  adjacentRightDockOpen: boolean;
+  surfaceMode: "single" | "split";
+}): boolean {
+  return (
+    input.isTerminalEnvironmentContext ||
+    input.isMobileViewport ||
+    input.localRightDockOpen ||
+    input.adjacentRightDockOpen ||
+    input.surfaceMode === "split"
+  );
+}
+
 // Build the ordered model list used by model.next / model.previous: favorites first
 // (stable user order), then remaining discovered options. Returns null when cycling is
 // a no-op (fewer than two selectable models).

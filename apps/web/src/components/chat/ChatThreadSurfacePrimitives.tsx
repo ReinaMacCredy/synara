@@ -118,6 +118,7 @@ export function DeferredChatView(props: {
   } | null;
   onChangeThread?: () => void;
   onCloseThreadPane?: () => void;
+  adjacentRightDockOpen?: boolean;
   onMounted?: () => void;
   orchestratorRootDraft?: {
     readonly onSelectProject: (projectId: ProjectId) => void;
@@ -176,6 +177,9 @@ export function DeferredChatView(props: {
       {...(props.viewModeAction !== undefined ? { viewModeAction: props.viewModeAction } : {})}
       {...(props.onChangeThread ? { onChangeThreadInSplitPane: props.onChangeThread } : {})}
       {...(props.onCloseThreadPane ? { onCloseThreadPane: props.onCloseThreadPane } : {})}
+      {...(props.adjacentRightDockOpen !== undefined
+        ? { adjacentRightDockOpen: props.adjacentRightDockOpen }
+        : {})}
       {...(props.orchestratorRootDraft
         ? { orchestratorRootDraft: props.orchestratorRootDraft }
         : {})}

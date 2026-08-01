@@ -185,6 +185,7 @@ import {
   resolveCommittedProviderModel,
   resolveCycledModelSlug,
   resolveDefaultEnvironmentPanelOpen,
+  resolveEnvironmentPanelFloatingOverlay,
   resolveEnvironmentPanelOpen,
   resolveEnvironmentPanelPreferenceAfterFirstSend,
   resolveEnvironmentPanelPreferenceUpdate,
@@ -1094,6 +1095,7 @@ interface ChatViewProps {
   } | null;
   onChangeThreadInSplitPane?: () => void;
   onCloseThreadPane?: () => void;
+  adjacentRightDockOpen?: boolean;
   orchestratorRootDraft?: {
     readonly onSelectProject: (projectId: ProjectId) => void;
   };
@@ -1155,6 +1157,7 @@ export default function ChatView({
   viewModeAction: viewModeActionProp,
   onChangeThreadInSplitPane,
   onCloseThreadPane,
+  adjacentRightDockOpen: adjacentRightDockOpenProp,
   orchestratorRootDraft,
 }: ChatViewProps) {
   // Prop defaults are resolved here instead of in the destructuring pattern: an
@@ -1166,6 +1169,7 @@ export default function ChatView({
   const presentationMode = presentationModeProp ?? "default";
   const isFocusedPane = isFocusedPaneProp ?? true;
   const viewModeAction = viewModeActionProp ?? null;
+  const adjacentRightDockOpen = adjacentRightDockOpenProp ?? false;
   const markThreadVisited = useStore((store) => store.markThreadVisited);
   const syncServerShellSnapshot = useStore((store) => store.syncServerShellSnapshot);
   const setStoreThreadError = useStore((store) => store.setError);
@@ -4234,8 +4238,13 @@ export default function ChatView({
   // Environment panel + header controls. "Temporary" is purely a sidebar badge +
   // auto-delete-on-leave concern, never a stripped-down chat UI.
   const environmentEnabled = !isEditorRail;
-  const environmentUsesFloatingOverlay =
-    isTerminalEnvironmentContext || isMobileViewport || rightDockOpen || surfaceMode === "split";
+  const environmentUsesFloatingOverlay = resolveEnvironmentPanelFloatingOverlay({
+    isTerminalEnvironmentContext,
+    isMobileViewport,
+    localRightDockOpen: rightDockOpen,
+    adjacentRightDockOpen,
+    surfaceMode,
+  });
   const environmentDefaultOpen = resolveDefaultEnvironmentPanelOpen({
     environmentEnabled,
     isCenteredEmptyLanding,

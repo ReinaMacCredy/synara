@@ -218,6 +218,7 @@ export function OrchestratorSurface(props: {
                 onToggleBrowser={noopChatSurfaceAction}
                 onOpenBrowserUrl={noopChatSurfaceAction}
                 onOpenTurnDiff={noopChatSurfaceAction}
+                adjacentRightDockOpen={displayDockState.open}
               />
             ) : (
               <PanelStateMessage>
