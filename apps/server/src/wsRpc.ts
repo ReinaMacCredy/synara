@@ -135,6 +135,7 @@ import { OrchestrationEventStore } from "./persistence/Services/OrchestrationEve
 import { OrchestratorArtifactRepository } from "./persistence/Services/OrchestratorArtifacts";
 import { ProjectionOrchestratorRepository } from "./persistence/Services/ProjectionOrchestrator";
 import { ProjectionTaskProcessRepository } from "./persistence/Services/ProjectionTaskProcess";
+import { OrchestratorToolRuntime } from "./orchestration/Services/OrchestratorToolRuntime";
 
 export function canManageExternalMcp(role: "owner" | "client"): boolean {
   return role === "owner";
@@ -360,6 +361,7 @@ const makeWsRpcHandlersLayer = () =>
       const orchestrationEventStore = yield* OrchestrationEventStore;
       const orchestratorArtifacts = yield* OrchestratorArtifactRepository;
       const orchestratorProjections = yield* ProjectionOrchestratorRepository;
+      const orchestratorToolRuntime = yield* OrchestratorToolRuntime;
       const taskProcessProjections = yield* ProjectionTaskProcessRepository;
       const taskProcessQuery = yield* TaskProcessQuery;
       const providerCommandReactor = yield* ProviderCommandReactor;
@@ -960,6 +962,17 @@ const makeWsRpcHandlersLayer = () =>
             }),
             "Failed to list Orchestrator Roots",
           ),
+        [ORCHESTRATION_WS_METHODS.listNativeOrchestratorTools]: () =>
+          Effect.succeed({
+            items: orchestratorToolRuntime.catalog.map((tool) => ({
+              name: tool.name,
+              displayName: tool.displayName,
+              description: tool.description,
+              readOnly: tool.readOnly,
+              status: "enabled" as const,
+              providerSupport: tool.providerSupport,
+            })),
+          }),
         [ORCHESTRATION_WS_METHODS.getOrchestratorSnapshot]: (input) =>
           rpcEffect(
             Effect.gen(function* () {

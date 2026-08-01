@@ -530,7 +530,7 @@ export const OrchestratorProviderCapability = Schema.Struct({
   model: TrimmedNonEmptyString,
   orchestratorCapable: Schema.Boolean,
   authoritativeRoleInstruction: Schema.Boolean,
-  authenticatedMcp: Schema.Boolean,
+  nativeTools: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
   independentSession: Schema.Boolean,
   contextWindow: OrchestratorTelemetryValue,
   inputTokens: OrchestratorTelemetryValue,
@@ -596,6 +596,18 @@ export const OrchestratorChildAttachCommand = Schema.Struct({
   type: Schema.Literal("orchestrator.child.attach"),
   parentThreadId: ThreadId,
   childThreadId: ThreadId,
+  role: OrchestratorRole,
+  capabilities: OrchestratorCapabilities,
+  continuity: ChildContinuity,
+  modelTarget: OrchestratorModelTarget,
+  decisionReason: OrchestratorDecisionReason,
+});
+export const OrchestratorChildCreateCommand = Schema.Struct({
+  ...OrchestratorCommandBase,
+  type: Schema.Literal("orchestrator.child.create"),
+  parentThreadId: ThreadId,
+  childThreadId: ThreadId,
+  title: ShortText,
   role: OrchestratorRole,
   capabilities: OrchestratorCapabilities,
   continuity: ChildContinuity,
@@ -767,8 +779,9 @@ export const OrchestratorUserCommand = Schema.Union([
 export type OrchestratorUserCommand = typeof OrchestratorUserCommand.Type;
 export const OrchestratorCommand = Schema.Union([
   OrchestratorUserCommand,
-  OrchestratorRootActiveProcessSetCommand,
-  OrchestratorChildAttachCommand,
+    OrchestratorRootActiveProcessSetCommand,
+    OrchestratorChildCreateCommand,
+    OrchestratorChildAttachCommand,
   OrchestratorChildRetireCommand,
   OrchestratorChildReparentCommand,
   OrchestratorLinkRequestCommand,
@@ -967,26 +980,49 @@ export const OrchestratorCommandResult = Schema.Struct({
 export type OrchestratorCommandResult = typeof OrchestratorCommandResult.Type;
 
 export const OrchestratorToolName = Schema.Literals([
-  "synara_task_process_create",
-  "synara_task_process_get",
-  "synara_task_create",
-  "synara_task_update",
-  "synara_task_set_dependencies",
-  "synara_task_transition",
-  "synara_orchestrator_get_state",
-  "synara_orchestrator_assign_task",
-  "synara_orchestrator_send_message",
-  "synara_orchestrator_request_link",
-  "synara_orchestrator_set_link",
-  "synara_orchestrator_publish_artifact",
-  "synara_orchestrator_update_run",
-  "synara_orchestrator_read_child",
-  "synara_orchestrator_report_status",
-  "synara_orchestrator_request_change",
-  "synara_orchestrator_wait",
-  "synara_orchestrator_retire_child",
+  "create_task_process",
+  "read_task_process",
+  "create_task",
+  "update_task",
+  "set_task_dependencies",
+  "transition_task",
+  "read_orchestrator_state",
+  "assign_task",
+  "create_child_thread",
+  "send_message",
+  "create_communication_link",
+  "set_communication_link",
+  "publish_artifact",
+  "update_run",
+  "read_thread",
+  "read_last_message",
+  "read_transcript",
+  "report_status",
+  "request_change",
+  "wait_for_event",
+  "retire_child_thread",
 ]);
 export type OrchestratorToolName = typeof OrchestratorToolName.Type;
+
+export const OrchestratorNativeToolSupport = Schema.Literals(["native", "unsupported"]);
+export const OrchestratorNativeToolDescriptor = Schema.Struct({
+  name: OrchestratorToolName,
+  displayName: ShortText,
+  description: BoundedText,
+  readOnly: Schema.Boolean,
+  status: Schema.Literal("enabled"),
+  providerSupport: Schema.Struct({
+    codex: OrchestratorNativeToolSupport,
+    claude: OrchestratorNativeToolSupport,
+  }),
+});
+export type OrchestratorNativeToolDescriptor = typeof OrchestratorNativeToolDescriptor.Type;
+export const ListNativeOrchestratorToolsInput = Schema.Struct({});
+export type ListNativeOrchestratorToolsInput = typeof ListNativeOrchestratorToolsInput.Type;
+export const ListNativeOrchestratorToolsResult = Schema.Struct({
+  items: Schema.Array(OrchestratorNativeToolDescriptor).check(Schema.isMaxLength(64)),
+});
+export type ListNativeOrchestratorToolsResult = typeof ListNativeOrchestratorToolsResult.Type;
 
 export const OrchestratorAssignTaskInput = Schema.Struct({
   expectedRevision: NonNegativeInt,

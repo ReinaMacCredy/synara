@@ -11,7 +11,7 @@ import {
   canReadOrchestratorThread,
   resolveOrchestratorCallerAuthority,
   visibleOrchestratorToolNames,
-} from "./orchestratorToolPolicy.ts";
+} from "../orchestration/orchestrator/toolPolicy.ts";
 
 const createdAt = "2026-08-01T00:00:00.000Z";
 const rootThreadId = ThreadId.makeUnsafe("root");
@@ -111,22 +111,25 @@ const core: ProjectionOrchestratorCore = {
 describe("Orchestrator tool policy", () => {
   it("shows the exact V1 catalog according to durable role capabilities", () => {
     const root = resolveOrchestratorCallerAuthority({ core, callerThreadId: rootThreadId })!;
-    expect(visibleOrchestratorToolNames(root)).toHaveLength(18);
-    expect(visibleOrchestratorToolNames(root)).not.toContain("synara_orchestrator_detach");
+    expect(visibleOrchestratorToolNames(root)).toHaveLength(21);
+    expect(visibleOrchestratorToolNames(root)).not.toContain("detach_child_thread");
 
     const participant = resolveOrchestratorCallerAuthority({
       core,
       callerThreadId: participantId,
     })!;
     expect(visibleOrchestratorToolNames(participant)).toEqual([
-      "synara_task_process_get",
-      "synara_orchestrator_get_state",
-      "synara_orchestrator_send_message",
-      "synara_orchestrator_request_link",
-      "synara_orchestrator_publish_artifact",
-      "synara_orchestrator_report_status",
-      "synara_orchestrator_request_change",
-      "synara_orchestrator_wait",
+      "read_task_process",
+      "read_orchestrator_state",
+      "send_message",
+      "create_communication_link",
+      "publish_artifact",
+      "read_thread",
+      "read_last_message",
+      "read_transcript",
+      "report_status",
+      "request_change",
+      "wait_for_event",
     ]);
   });
 

@@ -4,8 +4,8 @@ import type {
   OrchestratorToolName,
   ThreadId,
 } from "@synara/contracts";
-import type { ProjectionOrchestratorCore } from "../persistence/Services/ProjectionOrchestrator.ts";
-import { capabilitiesForRole } from "../orchestration/orchestrator/invariants.ts";
+import type { ProjectionOrchestratorCore } from "../../persistence/Services/ProjectionOrchestrator.ts";
+import { capabilitiesForRole } from "./invariants.ts";
 
 export interface OrchestratorCallerAuthority {
   readonly rootThreadId: ThreadId;
@@ -16,24 +16,27 @@ export interface OrchestratorCallerAuthority {
 }
 
 const TOOL_CAPABILITY = {
-  synara_task_process_create: "task.manage",
-  synara_task_process_get: "state.read",
-  synara_task_create: "task.manage",
-  synara_task_update: "task.manage",
-  synara_task_set_dependencies: "task.manage",
-  synara_task_transition: "task.manage",
-  synara_orchestrator_get_state: "state.read",
-  synara_orchestrator_assign_task: "child.assign",
-  synara_orchestrator_send_message: "message.send",
-  synara_orchestrator_request_link: "link.request",
-  synara_orchestrator_set_link: "link.manage",
-  synara_orchestrator_publish_artifact: "artifact.publish",
-  synara_orchestrator_update_run: "run.manage",
-  synara_orchestrator_read_child: "subtree.read",
-  synara_orchestrator_report_status: "assignment.report",
-  synara_orchestrator_request_change: "assignment.report",
-  synara_orchestrator_wait: "state.read",
-  synara_orchestrator_retire_child: "child.retire",
+  create_task_process: "task.manage",
+  read_task_process: "state.read",
+  create_task: "task.manage",
+  update_task: "task.manage",
+  set_task_dependencies: "task.manage",
+  transition_task: "task.manage",
+  read_orchestrator_state: "state.read",
+  assign_task: "child.assign",
+  create_child_thread: "child.assign",
+  send_message: "message.send",
+  create_communication_link: "link.request",
+  set_communication_link: "link.manage",
+  publish_artifact: "artifact.publish",
+  update_run: "run.manage",
+  read_thread: "state.read",
+  read_last_message: "state.read",
+  read_transcript: "state.read",
+  report_status: "assignment.report",
+  request_change: "assignment.report",
+  wait_for_event: "state.read",
+  retire_child_thread: "child.retire",
 } as const satisfies Readonly<Record<OrchestratorToolName, OrchestratorCapability>>;
 
 export const resolveOrchestratorCallerAuthority = (input: {

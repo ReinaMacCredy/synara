@@ -267,6 +267,9 @@ export function ensurePanesInState(
   initialActivePaneId: string,
 ): RightDockThreadState {
   const requiredPaneIds = new Set(inputs.map((input) => input.paneId));
+  const hadRequiredPane = state.panes.some(
+    (pane) => requiredPaneIds.has(pane.id) && inputs.some((input) => input.kind === pane.kind),
+  );
   const panes = inputs.map((input) => {
     const existing = state.panes.find(
       (pane) => pane.id === input.paneId && pane.kind === input.kind,
@@ -282,10 +285,11 @@ export function ensurePanesInState(
   const unchangedPanes =
     state.panes.length === panes.length &&
     panes.every((pane, index) => pane === state.panes[index]);
-  if (state.open === panes.length > 0 && state.activePaneId === activePaneId && unchangedPanes) {
+  const open = hadRequiredPane && state.open && panes.length > 0;
+  if (state.open === open && state.activePaneId === activePaneId && unchangedPanes) {
     return state;
   }
-  return { open: panes.length > 0, panes, activePaneId };
+  return { open, panes, activePaneId };
 }
 
 function resolveActiveAfterRemoval(

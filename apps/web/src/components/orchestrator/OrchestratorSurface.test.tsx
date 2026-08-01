@@ -13,6 +13,7 @@ import {
 } from "./OrchestratorThreadMessageRow";
 import {
   buildOwnershipTree,
+  communicationLinksForSelection,
   groupOrchestratorExchanges,
   resolveSelectedOrchestratorThreadId,
 } from "./orchestratorViewModel";
@@ -94,6 +95,15 @@ describe("Orchestrator surface view model", () => {
     expect(groups.at(-1)?.items.map((item) => item.messageId)).toEqual(["m1", "m2"]);
   });
 
+  it("shows the whole Root communication graph and scopes child inspection", () => {
+    const links = [
+      { id: "bc", sourceThreadId: CHILD_B, targetThreadId: CHILD_C },
+      { id: "cd", sourceThreadId: CHILD_C, targetThreadId: CHILD_D },
+    ] as never;
+    expect(communicationLinksForSelection(ROOT, ROOT, links)).toHaveLength(2);
+    expect(communicationLinksForSelection(ROOT, CHILD_B, links)).toEqual([links[0]]);
+  });
+
   it("exports every aggregate dock surface as a real component", () => {
     expect(
       [
@@ -106,7 +116,73 @@ describe("Orchestrator surface view model", () => {
       ].every((component) => typeof component === "function"),
     ).toBe(true);
   });
-});
+
+  it("matches a task-scoped sibling link for direct peer exchanges without an assignment", () => {
+    const peerExchange = {
+      ...exchange({ id: "peer-message", createdAt: "2026-08-01T00:00:00.000Z" }),
+      senderThreadId: CHILD_B,
+      targetThreadId: CHILD_C,
+      artifactRefs: [],
+      hopCount: 0,
+      replyToMessageId: null,
+    };
+    const markup = renderToStaticMarkup(
+      <ExchangesPanel
+          exchanges={[peerExchange]}
+          links={[
+          {
+            id: "link-bc",
+            sourceThreadId: CHILD_B,
+            targetThreadId: CHILD_C,
+            direction: "bidirectional",
+            taskId: "task-1",
+            runId: null,
+            state: "granted",
+            } as never,
+          ]}
+          ownershipEdges={[edge(ROOT, CHILD_B), edge(ROOT, CHILD_C)]}
+          threadLabels={new Map([
+          [CHILD_B, "Child B"],
+          [CHILD_C, "Child C"],
+        ])}
+        onOpenThread={vi.fn()}
+        loading={false}
+        error={null}
+      />,
+    );
+
+    expect(markup).toContain("link granted");
+      expect(markup).not.toContain("link unavailable in snapshot");
+    });
+
+    it("shows direct ownership delivery for Root-child exchanges without a link", () => {
+      const directExchange = {
+        ...exchange({ id: "root-child-message", createdAt: "2026-08-01T00:00:00.000Z" }),
+        senderThreadId: ROOT,
+        targetThreadId: CHILD_B,
+        artifactRefs: [],
+        hopCount: 0,
+        replyToMessageId: null,
+      };
+      const markup = renderToStaticMarkup(
+        <ExchangesPanel
+          exchanges={[directExchange]}
+          links={[]}
+          ownershipEdges={[edge(ROOT, CHILD_B)]}
+          threadLabels={new Map([
+            [ROOT, "Root A"],
+            [CHILD_B, "Child B"],
+          ])}
+          onOpenThread={vi.fn()}
+          loading={false}
+          error={null}
+        />,
+      );
+
+      expect(markup).toContain("ownership direct");
+      expect(markup).not.toContain("link unavailable in snapshot");
+    });
+  });
 
 describe("Orchestrator thread transcript row", () => {
   it("renders thread identity and is explicitly excluded from live-output semantics", () => {

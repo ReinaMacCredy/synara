@@ -1036,14 +1036,14 @@ export const buildEmbeddedClaudeSystemPromptAppend = (
     "When the user asks about the current project, codebase, or repository, proactively inspect files in the current working directory before asking the user where to look.",
     "When spawning subagents, set the Agent tool's `model` parameter and pick reasoning effort by choosing a worker-<tier> subagent type (worker-low, worker-medium, worker-high, worker-xhigh).",
     "Honor explicit user instructions about a subagent's model or effort verbatim; otherwise match task complexity: mechanical work → haiku or worker-low, standard work → sonnet or worker-medium, hard reasoning → opus or fable with worker-high and above.",
-    "Provider-native subagents are provider-owned helpers, not standalone Synara Orchestrator threads. They must not claim a Synara ownership role or call synara_orchestrator_* mutation tools.",
+    "Provider-native subagents are provider-owned helpers, not standalone Synara Orchestrator threads. They must not claim a Synara ownership role or call Synara Orchestrator native mutation tools.",
     renderSynaraHarnessPolicy({ gatewayControlAvailable }),
     ...(orchestratorContext ? [orchestratorInstructionForSession(orchestratorContext)] : []),
   ].join("\n");
 
 const CLAUDE_WORKER_EFFORT_TIERS = ["low", "medium", "high", "xhigh"] as const;
 const CLAUDE_WORKER_PROMPT =
-  "You are a provider-native general-purpose worker, not a standalone Synara Orchestrator thread. Do not claim Synara ownership authority or call synara_orchestrator_* mutation tools. Complete the assigned task end to end with the available tools, then return a concise report covering what you did, key findings, and any remaining risks.";
+  "You are a provider-native general-purpose worker, not a standalone Synara Orchestrator thread. Do not claim Synara ownership authority or call Synara Orchestrator native mutation tools. Complete the assigned task end to end with the available tools, then return a concise report covering what you did, key findings, and any remaining risks.";
 
 function claudeWorkerEffortFromSubagentType(subagentType: string): string | undefined {
   return (CLAUDE_WORKER_EFFORT_TIERS as readonly string[]).find(
@@ -1065,7 +1065,7 @@ function buildClaudeSdkSubagents(): Record<string, AgentDefinition> {
 
     agents[alias.agentName] = {
       description: alias.description,
-      prompt: `${alias.prompt}\n\nYou are a provider-native helper, not a standalone Synara Orchestrator thread. Do not claim Synara ownership authority or call synara_orchestrator_* mutation tools.`,
+      prompt: `${alias.prompt}\n\nYou are a provider-native helper, not a standalone Synara Orchestrator thread. Do not claim Synara ownership authority or call Synara Orchestrator native mutation tools.`,
       ...(alias.tools ? { tools: [...alias.tools] } : {}),
       ...(alias.disallowedTools ? { disallowedTools: [...alias.disallowedTools] } : {}),
       ...(alias.model ? { model: alias.model } : {}),
@@ -4470,6 +4470,14 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             issue: `Expected provider '${PROVIDER}' but received '${input.provider}'.`,
           });
         }
+        if (input.orchestratorContext != null) {
+          return yield* new ProviderAdapterValidationError({
+            provider: PROVIDER,
+            operation: "startSession",
+            issue:
+              "Claude Orchestrator sessions are unavailable because the installed Claude Agent SDK exposes custom client tools only through SDK MCP. Synara will not install an MCP compatibility path for Orchestrator Mode.",
+          });
+        }
 
         const startedAt = yield* nowIso;
         const resumeState = readClaudeResumeState(input.resumeCursor);
@@ -6008,12 +6016,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         supportsPluginDiscovery: false,
         supportsRuntimeModelList: true,
         supportsLiveTurnDiffPatch: false,
-        orchestrator: {
-          authoritativeRoleInstruction: true,
-          authenticatedMcp: agentGatewayCredentials !== undefined,
-          independentSession: true,
-          instructionChannel: "claude-system-prompt",
-        },
       },
       startSession,
       sendTurn,

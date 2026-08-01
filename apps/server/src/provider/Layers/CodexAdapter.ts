@@ -78,6 +78,11 @@ import { makeRuntimeTaskListItem } from "../runtimeTaskList.ts";
 import { extractProposedPlanMarkdown } from "../planMode.ts";
 import { appendFileAttachmentsPromptBlock } from "../attachmentProjection.ts";
 import { synaraSkillsDir } from "../skillsCatalog.ts";
+import {
+  OrchestratorToolRuntime,
+  type OrchestratorToolRuntimeShape,
+} from "../../orchestration/Services/OrchestratorToolRuntime.ts";
+import { orchestratorToolDisplayName } from "../../orchestration/orchestrator/toolCatalog.ts";
 import { makeBoundedCallbackIngress } from "../boundedCallbackIngress.ts";
 import { assignDerivedProviderRuntimeEventIds } from "../providerRuntimeEventIdentity.ts";
 import {
@@ -151,6 +156,7 @@ export interface CodexAdapterLiveOptions {
   readonly makeManager?: (services?: ServiceMap.ServiceMap<never>) => CodexAppServerManager;
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: EventNdjsonLogger;
+  readonly orchestratorToolRuntime?: OrchestratorToolRuntimeShape;
 }
 
 function toMessage(cause: unknown, fallback: string): string {
@@ -856,6 +862,13 @@ function mapItemLifecycle(
   const detail =
     itemType === "reasoning" ? reasoningSummaryDetail(source) : itemDetail(source, payload ?? {});
   const status = itemStatus(lifecycle, source.status);
+  const nativeToolName =
+    canonicalItemType === "dynamic_tool_call"
+      ? firstStringValue(source, ["tool", "toolName", "name"])
+      : undefined;
+  const nativeToolTitle = nativeToolName
+    ? orchestratorToolDisplayName(nativeToolName)
+    : null;
 
   return {
     ...(generatedImageReference
@@ -869,7 +882,11 @@ function mapItemLifecycle(
     payload: {
       itemType: canonicalItemType,
       ...(status ? { status } : {}),
-      ...(itemTitle(canonicalItemType) ? { title: itemTitle(canonicalItemType) } : {}),
+      ...(nativeToolTitle
+        ? { title: nativeToolTitle }
+        : itemTitle(canonicalItemType)
+          ? { title: itemTitle(canonicalItemType) }
+          : {}),
       ...(generatedImageReference
         ? { detail: generatedImageReference.path }
         : detail
@@ -1684,11 +1701,14 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
     const serverConfig = yield* Effect.service(ServerConfig);
-    // Optional so adapter tests can run without the gateway layer; when
-    // present, every session gets the synara_* MCP tools.
+    // Optional so adapter tests can run without the gateway layer. The gateway
+    // remains available only to non-Orchestrator sessions.
     const agentGatewayCredentials = Option.getOrUndefined(
       yield* Effect.serviceOption(AgentGatewayCredentials),
     );
+    const orchestratorToolRuntime =
+      options?.orchestratorToolRuntime ??
+      Option.getOrUndefined(yield* Effect.serviceOption(OrchestratorToolRuntime));
     const nativeEventLogger =
       options?.nativeEventLogger ??
       (options?.nativeEventLogPath !== undefined
@@ -1707,6 +1727,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
           options?.makeManager?.(services) ??
           new CodexAppServerManager(services, {
             synaraSkillsDir: synaraSkillsDir(serverConfig.baseDir),
+            ...(orchestratorToolRuntime ? { orchestratorToolRuntime } : {}),
             ...(agentGatewayCredentials
               ? {
                   agentGatewayMcp: {
@@ -2225,7 +2246,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
         supportsLiveTurnDiffPatch: true,
         orchestrator: {
           authoritativeRoleInstruction: true,
-          authenticatedMcp: agentGatewayCredentials !== undefined,
+          nativeTools: orchestratorToolRuntime !== undefined,
           independentSession: true,
           instructionChannel: "codex-developer-instructions",
         },

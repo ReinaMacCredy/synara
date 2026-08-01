@@ -43,6 +43,7 @@ import {
   ListOrchestratorAuditEventsInput,
   ListOrchestratorExchangesInput,
   ListOrchestratorRootsInput,
+  ListNativeOrchestratorToolsInput,
   ReadOrchestratorArtifactInput,
   RestoreOrchestratorRootInput,
   UpgradeOrchestratorRootInput,
@@ -315,6 +316,10 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(ORCHESTRATION_WS_METHODS.subscribeThread, OrchestrationSubscribeThreadInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.unsubscribeThread, OrchestrationUnsubscribeThreadInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.listOrchestratorRoots, ListOrchestratorRootsInput),
+  tagRequestBody(
+    ORCHESTRATION_WS_METHODS.listNativeOrchestratorTools,
+    ListNativeOrchestratorToolsInput,
+  ),
   tagRequestBody(ORCHESTRATION_WS_METHODS.getOrchestratorSnapshot, GetOrchestratorSnapshotInput),
   tagRequestBody(
     ORCHESTRATION_WS_METHODS.listOrchestratorExchanges,

@@ -144,8 +144,9 @@ function commandToAggregateRef(command: OrchestrationCommand): {
     case "orchestrator.root.create":
     case "orchestrator.root.archive":
     case "orchestrator.root.restore":
-    case "orchestrator.root.active-process.set":
-    case "orchestrator.child.attach":
+      case "orchestrator.root.active-process.set":
+      case "orchestrator.child.create":
+      case "orchestrator.child.attach":
     case "orchestrator.child.retire":
     case "orchestrator.child.reparent":
     case "orchestrator.link.request":
@@ -906,11 +907,74 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                 }
               }
             }
-            const orchestratorDecision = yield* decideOrchestratorCommand({
-              command,
-              state,
-              readModel: deciderReadModel,
-            });
+              const orchestratorDecision =
+                command.type === "orchestrator.child.create"
+                  ? yield* Effect.gen(function* () {
+                      const threadDecision = yield* decideOrchestrationCommand({
+                        command: {
+                          type: "thread.create",
+                          commandId: command.commandId,
+                          threadId: command.childThreadId,
+                          projectId: command.projectId,
+                          title: command.title,
+                          modelSelection: {
+                            provider: command.modelTarget.provider as never,
+                            model: command.modelTarget.model,
+                            options: command.modelTarget.providerOptions ?? {},
+                          },
+                          runtimeMode: command.modelTarget.runtimeMode as never,
+                          interactionMode: "default",
+                          envMode: "local",
+                          branch: null,
+                          worktreePath: null,
+                          workingDirectory: command.modelTarget.workspaceRoot,
+                          parentThreadId: null,
+                          creationSource: "orchestrator_native" as never,
+                          sourceThreadId: command.parentThreadId,
+                          subagentAgentId: null,
+                          subagentNickname: null,
+                          subagentRole: null,
+                          lastKnownPr: null,
+                          createdAt: command.createdAt,
+                        },
+                        readModel: deciderReadModel,
+                        workspacePaths: deciderWorkspacePaths,
+                      });
+                      const readModelWithChild = yield* projectEvent(deciderReadModel, {
+                        ...threadDecision,
+                        sequence: 0,
+                      });
+                      const attachDecision = yield* decideOrchestratorCommand({
+                        command: {
+                          type: "orchestrator.child.attach",
+                          commandId: command.commandId,
+                          rootThreadId: command.rootThreadId,
+                          projectId: command.projectId,
+                          actor: command.actor,
+                          protocolVersion: command.protocolVersion,
+                          expectedRevision: command.expectedRevision,
+                          createdAt: command.createdAt,
+                          parentThreadId: command.parentThreadId,
+                          childThreadId: command.childThreadId,
+                          role: command.role,
+                          capabilities: command.capabilities,
+                          continuity: command.continuity,
+                          modelTarget: command.modelTarget,
+                          decisionReason: command.decisionReason,
+                        },
+                        state,
+                        readModel: readModelWithChild,
+                      });
+                      return [
+                        threadDecision,
+                        ...(Array.isArray(attachDecision) ? attachDecision : [attachDecision]),
+                      ];
+                    })
+                  : yield* decideOrchestratorCommand({
+                      command,
+                      state,
+                      readModel: deciderReadModel,
+                    });
             if (
               command.type === "orchestrator.root.archive" ||
               command.type === "orchestrator.root.restore"

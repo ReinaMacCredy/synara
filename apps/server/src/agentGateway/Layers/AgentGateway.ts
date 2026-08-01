@@ -78,7 +78,6 @@ import { makeThreadReadTools } from "../threadReadTools.ts";
 import { makeThreadDiagnosticTools } from "../threadDiagnosticTools.ts";
 import { pruneProjectedArchivedManagedWorktrees } from "../../managedWorktrees.ts";
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
-import { makeOrchestratorTools } from "../orchestratorTools.ts";
 
 // Providers already receive the versioned host policy exactly once in their
 // private prompt. MCP clients prepend initialize.instructions to every exposed
@@ -615,15 +614,6 @@ export const makeAgentGateway = Effect.gen(function* () {
         );
       }).pipe(Effect.orElseSucceed(() => null)),
   });
-  const orchestratorTools = makeOrchestratorTools({
-    orchestratorRepository,
-    taskProcessRepository,
-    artifactRepository,
-    orchestrationEngine,
-    snapshotQuery,
-    providerDiscovery,
-  });
-
   const tools: ReadonlyArray<ToolEntry> = [
     ...readTools,
     ...diagnosticTools,
@@ -633,7 +623,6 @@ export const makeAgentGateway = Effect.gen(function* () {
     interruptThread,
     setThreadTitle,
     setThreadArchived,
-    ...orchestratorTools,
     ...automationTools,
     ...browserTools,
   ];

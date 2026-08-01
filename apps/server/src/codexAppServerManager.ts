@@ -28,6 +28,7 @@ import {
   type ProviderSession,
   type ProviderSessionStartInput,
   type ProviderOrchestratorSessionContext,
+  type ProviderKind,
   type ProviderTurnStartResult,
   RuntimeMode,
   ProviderInteractionMode,
@@ -53,6 +54,11 @@ import {
 } from "./agentGateway/mcpInjection.ts";
 import { SYNARA_GATEWAY_HARNESS_POLICY } from "./agentGateway/harnessPolicy.ts";
 import { orchestratorInstructionForSession } from "./orchestration/orchestrator/protocolV1.ts";
+import type { OrchestratorToolRuntimeShape } from "./orchestration/Services/OrchestratorToolRuntime.ts";
+import {
+  OrchestratorToolError,
+  type OrchestratorToolInvocationContext,
+} from "./orchestration/orchestrator/toolRuntime.ts";
 import {
   AGENT_GATEWAY_TURN_AUTHORITY_RETIRED,
   type AgentGatewaySessionLease,
@@ -80,6 +86,7 @@ import {
   parseCodexPluginReadResponse,
   parseCodexSkillsListResponse,
 } from "./provider/codexDiscoveryCatalog.ts";
+import { makeOrchestratorProviderCapabilities } from "./provider/orchestratorCapabilities.ts";
 
 const log = createLogger("codex");
 
@@ -166,6 +173,7 @@ interface CodexSessionContext {
   session: ProviderSession;
   lifecycleGeneration?: string;
   orchestratorInstruction?: string | null;
+  orchestratorToolRuntime?: OrchestratorToolRuntimeShape;
   account: CodexAccountSnapshot;
   child: ChildProcessWithoutNullStreams;
   stdoutFramer: CodexJsonlFramer;
@@ -926,7 +934,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         readonly endpointUrl: () => string;
         readonly acquireSessionLease: (threadId: ThreadId) => AgentGatewaySessionLease;
       }
-    | undefined;
+      | undefined;
+  private readonly orchestratorToolRuntime: OrchestratorToolRuntimeShape | undefined;
   private readonly teardownProcessTree: typeof teardownProviderProcessTree;
   private readonly taskCompleteFallbackGraceMs: number;
   constructor(
@@ -937,6 +946,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         readonly endpointUrl: () => string;
         readonly acquireSessionLease: (threadId: ThreadId) => AgentGatewaySessionLease;
       };
+      readonly orchestratorToolRuntime?: OrchestratorToolRuntimeShape;
       readonly teardownProcessTree?: typeof teardownProviderProcessTree;
       readonly taskCompleteFallbackGraceMs?: number;
     },
@@ -945,24 +955,26 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     this.runPromise = services ? Effect.runPromiseWith(services) : Effect.runPromise;
     this.synaraSkillsDir = options?.synaraSkillsDir;
     this.agentGatewayMcp = options?.agentGatewayMcp;
+    this.orchestratorToolRuntime = options?.orchestratorToolRuntime;
     this.teardownProcessTree = options?.teardownProcessTree ?? teardownProviderProcessTree;
     this.taskCompleteFallbackGraceMs = Math.max(0, options?.taskCompleteFallbackGraceMs ?? 750);
   }
 
-  // The Synara MCP server rides on the shared overlay config (no secrets),
+  // Non-Orchestrator sessions keep the Synara MCP server on the shared overlay config,
   // while the per-thread bearer token travels through the app-server process
   // env referenced by `bearer_token_env_var`.
   private async buildSessionProcessEnv(
     homePath: string | undefined,
     gatewayBearerToken: string | undefined,
+    includeAgentGatewayMcp = true,
   ) {
     const env = await buildCodexProcessEnv({
       ...(homePath ? { homePath } : {}),
-      ...(this.agentGatewayMcp
+      ...(includeAgentGatewayMcp && this.agentGatewayMcp
         ? { appendConfigToml: buildCodexMcpConfigToml(this.agentGatewayMcp.endpointUrl()) }
         : {}),
     });
-    if (gatewayBearerToken) {
+    if (includeAgentGatewayMcp && gatewayBearerToken) {
       env[SYNARA_AGENT_GATEWAY_TOKEN_ENV] = gatewayBearerToken;
     }
     return env;
@@ -1014,6 +1026,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       const orchestratorInstruction = buildCodexOrchestratorThreadOpenOverrides(
         input.orchestratorContext,
       ).developerInstructions;
+      const isOrchestratorSession = input.orchestratorContext != null;
+      if (isOrchestratorSession && !this.orchestratorToolRuntime) {
+        throw new Error("Native Orchestrator tool runtime is unavailable.");
+      }
 
       const codexOptions = readCodexProviderOptions(input);
       const codexBinaryPath = codexOptions.binaryPath ?? "codex";
@@ -1026,13 +1042,16 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           : {}),
         ...(codexHomePath ? { homePath: codexHomePath } : {}),
       });
-      gatewaySessionLease = this.agentGatewayMcp?.acquireSessionLease(threadId);
+      gatewaySessionLease = isOrchestratorSession
+        ? undefined
+        : this.agentGatewayMcp?.acquireSessionLease(threadId);
       const child = spawnCodexAppServer({
         binaryPath: codexBinaryPath,
         cwd: resolvedCwd,
         env: await this.buildSessionProcessEnv(
           codexHomePath,
           gatewaySessionLease?.connection.bearerToken,
+          !isOrchestratorSession,
         ),
       });
 
@@ -1043,6 +1062,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           ? { lifecycleGeneration: input.lifecycleGeneration }
           : {}),
         ...(orchestratorInstruction !== undefined ? { orchestratorInstruction } : {}),
+        ...(isOrchestratorSession && this.orchestratorToolRuntime
+          ? { orchestratorToolRuntime: this.orchestratorToolRuntime }
+          : {}),
         account: {
           type: "unknown",
           planType: null,
@@ -1098,11 +1120,28 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         ...(orchestratorInstruction !== undefined
           ? { developerInstructions: orchestratorInstruction }
           : {}),
-      };
+        };
 
+        const dynamicTools = context.orchestratorToolRuntime
+          ? ((await this.runPromise(
+              context.orchestratorToolRuntime
+                .list(this.makeOrchestratorToolContext(context, null))
+                .pipe(Effect.orDie),
+            )) as ReadonlyArray<{
+              readonly name: string;
+              readonly description: string;
+              readonly inputSchema: Readonly<Record<string, unknown>>;
+            }>).map((definition) => ({
+              type: "function" as const,
+              name: definition.name,
+              description: definition.description,
+              inputSchema: definition.inputSchema,
+            }))
+          : undefined;
       const threadStartParams = {
         ...sessionOverrides,
         experimentalRawEvents: false,
+        ...(dynamicTools ? { dynamicTools } : {}),
       };
       const resumeThreadId = readResumeThreadId(input);
       this.emitLifecycleEvent(
@@ -3145,10 +3184,130 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
   }
 
+  private makeOrchestratorToolContext(
+    context: CodexSessionContext,
+    turnId: string | null,
+  ): OrchestratorToolInvocationContext {
+    return {
+        callerThreadId: context.session.threadId,
+        callerSessionKey: `codex:${context.session.threadId}`,
+        callerProvider: "codex",
+        callerTurnId: turnId,
+        resolveOrchestratorCapability: (input: {
+          readonly provider: ProviderKind;
+          readonly model: string;
+        }) =>
+          Effect.tryPromise({
+            try: async () => {
+              if (input.provider !== "codex") {
+                throw new OrchestratorToolError(
+                  "provider_native_tools_unsupported",
+                  `Provider "${input.provider}" is not available through this Codex-native tool session.`,
+                );
+              }
+              const discovered = await this.listModels();
+              const capability = makeOrchestratorProviderCapabilities({
+                provider: "codex",
+                models: discovered.models,
+                source: discovered.source ?? "codex-app-server",
+                flags: {
+                  orchestratorCapable: true,
+                  authoritativeRoleInstruction: true,
+                  nativeTools: context.orchestratorToolRuntime !== undefined,
+                  independentSession: true,
+                },
+              }).find((entry) => entry.model === input.model);
+              if (!capability) {
+                throw new OrchestratorToolError(
+                  "provider_model_unavailable",
+                  `Model "${input.model}" is not an exact available Codex model slug.`,
+                );
+              }
+              return capability;
+            },
+            catch: (cause) =>
+              cause instanceof OrchestratorToolError
+                ? cause
+                : new OrchestratorToolError(
+                    "provider_capability_unavailable",
+                    cause instanceof Error
+                      ? cause.message
+                      : "Codex model discovery failed during native tool execution.",
+                  ),
+          }),
+        assertCallerTurnActive: () =>
+          context.session.activeTurnId !== undefined &&
+          (turnId === null || context.session.activeTurnId === turnId)
+            ? Effect.void
+            : Effect.fail(
+                new OrchestratorToolError(
+                  "caller_turn_inactive",
+                  "The originating Codex turn is no longer active.",
+                ),
+              ),
+    };
+  }
+
+  private async handleOrchestratorToolCall(
+    context: CodexSessionContext,
+    request: JsonRpcRequest,
+  ): Promise<void> {
+    const runtime = context.orchestratorToolRuntime;
+    const params = this.readObject(request.params);
+    const tool = this.readString(params, "tool");
+    const turnId = this.readString(params, "turnId") ?? null;
+      const args = this.readObject(params, "arguments");
+      if (!runtime || !tool || !args) {
+        await this.writeMessage(context, {
+          id: request.id,
+          result: {
+            success: false,
+            contentItems: [
+              {
+                type: "inputText",
+                text: JSON.stringify({
+                  error: {
+                    code: "invalid_native_tool_call",
+                    message: "The native Orchestrator tool call is incomplete or unavailable.",
+                  },
+                }),
+              },
+            ],
+          },
+        });
+      return;
+    }
+    const result = (await this.runPromise(
+      runtime
+        .execute({
+          name: tool,
+          arguments: args,
+          context: this.makeOrchestratorToolContext(context, turnId),
+        })
+        .pipe(Effect.orDie),
+      )) as { readonly ok: boolean; readonly value?: unknown; readonly error?: unknown };
+      await this.writeMessage(context, {
+        id: request.id,
+        result: {
+          success: result.ok,
+          contentItems: [
+            {
+              type: "inputText",
+              text: JSON.stringify(result.ok ? result.value : { error: result.error }),
+            },
+          ],
+        },
+      });
+  }
+
   private async handleServerRequest(
     context: CodexSessionContext,
     request: JsonRpcRequest,
   ): Promise<void> {
+    if (request.method === "item/tool/call") {
+      await this.handleOrchestratorToolCall(context, request);
+      return;
+    }
     const rawRoute = this.readRouteFields(request.params);
     const resolvedCollaborationRoute = this.resolveCollaborationRoute(context, request.params);
     const {

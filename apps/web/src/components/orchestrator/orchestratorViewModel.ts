@@ -1,4 +1,5 @@
 import type {
+  OrchestratorCommunicationLink,
   OrchestratorMessageEnvelope,
   OrchestratorOwnershipEdge,
   ThreadId,
@@ -97,6 +98,18 @@ export function groupOrchestratorExchanges(
       const rightTime = Date.parse(right.items.at(-1)?.createdAt ?? "");
       return rightTime - leftTime || left.id.localeCompare(right.id);
     });
+}
+
+export function communicationLinksForSelection(
+  rootThreadId: ThreadId,
+  selectedThreadId: ThreadId,
+  links: readonly OrchestratorCommunicationLink[],
+): readonly OrchestratorCommunicationLink[] {
+  if (selectedThreadId === rootThreadId) return links;
+  return links.filter(
+    (link) =>
+      link.sourceThreadId === selectedThreadId || link.targetThreadId === selectedThreadId,
+  );
 }
 
 export function threadLabel(labels: ReadonlyMap<ThreadId, string>, threadId: ThreadId): string {

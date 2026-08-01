@@ -1096,6 +1096,7 @@ interface ChatViewProps {
   onChangeThreadInSplitPane?: () => void;
   onCloseThreadPane?: () => void;
   adjacentRightDockOpen?: boolean;
+  onToggleAdjacentRightDock?: () => void;
   orchestratorRootDraft?: {
     readonly onSelectProject: (projectId: ProjectId) => void;
   };
@@ -1158,6 +1159,7 @@ export default function ChatView({
   onChangeThreadInSplitPane,
   onCloseThreadPane,
   adjacentRightDockOpen: adjacentRightDockOpenProp,
+  onToggleAdjacentRightDock,
   orchestratorRootDraft,
 }: ChatViewProps) {
   // Prop defaults are resolved here instead of in the destructuring pattern: an
@@ -4308,8 +4310,13 @@ export default function ChatView({
   const terminalDrawerProps = useMemo(
     () => ({
       threadId,
-      onTogglePanel: hasRightDockPanes ? toggleRightDock : undefined,
-      isPanelOpen: hasRightDockPanes ? rightDockOpen : undefined,
+      onTogglePanel:
+        onToggleAdjacentRightDock ?? (hasRightDockPanes ? toggleRightDock : undefined),
+      isPanelOpen: onToggleAdjacentRightDock
+        ? adjacentRightDockOpen
+        : hasRightDockPanes
+          ? rightDockOpen
+          : undefined,
       cwd: gitCwd ?? activeProject?.cwd ?? "",
       runtimeEnv: threadTerminalRuntimeEnv,
       height: terminalState.terminalHeight,

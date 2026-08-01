@@ -381,6 +381,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           updatedAt: now,
         },
       });
+      const highWaterSequence = yield* eventStore.getHighWaterSequence();
 
       yield* projectionPipeline.bootstrap;
 
@@ -394,6 +395,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           title,
           scripts_json AS "scriptsJson"
         FROM projection_projects
+        WHERE project_id = ${ProjectId.makeUnsafe("project-1")}
       `;
       assert.deepEqual(projectRows, [
         { projectId: "project-1", title: "Project 1", scriptsJson: "[]" },
@@ -407,6 +409,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           message_id AS "messageId",
           text
         FROM projection_thread_messages
+        WHERE message_id = ${MessageId.makeUnsafe("message-1")}
       `;
       assert.deepEqual(messageRows, [{ messageId: "message-1", text: "hello" }]);
 
@@ -422,7 +425,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       `;
       assert.equal(stateRows.length, Object.keys(ORCHESTRATION_PROJECTOR_NAMES).length);
       for (const row of stateRows) {
-        assert.equal(row.lastAppliedSequence, 3);
+        assert.equal(row.lastAppliedSequence, highWaterSequence);
       }
     }),
   );

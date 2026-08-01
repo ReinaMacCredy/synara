@@ -20,13 +20,15 @@ import type {
   ProjectionOrchestratorRepositoryShape,
 } from "../persistence/Services/ProjectionOrchestrator.ts";
 import type { ProjectionTaskProcessRepositoryShape } from "../persistence/Services/ProjectionTaskProcess.ts";
-import type { ProviderDiscoveryServiceShape } from "../provider/Services/ProviderDiscoveryService.ts";
 import {
   sealContextBundle,
   verifyContextBundle,
 } from "../orchestration/orchestrator/contextBundles.ts";
-import type { ToolContext } from "./toolRuntime.ts";
-import { makeOrchestratorTools } from "./orchestratorTools.ts";
+import {
+  OrchestratorToolError,
+  type OrchestratorToolInvocationContext as ToolContext,
+} from "../orchestration/orchestrator/toolRuntime.ts";
+import { makeOrchestratorTools } from "../orchestration/orchestrator/toolRegistry.ts";
 
 const createdAt = "2026-08-01T00:00:00.000Z";
 const rootThreadId = ThreadId.makeUnsafe("root");
@@ -86,7 +88,7 @@ const core: ProjectionOrchestratorCore = {
       model: "gpt-5.4-mini",
       orchestratorCapable: true,
       authoritativeRoleInstruction: true,
-      authenticatedMcp: true,
+      nativeTools: true,
       independentSession: true,
       contextWindow: { kind: "unknown", reason: "test", at: createdAt },
       inputTokens: { kind: "unknown", reason: "test", at: createdAt },
@@ -120,7 +122,14 @@ const graph: TaskProcessGraphProjection = {
   highWaterCursor: "3",
 };
 
-const context = (threadId: string): ToolContext => ({
+const context = (
+  threadId: string,
+  options: {
+    readonly requests?: Array<{ provider: string; model: string }>;
+    readonly capability?: OrchestratorProviderCapability;
+    readonly failure?: boolean;
+  } = {},
+): ToolContext => ({
   principal: {
     kind: "provider-session",
     sessionKey: `session:${threadId}`,
@@ -133,6 +142,13 @@ const context = (threadId: string): ToolContext => ({
   callerProvider: "codex",
   callerCapabilities: new Set(["thread:read", "thread:write"]),
   callerTurnId: "turn",
+  resolveOrchestratorCapability: (input) =>
+    Effect.suspend(() => {
+      options.requests?.push(input);
+      return options.failure
+        ? Effect.fail(new OrchestratorToolError("provider_model_unavailable", "model missing"))
+        : Effect.succeed(options.capability ?? core.providerCapabilities[0]!);
+    }),
   assertCallerTurnActive: () => Effect.void,
   jsonRpcRequestId: 1,
 });
@@ -141,7 +157,6 @@ const makeTools = (
   options: {
     readonly projectedCore?: ProjectionOrchestratorCore;
     readonly standaloneThread?: Readonly<Record<string, unknown>>;
-    readonly liveProviderCapability?: OrchestratorProviderCapability;
   } = {},
 ) => {
   const dispatched: OrchestrationCommand[] = [];
@@ -192,13 +207,6 @@ const makeTools = (
         }),
       ),
   } as unknown as ProjectionSnapshotQueryShape;
-  const providerDiscovery = {
-    getOrchestratorCapability: (input: { provider: string; model: string }) =>
-      Effect.sync(() => {
-        providerCapabilityRequests.push(input);
-        return options.liveProviderCapability ?? core.providerCapabilities[0]!;
-      }),
-  } as unknown as ProviderDiscoveryServiceShape;
   return {
     dispatched,
     providerCapabilityRequests,
@@ -209,7 +217,6 @@ const makeTools = (
       artifactRepository,
       orchestrationEngine,
       snapshotQuery,
-      providerDiscovery,
     }),
   };
 };
@@ -218,31 +225,170 @@ describe("Orchestrator tools", () => {
   it("registers exactly the V1 names and no detach alias", () => {
     const { tools } = makeTools();
     expect(tools.map((tool) => tool.definition.name)).toEqual([
-      "synara_task_process_create",
-      "synara_task_process_get",
-      "synara_orchestrator_get_state",
-      "synara_task_create",
-      "synara_task_update",
-      "synara_task_set_dependencies",
-      "synara_task_transition",
-      "synara_orchestrator_assign_task",
-      "synara_orchestrator_send_message",
-      "synara_orchestrator_request_link",
-      "synara_orchestrator_set_link",
-      "synara_orchestrator_publish_artifact",
-      "synara_orchestrator_update_run",
-      "synara_orchestrator_read_child",
-      "synara_orchestrator_report_status",
-      "synara_orchestrator_request_change",
-      "synara_orchestrator_wait",
-      "synara_orchestrator_retire_child",
+      "create_task_process",
+      "read_task_process",
+      "read_orchestrator_state",
+      "create_task",
+      "update_task",
+      "set_task_dependencies",
+      "transition_task",
+      "create_child_thread",
+      "assign_task",
+      "send_message",
+      "create_communication_link",
+      "set_communication_link",
+      "publish_artifact",
+      "update_run",
+      "read_thread",
+      "report_status",
+      "request_change",
+      "wait_for_event",
+      "retire_child_thread",
+      "read_last_message",
+      "read_transcript",
     ]);
+  });
+
+  it("lets Root grant a scoped sibling link without making Root an endpoint", async () => {
+    const peerTwoThreadId = ThreadId.makeUnsafe("participant-two");
+    const { tools, dispatched } = makeTools({
+      projectedCore: {
+        ...core,
+        ownershipEdges: [
+          ...core.ownershipEdges,
+          {
+            ...core.ownershipEdges[0]!,
+            childThreadId: peerTwoThreadId,
+            decisionReason: {
+              ...core.ownershipEdges[0]!.decisionReason,
+              summary: "Second independent participant",
+            },
+          },
+        ],
+      },
+    });
+    const createLink = tools.find(
+      (tool) => tool.definition.name === "create_communication_link",
+    )!;
+
+    const result = await Effect.runPromise(
+      createLink.execute(
+        {
+          expectedRevision: 7,
+          linkId: "link-siblings",
+          sourceThreadId: participantThreadId,
+          targetThreadId: peerTwoThreadId,
+          direction: "bidirectional",
+          taskId: "task-link",
+          runId: null,
+          capabilities: ["message.send"],
+          reason: "Let the two peers challenge each other directly.",
+          expiresAt: "2026-08-02T00:00:00.000Z",
+        },
+        context(rootThreadId),
+      ),
+    );
+
+    expect(result).toMatchObject({ ok: true, value: { state: "granted" } });
+    expect(dispatched).toEqual([
+      expect.objectContaining({
+        type: "orchestrator.link.request",
+        expectedRevision: 7,
+        actor: { kind: "thread", threadId: rootThreadId },
+        sourceThreadId: participantThreadId,
+        targetThreadId: peerTwoThreadId,
+      }),
+      expect.objectContaining({
+        type: "orchestrator.link.set",
+        expectedRevision: 8,
+        linkId: "link-siblings",
+        state: "granted",
+      }),
+    ]);
+  });
+
+  it("validates an exact native-capable model before atomically creating a child", async () => {
+    const { tools, dispatched, providerCapabilityRequests } = makeTools();
+    const createChild = tools.find((tool) => tool.definition.name === "create_child_thread")!;
+
+    const result = await Effect.runPromise(
+      createChild.execute(
+        {
+          expectedRevision: 7,
+          title: "Independent child",
+          role: "participant",
+          allowedCapabilities: ["state.read", "message.send"],
+          modelTarget: {
+            provider: "codex",
+            model: "gpt-5.4-mini",
+            runtimeMode: "approval-required",
+            workspaceRoot: "/tmp/project",
+          },
+          decisionReason: {
+            summary: "Independent framing",
+            taskFit: ["analysis"],
+            contextHealth: "healthy",
+            cacheEconomics: "unknown",
+            selectedAt: createdAt,
+          },
+        },
+        context(rootThreadId, { requests: providerCapabilityRequests }),
+      ),
+    );
+
+    expect(result).toMatchObject({ ok: true, value: { model: "gpt-5.4-mini" } });
+    expect(providerCapabilityRequests).toEqual([
+      { provider: "codex", model: "gpt-5.4-mini" },
+    ]);
+    expect(dispatched).toEqual([
+      expect.objectContaining({
+        type: "orchestrator.child.create",
+        parentThreadId: rootThreadId,
+        modelTarget: expect.objectContaining({ model: "gpt-5.4-mini" }),
+      }),
+    ]);
+  });
+
+  it("rejects a display model alias before creating any child state", async () => {
+    const { tools, dispatched } = makeTools();
+    const createChild = tools.find((tool) => tool.definition.name === "create_child_thread")!;
+
+    const result = await Effect.runPromise(
+      createChild.execute(
+        {
+          expectedRevision: 7,
+          title: "Invalid child",
+          role: "participant",
+          allowedCapabilities: ["state.read"],
+          modelTarget: {
+            provider: "codex",
+            model: "Luna",
+            runtimeMode: "approval-required",
+            workspaceRoot: "/tmp/project",
+          },
+          decisionReason: {
+            summary: "Independent framing",
+            taskFit: ["analysis"],
+            contextHealth: "healthy",
+            cacheEconomics: "unknown",
+            selectedAt: createdAt,
+          },
+        },
+        context(rootThreadId, { failure: true }),
+      ),
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "provider_model_unavailable" },
+    });
+    expect(dispatched).toHaveLength(0);
   });
 
   it("publishes a complete non-duplicative standalone-child assignment wire contract", () => {
     const { tools } = makeTools();
     const assignment = tools.find(
-      (tool) => tool.definition.name === "synara_orchestrator_assign_task",
+      (tool) => tool.definition.name === "assign_task",
     )!;
 
     expect(assignment.definition.inputSchema).toMatchObject({
@@ -295,11 +441,11 @@ describe("Orchestrator tools", () => {
       },
     });
     const assignment = tools.find(
-      (tool) => tool.definition.name === "synara_orchestrator_assign_task",
+      (tool) => tool.definition.name === "assign_task",
     )!;
 
     await Effect.runPromise(
-      assignment.handler(
+      assignment.execute(
         {
           expectedRevision: 7,
           expectedProcessRevision: 3,
@@ -410,14 +556,13 @@ describe("Orchestrator tools", () => {
             },
           ],
         },
-        liveProviderCapability,
       });
     const assignment = tools.find(
-      (tool) => tool.definition.name === "synara_orchestrator_assign_task",
+      (tool) => tool.definition.name === "assign_task",
     )!;
 
     await Effect.runPromise(
-      assignment.handler(
+      assignment.execute(
         {
           expectedRevision: 7,
           expectedProcessRevision: 3,
@@ -456,7 +601,10 @@ describe("Orchestrator tools", () => {
           supersedesVersion: null,
           startInitialTurn: true,
         },
-        context(rootThreadId),
+        context(rootThreadId, {
+          requests: providerCapabilityRequests,
+          capability: liveProviderCapability,
+        }),
       ),
     );
 
@@ -476,7 +624,7 @@ describe("Orchestrator tools", () => {
     expect(dispatched[0]).toMatchObject({
       type: "thread.create",
       parentThreadId: null,
-      creationSource: "synara_mcp",
+      creationSource: "orchestrator_native",
       sourceThreadId: rootThreadId,
       modelSelection: { provider: "codex", model: "gpt-5.4-mini" },
     });
@@ -508,9 +656,9 @@ describe("Orchestrator tools", () => {
 
   it("derives actor, Root, project, and process instead of trusting spoofed arguments", async () => {
     const { tools, dispatched } = makeTools();
-    const create = tools.find((tool) => tool.definition.name === "synara_task_create")!;
+    const create = tools.find((tool) => tool.definition.name === "create_task")!;
     await Effect.runPromise(
-      create.handler(
+      create.execute(
         {
           expectedRevision: 3,
           taskId: "task",
@@ -542,12 +690,12 @@ describe("Orchestrator tools", () => {
 
   it("hides and rechecks Root-only tools for a participant", async () => {
     const { tools, dispatched } = makeTools();
-    const create = tools.find((tool) => tool.definition.name === "synara_task_create")!;
+    const create = tools.find((tool) => tool.definition.name === "create_task")!;
     await expect(Effect.runPromise(create.isVisible!(context(participantThreadId)))).resolves.toBe(
       false,
     );
     const result = await Effect.runPromise(
-      create.handler(
+      create.execute(
         {
           expectedRevision: 3,
           taskId: "forged-task",
@@ -559,7 +707,7 @@ describe("Orchestrator tools", () => {
         context(participantThreadId),
       ),
     );
-    expect(result.isError).toBe(true);
+    expect(result.ok).toBe(false);
     expect(dispatched).toHaveLength(0);
   });
 });

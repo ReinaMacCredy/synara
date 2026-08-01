@@ -46,6 +46,7 @@ import {
   useCallback,
   useEffect,
   lazy,
+  Fragment,
   startTransition,
   useMemo,
   useRef,
@@ -148,6 +149,7 @@ import { readNativeApi } from "../nativeApi";
 import { isHomeChatContainerProject, prewarmHomeChatProject } from "../lib/chatProjects";
 import {
   collectOrchestratorThreadIds,
+  orchestratorContainmentParentId,
   orchestratorQueryKeys,
   orchestratorRootsQueryOptions,
   partitionThreadsByOrchestratorMembership,
@@ -155,6 +157,7 @@ import {
 } from "../lib/orchestratorRoots";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useLatestProjectStore } from "../latestProjectStore";
+import { useRightDockStore } from "../rightDockStore";
 import { resolveThreadEnvironmentPresentation } from "../lib/threadEnvironment";
 import { dispatchThreadRename } from "../lib/threadRename";
 import { quotePosixShellArgument } from "../lib/shellQuote";
@@ -272,6 +275,7 @@ import {
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import {
   buildProjectThreadTree,
+  buildOrchestratorSignalStack,
   derivePinnedProjectIdsForSidebar,
   deriveSidebarProjectData,
   createSidebarThreadHoverAnchorId,
@@ -404,6 +408,17 @@ const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
 const THREAD_PREVIEW_LIMIT = 5;
 // Each "Show more" click reveals this many extra rows; "Show less" hides them again page by page.
 const THREAD_PREVIEW_PAGE_SIZE = 5;
+
+function resolveUserOwnedTaskProcessId(
+  items: readonly {
+    readonly id: TaskProcessId;
+    readonly owner: { readonly kind: string };
+    readonly state: string;
+  }[],
+): TaskProcessId | undefined {
+  const userOwned = items.filter((process) => process.owner.kind === "user");
+  return userOwned.find((process) => process.state === "active")?.id ?? userOwned[0]?.id;
+}
 // Mouse clicks must not focus the paging buttons, or the focus ring lingers as a solid block
 // after the click; they should only light up on hover/press. Keyboard focus is unaffected.
 const preventFocusOnMouseDown = (event: React.MouseEvent) => {
@@ -1535,7 +1550,50 @@ export default function Sidebar() {
     () => new Map(orchestratorRoots.map((root) => [root.rootThreadId, root] as const)),
     [orchestratorRoots],
   );
-  const { ordinaryThreads: ordinarySidebarThreads } = useMemo(
+  const orchestratorRootIdByThreadId = useMemo(() => {
+    const roots = new Map<ThreadId, ThreadId>(
+      orchestratorRoots.map((root) => [root.rootThreadId, root.rootThreadId] as const),
+    );
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const thread of sidebarTreeThreads) {
+        const containmentParentId = orchestratorContainmentParentId(thread);
+        if (!containmentParentId || roots.has(thread.id)) continue;
+        const rootThreadId = roots.get(containmentParentId);
+        if (!rootThreadId) continue;
+        roots.set(thread.id, rootThreadId);
+        changed = true;
+      }
+    }
+    return roots;
+  }, [orchestratorRoots, sidebarTreeThreads]);
+  const orchestratorThreadCountByRootId = useMemo(() => {
+    const counts = new Map<ThreadId, number>();
+    for (const rootThreadId of orchestratorRootIdByThreadId.values()) {
+      counts.set(rootThreadId, (counts.get(rootThreadId) ?? 0) + 1);
+    }
+    return counts;
+  }, [orchestratorRootIdByThreadId]);
+  const openRightDockPane = useRightDockStore((store) => store.openPane);
+  const openOrchestratorTeam = useCallback(
+    (rootThreadId: ThreadId) => {
+      openRightDockPane(rootThreadId, {
+        paneId: "orchestrator-team",
+        kind: "orchestratorTeam",
+      });
+      void navigate({
+        to: "/orchestrator/$rootThreadId",
+        params: { rootThreadId },
+        search: {},
+      });
+    },
+    [navigate, openRightDockPane],
+  );
+  const {
+    ordinaryThreads: ordinarySidebarThreads,
+    orchestratorThreads: orchestratorSidebarThreads,
+  } = useMemo(
     () => partitionThreadsByOrchestratorMembership(sidebarThreads, orchestratorThreadIds),
     [orchestratorThreadIds, sidebarThreads],
   );
@@ -3120,13 +3178,15 @@ export default function Sidebar() {
     });
   const activateThreadFromSidebarIntent = useCallback(
     (threadId: ThreadId) => {
-      if (orchestratorRootIdSet.has(threadId)) {
+      const rootThreadId = orchestratorRootIdByThreadId.get(threadId);
+      if (rootThreadId) {
         clearSelection();
         openChatThreadPage(threadId);
         setOptimisticActiveThreadId(threadId);
         void navigate({
           to: "/orchestrator/$rootThreadId",
-          params: { rootThreadId: threadId },
+          params: { rootThreadId },
+          search: threadId === rootThreadId ? {} : { selectedThreadId: threadId },
         });
         return;
       }
@@ -3137,7 +3197,7 @@ export default function Sidebar() {
       clearSelection,
       navigate,
       openChatThreadPage,
-      orchestratorRootIdSet,
+      orchestratorRootIdByThreadId,
     ],
   );
 
@@ -3248,12 +3308,7 @@ export default function Sidebar() {
             includeArchived: false,
             limit: 100,
           });
-          const userOwnedProcesses = result.items.filter(
-            (process) => process.owner.kind === "user",
-          );
-          let processId =
-            userOwnedProcesses.find((process) => process.state === "active")?.id ??
-            userOwnedProcesses[0]?.id;
+          let processId = resolveUserOwnedTaskProcessId(result.items);
           if (!processId) {
             processId = TaskProcessId.makeUnsafe(randomUUID());
             await api.orchestration.dispatchTaskProcessCommand({
@@ -3459,8 +3514,8 @@ export default function Sidebar() {
   // Trees need child (subagent) threads too; the flat display list stays
   // root-only for pinned rows and other non-tree consumers.
   const sidebarThreadsByProjectId = useMemo(
-    () => groupSidebarThreadsByProjectId(sidebarTreeThreads),
-    [sidebarTreeThreads],
+    () => groupSidebarThreadsByProjectId(ordinarySidebarTreeThreads),
+    [ordinarySidebarTreeThreads],
   );
   const sortedSidebarThreadsByProjectId = useMemo(() => {
     const byProjectId = new Map<ProjectId, SidebarThreadSummary[]>();
@@ -3523,11 +3578,23 @@ export default function Sidebar() {
   );
   const orchestratorRootRows = useMemo(
     () =>
-      buildProjectThreadTree({
-        threads: sortThreadsForSidebar(orchestratorRootThreads, appSettings.sidebarThreadSortOrder),
-        forceVisibleThreadId: activeSidebarThreadId ?? undefined,
+      buildOrchestratorSignalStack({
+        rootThreadIds: sortThreadsForSidebar(
+          orchestratorRootThreads,
+          appSettings.sidebarThreadSortOrder,
+        ).map((thread) => thread.id),
+        threads: orchestratorSidebarThreads.map((thread) => ({
+          ...thread,
+          parentThreadId: orchestratorContainmentParentId(thread),
+        })),
+        selectedThreadId: activeSidebarThreadId ?? undefined,
       }),
-    [activeSidebarThreadId, appSettings.sidebarThreadSortOrder, orchestratorRootThreads],
+    [
+      activeSidebarThreadId,
+      appSettings.sidebarThreadSortOrder,
+      orchestratorRootThreads,
+      orchestratorSidebarThreads,
+    ],
   );
   const orchestratorRootThreadIds = useMemo(
     () => orchestratorRootRows.map((row) => row.thread.id),
@@ -5726,9 +5793,35 @@ export default function Sidebar() {
                   )}
                   <SidebarMenu ref={attachProjectListAutoAnimateRef} className="gap-1">
                     {orchestratorRootRows.length > 0 ? (
-                      orchestratorRootRows.map((row) =>
-                        renderThreadRow(row.thread, orchestratorRootThreadIds, 0, true),
-                      )
+                      orchestratorRootRows.map((row, index) => {
+                        const isLastRowForRoot =
+                          index === orchestratorRootRows.length - 1 ||
+                          orchestratorRootRows[index + 1]?.depth === 0;
+                        return (
+                          <Fragment key={row.thread.id}>
+                            {row.depth === 1 && orchestratorRootRows[index - 1]?.depth === 0 ? (
+                              <div className="px-3 pb-0.5 pt-1 text-[9px] font-medium uppercase tracking-[0.16em] text-muted-foreground/55">
+                                Now
+                              </div>
+                            ) : null}
+                            {renderThreadRow(
+                              row.thread,
+                              orchestratorRootThreadIds,
+                              row.depth,
+                              row.depth === 0,
+                            )}
+                            {isLastRowForRoot ? (
+                              <button
+                                type="button"
+                                className="ml-7 mt-0.5 w-fit rounded px-1.5 py-0.5 text-[10px] text-muted-foreground/58 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                                onClick={() => openOrchestratorTeam(row.rootThreadId)}
+                              >
+                                Open Team, {orchestratorThreadCountByRootId.get(row.rootThreadId) ?? 1} total
+                              </button>
+                            ) : null}
+                          </Fragment>
+                        );
+                      })
                     ) : (
                       <div className="px-2 pt-4 text-center text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/58">
                         {orchestratorRootsQuery.isPending

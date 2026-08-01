@@ -1566,7 +1566,7 @@ describe("AgentGateway", () => {
     }).pipe(Effect.provide(gatewayLayer));
   });
 
-  it.effect("filters the exact Orchestrator V1 catalog by durable caller role", () => {
+  it.effect("does not expose Orchestrator tools through the MCP gateway", () => {
     const rootThreadId = ThreadId.makeUnsafe("thread-parent");
     const participantThreadId = ThreadId.makeUnsafe("thread-participant");
     const orchestratorCore: ProjectionOrchestratorCore = {
@@ -1639,22 +1639,13 @@ describe("AgentGateway", () => {
         authorizationHeader: "Bearer token-parent",
         body: { jsonrpc: "2.0", id: 1, method: "tools/list" },
       });
-      assert.lengthOf(orchestrationNames(root.body), 18);
+        assert.deepEqual(orchestrationNames(root.body), []);
 
       const participant = yield* harness.postRaw({
         authorizationHeader: "Bearer token-participant",
         body: { jsonrpc: "2.0", id: 2, method: "tools/list" },
       });
-      assert.deepEqual(orchestrationNames(participant.body), [
-        "synara_task_process_get",
-        "synara_orchestrator_get_state",
-        "synara_orchestrator_send_message",
-        "synara_orchestrator_request_link",
-        "synara_orchestrator_publish_artifact",
-        "synara_orchestrator_report_status",
-        "synara_orchestrator_request_change",
-        "synara_orchestrator_wait",
-      ]);
+        assert.deepEqual(orchestrationNames(participant.body), []);
     }).pipe(Effect.provide(gatewayLayer));
   });
 

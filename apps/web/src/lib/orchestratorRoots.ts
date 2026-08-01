@@ -46,20 +46,39 @@ export function sortOrchestratorRoots(roots: readonly OrchestratorRoot[]): Orche
 
 export function collectOrchestratorThreadIds(
   roots: readonly Pick<OrchestratorRoot, "rootThreadId">[],
-  threads: readonly { readonly id: ThreadId; readonly parentThreadId?: ThreadId | null }[],
+  threads: readonly {
+    readonly id: ThreadId;
+    readonly parentThreadId?: ThreadId | null;
+    readonly sourceThreadId?: ThreadId | null;
+    readonly creationSource?: string | null;
+  }[],
 ): ReadonlySet<ThreadId> {
   const ids = new Set<ThreadId>(roots.map((root) => root.rootThreadId));
   let changed = true;
   while (changed) {
     changed = false;
     for (const thread of threads) {
-      if (thread.parentThreadId && ids.has(thread.parentThreadId) && !ids.has(thread.id)) {
+      const containmentParentId = orchestratorContainmentParentId(thread);
+      if (containmentParentId && ids.has(containmentParentId) && !ids.has(thread.id)) {
         ids.add(thread.id);
         changed = true;
       }
     }
   }
   return ids;
+}
+
+export function orchestratorContainmentParentId(thread: {
+  readonly parentThreadId?: ThreadId | null;
+  readonly sourceThreadId?: ThreadId | null;
+  readonly creationSource?: string | null;
+}): ThreadId | null {
+  if (thread.parentThreadId) return thread.parentThreadId;
+  return (thread.creationSource === "orchestrator_native" ||
+    thread.creationSource === "synara_mcp") &&
+    thread.sourceThreadId
+    ? thread.sourceThreadId
+    : null;
 }
 
 export function partitionThreadsByOrchestratorMembership<T extends { readonly id: ThreadId }>(

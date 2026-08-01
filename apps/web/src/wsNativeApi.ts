@@ -709,6 +709,8 @@ export function createWsNativeApi(): NativeApi {
         transport.advanceOrchestrationDomainCursor(result.highWaterCursor);
         return result;
       },
+      listNativeOrchestratorTools: (input = {}) =>
+        transport.request(ORCHESTRATION_WS_METHODS.listNativeOrchestratorTools, input),
       getOrchestratorSnapshot: async (input) => {
         const result = await transport.request<
           Awaited<ReturnType<NativeApi["orchestration"]["getOrchestratorSnapshot"]>>

@@ -1,6 +1,7 @@
 import type {
   OrchestratorCommunicationLink,
   OrchestratorMessageEnvelope,
+  OrchestratorOwnershipEdge,
   ThreadId,
 } from "@synara/contracts";
 import { useState } from "react";
@@ -30,19 +31,34 @@ function matchingLink(
           (link.direction === "bidirectional" &&
             link.sourceThreadId === exchange.targetThreadId &&
             link.targetThreadId === exchange.senderThreadId)) &&
-        (link.taskId === null || exchange.assignmentId !== null) &&
         (link.runId === null || link.runId === exchange.runId),
     ) ?? null
+  );
+}
+
+function isDirectOwnershipExchange(
+  exchange: OrchestratorMessageEnvelope,
+  ownershipEdges: readonly OrchestratorOwnershipEdge[],
+): boolean {
+  return ownershipEdges.some(
+    (edge) =>
+      edge.retiredAt === null &&
+      ((edge.parentThreadId === exchange.senderThreadId &&
+        edge.childThreadId === exchange.targetThreadId) ||
+        (edge.parentThreadId === exchange.targetThreadId &&
+          edge.childThreadId === exchange.senderThreadId)),
   );
 }
 
 function ExchangeRow(props: {
   readonly exchange: OrchestratorMessageEnvelope;
   readonly links: readonly OrchestratorCommunicationLink[];
+  readonly ownershipEdges: readonly OrchestratorOwnershipEdge[];
   readonly threadLabels: ReadonlyMap<ThreadId, string>;
   readonly onOpenThread: (threadId: ThreadId) => void;
 }) {
   const link = matchingLink(props.exchange, props.links);
+  const directOwnership = isDirectOwnershipExchange(props.exchange, props.ownershipEdges);
   const failure =
     props.exchange.deliveryState === "failed" || props.exchange.deliveryState === "expired";
   return (
@@ -89,6 +105,8 @@ function ExchangeRow(props: {
             link {link.state} ·{" "}
             {link.taskId ? `task ${link.taskId}` : link.runId ? `run ${link.runId}` : "ownership"}
           </span>
+        ) : directOwnership ? (
+          <span>ownership direct</span>
         ) : (
           <span className="text-warning">link unavailable in snapshot</span>
         )}
@@ -108,6 +126,7 @@ function ExchangeRow(props: {
 function ExchangeGroupView(props: {
   readonly group: ExchangeGroup;
   readonly links: readonly OrchestratorCommunicationLink[];
+  readonly ownershipEdges: readonly OrchestratorOwnershipEdge[];
   readonly threadLabels: ReadonlyMap<ThreadId, string>;
   readonly onOpenThread: (threadId: ThreadId) => void;
   readonly defaultOpen: boolean;
@@ -132,6 +151,7 @@ function ExchangeGroupView(props: {
                 key={exchange.messageId}
                 exchange={exchange}
                 links={props.links}
+                ownershipEdges={props.ownershipEdges}
                 threadLabels={props.threadLabels}
                 onOpenThread={props.onOpenThread}
               />
@@ -146,6 +166,7 @@ function ExchangeGroupView(props: {
 export function ExchangesPanel(props: {
   readonly exchanges: readonly OrchestratorMessageEnvelope[];
   readonly links: readonly OrchestratorCommunicationLink[];
+  readonly ownershipEdges: readonly OrchestratorOwnershipEdge[];
   readonly threadLabels: ReadonlyMap<ThreadId, string>;
   readonly onOpenThread: (threadId: ThreadId) => void;
   readonly loading: boolean;
@@ -177,6 +198,7 @@ export function ExchangesPanel(props: {
             key={group.id}
             group={group}
             links={props.links}
+            ownershipEdges={props.ownershipEdges}
             threadLabels={props.threadLabels}
             onOpenThread={props.onOpenThread}
             defaultOpen={index === 0}

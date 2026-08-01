@@ -319,7 +319,6 @@ describe("Orchestrator decider", () => {
     >;
     expect(attachBEvents.map((event) => event.type)).toEqual([
       "orchestrator.child.attached",
-      "orchestrator.link.set",
     ]);
     state = persist(state, attachBEvents);
 

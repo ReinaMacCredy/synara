@@ -193,6 +193,8 @@ import type {
   ListOrchestratorExchangesResult,
   ListOrchestratorRootsInput,
   ListOrchestratorRootsResult,
+  ListNativeOrchestratorToolsInput,
+  ListNativeOrchestratorToolsResult,
   OrchestratorArtifact,
   OrchestratorCommandResult,
   ReadOrchestratorArtifactInput,
@@ -769,6 +771,9 @@ export interface NativeApi {
     listOrchestratorRoots: (
       input: ListOrchestratorRootsInput,
     ) => Promise<ListOrchestratorRootsResult>;
+    listNativeOrchestratorTools: (
+      input?: ListNativeOrchestratorToolsInput,
+    ) => Promise<ListNativeOrchestratorToolsResult>;
     getOrchestratorSnapshot: (
       input: GetOrchestratorSnapshotInput,
     ) => Promise<GetOrchestratorSnapshotResult>;

@@ -29,6 +29,12 @@ export function AdvancedSettingsPanel(props: {
 }) {
   const configQuery = useQuery(serverConfigQueryOptions());
   const authSessionQuery = useQuery(serverAuthSessionQueryOptions());
+  const orchestratorToolsQuery = useQuery({
+    queryKey: ["orchestrator", "native-tools"],
+    queryFn: () => ensureNativeApi().orchestration.listNativeOrchestratorTools(),
+    enabled: props.active,
+    staleTime: 30_000,
+  });
   const syncServerReadModel = useStore((store) => store.syncServerReadModel);
   // Keep these subscriptions inside the only panel that uses recovery eligibility.
   const threadShells = useStore(useMemo(() => createThreadShellsSelector(), []));
@@ -155,6 +161,42 @@ export function AdvancedSettingsPanel(props: {
           />
         </SettingsSection>
       ) : null}
+
+      <SettingsSection title="Orchestrator native tools">
+        <div className={cn("divide-y divide-border/70", SETTINGS_INSET_LIST_CLASS_NAME)}>
+          {orchestratorToolsQuery.isPending ? (
+            <div className="px-4 py-3 text-xs text-muted-foreground">Loading native tools...</div>
+          ) : orchestratorToolsQuery.isError ? (
+            <div className="px-4 py-3 text-xs text-destructive">
+              Unable to inspect the native Orchestrator registry.
+            </div>
+          ) : (
+            orchestratorToolsQuery.data.items.map((tool) => (
+              <div key={tool.name} className="flex gap-4 px-4 py-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium">{tool.displayName}</span>
+                    <code className="text-[10px] text-muted-foreground">{tool.name}</code>
+                    {tool.readOnly ? (
+                      <span className="rounded-full bg-muted px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-muted-foreground">
+                        Read only
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">{tool.description}</p>
+                </div>
+                <div className="shrink-0 text-right text-[10px] leading-5 text-muted-foreground">
+                  <div>Codex · {tool.providerSupport.codex}</div>
+                  <div>Claude · {tool.providerSupport.claude}</div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          Read-only registry inspection. Orchestration strategy remains developer-controlled.
+        </p>
+      </SettingsSection>
 
       <SettingsSection title="Developer tools">
         <SettingsRow

@@ -68,9 +68,10 @@ export function OrchestratorSurface(props: {
   const threads = useStore(useMemo(() => createAllThreadsSelector(), []));
   const dockState = useRightDockStore(
     useMemo(() => selectRightDockState(rootThreadId), [rootThreadId]),
-  );
-  const ensurePanes = useRightDockStore((store) => store.ensurePanes);
-  const setActivePane = useRightDockStore((store) => store.setActivePane);
+    );
+    const ensurePanes = useRightDockStore((store) => store.ensurePanes);
+    const setActivePane = useRightDockStore((store) => store.setActivePane);
+    const setDockOpen = useRightDockStore((store) => store.setDockOpen);
   const [detachPendingThreadId, setDetachPendingThreadId] = useState<ThreadId | null>(null);
   const exchangesQuery = useQuery(orchestratorExchangesQueryOptions(rootThreadId));
   const artifactsQuery = useQuery(orchestratorArtifactsQueryOptions(rootThreadId));
@@ -161,9 +162,10 @@ export function OrchestratorSurface(props: {
       case "orchestratorExchanges":
         return (
           <ExchangesPanel
-            exchanges={exchanges}
-            links={props.snapshot.communicationLinks}
-            threadLabels={threadLabels}
+              exchanges={exchanges}
+              links={props.snapshot.communicationLinks}
+              ownershipEdges={props.snapshot.ownershipEdges}
+              threadLabels={threadLabels}
             onOpenThread={props.onSelectThread}
             loading={exchangesQuery.isPending}
             error={errorMessage(exchangesQuery.error)}
@@ -219,6 +221,9 @@ export function OrchestratorSurface(props: {
                 onOpenBrowserUrl={noopChatSurfaceAction}
                 onOpenTurnDiff={noopChatSurfaceAction}
                 adjacentRightDockOpen={displayDockState.open}
+                onToggleAdjacentRightDock={() =>
+                  setDockOpen(rootThreadId, !displayDockState.open)
+                }
               />
             ) : (
               <PanelStateMessage>
@@ -236,11 +241,11 @@ export function OrchestratorSurface(props: {
         addMenuKinds={[]}
         motionKey={rootThreadId}
         paneClosable={false}
-        collapsible={false}
+        collapsible
         onSelectPane={(paneId) => setActivePane(rootThreadId, paneId)}
         onClosePane={noopChatSurfaceAction}
-        onCollapse={noopChatSurfaceAction}
-        onOpenChange={noopChatSurfaceAction}
+        onCollapse={() => setDockOpen(rootThreadId, false)}
+        onOpenChange={(open) => setDockOpen(rootThreadId, open)}
         onAddPane={noopChatSurfaceAction}
         renderPane={renderPane}
       />

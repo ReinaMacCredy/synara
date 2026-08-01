@@ -8,8 +8,6 @@ import {
   ProviderListPluginsInput,
   ProviderListSkillsInput,
   type ProviderListSkillsResult,
-  type OrchestratorProviderCapability,
-  type ProviderModelDescriptor,
   ProviderReadPluginInput,
   type ProviderSkillDescriptor,
 } from "@synara/contracts";
@@ -29,6 +27,7 @@ import {
   filterDisabledSkills,
   mergeSkillsIntoCatalog,
 } from "../skillsCatalog.ts";
+import { makeOrchestratorProviderCapabilities } from "../orchestratorCapabilities.ts";
 
 const decodeInputOrValidationError = <S extends Schema.Top>(input: {
   readonly operation: string;
@@ -58,32 +57,6 @@ const disabledCapabilitiesForProvider = (
   supportsRuntimeModelList: false,
   supportsThreadCompaction: false,
   supportsThreadImport: false,
-});
-
-function parseContextWindowTokens(value: string): number | undefined {
-  const normalized = value.trim().toLowerCase().replaceAll("_", "");
-  const match = /^(\d+(?:\.\d+)?)([km]?)$/.exec(normalized);
-  if (!match) return undefined;
-  const amount = Number(match[1]);
-  const multiplier = match[2] === "m" ? 1_000_000 : match[2] === "k" ? 1_000 : 1;
-  const tokens = amount * multiplier;
-  return Number.isSafeInteger(tokens) && tokens > 0 ? tokens : undefined;
-}
-
-function maximumModelContextWindow(model: ProviderModelDescriptor): number | undefined {
-  const values = [
-    ...(model.contextWindowOptions ?? []).map((option) => option.value),
-    ...(model.defaultContextWindow ? [model.defaultContextWindow] : []),
-  ]
-    .map(parseContextWindowTokens)
-    .filter((value): value is number => value !== undefined);
-  return values.length > 0 ? Math.max(...values) : undefined;
-}
-
-const unknownTelemetry = (reason: string, at: string) => ({
-  kind: "unknown" as const,
-  reason,
-  at,
 });
 
 const make = Effect.gen(function* () {
@@ -262,47 +235,17 @@ const make = Effect.gen(function* () {
         const models = yield* listModels(parsed);
         const adapter = yield* registry.getByProvider(parsed.provider);
         const adapterOrchestrator = adapter.capabilities.orchestrator;
-        const observedAt = new Date().toISOString();
-        return models.models.map((model): OrchestratorProviderCapability => {
-          const contextWindow = maximumModelContextWindow(model);
-          const runtimeUnknown = unknownTelemetry(
-            "No active provider session telemetry is part of model discovery.",
-            observedAt,
-          );
-          return {
-            provider: parsed.provider,
-            model: model.slug,
+        return makeOrchestratorProviderCapabilities({
+          provider: parsed.provider,
+          models: models.models,
+          source: models.source ?? "provider-model-discovery",
+          flags: {
             orchestratorCapable: isProviderAdapterOrchestratorCapable(adapter.capabilities),
             authoritativeRoleInstruction:
               adapterOrchestrator?.authoritativeRoleInstruction === true,
-            authenticatedMcp: adapterOrchestrator?.authenticatedMcp === true,
+            nativeTools: adapterOrchestrator?.nativeTools === true,
             independentSession: adapterOrchestrator?.independentSession === true,
-            contextWindow:
-              contextWindow === undefined
-                ? unknownTelemetry(
-                    "Provider model discovery did not expose a numeric context-window maximum.",
-                    observedAt,
-                  )
-                : {
-                    kind: "known",
-                    value: contextWindow,
-                    source: models.source ?? "provider-model-discovery",
-                    at: observedAt,
-                  },
-            inputTokens: runtimeUnknown,
-            outputTokens: runtimeUnknown,
-            cacheReadTokens: runtimeUnknown,
-            cacheWriteTokens: runtimeUnknown,
-            cacheTtlSeconds: unknownTelemetry(
-              "Provider model discovery did not expose a cache TTL.",
-              observedAt,
-            ),
-            estimatedCost: unknownTelemetry(
-              "No mechanically attributable session cost is available in model discovery.",
-              observedAt,
-            ),
-            observedAt,
-          };
+          },
         });
       });
 

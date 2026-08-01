@@ -15,15 +15,15 @@ import {
 describe("Orchestrator contracts", () => {
   it("exposes the exact agent tool catalogue without detach", () => {
     const tools = Schema.decodeUnknownSync(Schema.Array(OrchestratorToolName))([
-      "synara_task_process_create",
-      "synara_task_process_get",
-      "synara_orchestrator_assign_task",
-      "synara_orchestrator_read_child",
-      "synara_orchestrator_wait",
+      "create_task_process",
+      "read_task_process",
+      "assign_task",
+      "read_thread",
+      "wait_for_event",
     ]);
-    assert.equal(tools.includes("synara_orchestrator_assign_task"), true);
+    assert.equal(tools.includes("assign_task"), true);
     assert.throws(() =>
-      Schema.decodeUnknownSync(OrchestratorToolName)("synara_orchestrator_detach"),
+      Schema.decodeUnknownSync(OrchestratorToolName)("detach_child_thread"),
     );
   });
 

@@ -1,4 +1,5 @@
 import type { OrchestratorMessageEnvelope, ThreadId } from "@synara/contracts";
+import { orchestratorChildAlias } from "@synara/shared/orchestratorThreadAlias";
 import { createContext, useContext, type ReactNode } from "react";
 
 import { MessageCircleIcon } from "~/lib/icons";
@@ -26,7 +27,7 @@ export function OrchestratorTranscriptProvider(props: {
 }
 
 function threadLabel(context: OrchestratorTranscriptContextValue, threadId: ThreadId): string {
-  return context.threadLabels.get(threadId) ?? threadId;
+  return context.threadLabels.get(threadId) ?? orchestratorChildAlias(threadId);
 }
 
 export function OrchestratorThreadMessageRow(props: {

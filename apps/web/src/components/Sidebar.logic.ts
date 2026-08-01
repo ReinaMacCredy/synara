@@ -755,6 +755,84 @@ export interface SidebarThreadTreeRow<
   rootThreadId: T["id"];
 }
 
+export function buildOrchestratorSignalStack<
+  T extends Pick<
+    SidebarThreadSummary,
+    | "id"
+    | "parentThreadId"
+    | "updatedAt"
+    | "createdAt"
+    | "lastVisitedAt"
+    | "latestTurn"
+    | "hasLiveTailWork"
+    | "hasPendingApprovals"
+    | "hasPendingUserInput"
+    | "session"
+  >,
+>(input: {
+  readonly rootThreadIds: readonly T["id"][];
+  readonly threads: readonly T[];
+  readonly selectedThreadId?: T["id"] | undefined;
+  readonly limitPerRoot?: number | undefined;
+}): SidebarThreadTreeRow<T>[] {
+  const threadById = new Map(input.threads.map((thread) => [thread.id, thread] as const));
+  const rootByThreadId = new Map<T["id"], T["id"]>(
+    input.rootThreadIds.map((rootThreadId) => [rootThreadId, rootThreadId] as const),
+  );
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const thread of input.threads) {
+      if (!thread.parentThreadId || rootByThreadId.has(thread.id)) continue;
+      const rootThreadId = rootByThreadId.get(thread.parentThreadId);
+      if (!rootThreadId) continue;
+      rootByThreadId.set(thread.id, rootThreadId);
+      changed = true;
+    }
+  }
+
+  const rank = (thread: T): number => {
+    if (thread.id === input.selectedThreadId) return 0;
+    if (
+      thread.hasPendingApprovals ||
+      thread.hasPendingUserInput ||
+      thread.session?.status === "error"
+    ) {
+      return 1;
+    }
+    if (isThreadActivelyWorking(thread)) return 2;
+    if (hasUnseenCompletion(thread)) return 3;
+    return 4;
+  };
+  const timestamp = (thread: T): number =>
+    Date.parse(thread.updatedAt ?? thread.createdAt) || Number.NEGATIVE_INFINITY;
+  const limit = Math.max(1, Math.min(input.limitPerRoot ?? 5, 8));
+  const rows: SidebarThreadTreeRow<T>[] = [];
+
+  for (const rootThreadId of input.rootThreadIds) {
+    const root = threadById.get(rootThreadId);
+    if (!root) continue;
+    rows.push({ thread: root, depth: 0, rootThreadId });
+    const candidates = input.threads
+      .filter(
+        (thread) => thread.id !== rootThreadId && rootByThreadId.get(thread.id) === rootThreadId,
+      )
+      .toSorted(
+        (left, right) =>
+          rank(left) - rank(right) ||
+          timestamp(right) - timestamp(left) ||
+          left.id.localeCompare(right.id),
+      );
+    const quiet = candidates.find((thread) => rank(thread) === 4);
+    const signals = candidates.filter((thread) => rank(thread) < 4);
+    if (quiet) signals.push(quiet);
+    for (const thread of signals.slice(0, limit)) {
+      rows.push({ thread, depth: 1, rootThreadId });
+    }
+  }
+  return rows;
+}
+
 function collectActiveThreadAncestorIds<
   T extends Pick<SidebarThreadSummary, "id" | "parentThreadId">,
 >(threadById: Map<T["id"], T>, forceVisibleThreadId: T["id"] | undefined): Set<T["id"]> {

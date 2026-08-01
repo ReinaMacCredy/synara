@@ -14,6 +14,7 @@ import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor"
 import { OrchestrationReactorLive } from "./orchestration/Layers/OrchestrationReactor";
 import { OrchestratorMailboxLive } from "./orchestration/Layers/OrchestratorMailbox";
 import { OrchestratorMonitorLive } from "./orchestration/Layers/OrchestratorMonitor";
+import { OrchestratorToolRuntimeConfiguredLive } from "./orchestration/Layers/OrchestratorToolRuntime";
 import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderCommandReactor";
 import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRuntimeIngestion";
 import { RuntimeReceiptBusLive } from "./orchestration/Layers/RuntimeReceiptBus";
@@ -77,6 +78,7 @@ export function makeServerRuntimeServicesLayer(
 
   const runtimeServicesLayer = Layer.mergeAll(
     OrchestrationLayerLive,
+    OrchestratorToolRuntimeConfiguredLive,
     checkpointStoreLayer,
     checkpointDiffQueryLayer,
     RuntimeReceiptBusLive,

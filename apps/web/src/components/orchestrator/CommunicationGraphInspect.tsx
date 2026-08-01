@@ -6,7 +6,7 @@ import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "~/components/
 import { LinkIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 
-import { threadLabel } from "./orchestratorViewModel";
+import { communicationLinksForSelection, threadLabel } from "./orchestratorViewModel";
 
 function linkScope(link: OrchestratorCommunicationLink): string {
   if (link.taskId) return `Task ${link.taskId}`;
@@ -15,16 +15,17 @@ function linkScope(link: OrchestratorCommunicationLink): string {
 }
 
 export function CommunicationGraphInspect(props: {
+  readonly rootThreadId: ThreadId;
   readonly selectedThreadId: ThreadId;
   readonly links: readonly OrchestratorCommunicationLink[];
   readonly threadLabels: ReadonlyMap<ThreadId, string>;
   readonly onOpenThread: (threadId: ThreadId) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const links = props.links.filter(
-    (link) =>
-      link.sourceThreadId === props.selectedThreadId ||
-      link.targetThreadId === props.selectedThreadId,
+  const links = communicationLinksForSelection(
+    props.rootThreadId,
+    props.selectedThreadId,
+    props.links,
   );
 
   return (

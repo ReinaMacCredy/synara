@@ -59,6 +59,7 @@ export const ORCHESTRATION_WS_METHODS = {
   subscribeThread: "orchestration.subscribeThread",
   unsubscribeThread: "orchestration.unsubscribeThread",
   listOrchestratorRoots: "orchestration.listOrchestratorRoots",
+  listNativeOrchestratorTools: "orchestration.listNativeOrchestratorTools",
   getOrchestratorSnapshot: "orchestration.getOrchestratorSnapshot",
   listOrchestratorExchanges: "orchestration.listOrchestratorExchanges",
   listOrchestratorArtifacts: "orchestration.listOrchestratorArtifacts",
@@ -280,6 +281,7 @@ export const ThreadCreationSource = Schema.Literals([
   "synara_mcp",
   "external_mcp",
   "provider_native",
+  "orchestrator_native",
 ]);
 export type ThreadCreationSource = typeof ThreadCreationSource.Type;
 export const ProviderReviewTarget = Schema.Union([

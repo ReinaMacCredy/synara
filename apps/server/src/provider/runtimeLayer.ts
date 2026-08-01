@@ -23,6 +23,7 @@ import { makeDurableProviderServiceLive } from "./Layers/ProviderService";
 import { ProviderSessionDirectoryLive } from "./Layers/ProviderSessionDirectory";
 import { ProviderSessionRuntimeRepositoryLive } from "../persistence/Layers/ProviderSessionRuntime";
 import { ProviderRuntimeEventRepositoryLive } from "../persistence/Layers/ProviderRuntimeEvents";
+import { OrchestratorToolRuntimeConfiguredLive } from "../orchestration/Layers/OrchestratorToolRuntime";
 
 export function makeServerProviderLayer(
   options: {
@@ -51,9 +52,12 @@ export function makeServerProviderLayer(
     // the same MCP catalog/dispatcher through its native custom-tool API.
     const agentGatewayCredentialsLayer =
       options.agentGatewayCredentialsLayer ?? AgentGatewayCredentialsWithSecretsLive;
-    const codexAdapterLayer = makeCodexAdapterLive(
-      nativeEventLogger ? { nativeEventLogger } : undefined,
-    ).pipe(Layer.provide(agentGatewayCredentialsLayer));
+      const codexAdapterLayer = makeCodexAdapterLive(
+        nativeEventLogger ? { nativeEventLogger } : undefined,
+      ).pipe(
+        Layer.provide(agentGatewayCredentialsLayer),
+        Layer.provide(OrchestratorToolRuntimeConfiguredLive),
+      );
     const claudeAdapterLayer = makeClaudeAdapterLive(
       nativeEventLogger ? { nativeEventLogger } : undefined,
     ).pipe(Layer.provide(agentGatewayCredentialsLayer));

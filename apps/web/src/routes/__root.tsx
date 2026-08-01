@@ -1493,6 +1493,12 @@ function EventRouter() {
     reconcileThreadSubscriptionsRef.current = (threadIds) =>
       enqueueThreadSubscriptionReconcile(threadIds);
 
+    const unsubAggregateDomainEvent = api.orchestration.onDomainEvent((event) => {
+      if (shouldInvalidateOrchestratorQueriesForEvent(event)) {
+        queueDomainEvent(event);
+      }
+    });
+
     const unsubShellEvent = api.orchestration.onShellEvent((item) => {
       if (item.kind === "snapshot") {
         shellSnapshotSequence = item.snapshot.snapshotSequence;
@@ -1893,6 +1899,7 @@ function EventRouter() {
           api.orchestration.unsubscribeThread({ threadId }).catch(() => undefined),
         ),
       );
+      unsubAggregateDomainEvent();
       unsubShellEvent();
       unsubThreadEvent();
       unsubThreadStreamFailure();

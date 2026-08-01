@@ -40,6 +40,41 @@ describe("orchestratorRoots", () => {
     });
   });
 
+  it("uses Orchestrator creation provenance for independent child containment", () => {
+    const rootId = ThreadId.makeUnsafe("root");
+    const childId = ThreadId.makeUnsafe("child");
+    const grandchildId = ThreadId.makeUnsafe("grandchild");
+    const ordinaryId = ThreadId.makeUnsafe("ordinary");
+    const threads = [
+      { id: rootId, parentThreadId: null, sourceThreadId: null, creationSource: "user" },
+      {
+        id: childId,
+        parentThreadId: null,
+        sourceThreadId: rootId,
+        creationSource: "orchestrator_native",
+      },
+      {
+        id: grandchildId,
+        parentThreadId: null,
+        sourceThreadId: childId,
+        creationSource: "orchestrator_native",
+      },
+      {
+        id: ordinaryId,
+        parentThreadId: null,
+        sourceThreadId: rootId,
+        creationSource: "user",
+      },
+      ];
+
+      const ids = collectOrchestratorThreadIds([root("root", "2026-01-01T00:00:00.000Z")], threads);
+      expect([...ids]).toEqual([rootId, childId, grandchildId]);
+      expect(partitionThreadsByOrchestratorMembership(threads, ids)).toEqual({
+        ordinaryThreads: [threads[3]],
+        orchestratorThreads: threads.slice(0, 3),
+      });
+    });
+
   it("sorts active and archived roots by their latest lifecycle timestamp", () => {
     expect(
       sortOrchestratorRoots([

@@ -306,7 +306,7 @@ export const decideOrchestratorCommand = Effect.fn("decideOrchestratorCommand")(
       });
     }
 
-    case "orchestrator.child.attach": {
+      case "orchestrator.child.attach": {
       if (!hasCapability(state, command, "child.assign")) {
         return yield* reject(command.type, "Actor lacks child.assign capability.");
       }
@@ -374,42 +374,20 @@ export const decideOrchestratorCommand = Effect.fn("decideOrchestratorCommand")(
         retiredAt: null,
         decisionReason: command.decisionReason,
       } as const;
-      const defaultLink = {
-        id: OrchestratorLinkId.makeUnsafe(
-          `ownership:${command.rootThreadId}:${command.childThreadId}:${contractVersion}`,
-        ),
-        rootThreadId: command.rootThreadId,
-        sourceThreadId: command.parentThreadId,
-        targetThreadId: command.childThreadId,
-        direction: "bidirectional" as const,
-        taskId: null,
-        runId: null,
-        capabilities: ["message.send" as const],
-        requestedBy: command.actor,
-        grantedBy: command.actor,
-        reason: "Default parent-child communication link",
-        state: "granted" as const,
-        createdAt: command.createdAt,
-        expiresAt: null,
-        updatedAt: command.createdAt,
-      };
-      return [
-        event({
+        return event({
           command,
           acceptedRevision,
           type: "orchestrator.child.attached",
           root,
           payload: { ownershipEdge },
-        }),
-        event({
-          command,
-          acceptedRevision,
-          type: "orchestrator.link.set",
-          root,
-          payload: { link: defaultLink },
-        }),
-      ];
-    }
+        });
+      }
+
+      case "orchestrator.child.create":
+        return yield* reject(
+          command.type,
+          "Child creation must be expanded by the orchestration engine transaction boundary.",
+        );
 
     case "orchestrator.child.retire": {
       if (!hasCapability(state, command, "child.retire")) {

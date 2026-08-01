@@ -114,6 +114,8 @@ import {
   ListOrchestratorExchangesResult,
   ListOrchestratorRootsInput,
   ListOrchestratorRootsResult,
+  ListNativeOrchestratorToolsInput,
+  ListNativeOrchestratorToolsResult,
   OrchestratorArtifact,
   OrchestratorCommandResult,
   ReadOrchestratorArtifactInput,
@@ -372,6 +374,14 @@ export const WsOrchestrationUnsubscribeThreadRpc = Rpc.make(
 export const WsOrchestrationListOrchestratorRootsRpc = Rpc.make(
   ORCHESTRATION_WS_METHODS.listOrchestratorRoots,
   { payload: ListOrchestratorRootsInput, success: ListOrchestratorRootsResult, error: WsRpcError },
+);
+export const WsOrchestrationListNativeOrchestratorToolsRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.listNativeOrchestratorTools,
+  {
+    payload: ListNativeOrchestratorToolsInput,
+    success: ListNativeOrchestratorToolsResult,
+    error: WsRpcError,
+  },
 );
 export const WsOrchestrationGetOrchestratorSnapshotRpc = Rpc.make(
   ORCHESTRATION_WS_METHODS.getOrchestratorSnapshot,
@@ -1089,7 +1099,7 @@ export const WsSubscribeAutomationEventsRpc = Rpc.make(WS_METHODS.subscribeAutom
 
 export const WsBootstrapRpcGroup = RpcGroup.make(WsBootstrapNegotiateRpc);
 
-export const WsFeatureRpcGroup = RpcGroup.make(
+const WsOrchestrationFeatureRpcGroup = RpcGroup.make(
   WsOrchestrationDispatchCommandRpc,
   WsOrchestrationImportThreadRpc,
   WsOrchestrationGetSnapshotRpc,
@@ -1107,6 +1117,7 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsOrchestrationUnsubscribeThreadRpc,
   WsOrchestrationSubscribeDomainEventsRpc,
   WsOrchestrationListOrchestratorRootsRpc,
+  WsOrchestrationListNativeOrchestratorToolsRpc,
   WsOrchestrationGetOrchestratorSnapshotRpc,
   WsOrchestrationListOrchestratorExchangesRpc,
   WsOrchestrationListOrchestratorArtifactsRpc,
@@ -1122,6 +1133,9 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsOrchestrationGetTaskProcessGraphRpc,
   WsOrchestrationGetSessionProgressRpc,
   WsOrchestrationDispatchTaskProcessCommandRpc,
+);
+
+const WsProjectFeatureRpcGroup = RpcGroup.make(
   WsProjectsDiscoverScriptsRpc,
   WsProjectsListDirectoriesRpc,
   WsProjectsSearchEntriesRpc,
@@ -1135,6 +1149,9 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsSubscribeProjectDevServerEventsRpc,
   WsFilesystemBrowseRpc,
   WsShellOpenInEditorRpc,
+);
+
+const WsGitFeatureRpcGroup = RpcGroup.make(
   WsGitGithubRepositoryRpc,
   WsGitStatusRpc,
   WsGitReadWorkingTreeDiffRpc,
@@ -1166,6 +1183,9 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsGitStageFilesRpc,
   WsGitUnstageFilesRpc,
   WsGitHandoffThreadRpc,
+);
+
+const WsTerminalServerFeatureRpcGroup = RpcGroup.make(
   WsTerminalOpenRpc,
   WsTerminalWriteRpc,
   WsTerminalAckOutputRpc,
@@ -1200,6 +1220,9 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsSubscribeServerConfigRpc,
   WsSubscribeServerProviderStatusesRpc,
   WsSubscribeServerSettingsRpc,
+);
+
+const WsProviderAutomationFeatureRpcGroup = RpcGroup.make(
   WsProviderGetComposerCapabilitiesRpc,
   WsProviderCompactThreadRpc,
   WsProviderListCommandsRpc,
@@ -1222,5 +1245,19 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsSubscribeAutomationEventsRpc,
 );
 
+export type WsFeatureRpc =
+  | RpcGroup.Rpcs<typeof WsOrchestrationFeatureRpcGroup>
+  | RpcGroup.Rpcs<typeof WsProjectFeatureRpcGroup>
+  | RpcGroup.Rpcs<typeof WsGitFeatureRpcGroup>
+  | RpcGroup.Rpcs<typeof WsTerminalServerFeatureRpcGroup>
+  | RpcGroup.Rpcs<typeof WsProviderAutomationFeatureRpcGroup>;
+export const WsFeatureRpcGroup: RpcGroup.RpcGroup<WsFeatureRpc> =
+  WsOrchestrationFeatureRpcGroup.merge(
+    WsProjectFeatureRpcGroup,
+    WsGitFeatureRpcGroup,
+    WsTerminalServerFeatureRpcGroup,
+    WsProviderAutomationFeatureRpcGroup,
+  );
+
 /** @deprecated Use WsFeatureRpcGroup. Bootstrap is intentionally a separate endpoint/group. */
-export const WsRpcGroup = WsFeatureRpcGroup;
+export const WsRpcGroup: RpcGroup.RpcGroup<WsFeatureRpc> = WsFeatureRpcGroup;

@@ -555,6 +555,8 @@ describe("store projection", () => {
 
     expect(thread?.creationSource).toBe("synara_mcp");
     expect(thread?.sourceThreadId).toBe(sourceThreadId);
+    expect(next.sidebarThreadSummaryById[thread!.id]?.creationSource).toBe("synara_mcp");
+    expect(next.sidebarThreadSummaryById[thread!.id]?.sourceThreadId).toBe(sourceThreadId);
   });
 
   it("evicts high-cardinality thread detail while preserving its shell and sidebar summary", () => {

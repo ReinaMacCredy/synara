@@ -275,7 +275,7 @@ function makeFakeCodexAdapter(
         ? {
             orchestrator: {
               authoritativeRoleInstruction: true,
-              authenticatedMcp: true,
+              nativeTools: true,
               independentSession: true,
               instructionChannel:
                 provider === "codex"
@@ -386,6 +386,9 @@ it("renders authenticated thread-origin input without impersonating the user", (
   });
 
   assert.match(rendered, /not a human user message/);
+  assert.match(rendered, /native Send message tool/);
+  assert.match(rendered, /replyToMessageId/);
+  assert.match(rendered, /native conversation ceiling/);
   assert.match(rendered, /"senderThreadId":"sender-thread"/);
   assert.match(rendered, /"body":"Please review the lifecycle edge\."/);
 });
@@ -784,6 +787,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
 
       const adapterInput = routing.codex.sendTurn.mock.calls[0]?.[0];
       assert.match(adapterInput?.input ?? "", /not a human user message/);
+      assert.match(adapterInput?.input ?? "", /native Send message tool/);
       assert.match(adapterInput?.input ?? "", /"senderThreadId":"sender-thread"/);
       assert.match(adapterInput?.input ?? "", /"body":"Review the proposal\."/);
       yield* provider.stopSession({ threadId });

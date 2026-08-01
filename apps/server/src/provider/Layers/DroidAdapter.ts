@@ -2287,12 +2287,6 @@ export function makeDroidAdapter(
       capabilities: {
         sessionModelSwitch: "restart-session",
         conversationRollback: "restart-session",
-        orchestrator: {
-          authoritativeRoleInstruction: true,
-          authenticatedMcp: agentGatewayCredentials !== undefined,
-          independentSession: true,
-          instructionChannel: "acp-process-system-prompt",
-        },
       },
       startSession,
       sendTurn,

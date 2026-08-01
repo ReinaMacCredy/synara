@@ -311,7 +311,7 @@ describe("ProviderDiscoveryService.listOrchestratorCapabilities", () => {
           sessionModelSwitch: "in-session",
           orchestrator: {
             authoritativeRoleInstruction: true,
-            authenticatedMcp: true,
+            nativeTools: true,
             independentSession: true,
             instructionChannel: "acp-process-system-prompt",
           },
@@ -338,7 +338,7 @@ describe("ProviderDiscoveryService.listOrchestratorCapabilities", () => {
       model: "cursor-model",
       orchestratorCapable: true,
       authoritativeRoleInstruction: true,
-      authenticatedMcp: true,
+      nativeTools: true,
       independentSession: true,
       contextWindow: { kind: "known", value: 1_000_000, source: "cursor.cli" },
       inputTokens: { kind: "unknown" },
@@ -367,7 +367,7 @@ describe("ProviderDiscoveryService.listOrchestratorCapabilities", () => {
     expect(capabilities[0]).toMatchObject({
       orchestratorCapable: false,
       authoritativeRoleInstruction: false,
-      authenticatedMcp: false,
+      nativeTools: false,
       independentSession: false,
       contextWindow: { kind: "unknown" },
     });

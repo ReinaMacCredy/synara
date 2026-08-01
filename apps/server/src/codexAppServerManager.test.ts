@@ -125,6 +125,47 @@ describe("Codex Synara harness policy", () => {
       rmSync(homePath, { recursive: true, force: true });
     }
   });
+
+  it("does not expose Agent Gateway MCP configuration or credentials to Orchestrator sessions", async () => {
+    const homePath = mkdtempSync(path.join(os.tmpdir(), "synara-codex-native-orchestrator-"));
+    const previousSynaraHome = process.env.SYNARA_HOME;
+    process.env.SYNARA_HOME = path.join(homePath, "synara-home");
+    try {
+      const manager = new CodexAppServerManager(undefined, {
+        agentGatewayMcp: {
+          endpointUrl: () => "http://127.0.0.1:48123/mcp",
+          acquireSessionLease: () => ({
+            connection: { url: "http://127.0.0.1:48123/mcp", bearerToken: "token" },
+            cancelTurn: () => Promise.resolve(),
+            retireTurn: () => Promise.resolve(),
+            release: () => undefined,
+          }),
+        },
+      });
+      const env = await (
+        manager as unknown as {
+          buildSessionProcessEnv: (
+            homePath: string | undefined,
+            token: string | undefined,
+            includeAgentGatewayMcp: boolean,
+          ) => Promise<NodeJS.ProcessEnv>;
+        }
+      ).buildSessionProcessEnv(homePath, "secret-token", false);
+      const configPath = path.join(env.CODEX_HOME ?? homePath, "config.toml");
+      const config = readFileSync(configPath, "utf8");
+
+      expect(config).not.toContain("48123/mcp");
+      expect(config).not.toContain("synara-agent-gateway");
+      expect(env.SYNARA_AGENT_GATEWAY_TOKEN).toBeUndefined();
+    } finally {
+      if (previousSynaraHome === undefined) {
+        delete process.env.SYNARA_HOME;
+      } else {
+        process.env.SYNARA_HOME = previousSynaraHome;
+      }
+      rmSync(homePath, { recursive: true, force: true });
+    }
+  });
 });
 
 function createSendTurnHarness(runtimeMode: RuntimeMode = "full-access") {

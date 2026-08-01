@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildOrchestratorSignalStack,
   buildProjectThreadTree,
   createSidebarThreadHoverAnchorId,
   derivePinnedProjectIdsForSidebar,
@@ -1176,6 +1177,58 @@ describe("buildProjectThreadTree", () => {
       [ThreadId.makeUnsafe("thread-parent"), 0],
       [ThreadId.makeUnsafe("thread-child"), 1],
       [ThreadId.makeUnsafe("thread-grandchild"), 2],
+    ]);
+  });
+});
+
+describe("buildOrchestratorSignalStack", () => {
+  it("keeps the Root and prioritizes selected, attention, running, unseen, then one quiet child", () => {
+    const rootId = ThreadId.makeUnsafe("thread-root");
+    const rows = buildOrchestratorSignalStack({
+      rootThreadIds: [rootId],
+      selectedThreadId: ThreadId.makeUnsafe("thread-selected"),
+      threads: [
+        makeSidebarThreadSummary({ id: rootId, parentThreadId: null, title: "Root" }),
+        makeSidebarThreadSummary({
+          id: ThreadId.makeUnsafe("thread-quiet-new"),
+          parentThreadId: rootId,
+          updatedAt: "2026-03-09T10:06:00.000Z",
+        }),
+        makeSidebarThreadSummary({
+          id: ThreadId.makeUnsafe("thread-unseen"),
+          parentThreadId: rootId,
+          lastVisitedAt: "2026-03-09T10:01:00.000Z",
+          latestTurn: makeLatestTurn({ completedAt: "2026-03-09T10:05:00.000Z" }),
+        }),
+        makeSidebarThreadSummary({
+          id: ThreadId.makeUnsafe("thread-running"),
+          parentThreadId: rootId,
+          hasLiveTailWork: true,
+        }),
+        makeSidebarThreadSummary({
+          id: ThreadId.makeUnsafe("thread-attention"),
+          parentThreadId: rootId,
+          hasPendingApprovals: true,
+        }),
+        makeSidebarThreadSummary({
+          id: ThreadId.makeUnsafe("thread-selected"),
+          parentThreadId: rootId,
+        }),
+        makeSidebarThreadSummary({
+          id: ThreadId.makeUnsafe("thread-quiet-old"),
+          parentThreadId: rootId,
+          updatedAt: "2026-03-09T10:00:00.000Z",
+        }),
+      ],
+    });
+
+    expect(rows.map((row) => [row.thread.id, row.depth])).toEqual([
+      [rootId, 0],
+      [ThreadId.makeUnsafe("thread-selected"), 1],
+      [ThreadId.makeUnsafe("thread-attention"), 1],
+      [ThreadId.makeUnsafe("thread-running"), 1],
+      [ThreadId.makeUnsafe("thread-unseen"), 1],
+      [ThreadId.makeUnsafe("thread-quiet-new"), 1],
     ]);
   });
 });

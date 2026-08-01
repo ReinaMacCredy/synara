@@ -1,4 +1,5 @@
 import type { AssignmentContract, OrchestratorSnapshot, ThreadId } from "@synara/contracts";
+import { orchestratorChildAlias } from "@synara/shared/orchestratorThreadAlias";
 import { useMemo, useState } from "react";
 
 import { Button } from "~/components/ui/button";
@@ -88,7 +89,8 @@ function TeamNode(props: {
           >
             <span className="flex min-w-0 items-center gap-1.5">
               <span className="truncate text-xs font-medium">
-                {thread?.title ?? props.node.threadId}
+                  {thread?.title ??
+                    (isRoot ? props.node.threadId : orchestratorChildAlias(props.node.threadId))}
               </span>
               <span className="rounded-full bg-muted px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-muted-foreground">
                 {role.replaceAll("_", " ")}
@@ -120,7 +122,7 @@ function TeamNode(props: {
               onClick={() => {
                 if (
                   window.confirm(
-                    `Detach ${thread?.title ?? props.node.threadId} from this Orchestrator? Its thread history will be preserved.`,
+                      `Detach ${thread?.title ?? orchestratorChildAlias(props.node.threadId)} from this Orchestrator? Its thread history will be preserved.`,
                   )
                 ) {
                   void props.onDetachChild(props.node.threadId);
@@ -201,6 +203,7 @@ export function TeamPanel(props: {
         />
         <div className="mt-2 border-t border-border/70 pt-2">
           <CommunicationGraphInspect
+            rootThreadId={props.snapshot.root.rootThreadId}
             selectedThreadId={props.selectedThreadId}
             links={props.snapshot.communicationLinks}
             threadLabels={props.threadLabels}
