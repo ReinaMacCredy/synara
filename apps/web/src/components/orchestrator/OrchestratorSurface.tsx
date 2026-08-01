@@ -226,9 +226,7 @@ export function OrchestratorSurface(props: {
                 onOpenBrowserUrl={noopChatSurfaceAction}
                 onOpenTurnDiff={noopChatSurfaceAction}
                 adjacentRightDockOpen={displayDockState.open}
-                onToggleAdjacentRightDock={() =>
-                  setDockOpen(rootThreadId, !displayDockState.open)
-                }
+                onAdjacentRightDockOpenChange={(open) => setDockOpen(rootThreadId, open)}
                 onOpenSessionProgressProcess={openProcessPane}
               />
             ) : (
@@ -247,7 +245,7 @@ export function OrchestratorSurface(props: {
         addMenuKinds={[]}
         motionKey={rootThreadId}
         paneClosable={false}
-        collapsible
+        collapsible={false}
         onSelectPane={(paneId) => setActivePane(rootThreadId, paneId)}
         onClosePane={noopChatSurfaceAction}
         onCollapse={() => setDockOpen(rootThreadId, false)}

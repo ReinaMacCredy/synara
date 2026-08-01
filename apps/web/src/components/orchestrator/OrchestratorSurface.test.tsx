@@ -125,6 +125,32 @@ describe("Orchestrator surface view model", () => {
       expect(source).toContain("setDockOpen(rootThreadId, true)");
     });
 
+    it("uses one chat-header affordance to show and hide the whole Orchestrator dock", () => {
+      const surfaceSource = readFileSync(
+        new URL("./OrchestratorSurface.tsx", import.meta.url),
+        "utf8",
+      );
+      const chatViewSource = readFileSync(new URL("../ChatView.tsx", import.meta.url), "utf8");
+      const chatHeaderSource = readFileSync(
+        new URL("../chat/ChatHeader.tsx", import.meta.url),
+        "utf8",
+      );
+
+      expect(surfaceSource).toContain("adjacentRightDockOpen={displayDockState.open}");
+      expect(surfaceSource).toContain(
+        "onAdjacentRightDockOpenChange={(open) => setDockOpen(rootThreadId, open)}",
+      );
+      expect(surfaceSource).toContain("collapsible={false}");
+      expect(chatViewSource).toContain("rightPanelToggle={");
+      expect(chatViewSource).toContain(
+        "showDiffToggle={!isEditorRail && !onAdjacentRightDockOpenChange}",
+      );
+      expect(chatHeaderSource).toContain('aria-label={');
+      expect(chatHeaderSource).toContain('"Hide orchestration panel"');
+      expect(chatHeaderSource).toContain('"Show orchestration panel"');
+      expect(chatHeaderSource).toContain("aria-expanded={rightPanelToggle.open}");
+    });
+
   it("matches a task-scoped sibling link for direct peer exchanges without an assignment", () => {
     const peerExchange = {
       ...exchange({ id: "peer-message", createdAt: "2026-08-01T00:00:00.000Z" }),

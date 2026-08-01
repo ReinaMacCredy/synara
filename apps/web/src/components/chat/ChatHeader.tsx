@@ -119,6 +119,10 @@ interface ChatHeaderProps {
     label: string;
     onClick: () => void;
   } | null;
+  rightPanelToggle?: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+  } | null;
   // Editor-rail chat controls rendered beside the title: a "new chat" button and
   // a project chat-history menu. Provided only by the editor workspace chat pane.
   editorChatControls?: {
@@ -524,6 +528,7 @@ export function ChatHeader({
   environment: environmentProp,
   chatLayoutAction: chatLayoutActionProp,
   changeThreadAction: changeThreadActionProp,
+  rightPanelToggle: rightPanelToggleProp,
   editorChatControls: editorChatControlsProp,
   onRunProjectScript,
   onAddProjectScript,
@@ -546,6 +551,7 @@ export function ChatHeader({
   const environment = environmentProp ?? null;
   const chatLayoutAction = chatLayoutActionProp ?? null;
   const changeThreadAction = changeThreadActionProp ?? null;
+  const rightPanelToggle = rightPanelToggleProp ?? null;
   const editorChatControls = editorChatControlsProp ?? null;
   const { isMobile, state } = useSidebar();
   const headerRef = useRef<HTMLDivElement>(null);
@@ -636,6 +642,34 @@ export function ChatHeader({
             : diffToggleShortcutLabel
               ? `Toggle diff panel (${diffToggleShortcutLabel})`
               : "Toggle diff panel"}
+      </TooltipPopup>
+    </Tooltip>
+  ) : null;
+
+  const rightPanelToggleControl = rightPanelToggle ? (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Toggle
+            className={cn(
+              CHAT_HEADER_TOGGLE_CLASS_NAME,
+              "!size-7 [&_svg,&_[data-slot=central-icon]]:mx-0",
+            )}
+            pressed={rightPanelToggle.open}
+            onPressedChange={rightPanelToggle.onOpenChange}
+            aria-label={
+              rightPanelToggle.open ? "Hide orchestration panel" : "Show orchestration panel"
+            }
+            aria-expanded={rightPanelToggle.open}
+            variant="default"
+            size="xs"
+          >
+            <SurfaceChipIcon icon={PanelRightCloseIcon} className="size-4" />
+          </Toggle>
+        }
+      />
+      <TooltipPopup side="bottom">
+        {rightPanelToggle.open ? "Hide orchestration panel" : "Show orchestration panel"}
       </TooltipPopup>
     </Tooltip>
   ) : null;
@@ -862,6 +896,7 @@ export function ChatHeader({
           <>
             <EnvironmentToggle environment={environment} />
             {diffToggleControl}
+            {rightPanelToggleControl}
           </>
         ) : (
           <>
@@ -884,6 +919,7 @@ export function ChatHeader({
               />
             ) : null}
             {diffToggleControl}
+            {rightPanelToggleControl}
           </>
         )}
       </div>

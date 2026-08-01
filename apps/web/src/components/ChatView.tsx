@@ -1098,7 +1098,7 @@ interface ChatViewProps {
   onChangeThreadInSplitPane?: () => void;
   onCloseThreadPane?: () => void;
   adjacentRightDockOpen?: boolean;
-  onToggleAdjacentRightDock?: () => void;
+  onAdjacentRightDockOpenChange?: (open: boolean) => void;
   orchestratorRootDraft?: {
     readonly onSelectProject: (projectId: ProjectId) => void;
   };
@@ -1162,7 +1162,7 @@ export default function ChatView({
   onChangeThreadInSplitPane,
   onCloseThreadPane,
   adjacentRightDockOpen: adjacentRightDockOpenProp,
-  onToggleAdjacentRightDock,
+  onAdjacentRightDockOpenChange,
   orchestratorRootDraft,
   onOpenSessionProgressProcess,
 }: ChatViewProps) {
@@ -4319,8 +4319,12 @@ export default function ChatView({
     () => ({
       threadId,
       onTogglePanel:
-        onToggleAdjacentRightDock ?? (hasRightDockPanes ? toggleRightDock : undefined),
-      isPanelOpen: onToggleAdjacentRightDock
+        onAdjacentRightDockOpenChange !== undefined
+          ? () => onAdjacentRightDockOpenChange(!adjacentRightDockOpen)
+          : hasRightDockPanes
+            ? toggleRightDock
+            : undefined,
+      isPanelOpen: onAdjacentRightDockOpenChange
         ? adjacentRightDockOpen
         : hasRightDockPanes
           ? rightDockOpen
@@ -4384,6 +4388,7 @@ export default function ChatView({
     [
       activeProject?.cwd,
       activateTerminal,
+      adjacentRightDockOpen,
       addTerminalContextToDraft,
       closeTerminal,
       closeTerminalShortcutLabel,
@@ -4394,6 +4399,7 @@ export default function ChatView({
       gitCwd,
       activeThreadId,
       newTerminalShortcutLabel,
+      onAdjacentRightDockOpenChange,
       setTerminalHeight,
       splitTerminalRight,
       splitTerminalDown,
@@ -11257,9 +11263,17 @@ export default function ChatView({
           gitCwd={threadWorkspaceCwd}
           diffTotals={repoDiffTotals}
           showGitActions={showGitActions && !isEditorRail}
-          showDiffToggle={!isEditorRail}
+          showDiffToggle={!isEditorRail && !onAdjacentRightDockOpenChange}
           diffOpen={resolvedDiffOpen}
           diffDisabledReason={diffDisabledReason}
+          rightPanelToggle={
+            onAdjacentRightDockOpenChange
+              ? {
+                  open: adjacentRightDockOpen,
+                  onOpenChange: onAdjacentRightDockOpenChange,
+                }
+              : null
+          }
           environment={isEditorRail ? null : environmentHeaderState}
           surfaceMode={surfaceMode}
           chatLayoutAction={
