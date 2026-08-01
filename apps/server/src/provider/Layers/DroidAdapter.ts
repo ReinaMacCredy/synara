@@ -75,6 +75,8 @@ import {
 } from "../acp/AcpAdapterSupport.ts";
 import {
   acceptAcpPlanUpdate,
+  acpOrchestratorSessionReceipt,
+  buildAcpOrchestratorSystemPrompt,
   clearAcpActiveTurn,
   finalizeAcpActiveTurnCost,
   makeAcpThreadLock,
@@ -831,8 +833,15 @@ export function makeDroidAdapter(
             shouldMirrorIncomingRaw: (payload) => payload.includes("droidShell"),
           });
           const providerDroidOptions = input.providerOptions?.droid;
+          const orchestratorSystemPrompt = buildAcpOrchestratorSystemPrompt({
+            baseInstruction: DROID_RESOURCE_DISCIPLINE_PROMPT,
+            ...(input.orchestratorContext !== undefined
+              ? { context: input.orchestratorContext }
+              : {}),
+          });
+          const orchestratorSession = acpOrchestratorSessionReceipt(input.orchestratorContext);
           const effectiveDroidSettings: DroidAcpRuntimeSettings = {
-            appendSystemPrompt: DROID_RESOURCE_DISCIPLINE_PROMPT,
+            ...(orchestratorSystemPrompt ? { appendSystemPrompt: orchestratorSystemPrompt } : {}),
             ...(droidSettings.binaryPath !== undefined
               ? { binaryPath: droidSettings.binaryPath }
               : {}),
@@ -863,6 +872,7 @@ export function makeDroidAdapter(
             ...(resumeSessionId ? { resumeSessionId } : {}),
             clientCapabilities: { elicitation: { form: {} } },
             clientInfo: { name: "Synara", version: "0.0.0" },
+            ...(orchestratorSession ? { orchestratorSession } : {}),
             ...(agentGatewayCredentials
               ? {
                   buildMcpServers: (initializeResult: Acp.InitializeResponse) =>
@@ -2277,6 +2287,12 @@ export function makeDroidAdapter(
       capabilities: {
         sessionModelSwitch: "restart-session",
         conversationRollback: "restart-session",
+        orchestrator: {
+          authoritativeRoleInstruction: true,
+          authenticatedMcp: agentGatewayCredentials !== undefined,
+          independentSession: true,
+          instructionChannel: "acp-process-system-prompt",
+        },
       },
       startSession,
       sendTurn,

@@ -74,6 +74,8 @@ interface RightDockProps {
   onAddPane: (kind: RightDockPaneKind) => void;
   motionKey?: string;
   activePaneRuntimeMode?: DockPaneRuntimeMode;
+  paneClosable?: boolean;
+  collapsible?: boolean;
   renderPane: (
     pane: RightDockPane,
     context: { runtimeMode: DockPaneRuntimeMode; isActive: boolean; isVisible: boolean },
@@ -86,7 +88,7 @@ function RightDockTab(props: {
   icon?: ReactNode;
   active: boolean;
   onSelect?: (() => void) | undefined;
-  onClose: () => void;
+  onClose?: (() => void) | undefined;
 }) {
   return (
     <SurfaceTabChip
@@ -246,7 +248,9 @@ export function RightDock(props: RightDockProps) {
                   icon={props.paneIconOverrides?.[pane.id]}
                   active={pane.id === props.state.activePaneId}
                   onSelect={onSelectPane ? () => onSelectPane(pane.id) : undefined}
-                  onClose={() => props.onClosePane(pane.id)}
+                  onClose={
+                    props.paneClosable === false ? undefined : () => props.onClosePane(pane.id)
+                  }
                 />
               ))}
             </div>
@@ -278,17 +282,19 @@ export function RightDock(props: RightDockProps) {
                 </ComposerPickerMenuPopup>
               </Menu>
             ) : null}
-            <IconButton
-              variant="chrome"
-              size="icon-xs"
-              label="Collapse panel"
-              tooltip="Collapse panel"
-              tooltipSide="bottom"
-              className={DOCK_HEADER_ICON_BUTTON_CLASS}
-              onClick={props.onCollapse}
-            >
-              <PanelRightCloseIcon />
-            </IconButton>
+            {props.collapsible === false ? null : (
+              <IconButton
+                variant="chrome"
+                size="icon-xs"
+                label="Collapse panel"
+                tooltip="Collapse panel"
+                tooltipSide="bottom"
+                className={DOCK_HEADER_ICON_BUTTON_CLASS}
+                onClick={props.onCollapse}
+              >
+                <PanelRightCloseIcon />
+              </IconButton>
+            )}
           </div>
           <div className="relative min-h-0 flex-1">
             {renderedPanes.map((pane) => {

@@ -111,10 +111,9 @@ export function resolveRuntimeModeAfterApprovalDecision(
   decision: ProviderApprovalDecision,
   requestKind?: ProviderRequestKind,
 ): RuntimeMode | null {
-  // Permission-profile grants are narrower than a runtime-mode override.
-  // Their acceptForSession decision is persisted by the provider for only
-  // that permission set and must not silently broaden the whole thread.
-  if (requestKind === "permissions") {
+  // Permission-profile and MCP-tool grants are narrower than a runtime-mode
+  // override. Their session decisions must not broaden the whole thread.
+  if (requestKind === "permissions" || requestKind === "mcp-tool") {
     return null;
   }
   if (decision === "acceptForSession" && currentRuntimeMode === "approval-required") {
@@ -566,13 +565,8 @@ export function resolveEnvironmentPanelVisible(input: {
   return input.environmentEnabled && input.environmentPanelOpen;
 }
 
-// Normal project toolbars stay stable while repository discovery is pending. Studio folders are
-// casual context, however, so they must opt into Git UI only after a positive repository result.
-export function resolveGitRepoUiState(input: {
-  isStudioContainer: boolean;
-  queriedIsRepo: boolean | undefined;
-}): boolean {
-  return input.queriedIsRepo ?? !input.isStudioContainer;
+export function resolveGitRepoUiState(input: { queriedIsRepo: boolean | undefined }): boolean {
+  return input.queriedIsRepo ?? true;
 }
 
 // The composer live strip prefers the turn's computed diff (the

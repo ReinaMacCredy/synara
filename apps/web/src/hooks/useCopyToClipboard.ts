@@ -141,7 +141,7 @@ export function useCopyToClipboard<TContext = void>({
 
 /**
  * Copy a filesystem path and surface the shared success/error toast. Single source
- * of truth for the "Path copied" affordance used by the sidebar and the kanban board.
+ * of truth for the "Path copied" affordance used by workspace surfaces.
  */
 export function useCopyPathToClipboard(): (path: string) => void {
   const { copyToClipboard } = useCopyToClipboard<{ path: string }>({

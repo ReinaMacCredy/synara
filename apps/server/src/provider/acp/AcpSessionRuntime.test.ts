@@ -8,9 +8,37 @@ import {
   awaitAcpChildExit,
   decodeSetSessionConfigOptionResponse,
   makeAcpIncomingFrameGuard,
+  mergeAcpSessionMeta,
   sessionConfigOptionsFromSetup,
   teardownAcpChildProcess,
 } from "./AcpSessionRuntime.ts";
+
+describe("mergeAcpSessionMeta", () => {
+  it("preserves provider metadata and attaches the Orchestrator audit receipt", () => {
+    expect(
+      mergeAcpSessionMeta(
+        { provider: "droid", synara: { existing: true } },
+        {
+          protocolVersion: 1,
+          rootThreadId: "root-1",
+          role: "participant",
+          instructionChannel: "acp-process-system-prompt",
+        },
+      ),
+    ).toEqual({
+      provider: "droid",
+      synara: {
+        existing: true,
+        orchestrator: {
+          protocolVersion: 1,
+          rootThreadId: "root-1",
+          role: "participant",
+          instructionChannel: "acp-process-system-prompt",
+        },
+      },
+    });
+  });
+});
 
 describe("makeAcpIncomingFrameGuard", () => {
   const encode = (value: string) => new TextEncoder().encode(value);

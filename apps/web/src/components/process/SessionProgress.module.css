@@ -1,0 +1,290 @@
+.root {
+  --session-progress-line: color-mix(in srgb, var(--color-border) 82%, transparent);
+  --session-progress-muted: var(--color-text-foreground-secondary);
+  color: var(--color-text-foreground);
+  background: var(--color-background-elevated-primary, var(--color-background));
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.composer {
+  border: 1px solid var(--session-progress-line);
+  border-radius: 14px 14px 0 0;
+}
+
+.inspector,
+.dock {
+  background: transparent;
+}
+
+.header {
+  display: flex;
+  width: 100%;
+  min-height: 38px;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: inherit;
+  text-align: left;
+  outline: none;
+}
+
+.header:hover,
+.header:focus-visible {
+  background: var(--color-background-button-secondary-hover);
+}
+
+.header:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--color-border-focus);
+}
+
+.headerBody,
+.itemBody {
+  min-width: 0;
+  flex: 1;
+}
+
+.headerTitle,
+.headerMeta,
+.itemTitle,
+.itemMeta {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.headerTitle {
+  font-weight: 550;
+}
+
+.headerMeta,
+.itemMeta,
+.footer {
+  color: var(--session-progress-muted);
+  font-size: 10px;
+}
+
+.progressPie {
+  --session-progress-percent: 0%;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border-radius: 50%;
+  background: conic-gradient(currentColor var(--session-progress-percent), transparent 0);
+  color: var(--color-text-foreground-secondary);
+  mask: radial-gradient(circle at center, transparent 42%, black 45%);
+}
+
+.completeHeaderGlyph {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--color-background);
+  background: var(--color-text-foreground);
+}
+
+.completeHeaderGlyph svg {
+  width: 12px;
+  height: 12px;
+}
+
+.count {
+  flex: none;
+  color: var(--session-progress-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.countChanged {
+  animation: session-progress-roll 260ms ease-out;
+}
+
+.chevronWrap {
+  position: relative;
+  display: grid;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  place-items: center;
+}
+
+.chevron,
+.chevronHover {
+  position: absolute;
+  transition:
+    opacity 140ms ease-out,
+    transform 140ms ease-out;
+}
+
+.chevronHover {
+  opacity: 0;
+  transform: scale(0.72);
+}
+
+.header:hover .chevron,
+.header:focus-visible .chevron {
+  opacity: 0;
+  transform: scale(1.18);
+}
+
+.header:hover .chevronHover,
+.header:focus-visible .chevronHover {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.disclosureContent {
+  border-top: 1px solid var(--session-progress-line);
+}
+
+.list {
+  display: grid;
+  gap: 1px;
+  padding: 6px;
+}
+
+.item {
+  display: flex;
+  width: 100%;
+  min-height: 30px;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: 8px;
+  text-align: left;
+}
+
+.item:hover,
+.item:focus-visible {
+  background: var(--color-background-button-secondary-hover);
+  outline: none;
+}
+
+.iconWrap {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  place-items: center;
+}
+
+.itemChanged {
+  animation: session-progress-enter 220ms ease-out;
+}
+
+.active .iconWrap {
+  animation: session-progress-spin 1.2s linear infinite;
+}
+
+.active .itemTitle {
+  background: linear-gradient(
+    90deg,
+    currentColor 15%,
+    var(--color-text-foreground-secondary) 48%,
+    currentColor 82%
+  );
+  background-size: 220% 100%;
+  background-clip: text;
+  color: transparent;
+  animation: session-progress-shimmer 2.4s ease-in-out infinite;
+}
+
+.complete .itemTitle {
+  color: var(--session-progress-muted);
+  text-decoration: line-through;
+}
+
+.blocked {
+  color: var(--color-warning, var(--color-text-foreground));
+}
+
+.failed {
+  color: var(--color-destructive, var(--color-text-foreground));
+}
+
+.cancelled {
+  color: var(--session-progress-muted);
+}
+
+.pendingGlyph {
+  opacity: 0.68;
+}
+
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px 9px;
+}
+
+.footer button {
+  color: var(--color-text-foreground);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.inspector .header,
+.dock .header {
+  padding-inline: 8px;
+}
+
+.inspector .list,
+.dock .list {
+  padding-inline: 2px;
+}
+
+@keyframes session-progress-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes session-progress-shimmer {
+  0%,
+  100% {
+    background-position: 100% 0;
+  }
+  50% {
+    background-position: 0 0;
+  }
+}
+
+@keyframes session-progress-roll {
+  from {
+    opacity: 0.35;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes session-progress-enter {
+  from {
+    opacity: 0.35;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .countChanged,
+  .itemChanged,
+  .active .iconWrap,
+  .active .itemTitle {
+    animation: none;
+  }
+
+  .chevron,
+  .chevronHover {
+    transition: none;
+  }
+}

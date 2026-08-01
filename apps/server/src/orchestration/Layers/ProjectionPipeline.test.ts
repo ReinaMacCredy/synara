@@ -6,6 +6,8 @@ import {
   EventId,
   MessageId,
   ProjectId,
+  ProjectTaskId,
+  TaskProcessId,
   ThreadId,
   TurnId,
 } from "@synara/contracts";
@@ -82,6 +84,228 @@ const exists = (filePath: string) =>
 const BaseTestLayer = makeProjectionPipelinePrefixedTestLayer("synara-projection-pipeline-test-");
 
 it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
+  it.effect("rebuilds the Orchestrator projection byte-equivalently", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const occurredAt = "2026-08-01T00:00:00.000Z";
+      const projectId = ProjectId.makeUnsafe("project-orchestrator-replay");
+      const rootThreadId = ThreadId.makeUnsafe("thread-orchestrator-replay");
+
+      yield* eventStore.append({
+        type: "project.created",
+        eventId: EventId.makeUnsafe("event-orchestrator-project"),
+        aggregateKind: "project",
+        aggregateId: projectId,
+        occurredAt,
+        commandId: CommandId.makeUnsafe("command-orchestrator-project"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("command-orchestrator-project"),
+        metadata: {},
+        payload: {
+          projectId,
+          kind: "project",
+          title: "Orchestrator replay",
+          workspaceRoot: "/tmp/project-orchestrator-replay",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt: occurredAt,
+          updatedAt: occurredAt,
+        },
+      });
+      yield* eventStore.append({
+        type: "thread.created",
+        eventId: EventId.makeUnsafe("event-orchestrator-thread"),
+        aggregateKind: "thread",
+        aggregateId: rootThreadId,
+        occurredAt,
+        commandId: CommandId.makeUnsafe("command-orchestrator-thread"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("command-orchestrator-thread"),
+        metadata: {},
+        payload: {
+          threadId: rootThreadId,
+          projectId,
+          title: "Root",
+          modelSelection: { provider: "codex", model: "gpt-5-codex" },
+          interactionMode: "default",
+          runtimeMode: "approval-required",
+          branch: null,
+          worktreePath: null,
+          createdAt: occurredAt,
+          updatedAt: occurredAt,
+        },
+      });
+      yield* eventStore.append({
+        type: "orchestrator.root.created",
+        eventId: EventId.makeUnsafe("event-orchestrator-root"),
+        aggregateKind: "orchestrator",
+        aggregateId: rootThreadId,
+        occurredAt,
+        commandId: CommandId.makeUnsafe("command-orchestrator-root"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("command-orchestrator-root"),
+        metadata: {},
+        payload: {
+          rootThreadId,
+          projectId,
+          actor: { kind: "user", actorId: "owner" },
+          protocolVersion: 1,
+          acceptedRevision: 1,
+          root: {
+            rootThreadId,
+            projectId,
+            protocolVersion: 1,
+            state: "active",
+            activeProcessId: null,
+            resourcePolicyVersion: 1,
+            revision: 1,
+            createdAt: occurredAt,
+            archivedAt: null,
+          },
+        },
+      });
+
+      yield* projectionPipeline.bootstrap;
+      const first = yield* sql<Record<string, unknown>>`
+        SELECT * FROM projection_orchestrator_roots WHERE root_thread_id = ${rootThreadId}
+      `;
+      yield* sql`DELETE FROM projection_orchestrator_roots WHERE root_thread_id = ${rootThreadId}`;
+      yield* sql`
+        DELETE FROM projection_state
+        WHERE projector = ${ORCHESTRATION_PROJECTOR_NAMES.orchestrator}
+      `;
+      yield* projectionPipeline.bootstrap;
+      const replayed = yield* sql<Record<string, unknown>>`
+        SELECT * FROM projection_orchestrator_roots WHERE root_thread_id = ${rootThreadId}
+      `;
+
+      assert.equal(JSON.stringify(replayed), JSON.stringify(first));
+      assert.equal(replayed[0]?.high_water_cursor, "3");
+    }),
+  );
+
+  it.effect("rebuilds the TaskProcess graph projection byte-equivalently", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const occurredAt = "2026-08-01T00:10:00.000Z";
+      const projectId = ProjectId.makeUnsafe("project-task-process-replay");
+      const processId = TaskProcessId.makeUnsafe("process-task-process-replay");
+      const taskId = ProjectTaskId.makeUnsafe("task-task-process-replay");
+      yield* eventStore.append({
+        type: "project.created",
+        eventId: EventId.makeUnsafe("event-task-process-project"),
+        aggregateKind: "project",
+        aggregateId: projectId,
+        occurredAt,
+        commandId: CommandId.makeUnsafe("command-task-process-project"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("command-task-process-project"),
+        metadata: {},
+        payload: {
+          projectId,
+          kind: "project",
+          title: "TaskProcess replay",
+          workspaceRoot: "/tmp/project-task-process-replay",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt: occurredAt,
+          updatedAt: occurredAt,
+        },
+      });
+      const process = {
+        id: processId,
+        projectId,
+        title: "Process",
+        owner: { kind: "user" as const },
+        state: "active" as const,
+        revision: 1,
+        createdAt: occurredAt,
+        updatedAt: occurredAt,
+      };
+      yield* eventStore.append({
+        type: "task-process.created",
+        eventId: EventId.makeUnsafe("event-task-process-created"),
+        aggregateKind: "task_process",
+        aggregateId: processId,
+        occurredAt,
+        commandId: CommandId.makeUnsafe("command-task-process-created"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("command-task-process-created"),
+        metadata: {},
+        payload: {
+          processId,
+          projectId,
+          actor: { kind: "user", actorId: "owner" },
+          acceptedRevision: 1,
+          mutation: {
+            graphRevision: 1,
+            affectedTasks: [],
+            newlyReadyTasks: [],
+            newlyBlockedTasks: [],
+          },
+          process,
+        },
+      });
+      yield* eventStore.append({
+        type: "project-task.created",
+        eventId: EventId.makeUnsafe("event-project-task-created"),
+        aggregateKind: "task_process",
+        aggregateId: processId,
+        occurredAt,
+        commandId: CommandId.makeUnsafe("command-project-task-created"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("command-project-task-created"),
+        metadata: {},
+        payload: {
+          processId,
+          projectId,
+          actor: { kind: "user", actorId: "owner" },
+          acceptedRevision: 2,
+          mutation: {
+            graphRevision: 2,
+            affectedTasks: [taskId],
+            newlyReadyTasks: [taskId],
+            newlyBlockedTasks: [],
+          },
+          process: { ...process, revision: 2 },
+          task: {
+            id: taskId,
+            processId,
+            parentTaskId: null,
+            title: "Task",
+            description: null,
+            acceptanceCriteria: [],
+            priority: "normal",
+            lifecycle: "planned",
+            orderKey: "a",
+            createdBy: { kind: "user", actorId: "owner" },
+            createdAt: occurredAt,
+            updatedAt: occurredAt,
+          },
+        },
+      });
+
+      yield* projectionPipeline.bootstrap;
+      const first = yield* sql<Record<string, unknown>>`
+        SELECT * FROM projection_project_tasks WHERE process_id = ${processId}
+      `;
+      yield* sql`DELETE FROM projection_task_processes WHERE process_id = ${processId}`;
+      yield* sql`
+        DELETE FROM projection_state WHERE projector = ${ORCHESTRATION_PROJECTOR_NAMES.taskProcess}
+      `;
+      yield* projectionPipeline.bootstrap;
+      const replayed = yield* sql<Record<string, unknown>>`
+        SELECT * FROM projection_project_tasks WHERE process_id = ${processId}
+      `;
+      assert.equal(JSON.stringify(replayed), JSON.stringify(first));
+      assert.equal(replayed[0]?.readiness, "ready");
+    }),
+  );
+
   it.effect("bootstraps all projection states and writes projection rows", () =>
     Effect.gen(function* () {
       const projectionPipeline = yield* OrchestrationProjectionPipeline;

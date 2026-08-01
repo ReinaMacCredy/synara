@@ -10,6 +10,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 import type {
+  OrchestratorProviderCapability,
   ProviderComposerCapabilities,
   ProviderKind,
   ProviderListModelsResult,
@@ -22,7 +23,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   deriveServerPaths,
   resolveDefaultChatWorkspaceRoot,
-  resolveDefaultStudioWorkspaceRoot,
   ServerConfig,
   type ServerConfigShape,
 } from "../../config.ts";
@@ -60,7 +60,6 @@ const makeConfigLayer = () =>
         cwd,
         homeDir,
         chatWorkspaceRoot: resolveDefaultChatWorkspaceRoot({ homeDir }),
-        studioWorkspaceRoot: resolveDefaultStudioWorkspaceRoot({ homeDir }),
         baseDir,
         ...derived,
         staticDir: undefined,
@@ -124,6 +123,35 @@ const runListModels = (input: {
   }).pipe(Effect.provide(testLayer));
   return Effect.runPromise(
     program as unknown as Effect.Effect<ProviderListModelsResult, never, never>,
+  );
+};
+
+const runOrchestratorCapabilities = (input: {
+  adapter: Partial<ProviderAdapterShape<ProviderAdapterError>>;
+  enabled: boolean;
+}) => {
+  const baseLayer = Layer.mergeAll(
+    makeConfigLayer(),
+    ServerSettingsService.layerTest({
+      providers: {
+        cursor: {
+          enabled: input.enabled,
+        },
+      },
+    }),
+    makeRegistryLayer(input.adapter),
+  ).pipe(Layer.provideMerge(NodeServices.layer));
+  const testLayer = ProviderDiscoveryServiceLive.pipe(Layer.provideMerge(baseLayer));
+  const program = Effect.gen(function* () {
+    const discovery = yield* ProviderDiscoveryService;
+    return yield* discovery.listOrchestratorCapabilities({ provider: "cursor" });
+  }).pipe(Effect.provide(testLayer));
+  return Effect.runPromise(
+    program as unknown as Effect.Effect<
+      ReadonlyArray<OrchestratorProviderCapability>,
+      never,
+      never
+    >,
   );
 };
 
@@ -271,5 +299,94 @@ describe("ProviderDiscoveryService.listModels", () => {
 
     expect(result.models).toEqual([{ slug: "cursor-model", name: "Cursor Model" }]);
     expect(adapterCalls).toBe(1);
+  });
+});
+
+describe("ProviderDiscoveryService.listOrchestratorCapabilities", () => {
+  it("reports only mechanically sourced context facts and preserves unknown telemetry", async () => {
+    const capabilities = await runOrchestratorCapabilities({
+      enabled: true,
+      adapter: {
+        capabilities: {
+          sessionModelSwitch: "in-session",
+          orchestrator: {
+            authoritativeRoleInstruction: true,
+            authenticatedMcp: true,
+            independentSession: true,
+            instructionChannel: "acp-process-system-prompt",
+          },
+        },
+        listModels: () =>
+          Effect.succeed({
+            models: [
+              {
+                slug: "cursor-model",
+                name: "Cursor Model",
+                contextWindowOptions: [{ value: "200k", label: "200K" }],
+                defaultContextWindow: "1m",
+              },
+            ],
+            source: "cursor.cli",
+            cached: false,
+          }),
+      },
+    });
+
+    expect(capabilities).toHaveLength(1);
+    expect(capabilities[0]).toMatchObject({
+      provider: "cursor",
+      model: "cursor-model",
+      orchestratorCapable: true,
+      authoritativeRoleInstruction: true,
+      authenticatedMcp: true,
+      independentSession: true,
+      contextWindow: { kind: "known", value: 1_000_000, source: "cursor.cli" },
+      inputTokens: { kind: "unknown" },
+      outputTokens: { kind: "unknown" },
+      cacheReadTokens: { kind: "unknown" },
+      cacheWriteTokens: { kind: "unknown" },
+      cacheTtlSeconds: { kind: "unknown" },
+      estimatedCost: { kind: "unknown" },
+    });
+  });
+
+  it("marks a generic adapter non-conformant instead of assuming Orchestrator support", async () => {
+    const capabilities = await runOrchestratorCapabilities({
+      enabled: true,
+      adapter: {
+        capabilities: { sessionModelSwitch: "unsupported" },
+        listModels: () =>
+          Effect.succeed({
+            models: [{ slug: "cursor-model", name: "Cursor Model" }],
+            source: "cursor.cli",
+            cached: false,
+          }),
+      },
+    });
+
+    expect(capabilities[0]).toMatchObject({
+      orchestratorCapable: false,
+      authoritativeRoleInstruction: false,
+      authenticatedMcp: false,
+      independentSession: false,
+      contextWindow: { kind: "unknown" },
+    });
+  });
+
+  it("returns no Orchestrator model choices for a disabled provider", async () => {
+    let adapterCalls = 0;
+    const capabilities = await runOrchestratorCapabilities({
+      enabled: false,
+      adapter: {
+        capabilities: { sessionModelSwitch: "unsupported" },
+        listModels: () => {
+          adapterCalls += 1;
+          return Effect.succeed({ models: [], source: "cursor.cli", cached: false });
+        },
+      },
+    });
+
+    expect(capabilities).toEqual([]);
+    expect(adapterCalls).toBe(0);
   });
 });

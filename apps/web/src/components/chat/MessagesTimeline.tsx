@@ -153,6 +153,7 @@ import {
   type ActiveTrailSnapshot,
   type MessageTrailAnchor,
 } from "./messageTrail.logic";
+import { OrchestratorThreadMessageRow } from "../orchestrator/OrchestratorThreadMessageRow";
 
 const MAX_VISIBLE_INLINE_TOOL_ENTRIES = 4;
 // Changed-files list in the per-turn card is capped so large turns stay compact;
@@ -1079,6 +1080,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             </div>
           );
         })()}
+
+      {row.kind === "message" && row.message.role === "thread" ? (
+        <OrchestratorThreadMessageRow messageId={row.message.id} text={row.message.text} />
+      ) : null}
 
       {row.kind === "message" &&
         row.message.role === "user" &&

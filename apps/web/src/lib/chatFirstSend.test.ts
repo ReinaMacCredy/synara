@@ -32,7 +32,6 @@ describe("resolveFirstSendTarget", () => {
       createdAt: new Date(2026, 5, 11, 23, 30, 43),
       isFirstMessage: true,
       isHomeChatContainer: true,
-      isStudioContainer: false,
       projects: [makeProject()],
       selectedWorkspaceRoot: null,
       title: "Yes it takes",
@@ -57,7 +56,6 @@ describe("resolveFirstSendTarget", () => {
       createdAt: new Date(2026, 5, 11, 23, 30, 43),
       isFirstMessage: true,
       isHomeChatContainer: true,
-      isStudioContainer: false,
       projects: [makeProject()],
       selectedWorkspaceRoot: "/Users/tester/Developer/app",
       title: "Use app",
@@ -83,7 +81,6 @@ describe("resolveFirstSendTarget", () => {
       createdAt: new Date(2026, 5, 11, 23, 30, 43),
       isFirstMessage: false,
       isHomeChatContainer: false,
-      isStudioContainer: false,
       projects: [activeProject],
       selectedWorkspaceRoot: null,
       title: "Follow up",
@@ -95,68 +92,6 @@ describe("resolveFirstSendTarget", () => {
       target: {
         targetProjectId: "project-app",
         targetProjectKind: "project",
-      },
-    });
-  });
-
-  it("keeps a plain Studio first send in the Studio container", () => {
-    const activeProject = makeProject({
-      id: "project-studio" as ProjectId,
-      kind: "studio",
-      name: "Studio",
-      remoteName: "Studio",
-      cwd: "/Users/tester/Documents/Synara/Studio",
-    });
-    const result = resolveFirstSendTarget({
-      activeProject,
-      chatWorkspaceRoot: "/Users/tester/Documents/Synara",
-      createdAt: new Date(2026, 5, 11, 23, 30, 43),
-      isFirstMessage: true,
-      isHomeChatContainer: false,
-      isStudioContainer: true,
-      projects: [activeProject],
-      selectedWorkspaceRoot: null,
-      title: "Write content",
-      titleSeed: "Write content",
-    });
-
-    expect(result).toMatchObject({
-      kind: "current",
-      target: {
-        targetProjectId: "project-studio",
-        targetProjectKind: "studio",
-        targetProjectCwd: "/Users/tester/Documents/Synara/Studio",
-      },
-    });
-  });
-
-  it("keeps a Studio folder pick in the Studio container", () => {
-    const activeProject = makeProject({
-      id: "project-studio" as ProjectId,
-      kind: "studio",
-      name: "Studio",
-      remoteName: "Studio",
-      cwd: "/Users/tester/Documents/Synara/Studio",
-    });
-    const result = resolveFirstSendTarget({
-      activeProject,
-      chatWorkspaceRoot: "/Users/tester/Documents/Synara",
-      createdAt: new Date(2026, 5, 11, 23, 30, 43),
-      isFirstMessage: true,
-      isHomeChatContainer: false,
-      isStudioContainer: true,
-      projects: [activeProject],
-      selectedWorkspaceRoot: "/Users/tester/Developer/app",
-      title: "Use app",
-      titleSeed: "Use app",
-    });
-
-    expect(result).toMatchObject({
-      kind: "current",
-      target: {
-        targetProjectId: "project-studio",
-        targetProjectKind: "studio",
-        targetProjectCwd: "/Users/tester/Documents/Synara/Studio",
       },
     });
   });

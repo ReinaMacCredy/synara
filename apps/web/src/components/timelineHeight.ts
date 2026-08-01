@@ -62,11 +62,11 @@ const changedFilesSummaryHeightCache = new WeakMap<
 
 interface TimelineMessageHeightInput {
   id?: MessageId;
-  role: "user" | "assistant" | "system";
+  role: "user" | "assistant" | "system" | "thread";
   text: string;
   attachments?: ReadonlyArray<{ id: string; type?: "image" | "file" | "assistant-selection" }>;
   dispatchMode?: "queue" | "steer";
-  dispatchOrigin?: "user" | "automation" | "agent";
+  dispatchOrigin?: "user" | "automation" | "agent" | "orchestrator";
   diffSummaryFiles?: ReadonlyArray<TurnDiffFileChange>;
   diffSummaryFileListExpanded?: boolean;
   inlineToolEntries?: ReadonlyArray<TimelineWorkEntryHeightInput>;

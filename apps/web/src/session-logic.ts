@@ -157,7 +157,7 @@ export function hasLiveLatestTurn(
 /**
  * Pending approval / user-input requests are only actionable while the session
  * that raised them can still receive the answer. Once the session is closed or
- * errored the request is dead — status surfaces (sidebar pill, kanban column)
+ * errored the request is dead, so status surfaces can stop showing it as active.
  * must not present the thread as awaiting action forever after a provider
  * crash. A thread with no session yet keeps the request actionable: the flag
  * can arrive ahead of the session snapshot.

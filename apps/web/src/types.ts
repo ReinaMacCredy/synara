@@ -104,7 +104,7 @@ export type ChatAttachment =
 
 export interface ChatMessage {
   id: MessageId;
-  role: "user" | "assistant" | "system";
+  role: "user" | "assistant" | "system" | "thread";
   text: string;
   attachments?: ChatAttachment[];
   skills?: ProviderSkillReference[];

@@ -216,7 +216,7 @@ describe("thread shell route selectors", () => {
     });
   });
 
-  it("updates workspace metadata when a Studio working directory changes", () => {
+  it("updates workspace metadata when a local working directory changes", () => {
     const selectWorkspaceMetadata = createThreadWorkspaceMetadataSelector(threadIdA);
     const before = selectWorkspaceMetadata(
       makeState({

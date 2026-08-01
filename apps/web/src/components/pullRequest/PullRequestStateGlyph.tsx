@@ -1,7 +1,7 @@
 // FILE: PullRequestStateGlyph.tsx
 // Purpose: State glyph for a pull request (open/draft/closed/merged), shared by the list rows,
 //          the detail panel header, and the dock tab chip. Icon and color both come from
-//          resolvePrStatePresentation — the same mapping the sidebar thread badge and kanban
+//          resolvePrStatePresentation — the same mapping the sidebar thread badge and
 //          chip use — so every surface renders a given PR state identically.
 // Layer: Pull request presentation
 // Exports: PullRequestStateGlyph
@@ -33,7 +33,7 @@ function pullRequestStateLabel(
 
 // Draft always shows as draft (a draft isn't heading for a merge); an open non-draft PR
 // with conflicts shows the conflict glyph — precedence lives in resolvePrStatePresentation
-// so the thread badge, kanban chip, and every PR surface agree.
+// so the thread badge and every PR surface agree.
 export function PullRequestStateGlyph({
   state,
   isDraft,

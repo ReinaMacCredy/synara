@@ -27,6 +27,7 @@ import {
   type ProviderEvent,
   type ProviderSession,
   type ProviderSessionStartInput,
+  type ProviderOrchestratorSessionContext,
   type ProviderTurnStartResult,
   RuntimeMode,
   ProviderInteractionMode,
@@ -51,6 +52,7 @@ import {
   SYNARA_AGENT_GATEWAY_TOKEN_ENV,
 } from "./agentGateway/mcpInjection.ts";
 import { SYNARA_GATEWAY_HARNESS_POLICY } from "./agentGateway/harnessPolicy.ts";
+import { orchestratorInstructionForSession } from "./orchestration/orchestrator/protocolV1.ts";
 import {
   AGENT_GATEWAY_TURN_AUTHORITY_RETIRED,
   type AgentGatewaySessionLease,
@@ -97,7 +99,8 @@ interface PendingApprovalRequest {
     | "item/commandExecution/requestApproval"
     | "item/fileChange/requestApproval"
     | "item/fileRead/requestApproval"
-    | "item/permissions/requestApproval";
+    | "item/permissions/requestApproval"
+    | "mcpServer/elicitation/request";
   requestKind: ProviderRequestKind;
   threadId: ThreadId;
   turnId?: TurnId;
@@ -110,6 +113,14 @@ interface PendingApprovalRequest {
 
 function isPermissionApprovalRequest(request: PendingApprovalRequest): boolean {
   return request.method === "item/permissions/requestApproval";
+}
+
+function isMcpToolApprovalRequest(request: PendingApprovalRequest): boolean {
+  return request.method === "mcpServer/elicitation/request";
+}
+
+function usesCodexSessionApprovalOverride(request: PendingApprovalRequest): boolean {
+  return !isPermissionApprovalRequest(request) && !isMcpToolApprovalRequest(request);
 }
 
 interface PendingUserInputRequest {
@@ -154,6 +165,7 @@ interface CodexSessionContext {
   gatewayCredentialRetired?: boolean;
   session: ProviderSession;
   lifecycleGeneration?: string;
+  orchestratorInstruction?: string | null;
   account: CodexAccountSnapshot;
   child: ChildProcessWithoutNullStreams;
   stdoutFramer: CodexJsonlFramer;
@@ -268,6 +280,7 @@ export interface CodexAppServerStartSessionInput {
   readonly serviceTier?: string;
   readonly resumeCursor?: unknown;
   readonly providerOptions?: ProviderSessionStartInput["providerOptions"];
+  readonly orchestratorContext?: ProviderOrchestratorSessionContext | null;
   readonly runtimeMode: RuntimeMode;
 }
 
@@ -695,14 +708,25 @@ export function buildCodexInitializeParams() {
     },
     capabilities: {
       experimentalApi: true,
+      mcpServerOpenaiFormElicitation: true,
     },
   } as const;
+}
+
+export function buildCodexOrchestratorThreadOpenOverrides(
+  context: ProviderOrchestratorSessionContext | null | undefined,
+): { readonly developerInstructions?: string | null } {
+  if (context === undefined) return {};
+  return {
+    developerInstructions: context === null ? null : orchestratorInstructionForSession(context),
+  };
 }
 
 function buildCodexCollaborationMode(input: {
   readonly interactionMode?: "default" | "plan";
   readonly model?: string;
   readonly effort?: string;
+  readonly orchestratorInstruction?: string | null;
 }):
   | {
       mode: "default" | "plan";
@@ -713,19 +737,23 @@ function buildCodexCollaborationMode(input: {
       };
     }
   | undefined {
-  if (input.interactionMode === undefined) {
+  if (input.interactionMode === undefined && !input.orchestratorInstruction) {
     return undefined;
   }
   const model = normalizeCodexModelSlug(input.model) ?? "gpt-5.3-codex";
+  const interactionMode = input.interactionMode ?? "default";
+  const modeInstruction =
+    interactionMode === "plan"
+      ? CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS
+      : CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS;
   return {
-    mode: input.interactionMode,
+    mode: interactionMode,
     settings: {
       model,
       reasoning_effort: input.effort ?? "medium",
-      developer_instructions:
-        input.interactionMode === "plan"
-          ? CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS
-          : CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
+      developer_instructions: input.orchestratorInstruction
+        ? `${modeInstruction}\n\n${input.orchestratorInstruction}`
+        : modeInstruction,
     },
   };
 }
@@ -983,6 +1011,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         createdAt: now,
         updatedAt: now,
       };
+      const orchestratorInstruction = buildCodexOrchestratorThreadOpenOverrides(
+        input.orchestratorContext,
+      ).developerInstructions;
 
       const codexOptions = readCodexProviderOptions(input);
       const codexBinaryPath = codexOptions.binaryPath ?? "codex";
@@ -1011,6 +1042,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         ...(input.lifecycleGeneration !== undefined
           ? { lifecycleGeneration: input.lifecycleGeneration }
           : {}),
+        ...(orchestratorInstruction !== undefined ? { orchestratorInstruction } : {}),
         account: {
           type: "unknown",
           planType: null,
@@ -1063,6 +1095,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         ...(input.serviceTier !== undefined ? { serviceTier: input.serviceTier } : {}),
         cwd: resolvedCwd,
         ...mapCodexRuntimeMode(input.runtimeMode ?? "full-access"),
+        ...(orchestratorInstruction !== undefined
+          ? { developerInstructions: orchestratorInstruction }
+          : {}),
       };
 
       const threadStartParams = {
@@ -1193,9 +1228,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         "Codex session gateway authority is retired; resume the provider runtime before starting another turn.",
       );
     }
-    context.collabReceiverTurns.clear();
-    context.collabReceiverParents.clear();
-
     // Normal sends never interrupt active work. The orchestration layer decides
     // when a queued follow-up is ready to become a provider turn.
     const turnInput = buildCodexTurnInput(input);
@@ -1255,6 +1287,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
       ...(normalizedModel !== undefined ? { model: normalizedModel } : {}),
       ...(input.effort !== undefined ? { effort: input.effort } : {}),
+      ...(context.orchestratorInstruction !== undefined
+        ? { orchestratorInstruction: context.orchestratorInstruction }
+        : {}),
     });
     if (collaborationMode) {
       if (!turnStartParams.model) {
@@ -1652,8 +1687,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
 
     this.clearTaskCompleteFallback(context);
-    context.collabReceiverTurns.clear();
-    context.collabReceiverParents.clear();
     context.reviewTurnIds.delete(turnId);
     this.updateSession(context, {
       status: "ready",
@@ -1967,8 +2000,18 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         ? { fileSystem: requestedPermissions.fileSystem }
         : {}),
     };
-    const result =
-      pendingRequest.method === "item/permissions/requestApproval"
+    const result = isMcpToolApprovalRequest(pendingRequest)
+      ? {
+          action:
+            decision === "accept" || decision === "acceptForSession"
+              ? ("accept" as const)
+              : decision === "decline"
+                ? ("decline" as const)
+                : ("cancel" as const),
+          content: decision === "accept" || decision === "acceptForSession" ? ({} as const) : null,
+          _meta: decision === "acceptForSession" ? { persist: "session" as const } : null,
+        }
+      : pendingRequest.method === "item/permissions/requestApproval"
         ? {
             permissions:
               decision === "accept" || decision === "acceptForSession" ? grantedPermissions : {},
@@ -2009,7 +2052,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     context: CodexSessionContext,
   ): Promise<void> {
     const remainingRequests = Array.from(context.pendingApprovals.values()).filter(
-      (request) => !isPermissionApprovalRequest(request),
+      usesCodexSessionApprovalOverride,
     );
     for (const pendingRequest of remainingRequests) {
       context.pendingApprovals.delete(pendingRequest.requestId);
@@ -2029,15 +2072,15 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
 
     context.pendingApprovals.delete(requestId);
-    const isPermissionRequest = isPermissionApprovalRequest(pendingRequest);
-    if (decision === "acceptForSession" && !isPermissionRequest) {
+    const useSessionOverride = usesCodexSessionApprovalOverride(pendingRequest);
+    if (decision === "acceptForSession" && useSessionOverride) {
       context.sessionApprovalOverride = CODEX_ALWAYS_ALLOW_SESSION_TURN_OVERRIDES;
     }
     await this.resolveApprovalRequest(context, pendingRequest, decision);
-    if (decision === "cancel" && isPermissionRequest) {
+    if (decision === "cancel" && isPermissionApprovalRequest(pendingRequest)) {
       await this.interruptTurn(threadId, pendingRequest.turnId, pendingRequest.providerThreadId);
     }
-    if (decision === "acceptForSession" && !isPermissionRequest) {
+    if (decision === "acceptForSession" && useSessionOverride) {
       await this.resolveRemainingSessionApprovalRequests(context);
     }
   }
@@ -2969,8 +3012,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         return;
       }
       this.clearTaskCompleteFallback(context, rawRoute.turnId);
-      context.collabReceiverTurns.clear();
-      context.collabReceiverParents.clear();
       if (rawRoute.turnId) {
         context.reviewTurnIds.delete(rawRoute.turnId);
       }
@@ -2994,8 +3035,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         return;
       }
       this.clearTaskCompleteFallback(context, rawRoute.turnId);
-      context.collabReceiverTurns.clear();
-      context.collabReceiverParents.clear();
       if (rawRoute.turnId) {
         context.reviewTurnIds.delete(rawRoute.turnId);
       }
@@ -3117,7 +3156,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       providerThreadId,
       providerParentThreadId,
     } = resolvedCollaborationRoute;
-    const requestKind = this.requestKindForMethod(request.method);
+    const requestKind = this.requestKindForMethod(request.method, request.params);
     let requestId: ApprovalRequestId | undefined;
     if (requestKind) {
       requestId = ApprovalRequestId.makeUnsafe(randomUUID());
@@ -3138,7 +3177,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         ...(providerParentThreadId ? { providerParentThreadId } : {}),
         ...(requestedPermissions ? { requestedPermissions } : {}),
       };
-      if (context.sessionApprovalOverride && !isPermissionApprovalRequest(pendingRequest)) {
+      if (context.sessionApprovalOverride && usesCodexSessionApprovalOverride(pendingRequest)) {
         await this.resolveApprovalRequest(context, pendingRequest, "acceptForSession");
         return;
       }
@@ -3165,6 +3204,14 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       });
     }
 
+    const requestPayload =
+      request.method === "mcpServer/elicitation/request" && requestKind === "mcp-tool"
+        ? {
+            ...(this.readObject(request.params) ?? {}),
+            sessionApprovalAvailable: this.mcpToolApprovalAllowsSession(request.params),
+          }
+        : request.params;
+
     this.emitEvent({
       id: EventId.makeUnsafe(randomUUID()),
       kind: "request",
@@ -3182,7 +3229,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       ...(providerParentThreadId ? { providerParentThreadId } : {}),
       requestId,
       requestKind,
-      payload: request.params,
+      payload: requestPayload,
     });
 
     if (requestKind) {
@@ -3203,6 +3250,14 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           code: -32602,
           message: "item/tool/requestUserInput did not include a renderable question.",
         },
+      });
+      return;
+    }
+
+    if (request.method === "mcpServer/elicitation/request") {
+      await this.writeMessage(context, {
+        id: request.id,
+        result: { action: "decline", content: null, _meta: null },
       });
       return;
     }
@@ -3344,8 +3399,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         return;
       }
 
-      context.collabReceiverTurns.clear();
-      context.collabReceiverParents.clear();
       context.reviewTurnIds.delete(turnId);
       const gatewayTurnAuthorityRetired = context.gatewaySessionLease !== undefined;
       if (gatewayTurnAuthorityRetired) {
@@ -3452,7 +3505,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     };
   }
 
-  private requestKindForMethod(method: string): ProviderRequestKind | undefined {
+  private requestKindForMethod(method: string, params?: unknown): ProviderRequestKind | undefined {
     if (method === "item/commandExecution/requestApproval") {
       return "command";
     }
@@ -3469,7 +3522,22 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       return "permissions";
     }
 
+    if (method === "mcpServer/elicitation/request" && this.isMcpToolApproval(params)) {
+      return "mcp-tool";
+    }
+
     return undefined;
+  }
+
+  private isMcpToolApproval(params: unknown): boolean {
+    const meta = this.readObject(params, "_meta");
+    return this.readString(meta, "codex_approval_kind") === "mcp_tool_call";
+  }
+
+  private mcpToolApprovalAllowsSession(params: unknown): boolean {
+    if (!this.isMcpToolApproval(params)) return false;
+    const persist = this.readObject(params, "_meta")?.persist;
+    return persist === "session" || (Array.isArray(persist) && persist.includes("session"));
   }
 
   private parseThreadSnapshot(method: string, response: unknown): CodexThreadSnapshot {

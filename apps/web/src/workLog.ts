@@ -1,6 +1,5 @@
 import {
   isToolLifecycleItemType,
-  STUDIO_OUTPUTS_ACTIVITY_KIND,
   type OrchestrationLatestTurnState,
   type OrchestrationThreadActivity,
   type ProviderKind,
@@ -272,8 +271,6 @@ export function deriveWorkLogEntries(
         activity.kind !== "context-window.updated" && activity.kind !== "context-window.configured",
     )
     .filter((activity) => activity.summary !== "Checkpoint captured")
-    // Server-side Studio output attribution is environment-panel data, not transcript work.
-    .filter((activity) => activity.kind !== STUDIO_OUTPUTS_ACTIVITY_KIND)
     .filter((activity) => !isPlanBoundaryToolActivity(activity))
     .map(toDerivedWorkLogEntry);
   // Strip the derivation-only helpers that exist solely on DerivedWorkLogEntry.
@@ -1919,7 +1916,8 @@ function extractWorkLogRequestKind(
     payload?.requestKind === "command" ||
     payload?.requestKind === "file-read" ||
     payload?.requestKind === "file-change" ||
-    payload?.requestKind === "permissions"
+    payload?.requestKind === "permissions" ||
+    payload?.requestKind === "mcp-tool"
   ) {
     return payload.requestKind;
   }

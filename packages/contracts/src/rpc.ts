@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import * as Rpc from "effect/unstable/rpc/Rpc";
 import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
+import { NonNegativeInt } from "./baseSchemas";
 
 import {
   AutomationCancelRunInput,
@@ -31,7 +32,6 @@ import {
   ExternalMcpRevokeIntegrationInput,
 } from "./externalMcp";
 import { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem";
-import { StudioListThreadOutputsInput, StudioListThreadOutputsResult } from "./studio";
 import {
   GitCheckoutInput,
   GitActionProgressEvent,
@@ -100,6 +100,36 @@ import {
   OrchestrationShellStreamItem,
   OrchestrationThreadStreamItem,
 } from "./orchestration";
+import {
+  ArchiveOrchestratorRootInput,
+  CreateOrchestratorRootInput,
+  DetachOrchestratorChildInput,
+  GetOrchestratorSnapshotInput,
+  GetOrchestratorSnapshotResult,
+  ListOrchestratorArtifactsInput,
+  ListOrchestratorArtifactsResult,
+  ListOrchestratorAuditEventsInput,
+  ListOrchestratorAuditEventsResult,
+  ListOrchestratorExchangesInput,
+  ListOrchestratorExchangesResult,
+  ListOrchestratorRootsInput,
+  ListOrchestratorRootsResult,
+  OrchestratorArtifact,
+  OrchestratorCommandResult,
+  ReadOrchestratorArtifactInput,
+  UpgradeOrchestratorRootInput,
+} from "./orchestrator";
+import {
+  DispatchTaskProcessCommandInput,
+  DispatchTaskProcessCommandResult,
+  GetSessionProgressInput,
+  GetSessionProgressResult,
+  GetTaskProcessGraphResult,
+  GetTaskProcessInput,
+  GetTaskProcessSummaryResult,
+  ListTaskProcessesInput,
+  ListTaskProcessesResult,
+} from "./taskProcess";
 import { ProviderCompactThreadInput } from "./provider";
 import {
   ProviderGetComposerCapabilitiesInput,
@@ -322,7 +352,7 @@ export const WsOrchestrationSubscribeThreadRpc = Rpc.make(
 export const WsOrchestrationSubscribeDomainEventsRpc = Rpc.make(
   WS_METHODS.subscribeOrchestrationDomainEvents,
   {
-    payload: Schema.Struct({}),
+    payload: Schema.Struct({ afterSequence: Schema.optional(NonNegativeInt) }),
     success: OrchestrationEvent,
     error: WsRpcError,
     stream: true,
@@ -334,6 +364,87 @@ export const WsOrchestrationUnsubscribeThreadRpc = Rpc.make(
   {
     payload: OrchestrationRpcSchemas.unsubscribeThread.input,
     success: Schema.Void,
+    error: WsRpcError,
+  },
+);
+
+export const WsOrchestrationListOrchestratorRootsRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.listOrchestratorRoots,
+  { payload: ListOrchestratorRootsInput, success: ListOrchestratorRootsResult, error: WsRpcError },
+);
+export const WsOrchestrationGetOrchestratorSnapshotRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.getOrchestratorSnapshot,
+  {
+    payload: GetOrchestratorSnapshotInput,
+    success: GetOrchestratorSnapshotResult,
+    error: WsRpcError,
+  },
+);
+export const WsOrchestrationListOrchestratorExchangesRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.listOrchestratorExchanges,
+  {
+    payload: ListOrchestratorExchangesInput,
+    success: ListOrchestratorExchangesResult,
+    error: WsRpcError,
+  },
+);
+export const WsOrchestrationListOrchestratorArtifactsRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.listOrchestratorArtifacts,
+  {
+    payload: ListOrchestratorArtifactsInput,
+    success: ListOrchestratorArtifactsResult,
+    error: WsRpcError,
+  },
+);
+export const WsOrchestrationReadOrchestratorArtifactRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.readOrchestratorArtifact,
+  { payload: ReadOrchestratorArtifactInput, success: OrchestratorArtifact, error: WsRpcError },
+);
+export const WsOrchestrationListOrchestratorAuditEventsRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.listOrchestratorAuditEvents,
+  {
+    payload: ListOrchestratorAuditEventsInput,
+    success: ListOrchestratorAuditEventsResult,
+    error: WsRpcError,
+  },
+);
+export const WsOrchestrationCreateOrchestratorRootRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.createOrchestratorRoot,
+  { payload: CreateOrchestratorRootInput, success: OrchestratorCommandResult, error: WsRpcError },
+);
+export const WsOrchestrationArchiveOrchestratorRootRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.archiveOrchestratorRoot,
+  { payload: ArchiveOrchestratorRootInput, success: OrchestratorCommandResult, error: WsRpcError },
+);
+export const WsOrchestrationDetachOrchestratorChildRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.detachOrchestratorChild,
+  { payload: DetachOrchestratorChildInput, success: OrchestratorCommandResult, error: WsRpcError },
+);
+export const WsOrchestrationUpgradeOrchestratorRootRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.upgradeOrchestratorRoot,
+  { payload: UpgradeOrchestratorRootInput, success: OrchestratorCommandResult, error: WsRpcError },
+);
+export const WsOrchestrationListTaskProcessesRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.listTaskProcesses,
+  { payload: ListTaskProcessesInput, success: ListTaskProcessesResult, error: WsRpcError },
+);
+export const WsOrchestrationGetTaskProcessSummaryRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.getTaskProcessSummary,
+  { payload: GetTaskProcessInput, success: GetTaskProcessSummaryResult, error: WsRpcError },
+);
+export const WsOrchestrationGetTaskProcessGraphRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.getTaskProcessGraph,
+  { payload: GetTaskProcessInput, success: GetTaskProcessGraphResult, error: WsRpcError },
+);
+export const WsOrchestrationGetSessionProgressRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.getSessionProgress,
+  { payload: GetSessionProgressInput, success: GetSessionProgressResult, error: WsRpcError },
+);
+export const WsOrchestrationDispatchTaskProcessCommandRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.dispatchTaskProcessCommand,
+  {
+    payload: DispatchTaskProcessCommandInput,
+    success: DispatchTaskProcessCommandResult,
     error: WsRpcError,
   },
 );
@@ -410,12 +521,6 @@ export const WsSubscribeProjectDevServerEventsRpc = Rpc.make(
     stream: true,
   },
 );
-
-export const WsStudioListThreadOutputsRpc = Rpc.make(WS_METHODS.studioListThreadOutputs, {
-  payload: StudioListThreadOutputsInput,
-  success: StudioListThreadOutputsResult,
-  error: WsRpcError,
-});
 
 export const WsFilesystemBrowseRpc = Rpc.make(WS_METHODS.filesystemBrowse, {
   payload: FilesystemBrowseInput,
@@ -996,6 +1101,21 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsOrchestrationSubscribeThreadRpc,
   WsOrchestrationUnsubscribeThreadRpc,
   WsOrchestrationSubscribeDomainEventsRpc,
+  WsOrchestrationListOrchestratorRootsRpc,
+  WsOrchestrationGetOrchestratorSnapshotRpc,
+  WsOrchestrationListOrchestratorExchangesRpc,
+  WsOrchestrationListOrchestratorArtifactsRpc,
+  WsOrchestrationReadOrchestratorArtifactRpc,
+  WsOrchestrationListOrchestratorAuditEventsRpc,
+  WsOrchestrationCreateOrchestratorRootRpc,
+  WsOrchestrationArchiveOrchestratorRootRpc,
+  WsOrchestrationDetachOrchestratorChildRpc,
+  WsOrchestrationUpgradeOrchestratorRootRpc,
+  WsOrchestrationListTaskProcessesRpc,
+  WsOrchestrationGetTaskProcessSummaryRpc,
+  WsOrchestrationGetTaskProcessGraphRpc,
+  WsOrchestrationGetSessionProgressRpc,
+  WsOrchestrationDispatchTaskProcessCommandRpc,
   WsProjectsDiscoverScriptsRpc,
   WsProjectsListDirectoriesRpc,
   WsProjectsSearchEntriesRpc,
@@ -1007,7 +1127,6 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsProjectsStopDevServerRpc,
   WsProjectsListDevServersRpc,
   WsSubscribeProjectDevServerEventsRpc,
-  WsStudioListThreadOutputsRpc,
   WsFilesystemBrowseRpc,
   WsShellOpenInEditorRpc,
   WsGitGithubRepositoryRpc,

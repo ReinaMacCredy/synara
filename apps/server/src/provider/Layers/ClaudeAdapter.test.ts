@@ -19,6 +19,7 @@ import {
   ProviderRuntimeEvent,
   ThreadId,
   TurnId,
+  type ProviderOrchestratorSessionContext,
 } from "@synara/contracts";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Exit, Fiber, Layer, Random, Stream } from "effect";
@@ -504,6 +505,69 @@ describe("ClaudeAdapterLive", () => {
       }
       assert.include(systemPrompt.append ?? "", "Use the browser_* tools autonomously");
       assert.include(systemPrompt.append ?? "", "exact Electron WebView the user sees");
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("pins the Orchestrator role on both a new and resumed Claude session", () => {
+    const gateway = makeGatewayCredentialsHarness();
+    const harness = makeMultiQueryHarness({ gatewayCredentials: gateway.credentials });
+    const orchestratorContext = {
+      protocolVersion: 1,
+      rootThreadId: THREAD_ID,
+      role: "root",
+      capabilities: ["state.read", "child.assign", "message.send"],
+    } satisfies ProviderOrchestratorSessionContext;
+
+    const readSystemPromptAppend = (index: number): string => {
+      const systemPrompt = harness.createInputs[index]?.options.systemPrompt;
+      if (
+        systemPrompt === undefined ||
+        typeof systemPrompt === "string" ||
+        Array.isArray(systemPrompt) ||
+        systemPrompt.type !== "preset"
+      ) {
+        return assert.fail("Expected Claude preset system prompt.");
+      }
+      return systemPrompt.append ?? "";
+    };
+
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+        orchestratorContext,
+      });
+
+      const firstPrompt = readSystemPromptAppend(0);
+      assert.include(firstPrompt, "Role: root");
+      assert.include(firstPrompt, '"rootThreadId":"thread-claude-1"');
+      assert.include(firstPrompt, '"capabilities":["child.assign","message.send","state.read"]');
+
+      yield* adapter.stopSession(THREAD_ID);
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+        resumeCursor: session.resumeCursor,
+        orchestratorContext: {
+          ...orchestratorContext,
+          role: "participant",
+          capabilities: ["state.read", "message.send"],
+        },
+      });
+
+      const resumedPrompt = readSystemPromptAppend(1);
+      assert.include(resumedPrompt, "Role: participant");
+      assert.notInclude(resumedPrompt, "Role: root\n");
+      assert.equal(
+        harness.createInputs[1]?.options.resume,
+        (session.resumeCursor as { readonly resume?: string } | undefined)?.resume,
+      );
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),

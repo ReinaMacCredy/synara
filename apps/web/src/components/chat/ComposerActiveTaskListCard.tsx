@@ -32,6 +32,7 @@ export function ComposerActiveTaskListCard({
       passthroughSideMargins
       attachedToPrevious={attachedToPrevious}
       data-testid="active-task-list-card"
+      data-provider-runtime-tasks="true"
     >
       <ActiveTaskListCard
         activeTaskList={activeTaskList}

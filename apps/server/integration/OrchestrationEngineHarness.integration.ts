@@ -29,8 +29,10 @@ import { GitCoreLive } from "../src/git/Layers/GitCore.ts";
 import { GitCore, type GitCoreShape } from "../src/git/Services/GitCore.ts";
 import { TextGeneration, type TextGenerationShape } from "../src/git/Services/TextGeneration.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../src/persistence/Layers/OrchestrationCommandReceipts.ts";
+import { OrchestrationEventDeliveryRepositoryLive } from "../src/persistence/Layers/OrchestrationEventDeliveries.ts";
 import { OrchestrationEventStoreLive } from "../src/persistence/Layers/OrchestrationEventStore.ts";
 import { ProjectionCheckpointRepositoryLive } from "../src/persistence/Layers/ProjectionCheckpoints.ts";
+import { ProjectionOrchestratorRepositoryLive } from "../src/persistence/Layers/ProjectionOrchestrator.ts";
 import { ProjectionPendingInteractionRepositoryLive } from "../src/persistence/Layers/ProjectionPendingInteractions.ts";
 import { ProviderSessionRuntimeRepositoryLive } from "../src/persistence/Layers/ProviderSessionRuntime.ts";
 import { makeSqlitePersistenceLive } from "../src/persistence/Layers/Sqlite.ts";
@@ -46,12 +48,13 @@ import { ProviderService } from "../src/provider/Services/ProviderService.ts";
 import { AnalyticsService } from "../src/telemetry/Services/AnalyticsService.ts";
 import { ServerSettingsService } from "../src/serverSettings.ts";
 import { CheckpointReactorLive } from "../src/orchestration/Layers/CheckpointReactor.ts";
-import { StudioOutputReactorLive } from "../src/orchestration/Layers/StudioOutputReactor.ts";
 import { OrchestrationEngineLive } from "../src/orchestration/Layers/OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "../src/orchestration/Layers/ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "../src/orchestration/Layers/ProjectionSnapshotQuery.ts";
 import { RuntimeReceiptBusLive } from "../src/orchestration/Layers/RuntimeReceiptBus.ts";
 import { OrchestrationReactorLive } from "../src/orchestration/Layers/OrchestrationReactor.ts";
+import { OrchestratorMailboxLive } from "../src/orchestration/Layers/OrchestratorMailbox.ts";
+import { OrchestratorMonitorLive } from "../src/orchestration/Layers/OrchestratorMonitor.ts";
 import { ProviderCommandReactorLive } from "../src/orchestration/Layers/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionLive } from "../src/orchestration/Layers/ProviderRuntimeIngestion.ts";
 import { TurnCheckpointCoordinatorLive } from "../src/orchestration/Layers/TurnCheckpointCoordinator.ts";
@@ -314,12 +317,8 @@ export const makeOrchestrationIntegrationHarness = (
     const textGenerationLayer = Layer.succeed(TextGeneration, {
       generateBranchName: () => Effect.succeed({ branch: null }),
     } as unknown as TextGenerationShape);
-    const studioOutputReactorLayer = StudioOutputReactorLive.pipe(
-      Layer.provideMerge(runtimeServicesLayer),
-    );
     const providerCommandReactorLayer = ProviderCommandReactorLive.pipe(
       Layer.provideMerge(runtimeServicesLayer),
-      Layer.provideMerge(studioOutputReactorLayer),
       Layer.provideMerge(gitCoreLayer),
       Layer.provideMerge(textGenerationLayer),
       Layer.provideMerge(ServerSettingsService.layerTest()),
@@ -327,11 +326,23 @@ export const makeOrchestrationIntegrationHarness = (
     const checkpointReactorLayer = CheckpointReactorLive.pipe(
       Layer.provideMerge(runtimeServicesLayer),
     );
+    const orchestratorMailboxLayer = OrchestratorMailboxLive.pipe(
+      Layer.provideMerge(runtimeServicesLayer),
+      Layer.provideMerge(OrchestrationCommandReceiptRepositoryLive),
+      Layer.provideMerge(ProjectionOrchestratorRepositoryLive),
+      Layer.provideMerge(OrchestrationEventDeliveryRepositoryLive),
+    );
+    const orchestratorMonitorLayer = OrchestratorMonitorLive.pipe(
+      Layer.provideMerge(runtimeServicesLayer),
+      Layer.provideMerge(OrchestrationCommandReceiptRepositoryLive),
+      Layer.provideMerge(ProjectionOrchestratorRepositoryLive),
+    );
     const orchestrationReactorLayer = OrchestrationReactorLive.pipe(
       Layer.provideMerge(runtimeIngestionLayer),
       Layer.provideMerge(providerCommandReactorLayer),
       Layer.provideMerge(checkpointReactorLayer),
-      Layer.provideMerge(studioOutputReactorLayer),
+      Layer.provideMerge(orchestratorMailboxLayer),
+      Layer.provideMerge(orchestratorMonitorLayer),
     );
     const layer = orchestrationReactorLayer.pipe(
       Layer.provide(persistenceLayer),

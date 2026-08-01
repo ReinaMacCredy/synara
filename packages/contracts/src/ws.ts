@@ -35,6 +35,24 @@ import {
   OrchestrationReplayEventsInput,
 } from "./orchestration";
 import {
+  ArchiveOrchestratorRootInput,
+  CreateOrchestratorRootInput,
+  DetachOrchestratorChildInput,
+  GetOrchestratorSnapshotInput,
+  ListOrchestratorArtifactsInput,
+  ListOrchestratorAuditEventsInput,
+  ListOrchestratorExchangesInput,
+  ListOrchestratorRootsInput,
+  ReadOrchestratorArtifactInput,
+  UpgradeOrchestratorRootInput,
+} from "./orchestrator";
+import {
+  DispatchTaskProcessCommandInput,
+  GetSessionProgressInput,
+  GetTaskProcessInput,
+  ListTaskProcessesInput,
+} from "./taskProcess";
+import {
   GitActionProgressEvent,
   GitCheckoutInput,
   GitCreateBranchInput,
@@ -83,7 +101,6 @@ import {
   ProjectStopDevServerInput,
   ProjectWriteFileInput,
 } from "./project";
-import { StudioListThreadOutputsInput } from "./studio";
 import { FilesystemBrowseInput } from "./filesystem";
 import { OpenInEditorInput } from "./editor";
 import {
@@ -141,9 +158,6 @@ export const WS_METHODS = {
   projectsStopDevServer: "projects.stopDevServer",
   projectsListDevServers: "projects.listDevServers",
   subscribeProjectDevServerEvents: "projects.subscribeDevServerEvents",
-
-  // Studio methods
-  studioListThreadOutputs: "studio.listThreadOutputs",
 
   // Filesystem browse methods
   filesystemBrowse: "filesystem.browse",
@@ -299,6 +313,33 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(ORCHESTRATION_WS_METHODS.unsubscribeShell, OrchestrationUnsubscribeShellInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.subscribeThread, OrchestrationSubscribeThreadInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.unsubscribeThread, OrchestrationUnsubscribeThreadInput),
+  tagRequestBody(ORCHESTRATION_WS_METHODS.listOrchestratorRoots, ListOrchestratorRootsInput),
+  tagRequestBody(ORCHESTRATION_WS_METHODS.getOrchestratorSnapshot, GetOrchestratorSnapshotInput),
+  tagRequestBody(
+    ORCHESTRATION_WS_METHODS.listOrchestratorExchanges,
+    ListOrchestratorExchangesInput,
+  ),
+  tagRequestBody(
+    ORCHESTRATION_WS_METHODS.listOrchestratorArtifacts,
+    ListOrchestratorArtifactsInput,
+  ),
+  tagRequestBody(ORCHESTRATION_WS_METHODS.readOrchestratorArtifact, ReadOrchestratorArtifactInput),
+  tagRequestBody(
+    ORCHESTRATION_WS_METHODS.listOrchestratorAuditEvents,
+    ListOrchestratorAuditEventsInput,
+  ),
+  tagRequestBody(ORCHESTRATION_WS_METHODS.createOrchestratorRoot, CreateOrchestratorRootInput),
+  tagRequestBody(ORCHESTRATION_WS_METHODS.archiveOrchestratorRoot, ArchiveOrchestratorRootInput),
+  tagRequestBody(ORCHESTRATION_WS_METHODS.detachOrchestratorChild, DetachOrchestratorChildInput),
+  tagRequestBody(ORCHESTRATION_WS_METHODS.upgradeOrchestratorRoot, UpgradeOrchestratorRootInput),
+  tagRequestBody(ORCHESTRATION_WS_METHODS.listTaskProcesses, ListTaskProcessesInput),
+  tagRequestBody(ORCHESTRATION_WS_METHODS.getTaskProcessSummary, GetTaskProcessInput),
+  tagRequestBody(ORCHESTRATION_WS_METHODS.getTaskProcessGraph, GetTaskProcessInput),
+  tagRequestBody(ORCHESTRATION_WS_METHODS.getSessionProgress, GetSessionProgressInput),
+  tagRequestBody(
+    ORCHESTRATION_WS_METHODS.dispatchTaskProcessCommand,
+    DispatchTaskProcessCommandInput,
+  ),
 
   // Project Search
   tagRequestBody(WS_METHODS.projectsDiscoverScripts, ProjectDiscoverScriptsInput),
@@ -317,9 +358,6 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.subscribeProjectDevServerEvents, Schema.Struct({})),
 
   // Filesystem browse
-  // Studio
-  tagRequestBody(WS_METHODS.studioListThreadOutputs, StudioListThreadOutputsInput),
-
   tagRequestBody(WS_METHODS.filesystemBrowse, FilesystemBrowseInput),
 
   // Shell methods
@@ -442,7 +480,6 @@ export const WsWelcomePayload = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   homeDir: Schema.optional(TrimmedNonEmptyString),
   chatWorkspaceRoot: Schema.optional(TrimmedNonEmptyString),
-  studioWorkspaceRoot: Schema.optional(TrimmedNonEmptyString),
   projectName: TrimmedNonEmptyString,
   bootstrapProjectId: Schema.optional(ProjectId),
   bootstrapThreadId: Schema.optional(ThreadId),

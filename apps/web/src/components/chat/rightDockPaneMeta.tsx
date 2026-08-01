@@ -14,8 +14,11 @@ import {
   GitPullRequestIcon,
   GlobeIcon,
   InfoIcon,
+  ProcessIcon,
   MessageCircleIcon,
   TerminalIcon,
+  UsersIcon,
+  WorkflowIcon,
 } from "~/lib/icons";
 import {
   RIGHT_DOCK_PANE_KINDS,
@@ -39,6 +42,10 @@ export const RIGHT_DOCK_PANE_META: Record<RightDockPaneKind, RightDockPaneMeta> 
   sidechat: { label: "Side", Icon: MessageCircleIcon },
   git: { label: "Git", Icon: GitCommitIcon },
   pullRequest: { label: "Pull request", Icon: GitPullRequestIcon },
+  orchestratorTeam: { label: "Team", Icon: UsersIcon },
+  orchestratorProcess: { label: "Process", Icon: ProcessIcon },
+  orchestratorExchanges: { label: "Exchanges", Icon: MessageCircleIcon },
+  orchestratorRuns: { label: "Runs", Icon: WorkflowIcon },
 };
 
 // Neutral fallback for any pane kind we no longer recognize (e.g. stale
@@ -61,7 +68,7 @@ export function getRightDockPaneMeta(kind: RightDockPaneKind): RightDockPaneMeta
 // clicking a file reference in chat, while the add menu offers the richer
 // "explorer" pane (file tree + search + viewer) in its place.
 export const RIGHT_DOCK_ADD_MENU_KINDS: readonly RightDockPaneKind[] = RIGHT_DOCK_PANE_KINDS.filter(
-  (kind) => kind !== "file" && kind !== "pullRequest",
+  (kind) => kind !== "file" && kind !== "pullRequest" && !kind.startsWith("orchestrator"),
 );
 
 // Resolves a tab label, preferring caller-provided per-pane overrides (e.g. the

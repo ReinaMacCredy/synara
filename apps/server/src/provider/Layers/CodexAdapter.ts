@@ -468,6 +468,8 @@ function toRequestTypeFromMethod(method: string): CanonicalRequestType {
       return "file_change_approval";
     case "item/permissions/requestApproval":
       return "permissions_approval";
+    case "mcpServer/elicitation/request":
+      return "mcp_tool_approval";
     case "applyPatchApproval":
       return "apply_patch_approval";
     case "execCommandApproval":
@@ -493,6 +495,8 @@ function toRequestTypeFromKind(kind: unknown): CanonicalRequestType {
       return "file_change_approval";
     case "permissions":
       return "permissions_approval";
+    case "mcp-tool":
+      return "mcp_tool_approval";
     default:
       return "unknown";
   }
@@ -929,7 +933,10 @@ function mapToRuntimeEvents(
     }
 
     const detail =
-      asString(payload?.command) ?? asString(payload?.reason) ?? asString(payload?.prompt);
+      asString(payload?.command) ??
+      asString(payload?.reason) ??
+      asString(payload?.prompt) ??
+      asString(payload?.message);
     return [
       {
         ...runtimeEventBase(event, canonicalThreadId),
@@ -1851,6 +1858,9 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
         ...(input.cwd !== undefined ? { cwd: input.cwd } : {}),
         ...(input.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
         ...(input.providerOptions !== undefined ? { providerOptions: input.providerOptions } : {}),
+        ...(input.orchestratorContext !== undefined
+          ? { orchestratorContext: input.orchestratorContext }
+          : {}),
         runtimeMode: input.runtimeMode,
         ...codexModelSelectionOverrides(input.modelSelection),
       };
@@ -2213,6 +2223,12 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
         supportsRuntimeModelList: true,
         supportsTurnSteering: true,
         supportsLiveTurnDiffPatch: true,
+        orchestrator: {
+          authoritativeRoleInstruction: true,
+          authenticatedMcp: agentGatewayCredentials !== undefined,
+          independentSession: true,
+          instructionChannel: "codex-developer-instructions",
+        },
       },
       startSession,
       sendTurn,

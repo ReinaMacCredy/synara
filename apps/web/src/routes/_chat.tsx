@@ -14,7 +14,6 @@ import { shouldRenderTerminalWorkspace } from "../components/ChatView.logic";
 import ThreadSidebar from "../components/Sidebar";
 import { isElectron } from "../env";
 import { useHandleNewChat } from "../hooks/useHandleNewChat";
-import { useHandleNewStudioChat } from "../hooks/useHandleNewStudioChat";
 import { useTemporaryThreadLifecycle } from "../hooks/useTemporaryThreadLifecycle";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useRecentViewSwitcher } from "../hooks/useRecentViewSwitcher";
@@ -28,7 +27,6 @@ import {
 import { resolveInheritedThreadContext } from "../lib/threadBootstrap";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
-import { startFreshChatForActiveSurface } from "../lib/startContainerChat";
 import { isOrdinarySpaceProject } from "../lib/spaces";
 import { isKeyboardShortcutsHelpShortcut, resolveShortcutCommand } from "../keybindings";
 import { useStore } from "../store";
@@ -202,9 +200,6 @@ function isRecentViewSwitcherCommitKey(event: KeyboardEvent): boolean {
 
 function ChatRouteGlobalShortcuts() {
   const navigate = useNavigate();
-  const isStudioRoute = useLocation({
-    select: (location) => location.pathname.startsWith("/studio"),
-  });
   const { toggleSidebar } = useSidebar();
   const [shortcutsDialogOpen, setShortcutsDialogOpen] = useState(false);
   const clearSelection = useThreadSelectionStore((state) => state.clearSelection);
@@ -230,10 +225,8 @@ function ChatRouteGlobalShortcuts() {
     projects,
   });
   const { handleNewChat } = useHandleNewChat();
-  const { handleNewStudioChat } = useHandleNewStudioChat();
   const homeDir = useWorkspacePathsStore((state) => state.homeDir);
   const chatWorkspaceRoot = useWorkspacePathsStore((state) => state.chatWorkspaceRoot);
-  const studioWorkspaceRoot = useWorkspacePathsStore((state) => state.studioWorkspaceRoot);
   const latestProjectId = useLatestProjectStore((state) => state.latestProjectId);
   const setLatestProjectId = useLatestProjectStore((state) => state.setLatestProjectId);
   const clearLatestProjectId = useLatestProjectStore((state) => state.clearLatestProjectId);
@@ -265,10 +258,10 @@ function ChatRouteGlobalShortcuts() {
     () =>
       projects.filter(
         (project) =>
-          isOrdinarySpaceProject(project, { homeDir, chatWorkspaceRoot, studioWorkspaceRoot }) &&
+          isOrdinarySpaceProject(project, { homeDir, chatWorkspaceRoot }) &&
           (project.spaceId ?? null) === activeSpaceId,
       ),
-    [activeSpaceId, chatWorkspaceRoot, homeDir, projects, studioWorkspaceRoot],
+    [activeSpaceId, chatWorkspaceRoot, homeDir, projects],
   );
   const currentProjectId = resolveCurrentProjectTargetId(
     activeSpaceProjects,
@@ -284,23 +277,8 @@ function ChatRouteGlobalShortcuts() {
   // the app entirely, not merely absent from the Space you happen to be in.
   const persistedLatestProjectStillExists = resolveLatestProjectTargetId(projects, latestProjectId);
   const handleNewChatForActiveSurface = useCallback(
-    () =>
-      startFreshChatForActiveSurface({
-        activeProject,
-        isStudioRoute,
-        paths: { homeDir, chatWorkspaceRoot, studioWorkspaceRoot },
-        handleNewChat,
-        handleNewStudioChat,
-      }),
-    [
-      activeProject,
-      chatWorkspaceRoot,
-      handleNewChat,
-      handleNewStudioChat,
-      homeDir,
-      isStudioRoute,
-      studioWorkspaceRoot,
-    ],
+    () => handleNewChat({ fresh: true }),
+    [handleNewChat],
   );
 
   useEffect(() => {

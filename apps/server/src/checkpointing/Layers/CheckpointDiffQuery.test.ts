@@ -459,17 +459,17 @@ describe("CheckpointDiffQueryLive", () => {
     ).rejects.toThrow("Workspace path missing");
   });
 
-  it("uses the workspace root as a real cwd for a studio-kind project", async () => {
-    const projectId = ProjectId.makeUnsafe("project-studio");
-    const threadId = ThreadId.makeUnsafe("thread-studio");
+  it("uses the workspace root as a real cwd for a project", async () => {
+    const projectId = ProjectId.makeUnsafe("project-local");
+    const threadId = ThreadId.makeUnsafe("thread-local");
     const toCheckpointRef = checkpointRefForThreadTurn(threadId, 1);
     const diffCheckpointsCalls: Array<{ readonly cwd: string }> = [];
 
     const threadCheckpointContext = makeThreadCheckpointContext({
       projectId,
       threadId,
-      projectKind: "studio",
-      workspaceRoot: "/tmp/studio-root",
+      projectKind: "project",
+      workspaceRoot: "/tmp/project-root",
       envMode: "local",
       worktreePath: null,
       checkpointTurnCount: 1,
@@ -529,7 +529,7 @@ describe("CheckpointDiffQueryLive", () => {
       }).pipe(Effect.provide(layer)),
     );
 
-    expect(diffCheckpointsCalls).toEqual([{ cwd: "/tmp/studio-root" }]);
+    expect(diffCheckpointsCalls).toEqual([{ cwd: "/tmp/project-root" }]);
     expect(result.diff).toBe("diff patch");
   });
 

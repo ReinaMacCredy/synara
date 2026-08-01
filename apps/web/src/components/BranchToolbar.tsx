@@ -34,7 +34,6 @@ import {
   resolveAssociatedWorktreeMetadataAfterWorkspacePatch,
   resolveDraftEnvModeAfterBranchChange,
   resolveEffectiveEnvMode,
-  resolveFixedLocalWorkspacePatch,
 } from "./BranchToolbar.logic";
 import {
   BranchToolbarBranchSelector,
@@ -161,9 +160,6 @@ export interface BranchToolbarProps {
   variant?: BranchSelectorVariant;
   // Keeps the Local/Worktree control visible while hiding Git-only branch UI for non-repo cwd.
   showBranchSelector?: boolean;
-  // Studio-like containers bind the toolbar to one concrete local folder and
-  // must not persist project/worktree metadata from branch selector actions.
-  fixedLocalWorkspaceCwd?: string | null;
 }
 
 export interface RuntimeUsageControlsProps {
@@ -295,7 +291,6 @@ export default function BranchToolbar({
   onComposerFocusRequest,
   variant: variantProp,
   showBranchSelector: showBranchSelectorProp,
-  fixedLocalWorkspaceCwd,
 }: BranchToolbarProps) {
   const handoffBusy = handoffBusyProp ?? false;
   const variant = variantProp ?? "toolbar";
@@ -326,11 +321,8 @@ export default function BranchToolbar({
     : (draftThread?.workingDirectory ?? null);
   const activeProvider =
     serverThread?.session?.provider ?? serverThread?.modelSelection.provider ?? null;
-  const usesFixedLocalWorkspace = fixedLocalWorkspaceCwd !== undefined;
-  const branchCwd = usesFixedLocalWorkspace
-    ? fixedLocalWorkspaceCwd
-    : (activeWorktreePath ?? activeWorkingDirectory ?? activeProject?.cwd ?? null);
-  const branchProjectCwd = usesFixedLocalWorkspace ? branchCwd : (activeProject?.cwd ?? null);
+  const branchCwd = activeWorktreePath ?? activeWorkingDirectory ?? activeProject?.cwd ?? null;
+  const branchProjectCwd = activeProject?.cwd ?? null;
   const effectiveEnvMode = resolveEffectiveEnvMode({
     activeWorktreePath,
     hasServerThread,
@@ -345,43 +337,6 @@ export default function BranchToolbar({
   const setThreadWorkspace = useCallback(
     (patch: ThreadWorkspacePatch) => {
       if (!activeThreadId) return;
-      if (usesFixedLocalWorkspace) {
-        const nextWorkspace = resolveFixedLocalWorkspacePatch({
-          currentWorkingDirectory: activeWorkingDirectory,
-          patch,
-        });
-        const nextWorkingDirectory = nextWorkspace.workingDirectory ?? null;
-        if (nextWorkingDirectory === activeWorkingDirectory) {
-          return;
-        }
-
-        const api = readNativeApi();
-        if (serverThread?.session && api) {
-          void api.orchestration
-            .dispatchCommand({
-              type: "thread.session.stop",
-              commandId: newCommandId(),
-              threadId: activeThreadId,
-              createdAt: new Date().toISOString(),
-            })
-            .catch(() => undefined);
-        }
-        if (api && hasServerThread) {
-          void api.orchestration.dispatchCommand({
-            type: "thread.meta.update",
-            commandId: newCommandId(),
-            threadId: activeThreadId,
-            ...nextWorkspace,
-          });
-        }
-        if (hasServerThread) {
-          setThreadWorkspaceAction(activeThreadId, nextWorkspace);
-          return;
-        }
-        setDraftThreadContext(threadId, nextWorkspace);
-        return;
-      }
-
       const branch = patch.branch !== undefined ? patch.branch : activeThreadBranch;
       const worktreePath =
         patch.worktreePath !== undefined ? patch.worktreePath : activeWorktreePath;
@@ -452,7 +407,6 @@ export default function BranchToolbar({
     [
       activeThreadId,
       activeThreadBranch,
-      activeWorkingDirectory,
       serverThread?.session,
       activeWorktreePath,
       hasServerThread,
@@ -463,26 +417,17 @@ export default function BranchToolbar({
       setDraftThreadContext,
       threadId,
       effectiveEnvMode,
-      usesFixedLocalWorkspace,
     ],
   );
 
   const canHandoffToWorktree = Boolean(
-    !usesFixedLocalWorkspace &&
-    hasServerThread &&
-    envLocked &&
-    !activeWorktreePath &&
-    effectiveEnvMode === "local",
+    hasServerThread && envLocked && !activeWorktreePath && effectiveEnvMode === "local",
   );
-  const canHandoffToLocal = Boolean(
-    !usesFixedLocalWorkspace && hasServerThread && activeWorktreePath,
-  );
+  const canHandoffToLocal = Boolean(hasServerThread && activeWorktreePath);
   const canSwitchToWorktree = Boolean(
-    !usesFixedLocalWorkspace && !envLocked && !activeWorktreePath && effectiveEnvMode === "local",
+    !envLocked && !activeWorktreePath && effectiveEnvMode === "local",
   );
-  const canSwitchToLocal = Boolean(
-    !usesFixedLocalWorkspace && !envLocked && effectiveEnvMode === "worktree",
-  );
+  const canSwitchToLocal = Boolean(!envLocked && effectiveEnvMode === "worktree");
   const showEnvPicker = effectiveEnvMode === "local" || canSwitchToLocal;
 
   const usageSummary = useProviderUsageSummary({

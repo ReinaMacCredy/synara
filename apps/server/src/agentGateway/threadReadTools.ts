@@ -176,7 +176,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
     definition: {
       name: "synara_list_projects",
       description:
-        "List Synara projects (id, title, workspace root). System-managed containers (the Chats and Studio surfaces) are not projects and are excluded. Use before creating a thread in another project.",
+        "List Synara projects (id, title, workspace root). System-managed chat containers are excluded. Use before creating a thread in another project.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       annotations: { title: "List Synara projects", ...READ_ONLY_TOOL_ANNOTATIONS },
     },

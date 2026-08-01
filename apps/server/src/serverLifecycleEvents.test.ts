@@ -21,7 +21,6 @@ describe("ServerLifecycleEvents", () => {
             cwd: "/one",
             homeDir: "/home/tester",
             chatWorkspaceRoot: "/home/tester/.synara/chats",
-            studioWorkspaceRoot: "/home/tester/.synara/chats/Studio",
             projectName: "one",
           },
         });
@@ -37,7 +36,6 @@ describe("ServerLifecycleEvents", () => {
             cwd: "/two",
             homeDir: "/home/tester",
             chatWorkspaceRoot: "/home/tester/.synara/chats",
-            studioWorkspaceRoot: "/home/tester/.synara/chats/Studio",
             projectName: "two",
           },
         });

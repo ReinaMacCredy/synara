@@ -10,6 +10,7 @@ import type {
   OrchestrationThreadShell,
   ProviderKind,
   ServerProviderStatus,
+  TaskProcessGraphProjection,
   ThreadId as ThreadIdType,
 } from "@synara/contracts";
 import {
@@ -19,6 +20,7 @@ import {
   MessageId,
   ModelSelection,
   ProjectId,
+  TaskProcessId,
   ThreadId,
   TurnId,
 } from "@synara/contracts";
@@ -40,6 +42,12 @@ import {
   ProviderRuntimeEventRepository,
   type PersistedProviderRuntimeEvent,
 } from "../../persistence/Services/ProviderRuntimeEvents.ts";
+import { OrchestratorArtifactRepository } from "../../persistence/Services/OrchestratorArtifacts.ts";
+import {
+  ProjectionOrchestratorRepository,
+  type ProjectionOrchestratorCore,
+} from "../../persistence/Services/ProjectionOrchestrator.ts";
+import { ProjectionTaskProcessRepository } from "../../persistence/Services/ProjectionTaskProcess.ts";
 import { ThreadDiagnosticsQuery } from "../../diagnostics/Services/ThreadDiagnosticsQuery.ts";
 import type {
   DiagnosticThreadActivity,
@@ -221,6 +229,7 @@ const VALID_TOKENS: Record<string, string> = {
   "token-parent": "thread-parent",
   "token-parent-claude": "thread-parent",
   "token-parent-readonly": "thread-parent",
+  "token-participant": "thread-participant",
   "token-ghost": "thread-ghost",
 };
 
@@ -279,6 +288,8 @@ function makeHarnessLayer(
       readonly id: string;
       readonly automationId: AutomationDefinition["id"];
     };
+    readonly orchestratorCore?: ProjectionOrchestratorCore;
+    readonly taskProcessGraph?: TaskProcessGraphProjection;
   } = {},
 ) {
   const inFlightRequests = makeAgentGatewayInFlightRequestRegistry();
@@ -474,6 +485,17 @@ function makeHarnessLayer(
             .map((event) => event.sequence),
         ),
       ),
+    getAggregateHighWaterSequence: ({ aggregateKind, aggregateId }) =>
+      Effect.succeed(
+        Math.max(
+          0,
+          ...(options.diagnosticEvents ?? [])
+            .filter(
+              (event) => event.aggregateKind === aggregateKind && event.aggregateId === aggregateId,
+            )
+            .map((event) => event.sequence),
+        ),
+      ),
     readThreadEvents: (input: {
       threadId: string;
       throughSequenceInclusive: number;
@@ -490,6 +512,24 @@ function makeHarnessLayer(
           )
           .filter(
             (event) => input.eventTypes === undefined || input.eventTypes.includes(event.type),
+          )
+          .toSorted((left, right) => right.sequence - left.sequence)
+          .slice(0, input.limit),
+      ),
+    readAggregateEvents: ({ aggregateKind, aggregateId }) =>
+      Effect.succeed(
+        (options.diagnosticEvents ?? []).filter(
+          (event) => event.aggregateKind === aggregateKind && event.aggregateId === aggregateId,
+        ),
+      ),
+    readAggregateEventPage: (input) =>
+      Effect.succeed(
+        (options.diagnosticEvents ?? [])
+          .filter(
+            (event) =>
+              event.aggregateKind === input.aggregateKind &&
+              event.aggregateId === input.aggregateId &&
+              event.sequence < (input.beforeSequenceExclusive ?? Number.MAX_SAFE_INTEGER),
           )
           .toSorted((left, right) => right.sequence - left.sequence)
           .slice(0, input.limit),
@@ -1099,6 +1139,25 @@ function makeHarnessLayer(
         };
       }),
   } as unknown as (typeof ProjectionTurnRepository)["Service"]);
+  const orchestratorRepositoryLayer = Layer.succeed(ProjectionOrchestratorRepository, {
+    findRootForThread: (threadId: ThreadIdType) => {
+      const core = options.orchestratorCore;
+      const belongs =
+        core !== undefined &&
+        (core.root.root.rootThreadId === threadId ||
+          core.ownershipEdges.some(
+            (edge) => edge.childThreadId === threadId && edge.retiredAt === null,
+          ));
+      return Effect.succeed(belongs ? Option.some(core.root.root.rootThreadId) : Option.none());
+    },
+    getCore: () => Effect.succeed(Option.fromNullishOr(options.orchestratorCore)),
+  } as unknown as (typeof ProjectionOrchestratorRepository)["Service"]);
+  const taskProcessRepositoryLayer = Layer.succeed(ProjectionTaskProcessRepository, {
+    getGraph: () => Effect.succeed(Option.fromNullishOr(options.taskProcessGraph)),
+  } as unknown as (typeof ProjectionTaskProcessRepository)["Service"]);
+  const artifactRepositoryLayer = Layer.succeed(OrchestratorArtifactRepository, {
+    list: () => Effect.succeed([]),
+  } as unknown as (typeof OrchestratorArtifactRepository)["Service"]);
 
   const gatewayLayer = AgentGatewayLive.pipe(
     Layer.provide(credentialsLayer),
@@ -1115,6 +1174,9 @@ function makeHarnessLayer(
     Layer.provide(eventStoreLayer),
     Layer.provide(eventDeliveriesLayer),
     Layer.provide(providerRuntimeEventsLayer),
+    Layer.provide(orchestratorRepositoryLayer),
+    Layer.provide(taskProcessRepositoryLayer),
+    Layer.provide(artifactRepositoryLayer),
     Layer.provide(ServerConfig.layerTest(process.cwd(), process.cwd())),
     Layer.provide(NodeServices.layer),
   );
@@ -1504,6 +1566,98 @@ describe("AgentGateway", () => {
     }).pipe(Effect.provide(gatewayLayer));
   });
 
+  it.effect("filters the exact Orchestrator V1 catalog by durable caller role", () => {
+    const rootThreadId = ThreadId.makeUnsafe("thread-parent");
+    const participantThreadId = ThreadId.makeUnsafe("thread-participant");
+    const orchestratorCore: ProjectionOrchestratorCore = {
+      root: {
+        root: {
+          rootThreadId,
+          projectId: PROJECT_ID,
+          protocolVersion: 1,
+          state: "active",
+          activeProcessId: TaskProcessId.makeUnsafe("process-role-catalog"),
+          resourcePolicyVersion: 1,
+          createdAt: NOW,
+          archivedAt: null,
+          revision: 2,
+        },
+        highWaterCursor: "2",
+      },
+      ownershipEdges: [
+        {
+          rootThreadId,
+          parentThreadId: rootThreadId,
+          childThreadId: participantThreadId,
+          role: "participant",
+          capabilities: [
+            "state.read",
+            "link.request",
+            "message.send",
+            "artifact.publish",
+            "assignment.report",
+          ],
+          contractVersion: 1,
+          sourceThreadId: rootThreadId,
+          sourceTurnId: null,
+          sourceOperationId: null,
+          activeFrom: NOW,
+          retiredAt: null,
+          decisionReason: {
+            summary: "Independent participant",
+            taskFit: ["design"],
+            contextHealth: "healthy",
+            cacheEconomics: "unknown",
+            selectedAt: NOW,
+          },
+        },
+      ],
+      communicationLinks: [],
+      assignments: [],
+      runs: [],
+      providerCapabilities: [],
+      capacity: null,
+    };
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(
+      [...baseThreads, makeThreadShell("thread-participant")],
+      [],
+      { orchestratorCore },
+    );
+    const orchestrationNames = (body: unknown) =>
+      (
+        body as {
+          result: { tools: ReadonlyArray<{ readonly name: string }> };
+        }
+      ).result.tools
+        .map((tool) => tool.name)
+        .filter(
+          (name) => name.startsWith("synara_task_") || name.startsWith("synara_orchestrator_"),
+        );
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const root = yield* harness.postRaw({
+        authorizationHeader: "Bearer token-parent",
+        body: { jsonrpc: "2.0", id: 1, method: "tools/list" },
+      });
+      assert.lengthOf(orchestrationNames(root.body), 18);
+
+      const participant = yield* harness.postRaw({
+        authorizationHeader: "Bearer token-participant",
+        body: { jsonrpc: "2.0", id: 2, method: "tools/list" },
+      });
+      assert.deepEqual(orchestrationNames(participant.body), [
+        "synara_task_process_get",
+        "synara_orchestrator_get_state",
+        "synara_orchestrator_send_message",
+        "synara_orchestrator_request_link",
+        "synara_orchestrator_publish_artifact",
+        "synara_orchestrator_report_status",
+        "synara_orchestrator_request_change",
+        "synara_orchestrator_wait",
+      ]);
+    }).pipe(Effect.provide(gatewayLayer));
+  });
+
   it.effect("lists only ordinary projects, excluding system-managed containers", () => {
     // ServerConfig.layerTest canonicalizes the home dir via realpath, so the legacy
     // Home row must use the same canonical form for the workspace-root match to hold.
@@ -1516,13 +1670,6 @@ describe("AgentGateway", () => {
           kind: "chat",
           title: "che progetti ci sono in synara",
           workspaceRoot: `${homeDir}/Documents/Synara/2026-03-01/chat`,
-        },
-        {
-          ...makeProjectShell(),
-          id: ProjectId.makeUnsafe("project-studio-container"),
-          kind: "studio",
-          title: "Studio",
-          workspaceRoot: `${homeDir}/Documents/Synara/Studio`,
         },
         {
           ...makeProjectShell(),

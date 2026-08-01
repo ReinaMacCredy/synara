@@ -13,12 +13,11 @@ import {
 
 import type { Project } from "~/types";
 import { isHomeChatContainerProject } from "~/lib/chatProjects";
-import { isStudioContainerProject } from "~/lib/studioProjects";
 import type { ServerWorkspacePaths } from "~/lib/serverWorkspacePaths";
 import { newCommandId, newSpaceId } from "~/lib/utils";
 
 /**
- * Spaces organize ordinary projects only: the Chats and Studio containers are reachable
+ * Spaces organize ordinary projects only: the Chats container is reachable
  * from every Space and so belong to none. This is the membership rule the whole feature
  * turns on — the sidebar list, the tab activity dots, the pickers, and the shortcut
  * targets all have to agree on it, so it lives here rather than being spelled out again
@@ -28,11 +27,7 @@ export function isOrdinarySpaceProject(
   project: Project | null | undefined,
   paths: ServerWorkspacePaths,
 ): project is Project {
-  return (
-    project?.kind === "project" &&
-    !isHomeChatContainerProject(project, paths) &&
-    !isStudioContainerProject(project, paths)
-  );
+  return project?.kind === "project" && !isHomeChatContainerProject(project, paths);
 }
 
 export async function createSpace(input: {

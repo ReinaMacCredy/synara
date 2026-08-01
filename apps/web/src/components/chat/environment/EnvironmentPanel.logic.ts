@@ -1,11 +1,7 @@
-// FILE: EnvironmentPanel.logic.ts
-// Purpose: Pure visibility policy for Environment panel actions.
-// Layer: Web UI logic
+import type { SessionProgressProjection } from "@synara/contracts";
 
-export function shouldShowStudioFolderRow(input: {
-  isStudioChat: boolean;
-  studioFolderPath: string | null;
-  nativeShellAvailable: boolean;
-}): boolean {
-  return input.isStudioChat && Boolean(input.studioFolderPath) && input.nativeShellAvailable;
+export function shouldRenderEnvironmentProgress(
+  projection: SessionProgressProjection | null,
+): projection is SessionProgressProjection {
+  return projection !== null;
 }

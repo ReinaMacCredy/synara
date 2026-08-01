@@ -12,7 +12,6 @@ import {
   ExternalLinkIcon,
   FolderOpenIcon,
   GiftIcon,
-  KanbanIcon,
   KeyboardIcon,
   type LucideIcon,
   NewThreadIcon,
@@ -27,6 +26,7 @@ import {
   Trash2,
   TriangleAlertIcon,
   WorktreeIcon,
+  WorkflowIcon,
   XIcon,
 } from "~/lib/icons";
 import { CentralIcon, createCentralIconComponent } from "~/lib/central-icons";
@@ -81,6 +81,7 @@ import {
   PROVIDER_DISPLAY_NAMES,
   ProjectId,
   SpaceId,
+  TaskProcessId,
   type ProviderKind,
   ThreadId,
   type GitStatusResult,
@@ -145,10 +146,11 @@ import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { readNativeApi } from "../nativeApi";
 import { isHomeChatContainerProject, prewarmHomeChatProject } from "../lib/chatProjects";
 import {
-  collectStudioProjectIds,
-  isStudioContainerProject,
-  prewarmStudioProject,
-} from "../lib/studioProjects";
+  collectOrchestratorThreadIds,
+  orchestratorRootsQueryOptions,
+  partitionThreadsByOrchestratorMembership,
+  sortOrchestratorRoots,
+} from "../lib/orchestratorRoots";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useLatestProjectStore } from "../latestProjectStore";
 import { resolveThreadEnvironmentPresentation } from "../lib/threadEnvironment";
@@ -200,7 +202,6 @@ import {
   type SidebarSearchPaletteMode,
 } from "./SidebarSearchPalette";
 import { useHandleNewChat } from "../hooks/useHandleNewChat";
-import { useHandleNewStudioChat } from "../hooks/useHandleNewStudioChat";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useThreadHandoff } from "../hooks/useThreadHandoff";
 import { useFeedbackDialogStore } from "../feedbackDialogStore";
@@ -281,7 +282,6 @@ import {
   getSidebarThreadIdsToPrewarm,
   getVisibleSidebarEntriesForPreview,
   groupSidebarThreadsByProjectId,
-  partitionSidebarThreadsByProjectIds,
   isLatestPinnedProjectMutation,
   isProjectsSidebarSurface,
   pruneProjectThreadListPagingForCollapsedProjects,
@@ -425,11 +425,10 @@ const ADD_PROJECT_SNAPSHOT_CATCH_UP_MAX_ATTEMPTS = 6;
 const ADD_PROJECT_SNAPSHOT_CATCH_UP_DELAY_MS = 50;
 const SIDEBAR_VIEW_LABELS: Record<SidebarView, string> = {
   threads: "Projects",
-  studio: "Studio",
+  orchestrator: "Orchestrator",
 };
 /** Snap the optimistic segment selection back if the navigation never lands. */
 const SIDEBAR_SEGMENT_PENDING_RESET_MS = 2000;
-const EMPTY_PROJECT_SIDEBAR_DATA: ReadonlyMap<ProjectId, SidebarDerivedProjectData> = new Map();
 const DebugFeatureFlagsMenu = import.meta.env.DEV
   ? lazy(() =>
       import("./DebugFeatureFlagsMenu").then((module) => ({
@@ -440,7 +439,7 @@ const DebugFeatureFlagsMenu = import.meta.env.DEV
 
 type ProjectContextMenuId =
   | "open-in-finder"
-  | "open-in-kanban"
+  | "open-in-process"
   | "copy-path"
   | "start-dev"
   | "stop-dev"
@@ -1160,8 +1159,7 @@ export function SidebarSegmentedPicker({
     }
     onSelectView(view);
   };
-  // displayedView can name a hidden view (e.g. a Studio thread is open while the Studio section is
-  // toggled off) — show no selection then, instead of parking the thumb on the wrong segment.
+  // Show no selection when navigation has not landed on a visible segment.
   const activeIndex = displayedView === null ? -1 : views.indexOf(displayedView);
   const segmentCount = views.length;
   const activeSegment = Math.max(0, activeIndex);
@@ -1275,15 +1273,13 @@ export default function Sidebar() {
   const prunePinnedProjects = usePinnedProjectsStore((store) => store.prunePinnedProjects);
   const homeDir = useWorkspacePathsStore((store) => store.homeDir);
   const chatWorkspaceRoot = useWorkspacePathsStore((store) => store.chatWorkspaceRoot);
-  const studioWorkspaceRoot = useWorkspacePathsStore((store) => store.studioWorkspaceRoot);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const pathname = useLocation({ select: (loc) => loc.pathname });
   const isOnSettings = useLocation({
     select: (loc) => loc.pathname === "/settings",
   });
-  const isOnStudioRoute = pathname.startsWith("/studio");
-  const isOnKanban = pathname.startsWith("/kanban");
+  const isOnOrchestratorRoute = pathname.startsWith("/orchestrator");
   const isOnAutomations = pathname.startsWith("/automations");
   const isOnPullRequests = pathname.startsWith("/pull-requests");
   // Lightweight read of automations to drive the sidebar attention badge. Shares the
@@ -1334,22 +1330,17 @@ export default function Sidebar() {
     [automationListQuery.data],
   );
   const { settings: appSettings, updateSettings } = useAppSettings();
-  // Projects is always available; Studio and the standalone Chats footer can be hidden
-  // independently from Settings.
+  // Projects and Orchestrator are always available; the standalone Chats footer is optional.
   const chatsSectionVisible = appSettings.showChatsSection;
-  const studioSectionVisible = appSettings.showStudioSection;
   const { handleNewThread } = useHandleNewThread();
   const { handleNewChat } = useHandleNewChat();
-  const { handleNewStudioChat } = useHandleNewStudioChat();
   const { createThreadHandoff } = useThreadHandoff();
   const routeThreadId = useParams({
     strict: false,
-    select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
-  });
-  const routeProjectId = useParams({
-    strict: false,
-    select: (params) =>
-      typeof params.projectId === "string" ? ProjectId.makeUnsafe(params.projectId) : null,
+    select: (params) => {
+      const value = params.threadId ?? params.rootThreadId;
+      return value ? ThreadId.makeUnsafe(value) : null;
+    },
   });
   const routeSearch = useDiffRouteSearch();
   const settingsSectionSearch = useSearch({ strict: false }) as Record<string, unknown>;
@@ -1523,20 +1514,35 @@ export default function Sidebar() {
   const selectSidebarTreeThreads = useMemo(() => createSidebarTreeThreadsSelector(), []);
   const sidebarThreads = useStore(selectSidebarThreads);
   const sidebarTreeThreads = useStore(selectSidebarTreeThreads);
-  const studioProjectIdSet = useMemo(
-    () => collectStudioProjectIds(projects, { homeDir, chatWorkspaceRoot, studioWorkspaceRoot }),
-    [chatWorkspaceRoot, homeDir, projects, studioWorkspaceRoot],
+  const orchestratorRootsQuery = useQuery(orchestratorRootsQueryOptions({ limit: 100 }));
+  const orchestratorRoots = useMemo(
+    () => sortOrchestratorRoots(orchestratorRootsQuery.data?.items ?? []),
+    [orchestratorRootsQuery.data?.items],
   );
-  const { nonStudioThreads: nonStudioSidebarThreads, studioThreads: studioSidebarThreads } =
-    useMemo(
-      () => partitionSidebarThreadsByProjectIds(sidebarThreads, studioProjectIdSet),
-      [sidebarThreads, studioProjectIdSet],
-    );
-  const { nonStudioThreads: nonStudioSidebarTreeThreads, studioThreads: studioSidebarTreeThreads } =
-    useMemo(
-      () => partitionSidebarThreadsByProjectIds(sidebarTreeThreads, studioProjectIdSet),
-      [sidebarTreeThreads, studioProjectIdSet],
-    );
+  const orchestratorThreadIds = useMemo(
+    () => collectOrchestratorThreadIds(orchestratorRoots, sidebarTreeThreads),
+    [orchestratorRoots, sidebarTreeThreads],
+  );
+  const orchestratorRootIdSet = useMemo(
+    () => new Set(orchestratorRoots.map((root) => root.rootThreadId)),
+    [orchestratorRoots],
+  );
+  const { ordinaryThreads: ordinarySidebarThreads } = useMemo(
+    () => partitionThreadsByOrchestratorMembership(sidebarThreads, orchestratorThreadIds),
+    [orchestratorThreadIds, sidebarThreads],
+  );
+  const { ordinaryThreads: ordinarySidebarTreeThreads } = useMemo(
+    () => partitionThreadsByOrchestratorMembership(sidebarTreeThreads, orchestratorThreadIds),
+    [orchestratorThreadIds, sidebarTreeThreads],
+  );
+  const orchestratorRootThreads = useMemo(
+    () =>
+      orchestratorRoots.flatMap((root) => {
+        const thread = sidebarThreadSummaryById[root.rootThreadId];
+        return thread && (thread.archivedAt ?? null) === null ? [thread] : [];
+      }),
+    [orchestratorRoots, sidebarThreadSummaryById],
+  );
   const dismissThreadStatus = useCallback(
     (threadId: ThreadId, statusKey: string | null | undefined) => {
       if (!statusKey) {
@@ -1680,9 +1686,7 @@ export default function Sidebar() {
     homeDir,
     chatWorkspaceRoot,
   });
-  // Resolve the active thread's project for real threads AND not-yet-persisted draft threads.
-  // Without the draft fallback, opening a fresh Studio chat (a draft at /$threadId) would drop
-  // out of the Studio surface and snap the segmented picker back to Projects.
+  // Resolve the active thread's project for real threads and not-yet-persisted drafts.
   const activeRouteProjectId = routeThreadId
     ? (sidebarThreadSummaryById[routeThreadId]?.projectId ??
       draftThreadsByThreadId[routeThreadId]?.projectId ??
@@ -1691,55 +1695,36 @@ export default function Sidebar() {
   const activeRouteProject = activeRouteProjectId
     ? (projectById.get(activeRouteProjectId) ?? null)
     : null;
-  // Same predicate the Studio collectors use — trusting `kind` alone here would let a drifted
-  // studio-kind row (root outside the configured Studio root) activate the Studio segment while
-  // every Studio list excludes it, stranding the active thread in neither segment.
-  const isOnStudio =
-    isOnStudioRoute ||
-    isStudioContainerProject(activeRouteProject, {
-      homeDir,
-      chatWorkspaceRoot,
-      studioWorkspaceRoot,
-    });
+  const isOnOrchestrator =
+    isOnOrchestratorRoute || (routeThreadId !== null && orchestratorThreadIds.has(routeThreadId));
   const ordinarySpaceProjects = useMemo(
     () =>
-      projects.filter((project) =>
-        isOrdinarySpaceProject(project, { homeDir, chatWorkspaceRoot, studioWorkspaceRoot }),
-      ),
-    [chatWorkspaceRoot, homeDir, projects, studioWorkspaceRoot],
+      projects.filter((project) => isOrdinarySpaceProject(project, { homeDir, chatWorkspaceRoot })),
+    [chatWorkspaceRoot, homeDir, projects],
   );
 
   // Only one segment's pinned threads are ever rendered at a time, so derive a single
   // memo from the already-partitioned active list instead of computing both segments'
   // pinned lists on every render (hooks can't be conditional, but the inputs can be).
-  const activeSpaceNonStudioSidebarTreeThreads = useMemo(
+  const activeSpaceOrdinarySidebarTreeThreads = useMemo(
     () =>
-      nonStudioSidebarTreeThreads.filter((thread) => {
+      ordinarySidebarTreeThreads.filter((thread) => {
         const project = projectById.get(thread.projectId);
         return (
           !isOrdinarySpaceProject(project, {
             homeDir,
             chatWorkspaceRoot,
-            studioWorkspaceRoot,
           }) || (project.spaceId ?? null) === activeSpaceId
         );
       }),
-    [
-      activeSpaceId,
-      chatWorkspaceRoot,
-      homeDir,
-      nonStudioSidebarTreeThreads,
-      projectById,
-      studioWorkspaceRoot,
-    ],
+    [activeSpaceId, chatWorkspaceRoot, homeDir, ordinarySidebarTreeThreads, projectById],
   );
   const pinnedThreads = useMemo(
     () =>
-      getPinnedThreadsForSidebar(
-        isOnStudio ? studioSidebarTreeThreads : activeSpaceNonStudioSidebarTreeThreads,
-        pinnedThreadIds,
-      ),
-    [activeSpaceNonStudioSidebarTreeThreads, isOnStudio, pinnedThreadIds, studioSidebarTreeThreads],
+      isOnOrchestrator
+        ? []
+        : getPinnedThreadsForSidebar(activeSpaceOrdinarySidebarTreeThreads, pinnedThreadIds),
+    [activeSpaceOrdinarySidebarTreeThreads, isOnOrchestrator, pinnedThreadIds],
   );
   const openPrLink = useCallback((event: MouseEvent<HTMLElement>, prUrl: string) => {
     event.preventDefault();
@@ -2104,9 +2089,7 @@ export default function Sidebar() {
     ],
   );
 
-  // Shared resolver behind resolveBackToStudioTarget/resolveBackToThreadsTarget (and the
-  // settings-back path below) — differs only in which segment's thread list and draft ids are
-  // passed in.
+  // Shared resolver behind the Projects/settings return path.
   const resolveBackTargetForThreads = useCallback(
     (threads: readonly SidebarThreadSummary[], extraAvailableThreadIds?: ReadonlySet<string>) => {
       const latestThread =
@@ -2129,46 +2112,18 @@ export default function Sidebar() {
     [appSettings.sidebarThreadSortOrder, lastThreadRoute, splitViewsById],
   );
 
-  // Fresh unsent chats have a route id but no persisted sidebar summary yet. Keep those draft
-  // routes valid return targets — scoped to whichever segment the draft's project belongs to —
-  // for both the settings back button and the segment switcher.
-  const studioDraftThreadIds = useMemo(() => {
+  // Fresh unsent chats have a route id but no persisted sidebar summary yet.
+  const ordinaryDraftThreadIds = useMemo(() => {
     const draftThreadIds = new Set<string>();
-    for (const [threadId, draft] of Object.entries(draftThreadsByThreadId)) {
-      if (studioProjectIdSet.has(draft.projectId)) {
-        draftThreadIds.add(threadId);
-      }
+    for (const threadId of Object.keys(draftThreadsByThreadId)) {
+      draftThreadIds.add(threadId);
     }
     return draftThreadIds;
-  }, [draftThreadsByThreadId, studioProjectIdSet]);
-  const nonStudioDraftThreadIds = useMemo(() => {
-    const draftThreadIds = new Set<string>();
-    for (const [threadId, draft] of Object.entries(draftThreadsByThreadId)) {
-      if (!studioProjectIdSet.has(draft.projectId)) {
-        draftThreadIds.add(threadId);
-      }
-    }
-    return draftThreadIds;
-  }, [draftThreadsByThreadId, studioProjectIdSet]);
-
-  // Where the Studio segment lands, resolved directly (remembered Studio route, else the latest
-  // Studio chat) instead of bouncing through the "/studio" splash route — that extra hop +
-  // async redirect is what made the segment switch feel sluggish. Mirrors
-  // resolveBackToThreadsTarget so both segments restore the thread you were last on.
-  // Archived chats are excluded, matching the /studio landing: the sidebar hides them, so
-  // neither the segment switch nor settings back may resurrect one.
-  const activeStudioSidebarThreads = useMemo(
-    () => studioSidebarThreads.filter((thread) => (thread.archivedAt ?? null) === null),
-    [studioSidebarThreads],
-  );
-  const resolveBackToStudioTarget = useCallback(
-    () => resolveBackTargetForThreads(activeStudioSidebarThreads, studioDraftThreadIds),
-    [activeStudioSidebarThreads, resolveBackTargetForThreads, studioDraftThreadIds],
-  );
+  }, [draftThreadsByThreadId]);
 
   const resolveBackToThreadsTarget = useCallback(
-    () => resolveBackTargetForThreads(nonStudioSidebarThreads, nonStudioDraftThreadIds),
-    [nonStudioDraftThreadIds, nonStudioSidebarThreads, resolveBackTargetForThreads],
+    () => resolveBackTargetForThreads(ordinarySidebarThreads, ordinaryDraftThreadIds),
+    [ordinaryDraftThreadIds, ordinarySidebarThreads, resolveBackTargetForThreads],
   );
 
   // Navigates to a resolved settings-back / segment-switch target. Returns whether it navigated
@@ -2196,66 +2151,40 @@ export default function Sidebar() {
     [navigate],
   );
 
-  // Settings is reachable from either segment (Threads or Studio) and from routes outside the
+  // Settings is reachable from either segment and from routes outside the
   // sidebar entirely (see EnvironmentPanel, __root, etc.), so we can't infer "which segment was
   // active" from the route once we're already on /settings. Instead we remember the last active
   // segment continuously (mirrors the lastThreadRoute tracking below) and use that on the way
   // back. This keeps the back button from bouncing across segments when the remembered thread
   // route is stale (e.g. its thread was deleted): the segment-scoped resolver falls back to that
   // *same* segment's latest thread instead of the globally most-recent thread.
-  const lastActiveSidebarSegmentRef = useRef<"studio" | "threads">("threads");
+  const lastActiveSidebarSegmentRef = useRef<SidebarView>("threads");
   useEffect(() => {
     if (isOnSettings) {
       return;
     }
-    lastActiveSidebarSegmentRef.current = isOnStudio ? "studio" : "threads";
-  }, [isOnSettings, isOnStudio]);
-
-  // Shared Studio fallback: reopen/create via handleNewStudioChat and, on failure, land on
-  // /studio — its splash already displays the error with a retry. Swallowing the result here
-  // would make the segment click appear dead and hide the cross-kind conflict message.
-  const openStudioChatFallback = useCallback(() => {
-    void handleNewStudioChat().then((result) => {
-      if (!result.ok) {
-        void navigate({ to: "/studio" });
-      }
-    });
-  }, [handleNewStudioChat, navigate]);
+    lastActiveSidebarSegmentRef.current = isOnOrchestrator ? "orchestrator" : "threads";
+  }, [isOnOrchestrator, isOnSettings]);
 
   const handleBackToAppFromSettings = useCallback(() => {
-    const fromStudio = lastActiveSidebarSegmentRef.current === "studio";
-    const target = fromStudio ? resolveBackToStudioTarget() : resolveBackToThreadsTarget();
+    const fromOrchestrator = lastActiveSidebarSegmentRef.current === "orchestrator";
+    if (fromOrchestrator) {
+      void navigate({ to: "/orchestrator" });
+      return;
+    }
+    const target = resolveBackToThreadsTarget();
 
     if (navigateToBackTarget(target)) {
       return;
     }
 
-    // Segment-appropriate fallback, matching handleSidebarViewChange: leaving Settings from the
-    // Studio segment with nothing restorable lands back in Studio, not on a fresh home draft.
-    if (fromStudio) {
-      openStudioChatFallback();
-      return;
-    }
     void navigate({ to: "/" });
-  }, [
-    navigate,
-    navigateToBackTarget,
-    openStudioChatFallback,
-    resolveBackToStudioTarget,
-    resolveBackToThreadsTarget,
-  ]);
+  }, [navigate, navigateToBackTarget, resolveBackToThreadsTarget]);
 
   const handleSidebarViewChange = useCallback(
     (view: SidebarView) => {
-      if (view === "studio") {
-        // Remembered route first — it already treats the stored Studio draft as a valid target
-        // (resolveBackToStudioTarget includes studioDraftThreadIds), so switching back to Studio
-        // returns to the thread you were on, not an old empty draft. handleNewStudioChat stays
-        // the fallback and reopens the stored draft when there is nothing to restore.
-        if (navigateToBackTarget(resolveBackToStudioTarget())) {
-          return;
-        }
-        openStudioChatFallback();
+      if (view === "orchestrator") {
+        void navigate({ to: "/orchestrator" });
         return;
       }
 
@@ -2265,51 +2194,24 @@ export default function Sidebar() {
 
       void handleNewChat({ fresh: true });
     },
-    [
-      handleNewChat,
-      navigateToBackTarget,
-      openStudioChatFallback,
-      resolveBackToStudioTarget,
-      resolveBackToThreadsTarget,
-    ],
+    [handleNewChat, navigateToBackTarget, navigate, resolveBackToThreadsTarget],
   );
 
-  // Keep the user off optional tabs once hidden in Settings: viewing one
-  // (e.g. via a bookmark/deep link) jumps back to the always-visible Threads tab.
-  // Settings is its own route and is never redirected.
   useEffect(() => {
-    if (isOnSettings) {
-      return;
-    }
-    if (isOnStudio && !studioSectionVisible) {
-      handleSidebarViewChange("threads");
-      return;
-    }
-  }, [handleSidebarViewChange, isOnSettings, isOnStudio, studioSectionVisible]);
-
-  useEffect(() => {
-    // Same hydration gate as the Studio prewarm below: persisted paths make homeDir truthy
-    // immediately on reload, well before the first shell snapshot arrives.
     if (!threadsHydrated || !homeDir) {
       return;
     }
     prewarmHomeChatProject({ homeDir, chatWorkspaceRoot });
   }, [chatWorkspaceRoot, homeDir, threadsHydrated]);
-  useEffect(() => {
-    if (!threadsHydrated || !studioSectionVisible || !studioWorkspaceRoot) {
-      return;
-    }
-    prewarmStudioProject({ homeDir, chatWorkspaceRoot, studioWorkspaceRoot });
-  }, [chatWorkspaceRoot, homeDir, studioSectionVisible, studioWorkspaceRoot, threadsHydrated]);
 
   // Opens a fresh home-chat draft directly on the draft thread route so the first send
   // does not need a second route swap from "/" to "/$threadId".
   const handleCreateHomeChat = useCallback(async () => {
     await handleNewChat({ fresh: true });
   }, [handleNewChat]);
-  const handleCreateStudioChat = useCallback(async () => {
-    await handleNewStudioChat({ fresh: true });
-  }, [handleNewStudioChat]);
+  const handleCreateOrchestrator = useCallback(() => {
+    void navigate({ to: "/orchestrator", search: { create: true } });
+  }, [navigate]);
 
   const addProjectFromPath = useCallback(
     async (
@@ -2702,15 +2604,16 @@ export default function Sidebar() {
   // in after a subscribe round-trip once the route has already swapped.
   const prewarmSidebarViewTarget = useCallback(
     (view: SidebarView) => {
-      if (view !== "studio" && view !== "threads") {
+      if (view === "orchestrator") {
+        const rootThreadId = orchestratorRoots[0]?.rootThreadId;
+        if (rootThreadId) prewarmThreadDetailForIntent(rootThreadId);
         return;
       }
-      const target = view === "studio" ? resolveBackToStudioTarget() : resolveBackToThreadsTarget();
-      if (target.kind === "thread") {
+      const target = resolveBackToThreadsTarget();
+      if (target.kind === "thread")
         prewarmThreadDetailForIntent(ThreadId.makeUnsafe(target.threadId));
-      }
     },
-    [prewarmThreadDetailForIntent, resolveBackToStudioTarget, resolveBackToThreadsTarget],
+    [orchestratorRoots, prewarmThreadDetailForIntent, resolveBackToThreadsTarget],
   );
 
   const copyThreadIdToClipboard = useCopyThreadIdToClipboard();
@@ -2771,6 +2674,9 @@ export default function Sidebar() {
         label: `Handoff to ${PROVIDER_DISPLAY_NAMES[provider]}`,
         separatorBefore: index === 0,
       }));
+      const canCreateOrchestratorFromThread =
+        projectById.get(thread.projectId)?.kind === "project" &&
+        !orchestratorThreadIds.has(threadId);
       const threadWorkspacePath = resolveThreadWorkspaceCwd({
         projectCwd: projectCwdById.get(thread.projectId) ?? null,
         envMode: thread.envMode,
@@ -2784,6 +2690,15 @@ export default function Sidebar() {
             ? [{ id: "clear-notification", label: "Clear notification" }]
             : []),
           { id: "mark-unread", label: "Mark unread" },
+          ...(canCreateOrchestratorFromThread
+            ? [
+                {
+                  id: "create-orchestrator",
+                  label: "Create Orchestrator from thread",
+                  separatorBefore: true,
+                },
+              ]
+            : []),
           ...handoffItems,
           { id: "copy-path", label: "Copy Path", separatorBefore: true },
           ...(threadWorkspacePath
@@ -2823,6 +2738,13 @@ export default function Sidebar() {
       }
       if (clicked === "clear-notification") {
         clearThreadNotification(threadId);
+        return;
+      }
+      if (clicked === "create-orchestrator") {
+        await navigate({
+          to: "/orchestrator",
+          search: { create: true, sourceThreadId: threadId },
+        });
         return;
       }
       if (typeof clicked === "string" && clicked.startsWith("handoff:")) {
@@ -2955,7 +2877,9 @@ export default function Sidebar() {
       markThreadUnread,
       navigate,
       openRenameThreadDialog,
+      orchestratorThreadIds,
       pinnedThreadIdSet,
+      projectById,
       projectCwdById,
       resolveThreadStatusForSidebar,
       sidebarThreadSummaryById,
@@ -3078,32 +3002,55 @@ export default function Sidebar() {
       threadListExtraPagesByProjectCwd,
     ],
   );
-  const { activateThreadFromSidebarIntent } = useThreadActivationController({
-    activeSplitView,
-    clearSelection,
-    navigate,
-    openChatThreadPage,
-    openSidechatSplit: ({ sourceThreadId, ownerProjectId, sidechatThreadId }) =>
-      createSplitViewFromDrop({
-        sourceThreadId,
-        ownerProjectId,
-        droppedThreadId: sidechatThreadId,
-        direction: "horizontal",
-        side: "second",
-      }),
-    openTerminalThreadPage,
-    prewarmThreadDetailForIntent,
-    rememberLastThreadRouteNow,
-    routeSplitViewId: routeSearch.splitViewId,
-    routeThreadId,
-    selectedThreadCount: selectedThreadIds.size,
-    setOptimisticActiveThreadId,
-    setSelectionAnchor,
-    setSplitFocusedPane,
-    sidebarThreadSummaryById,
-    splitViewsById,
-    terminalStateByThreadId,
-  });
+  const { activateThreadFromSidebarIntent: activateOrdinaryThreadFromSidebarIntent } =
+    useThreadActivationController({
+      activeSplitView,
+      clearSelection,
+      navigate,
+      openChatThreadPage,
+      openSidechatSplit: ({ sourceThreadId, ownerProjectId, sidechatThreadId }) =>
+        createSplitViewFromDrop({
+          sourceThreadId,
+          ownerProjectId,
+          droppedThreadId: sidechatThreadId,
+          direction: "horizontal",
+          side: "second",
+        }),
+      openTerminalThreadPage,
+      prewarmThreadDetailForIntent,
+      rememberLastThreadRouteNow,
+      routeSplitViewId: routeSearch.splitViewId,
+      routeThreadId,
+      selectedThreadCount: selectedThreadIds.size,
+      setOptimisticActiveThreadId,
+      setSelectionAnchor,
+      setSplitFocusedPane,
+      sidebarThreadSummaryById,
+      splitViewsById,
+      terminalStateByThreadId,
+    });
+  const activateThreadFromSidebarIntent = useCallback(
+    (threadId: ThreadId) => {
+      if (orchestratorRootIdSet.has(threadId)) {
+        clearSelection();
+        openChatThreadPage(threadId);
+        setOptimisticActiveThreadId(threadId);
+        void navigate({
+          to: "/orchestrator/$rootThreadId",
+          params: { rootThreadId: threadId },
+        });
+        return;
+      }
+      activateOrdinaryThreadFromSidebarIntent(threadId);
+    },
+    [
+      activateOrdinaryThreadFromSidebarIntent,
+      clearSelection,
+      navigate,
+      openChatThreadPage,
+      orchestratorRootIdSet,
+    ],
+  );
 
   const handleCloseProjectContextMenu = useCallback(() => setProjectContextMenuState(null), []);
   const {
@@ -3136,8 +3083,6 @@ export default function Sidebar() {
     sidebarThreads,
     sidebarThreadSortOrder: appSettings.sidebarThreadSortOrder,
     routeThreadId,
-    routeProjectId,
-    isOnKanban,
     activeRouteProject,
     activeRouteProjectId,
     activateThreadFromSidebarIntent,
@@ -3207,8 +3152,44 @@ export default function Sidebar() {
         }
         return;
       }
-      if (clicked === "open-in-kanban") {
-        void navigate({ to: "/kanban/$projectId", params: { projectId } });
+      if (clicked === "open-in-process") {
+        try {
+          const result = await api.orchestration.listTaskProcesses({
+            projectId,
+            includeArchived: false,
+            limit: 100,
+          });
+          const userOwnedProcesses = result.items.filter(
+            (process) => process.owner.kind === "user",
+          );
+          let processId =
+            userOwnedProcesses.find((process) => process.state === "active")?.id ??
+            userOwnedProcesses[0]?.id;
+          if (!processId) {
+            processId = TaskProcessId.makeUnsafe(randomUUID());
+            await api.orchestration.dispatchTaskProcessCommand({
+              command: {
+                type: "task-process.create",
+                commandId: newCommandId(),
+                processId,
+                projectId,
+                actor: { kind: "user", actorId: "owner" },
+                expectedRevision: 0,
+                createdAt: new Date().toISOString(),
+                title: `${project.name} Process`,
+                owner: { kind: "user" },
+              },
+            });
+          }
+          void navigate({ to: "/process/$processId", params: { processId } });
+        } catch (error) {
+          toastManager.add({
+            type: "error",
+            title: "Unable to open Process",
+            description:
+              error instanceof Error ? error.message : "The Process could not be loaded.",
+          });
+        }
         return;
       }
       if (clicked === "copy-path") {
@@ -3429,13 +3410,6 @@ export default function Sidebar() {
       ),
     [chatWorkspaceRoot, homeDir, sortedProjects],
   );
-  const studioProjects = useMemo(
-    () =>
-      sortedProjects.filter((project) =>
-        isStudioContainerProject(project, { homeDir, chatWorkspaceRoot, studioWorkspaceRoot }),
-      ),
-    [chatWorkspaceRoot, homeDir, sortedProjects, studioWorkspaceRoot],
-  );
   const visibleChatThreadRows = useMemo(() => {
     if (!chatSectionExpanded) {
       return [];
@@ -3458,37 +3432,17 @@ export default function Sidebar() {
     () => visibleChatThreadRows.map((row) => row.thread.id),
     [visibleChatThreadRows],
   );
-  // Studio threads, flattened the same way the home Chats list is. Skipped entirely while the
-  // Studio surface is not showing so thread updates on Projects don't pay for an unused sort.
-  // Pinned threads are hidden here the same way `deriveSidebarProjectData` hides them from
-  // per-project lists, so a pinned Studio chat only ever renders once, inside the Pinned block.
-  const studioChatThreadRows = useMemo(() => {
-    if (!isOnStudio) {
-      return [];
-    }
-    return buildProjectThreadTree({
-      threads: sortThreadsForSidebar(
-        getUnpinnedThreadsForSidebar(
-          studioProjects.flatMap(
-            (project) => sortedSidebarThreadsByProjectId.get(project.id) ?? [],
-          ),
-          pinnedThreadIds,
-        ),
-        appSettings.sidebarThreadSortOrder,
-      ),
-      forceVisibleThreadId: activeSidebarThreadId ?? undefined,
-    });
-  }, [
-    activeSidebarThreadId,
-    appSettings.sidebarThreadSortOrder,
-    isOnStudio,
-    pinnedThreadIds,
-    sortedSidebarThreadsByProjectId,
-    studioProjects,
-  ]);
-  const studioChatThreadIds = useMemo(
-    () => studioChatThreadRows.map((row) => row.thread.id),
-    [studioChatThreadRows],
+  const orchestratorRootRows = useMemo(
+    () =>
+      buildProjectThreadTree({
+        threads: sortThreadsForSidebar(orchestratorRootThreads, appSettings.sidebarThreadSortOrder),
+        forceVisibleThreadId: activeSidebarThreadId ?? undefined,
+      }),
+    [activeSidebarThreadId, appSettings.sidebarThreadSortOrder, orchestratorRootThreads],
+  );
+  const orchestratorRootThreadIds = useMemo(
+    () => orchestratorRootRows.map((row) => row.thread.id),
+    [orchestratorRootRows],
   );
   const visibleChatPreviewEntries = useMemo(
     () =>
@@ -3533,9 +3487,9 @@ export default function Sidebar() {
   const allStandardProjectsBase = useMemo(
     () =>
       sortedProjects.filter((project) =>
-        isOrdinarySpaceProject(project, { homeDir, chatWorkspaceRoot, studioWorkspaceRoot }),
+        isOrdinarySpaceProject(project, { homeDir, chatWorkspaceRoot }),
       ),
-    [chatWorkspaceRoot, homeDir, sortedProjects, studioWorkspaceRoot],
+    [chatWorkspaceRoot, homeDir, sortedProjects],
   );
   const spaceActivityById = useMemo(() => {
     const priority: Record<SpaceActivityTone, number> = {
@@ -3608,40 +3562,8 @@ export default function Sidebar() {
       resolveThreadStatusForSidebar,
     ],
   );
-  const studioProjectSidebarDataById = useMemo<
-    ReadonlyMap<ProjectId, SidebarDerivedProjectData>
-  >(() => {
-    // Off-Studio this map is unused (surfaceProjectSidebarDataById picks the
-    // standard one), so skip the derivation instead of recomputing it on every
-    // Projects-side store change. Mirrors the isOnStudio gate on
-    // studioChatThreadRows.
-    if (!isOnStudio) {
-      return EMPTY_PROJECT_SIDEBAR_DATA;
-    }
-    return deriveSidebarProjectData({
-      projects: studioProjects,
-      sortedSidebarThreadsByProjectId,
-      pinnedThreadIds,
-      threadListExtraPagesByProjectCwd,
-      normalizeProjectCwd: normalizeSidebarProjectThreadListCwd,
-      activeSidebarThreadId: activeSidebarThreadId ?? undefined,
-      previewLimit: THREAD_PREVIEW_LIMIT,
-      previewPageSize: THREAD_PREVIEW_PAGE_SIZE,
-      resolveThreadStatus: resolveThreadStatusForSidebar,
-    });
-  }, [
-    activeSidebarThreadId,
-    isOnStudio,
-    threadListExtraPagesByProjectCwd,
-    pinnedThreadIds,
-    sortedSidebarThreadsByProjectId,
-    studioProjects,
-    resolveThreadStatusForSidebar,
-  ]);
-  const surfaceProjects = isOnStudio ? studioProjects : standardProjects;
-  const surfaceProjectSidebarDataById = isOnStudio
-    ? studioProjectSidebarDataById
-    : standardProjectSidebarDataById;
+  const surfaceProjects = standardProjects;
+  const surfaceProjectSidebarDataById = standardProjectSidebarDataById;
   const allProjectsExpanded = useMemo(
     () => standardProjects.length > 0 && standardProjects.every((project) => project.expanded),
     [standardProjects],
@@ -3774,19 +3696,16 @@ export default function Sidebar() {
       }
     }
 
-    // The Studio surface's primary list is the flat studio tree, not project rows, so its
-    // rendered rows must join the visible ids too — otherwise jump shortcuts and detail
-    // prewarming would cover nothing but pinned rows on Studio. studioChatThreadIds is already
-    // empty off-Studio and in render order (pinned rows excluded, they were added above).
-    for (const threadId of studioChatThreadIds) {
+    for (const threadId of orchestratorRootThreadIds) {
       addVisibleThreadId(threadId);
     }
 
     return [...visibleThreadIdSet];
-  }, [pinnedThreads, studioChatThreadIds, surfaceProjectSidebarDataById, surfaceProjects]);
+  }, [orchestratorRootThreadIds, pinnedThreads, surfaceProjectSidebarDataById, surfaceProjects]);
   const visibleSidebarThreadIdSet = useMemo(
-    () => new Set([...visibleSidebarThreadIds, ...visibleChatThreadIds, ...studioChatThreadIds]),
-    [studioChatThreadIds, visibleChatThreadIds, visibleSidebarThreadIds],
+    () =>
+      new Set([...visibleSidebarThreadIds, ...visibleChatThreadIds, ...orchestratorRootThreadIds]),
+    [orchestratorRootThreadIds, visibleChatThreadIds, visibleSidebarThreadIds],
   );
   const visibleSidebarThreads = useMemo(
     // Tree source so an active subagent row also gets PR badges and git targets.
@@ -4069,7 +3988,7 @@ export default function Sidebar() {
     );
   }
 
-  // Section header (label + hover-revealed toolbar) shared by the Threads and Studio surfaces,
+  // Section header (label + hover-revealed toolbar) shared by the primary surfaces,
   // so spacing/typography stay in lockstep; only the label and toolbar contents vary.
   function renderListSectionHeader(label: string, toolbar: ReactNode) {
     return (
@@ -4088,7 +4007,7 @@ export default function Sidebar() {
       </div>
     );
   }
-  // Identical "Pinned" header + rows block shared by the Threads and Studio surfaces.
+  // Pinned header and rows for the Projects surface.
   // `pinnedThreads` is already the surface-appropriate list, so a single helper keeps both in sync.
   function renderPinnedThreadsSection() {
     if (pinnedThreads.length === 0) {
@@ -4927,7 +4846,7 @@ export default function Sidebar() {
         return;
       }
       if (command === "space.previous" || command === "space.next") {
-        if (!isProjectsSidebarSurface({ isOnSettings, isOnStudio })) return;
+        if (!isProjectsSidebarSurface({ isOnSettings, isOnOrchestrator })) return;
         event.preventDefault();
         event.stopPropagation();
         const orderedSpaceIds: ReadonlyArray<SpaceId | null> = [
@@ -4942,7 +4861,7 @@ export default function Sidebar() {
       }
       const spaceJumpIndex = spaceJumpIndexFromCommand(command ?? "");
       if (spaceJumpIndex !== null) {
-        if (!isProjectsSidebarSurface({ isOnSettings, isOnStudio })) return;
+        if (!isProjectsSidebarSurface({ isOnSettings, isOnOrchestrator })) return;
         // Index 0 is Void, then spaces in strip order — the chord addresses what you see.
         const orderedSpaceIds: ReadonlyArray<SpaceId | null> = [
           null,
@@ -5027,7 +4946,7 @@ export default function Sidebar() {
     getCurrentSidebarShortcutContext,
     homeDir,
     isOnSettings,
-    isOnStudio,
+    isOnOrchestrator,
     navigate,
     searchPaletteMode,
     spaces,
@@ -5172,18 +5091,17 @@ export default function Sidebar() {
         folderName: project.folderName,
         localName: project.localName,
         cwd: project.cwd,
-        // Containers (Chats, Studio) are reachable from every Space, so they search as "Global".
+        // The Chats container is reachable from every Space, so it searches as "Global".
         spaceName: isOrdinarySpaceProject(project, {
           homeDir,
           chatWorkspaceRoot,
-          studioWorkspaceRoot,
         })
           ? spaceDisplayName(project.spaceId, spaces, voidSpace)
           : "Global",
         createdAt: project.createdAt,
         updatedAt: project.updatedAt,
       })),
-    [chatWorkspaceRoot, homeDir, projects, spaces, studioWorkspaceRoot, voidSpace],
+    [chatWorkspaceRoot, homeDir, projects, spaces, voidSpace],
   );
   const searchPaletteActions = useMemo<SidebarSearchAction[]>(
     () => [
@@ -5617,23 +5535,26 @@ export default function Sidebar() {
         ) : (
           <>
             <SidebarSegmentedPicker
-              views={[...(studioSectionVisible ? (["studio"] as const) : []), "threads"]}
-              activeView={isOnStudio ? "studio" : "threads"}
+              views={["orchestrator", "threads"]}
+              activeView={isOnOrchestrator ? "orchestrator" : "threads"}
               onSelectView={handleSidebarViewChange}
               onPrewarmView={prewarmSidebarViewTarget}
             />
             {/* The keyed content remounts with a short enter animation while the picker
-                stays mounted so its thumb can glide between Projects and Studio. */}
-            <div key={isOnStudio ? "studio" : "threads"} className="sidebar-surface-enter">
+                  stays mounted so its thumb can glide between Projects and Orchestrator. */}
+            <div
+              key={isOnOrchestrator ? "orchestrator" : "threads"}
+              className="sidebar-surface-enter"
+            >
               {/* Primary sidebar actions stay limited to features we currently ship. */}
               <SidebarGroup className="px-1.5 pt-1 pb-1.5">
                 <SidebarMenu className="gap-0.5">
-                  {isOnStudio ? (
+                  {isOnOrchestrator ? (
                     <>
                       <SidebarPrimaryAction
                         icon={NewThreadIcon}
-                        label="New studio chat"
-                        onClick={handleCreateStudioChat}
+                        label="New Orchestrator Root"
+                        onClick={handleCreateOrchestrator}
                       />
                       <SidebarPrimaryAction
                         icon={SearchIcon}
@@ -5664,14 +5585,6 @@ export default function Sidebar() {
                         shortcutLabel={searchShortcutLabel}
                       />
                       <SidebarPrimaryAction
-                        icon={KanbanIcon}
-                        label="Kanban"
-                        active={isOnKanban}
-                        onClick={() => {
-                          void navigate({ to: "/kanban" });
-                        }}
-                      />
-                      <SidebarPrimaryAction
                         icon={IoIosGitCompare}
                         label="Pull requests"
                         active={isOnPullRequests}
@@ -5697,20 +5610,17 @@ export default function Sidebar() {
                 </SidebarMenu>
               </SidebarGroup>
 
-              {isOnStudio ? (
-                // Studio is "just chats": a labeled Studio block holding a flat list of threads
-                // rooted at the Studio workspace (no project-folder chrome).
+              {isOnOrchestrator ? (
                 <SidebarGroup className="px-1.5 py-1.5">
-                  {renderPinnedThreadsSection()}
                   {renderListSectionHeader(
-                    "Studio",
+                    "Roots",
                     <>
                       <SidebarIconButton
                         icon={NewThreadIcon}
-                        label="New studio chat"
-                        tooltip="New studio chat"
+                        label="New Orchestrator Root"
+                        tooltip="New Orchestrator Root"
                         tooltipSide="top"
-                        onClick={handleCreateStudioChat}
+                        onClick={handleCreateOrchestrator}
                       />
                       <ChatSortMenu
                         threadSortOrder={appSettings.sidebarThreadSortOrder}
@@ -5721,13 +5631,15 @@ export default function Sidebar() {
                     </>,
                   )}
                   <SidebarMenu ref={attachProjectListAutoAnimateRef} className="gap-1">
-                    {studioChatThreadRows.length > 0 ? (
-                      studioChatThreadRows.map((row) =>
-                        renderThreadRow(row.thread, studioChatThreadIds, row.depth, true),
+                    {orchestratorRootRows.length > 0 ? (
+                      orchestratorRootRows.map((row) =>
+                        renderThreadRow(row.thread, orchestratorRootThreadIds, 0, true),
                       )
                     ) : (
                       <div className="px-2 pt-4 text-center text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/58">
-                        {threadsHydrated ? "No studio chats yet" : "Loading Studio..."}
+                        {orchestratorRootsQuery.isPending
+                          ? "Loading Roots..."
+                          : "No Orchestrator Roots yet"}
                       </div>
                     )}
                   </SidebarMenu>
@@ -5862,8 +5774,8 @@ export default function Sidebar() {
             </div>
           </>
         )}
-        {!isOnSettings && !isOnStudio && chatsSectionVisible ? (
-          // sidebar-surface-enter: mounts on the Studio -> Projects switch, so it
+        {!isOnSettings && !isOnOrchestrator && chatsSectionVisible ? (
+          // sidebar-surface-enter: mounts on the Orchestrator -> Projects switch, so it
           // animates in step with the keyed surface wrapper above.
           <SidebarGroup className="sidebar-surface-enter px-1.5 pt-1 pb-2">
             <div className="group/collapsible">
@@ -6123,12 +6035,12 @@ export default function Sidebar() {
                 onClick={() =>
                   void handleProjectContextMenuAction(
                     projectContextMenuState.projectId,
-                    "open-in-kanban",
+                    "open-in-process",
                   )
                 }
               >
-                <ProjectContextMenuIcon icon={KanbanIcon} />
-                <span>Open in Kanban</span>
+                <ProjectContextMenuIcon icon={WorkflowIcon} />
+                <span>Open Process</span>
               </MenuItem>
               <MenuItem
                 className={PROJECT_CONTEXT_MENU_ITEM_CLASS_NAME}
@@ -6418,9 +6330,7 @@ export default function Sidebar() {
           projects={searchPaletteProjects}
           projectById={projectById}
           onCreateChat={() =>
-            // Segment-aware, matching the sidebar's + action: "New chat" from the palette while
-            // on the Studio segment opens a Studio chat, not a home draft.
-            void (isOnStudio ? handleCreateStudioChat() : handleCreateHomeChat())
+            void (isOnOrchestrator ? handleCreateOrchestrator() : handleCreateHomeChat())
           }
           onCreateThread={handlePrimaryNewThread}
           onAddProjectPath={addProjectFromPath}

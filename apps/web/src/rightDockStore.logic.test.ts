@@ -4,6 +4,7 @@ import {
   RIGHT_DOCK_PANE_KINDS,
   SINGLETON_PANE_KINDS,
   createDefaultRightDockState,
+  ensurePanesInState,
   isRightDockPaneKind,
   openPaneInState,
   sanitizeRightDockStateByThreadId,
@@ -22,6 +23,10 @@ describe("RIGHT_DOCK_PANE_KINDS (single source of truth)", () => {
       "sidechat",
       "git",
       "pullRequest",
+      "orchestratorTeam",
+      "orchestratorProcess",
+      "orchestratorExchanges",
+      "orchestratorRuns",
     ]);
   });
 
@@ -43,9 +48,38 @@ describe("isRightDockPaneKind", () => {
       "sidechat",
       "git",
       "pullRequest",
+      "orchestratorTeam",
+      "orchestratorProcess",
+      "orchestratorExchanges",
+      "orchestratorRuns",
     ]) {
       expect(isRightDockPaneKind(kind)).toBe(true);
     }
+  });
+
+  it("initializes the four fixed Orchestrator tabs without resetting their selection", () => {
+    const inputs = [
+      { paneId: "team", kind: "orchestratorTeam" as const },
+      { paneId: "process", kind: "orchestratorProcess" as const },
+      { paneId: "exchanges", kind: "orchestratorExchanges" as const },
+      { paneId: "runs", kind: "orchestratorRuns" as const },
+    ];
+    const initialized = ensurePanesInState(createDefaultRightDockState(), inputs, "team");
+    expect(initialized.open).toBe(true);
+    expect(initialized.activePaneId).toBe("team");
+    expect(initialized.panes.map((pane) => pane.kind)).toEqual(inputs.map((input) => input.kind));
+
+    const selected = { ...initialized, activePaneId: "runs" };
+    expect(ensurePanesInState(selected, inputs, "team")).toBe(selected);
+
+    const withUnrelatedPane = {
+      ...selected,
+      panes: [
+        ...selected.panes,
+        { ...selected.panes[0]!, id: "terminal", kind: "terminal" as const },
+      ],
+    };
+    expect(ensurePanesInState(withUnrelatedPane, inputs, "team").panes).toEqual(selected.panes);
   });
 
   it("rejects unknown or malformed kinds", () => {

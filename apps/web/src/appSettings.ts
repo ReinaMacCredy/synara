@@ -209,12 +209,8 @@ export const AppSettingsSchema = Schema.Struct({
   confirmThreadArchive: Schema.Boolean.pipe(withDefaults(() => false)),
   confirmTerminalTabClose: Schema.Boolean.pipe(withDefaults(() => true)),
   diffWordWrap: Schema.Boolean.pipe(withDefaults(() => false)),
-  // Local-only UI preferences for hiding sidebar surfaces a user doesn't want.
-  // `showChatsSection` controls the standalone "Chats" list in the sidebar footer
-  // (rootless chats not tied to a project). `showStudioSection` controls the
-  // optional Studio tab in the section switcher.
+  // Local-only preference for the standalone Chats list in the sidebar footer.
   showChatsSection: Schema.Boolean.pipe(withDefaults(() => true)),
-  showStudioSection: Schema.Boolean.pipe(withDefaults(() => true)),
   // Local-only UI preferences: which optional sections of the chat Environment panel are
   // shown. The git block (Changes/Worktree/branch/Commit and Push) is always visible; these
   // toggle the sections beneath it via the panel header's gear menu.
@@ -1132,7 +1128,7 @@ export function getProviderStartOptions(
 
 /**
  * Single source of truth for mapping the streaming preference onto the orchestration
- * delivery mode used when dispatching turns (composer, chat, and kanban share this).
+ * delivery mode used when dispatching turns across composer and chat surfaces.
  */
 export function resolveAssistantDeliveryMode(
   settings: Pick<AppSettings, "enableAssistantStreaming">,

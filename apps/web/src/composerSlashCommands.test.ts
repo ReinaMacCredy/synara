@@ -347,12 +347,12 @@ describe("composerSlashCommands", () => {
   });
 
   it("keeps native /export visible on surfaces without app-level /export", () => {
-    const kanbanAppCommands = new Set(["clear", "default", "plan"]);
+    const secondaryComposerAppCommands = new Set(["clear", "default", "plan"]);
     const mainComposerAppCommands = new Set(["clear", "export", "model"]);
 
     expect(
       shouldHideProviderNativeCommandFromComposerMenu("claudeAgent", "export", {
-        availableAppCommands: kanbanAppCommands,
+        availableAppCommands: secondaryComposerAppCommands,
       }),
     ).toBe(false);
     expect(

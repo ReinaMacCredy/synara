@@ -74,6 +74,7 @@ const KIND_PROMPT: Record<PendingApproval["requestKind"], string> = {
   "file-read": "Approve reading this file?",
   "file-change": "Approve this file change?",
   permissions: "Grant these permissions?",
+  "mcp-tool": "Approve this MCP tool call?",
 };
 
 export const ComposerPendingApprovalPanel = function ComposerPendingApprovalPanel({
@@ -87,7 +88,15 @@ export const ComposerPendingApprovalPanel = function ComposerPendingApprovalPane
   const actions =
     approval.sessionApprovalAvailable === false
       ? APPROVAL_ACTIONS.filter((action) => action.decision !== "acceptForSession")
-      : APPROVAL_ACTIONS;
+      : APPROVAL_ACTIONS.map((action) =>
+          approval.requestKind === "mcp-tool" && action.decision === "acceptForSession"
+            ? {
+                ...action,
+                label: "Always allow this tool",
+                description: "Don't ask again for this tool this session",
+              }
+            : action,
+        );
 
   // Digit shortcuts bubble from focused controls inside this card only; a bare
   // number key elsewhere in the app must never approve a tool request.

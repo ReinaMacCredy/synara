@@ -243,7 +243,7 @@ export interface ComposerDraftStoreState {
    * Registers a standalone draft thread without claiming the project's
    * composer-draft mapping. Unlike setProjectDraftThreadId this never replaces
    * (and therefore never deletes) the mapped draft, so any number of standalone
-   * drafts — e.g. kanban tasks — can coexist per project. Create-only: an
+   * drafts from secondary composer surfaces can coexist per project. Create-only: an
    * existing draft thread is left untouched.
    */
   registerDraftThread: (

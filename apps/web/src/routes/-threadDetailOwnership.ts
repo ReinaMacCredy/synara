@@ -5,6 +5,23 @@
 
 import type { ThreadId } from "@synara/contracts";
 
+export function resolveRouteVisibleThreadIds(input: {
+  readonly routeThreadId: ThreadId | null;
+  readonly orchestratorSelectedThreadId?: ThreadId | null | undefined;
+  readonly splitViewThreadIds?: readonly ThreadId[] | undefined;
+}): ThreadId[] {
+  if (input.splitViewThreadIds) {
+    return [...new Set(input.splitViewThreadIds)];
+  }
+  if (!input.routeThreadId) {
+    return [];
+  }
+  return input.orchestratorSelectedThreadId &&
+    input.orchestratorSelectedThreadId !== input.routeThreadId
+    ? [input.routeThreadId, input.orchestratorSelectedThreadId]
+    : [input.routeThreadId];
+}
+
 /**
  * Thread detail is owned by exactly two things: an open stream lease, or the
  * retention cache that keeps recently viewed threads warm. Eviction only ever

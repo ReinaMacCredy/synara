@@ -1,9 +1,15 @@
 import {
+  AssignmentId,
   CheckpointRef,
   CommandId,
+  ContextBundleId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   MessageId,
   ProjectId,
+  ProjectTaskId,
+  TaskProcessId,
+  TaskProgressEntryId,
+  TaskThreadBindingId,
   ThreadId,
   TurnId,
   type OrchestrationCommand,
@@ -56,7 +62,14 @@ const asMessageId = (value: string): MessageId => MessageId.makeUnsafe(value);
 
 const makeThreadEventReadMethods = (
   events: ReadonlyArray<OrchestrationEvent>,
-): Pick<OrchestrationEventStoreShape, "getThreadHighWaterSequence" | "readThreadEvents"> => ({
+): Pick<
+  OrchestrationEventStoreShape,
+  | "getThreadHighWaterSequence"
+  | "readThreadEvents"
+  | "getAggregateHighWaterSequence"
+  | "readAggregateEvents"
+  | "readAggregateEventPage"
+> => ({
   getThreadHighWaterSequence: (threadId) =>
     Effect.succeed(
       events
@@ -73,6 +86,34 @@ const makeThreadEventReadMethods = (
             event.sequence <= input.throughSequenceInclusive &&
             event.sequence < (input.beforeSequenceExclusive ?? Number.MAX_SAFE_INTEGER) &&
             (input.eventTypes === undefined || input.eventTypes.includes(event.type)),
+        )
+        .toSorted((left, right) => right.sequence - left.sequence)
+        .slice(0, input.limit),
+    ),
+  getAggregateHighWaterSequence: (input) =>
+    Effect.succeed(
+      events
+        .filter(
+          (event) =>
+            event.aggregateKind === input.aggregateKind && event.aggregateId === input.aggregateId,
+        )
+        .at(-1)?.sequence ?? 0,
+    ),
+  readAggregateEvents: (input) =>
+    Effect.succeed(
+      events.filter(
+        (event) =>
+          event.aggregateKind === input.aggregateKind && event.aggregateId === input.aggregateId,
+      ),
+    ),
+  readAggregateEventPage: (input) =>
+    Effect.succeed(
+      events
+        .filter(
+          (event) =>
+            event.aggregateKind === input.aggregateKind &&
+            event.aggregateId === input.aggregateId &&
+            event.sequence < (input.beforeSequenceExclusive ?? Number.MAX_SAFE_INTEGER),
         )
         .toSorted((left, right) => right.sequence - left.sequence)
         .slice(0, input.limit),
@@ -114,6 +155,526 @@ function now() {
 }
 
 describe("OrchestrationEngine", () => {
+  it("serializes and deduplicates Orchestrator Root commands", async () => {
+    const system = await createOrchestrationSystem();
+    const createdAt = "2026-08-01T00:00:00.000Z";
+    const projectId = asProjectId("project-orchestrator-engine");
+    const rootThreadId = ThreadId.makeUnsafe("thread-orchestrator-root");
+
+    await system.run(
+      system.engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.makeUnsafe("cmd-orchestrator-project"),
+        projectId,
+        title: "Orchestrator project",
+        workspaceRoot: "/tmp/project-orchestrator-engine",
+        defaultModelSelection: { provider: "codex", model: "gpt-5-codex" },
+        createdAt,
+      }),
+    );
+    await system.run(
+      system.engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.makeUnsafe("cmd-orchestrator-root-thread"),
+        threadId: rootThreadId,
+        projectId,
+        title: "Root",
+        modelSelection: { provider: "codex", model: "gpt-5-codex" },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        branch: null,
+        worktreePath: null,
+        createdAt,
+      }),
+    );
+
+    const command = {
+      type: "orchestrator.root.create" as const,
+      commandId: CommandId.makeUnsafe("cmd-orchestrator-root-create"),
+      rootThreadId,
+      projectId,
+      actor: { kind: "user" as const, actorId: "owner" },
+      protocolVersion: 1 as const,
+      expectedRevision: 0,
+      createdAt,
+      modelTarget: {
+        provider: "codex",
+        model: "gpt-5-codex",
+        runtimeMode: "approval-required",
+        workspaceRoot: "/tmp/project-orchestrator-engine",
+      },
+      title: "Root",
+      activeProcessId: null,
+    };
+
+    const first = await system.run(system.engine.dispatch(command));
+    await expect(system.run(system.engine.dispatch(command))).resolves.toEqual(first);
+    await expect(
+      system.run(
+        system.engine.dispatch({
+          ...command,
+          title: "Conflicting Root identity",
+        }),
+      ),
+    ).rejects.toMatchObject({ _tag: "OrchestrationCommandIdentityCollisionError" });
+
+    const events = Array.from(
+      await system.run(Stream.runCollect(system.engine.readEvents(0))),
+    ).filter((event) => event.commandId === command.commandId);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      aggregateKind: "orchestrator",
+      aggregateId: rootThreadId,
+      type: "orchestrator.root.created",
+      payload: { acceptedRevision: 1 },
+    });
+    await system.dispose();
+  });
+
+  it("serializes TaskProcess graph mutations and rejects stale revisions", async () => {
+    const system = await createOrchestrationSystem();
+    const createdAt = "2026-08-01T00:00:00.000Z";
+    const projectId = asProjectId("project-task-process-engine");
+    const processId = TaskProcessId.makeUnsafe("process-engine");
+    await system.run(
+      system.engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.makeUnsafe("cmd-task-process-project"),
+        projectId,
+        title: "Task process project",
+        workspaceRoot: "/tmp/project-task-process-engine",
+        defaultModelSelection: null,
+        createdAt,
+      }),
+    );
+    await system.run(
+      system.engine.dispatch({
+        type: "task-process.create",
+        commandId: CommandId.makeUnsafe("cmd-task-process-create"),
+        processId,
+        projectId,
+        actor: { kind: "user", actorId: "owner" },
+        expectedRevision: 0,
+        createdAt,
+        title: "Process",
+        owner: { kind: "user" },
+      }),
+    );
+    await expect(
+      system.run(
+        system.engine.dispatch({
+          type: "project-task.create",
+          commandId: CommandId.makeUnsafe("cmd-task-process-stale"),
+          processId,
+          projectId,
+          actor: { kind: "user", actorId: "owner" },
+          expectedRevision: 0,
+          createdAt,
+          taskId: ProjectTaskId.makeUnsafe("task-stale"),
+          parentTaskId: null,
+          title: "Stale",
+          description: null,
+          acceptanceCriteria: [],
+          priority: "normal",
+          orderKey: "a",
+        }),
+      ),
+    ).rejects.toMatchObject({ _tag: "OrchestrationCommandInvariantError" });
+    const accepted = await system.run(
+      system.engine.dispatch({
+        type: "project-task.create",
+        commandId: CommandId.makeUnsafe("cmd-task-process-task"),
+        processId,
+        projectId,
+        actor: { kind: "user", actorId: "owner" },
+        expectedRevision: 1,
+        createdAt,
+        taskId: ProjectTaskId.makeUnsafe("task-engine"),
+        parentTaskId: null,
+        title: "Task",
+        description: null,
+        acceptanceCriteria: [],
+        priority: "normal",
+        orderKey: "a",
+      }),
+    );
+    expect(accepted.sequence).toBeGreaterThan(0);
+    const events = Array.from(await system.run(Stream.runCollect(system.engine.readEvents(0))));
+    expect(events.filter((event) => event.aggregateKind === "task_process")).toHaveLength(2);
+    await system.dispose();
+  });
+
+  it("allows one live Root-owned process while retaining archived process history", async () => {
+    const system = await createOrchestrationSystem();
+    const createdAt = "2026-08-01T00:00:00.000Z";
+    const projectId = asProjectId("project-root-process-cardinality");
+    const rootThreadId = ThreadId.makeUnsafe("thread-root-process-cardinality");
+    const firstProcessId = TaskProcessId.makeUnsafe("process-root-first");
+    const secondProcessId = TaskProcessId.makeUnsafe("process-root-second");
+
+    await system.run(
+      system.engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.makeUnsafe("cmd-root-process-project"),
+        projectId,
+        title: "Root process cardinality",
+        workspaceRoot: "/tmp/project-root-process-cardinality",
+        defaultModelSelection: { provider: "codex", model: "gpt-5-codex" },
+        createdAt,
+      }),
+    );
+    await system.run(
+      system.engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.makeUnsafe("cmd-root-process-thread"),
+        threadId: rootThreadId,
+        projectId,
+        title: "Root",
+        modelSelection: { provider: "codex", model: "gpt-5-codex" },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        branch: null,
+        worktreePath: null,
+        createdAt,
+      }),
+    );
+    await system.run(
+      system.engine.dispatch({
+        type: "orchestrator.root.create",
+        commandId: CommandId.makeUnsafe("cmd-root-process-create-root"),
+        rootThreadId,
+        projectId,
+        actor: { kind: "user", actorId: "owner" },
+        protocolVersion: 1,
+        expectedRevision: 0,
+        createdAt,
+        modelTarget: {
+          provider: "codex",
+          model: "gpt-5-codex",
+          runtimeMode: "approval-required",
+          workspaceRoot: "/tmp/project-root-process-cardinality",
+        },
+        title: "Root",
+        activeProcessId: null,
+      }),
+    );
+
+    const createRootProcess = (
+      processId: TaskProcessId,
+      commandId: string,
+      rootExpectedRevision: number,
+    ) =>
+      system.engine.dispatch({
+        type: "task-process.create",
+        commandId: CommandId.makeUnsafe(commandId),
+        processId,
+        projectId,
+        actor: { kind: "thread", threadId: rootThreadId },
+        expectedRevision: 0,
+        rootExpectedRevision,
+        createdAt,
+        title: `Process ${processId}`,
+        owner: { kind: "orchestrator", rootThreadId },
+      });
+
+    await system.run(createRootProcess(firstProcessId, "cmd-root-process-first", 1));
+    await expect(
+      system.run(createRootProcess(secondProcessId, "cmd-root-process-conflicting-second", 2)),
+    ).rejects.toMatchObject({ _tag: "OrchestrationCommandInvariantError" });
+
+    await system.run(
+      system.engine.dispatch({
+        type: "task-process.archive",
+        commandId: CommandId.makeUnsafe("cmd-root-process-archive-first"),
+        processId: firstProcessId,
+        projectId,
+        actor: { kind: "thread", threadId: rootThreadId },
+        expectedRevision: 1,
+        createdAt,
+      }),
+    );
+    await system.run(
+      system.engine.dispatch({
+        type: "orchestrator.root.active-process.set",
+        commandId: CommandId.makeUnsafe("cmd-root-process-clear-first"),
+        rootThreadId,
+        projectId,
+        actor: { kind: "user", actorId: "owner" },
+        protocolVersion: 1,
+        expectedRevision: 2,
+        createdAt,
+        activeProcessId: null,
+      }),
+    );
+    await system.run(createRootProcess(secondProcessId, "cmd-root-process-second", 3));
+
+    const events = Array.from(await system.run(Stream.runCollect(system.engine.readEvents(0))));
+    expect(
+      events
+        .filter((event) => event.type === "orchestrator.root.active-process-set")
+        .map((event) => event.aggregateKind),
+    ).toEqual(["orchestrator", "orchestrator", "orchestrator"]);
+    expect(
+      events.filter(
+        (event) => event.aggregateKind === "task_process" && event.type === "task-process.created",
+      ),
+    ).toHaveLength(2);
+    await system.dispose();
+  });
+
+  it("commits Assignment and TaskThreadBinding atomically across aggregate streams", async () => {
+    const system = await createOrchestrationSystem();
+    const createdAt = "2026-08-01T00:00:00.000Z";
+    const projectId = asProjectId("project-assignment-atomic");
+    const rootThreadId = ThreadId.makeUnsafe("thread-assignment-root");
+    const childThreadId = ThreadId.makeUnsafe("thread-assignment-child");
+    const processId = TaskProcessId.makeUnsafe("process-assignment-atomic");
+    const taskId = ProjectTaskId.makeUnsafe("task-assignment-atomic");
+
+    await system.run(
+      system.engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.makeUnsafe("cmd-assignment-project"),
+        projectId,
+        title: "Assignment atomic",
+        workspaceRoot: "/tmp/project-assignment-atomic",
+        defaultModelSelection: null,
+        createdAt,
+      }),
+    );
+    for (const [threadId, title] of [
+      [rootThreadId, "Root"],
+      [childThreadId, "Child"],
+    ] as const) {
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.makeUnsafe(`cmd-assignment-thread-${threadId}`),
+          threadId,
+          projectId,
+          title,
+          modelSelection: { provider: "codex", model: "gpt-5-codex" },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+        }),
+      );
+    }
+    await system.run(
+      system.engine.dispatch({
+        type: "orchestrator.root.create",
+        commandId: CommandId.makeUnsafe("cmd-assignment-root"),
+        rootThreadId,
+        projectId,
+        actor: { kind: "user", actorId: "owner" },
+        protocolVersion: 1,
+        expectedRevision: 0,
+        createdAt,
+        modelTarget: {
+          provider: "codex",
+          model: "gpt-5-codex",
+          runtimeMode: "approval-required",
+          workspaceRoot: "/tmp/project-assignment-atomic",
+        },
+        title: "Root",
+        activeProcessId: null,
+      }),
+    );
+    await system.run(
+      system.engine.dispatch({
+        type: "task-process.create",
+        commandId: CommandId.makeUnsafe("cmd-assignment-process"),
+        processId,
+        projectId,
+        actor: { kind: "thread", threadId: rootThreadId },
+        expectedRevision: 0,
+        rootExpectedRevision: 1,
+        createdAt,
+        title: "Process",
+        owner: { kind: "orchestrator", rootThreadId },
+      }),
+    );
+    await system.run(
+      system.engine.dispatch({
+        type: "project-task.create",
+        commandId: CommandId.makeUnsafe("cmd-assignment-task"),
+        processId,
+        projectId,
+        actor: { kind: "thread", threadId: rootThreadId },
+        expectedRevision: 1,
+        createdAt,
+        taskId,
+        parentTaskId: null,
+        title: "Task",
+        description: null,
+        acceptanceCriteria: ["Evidence"],
+        priority: "normal",
+        orderKey: "a",
+      }),
+    );
+    await system.run(
+      system.engine.dispatch({
+        type: "orchestrator.child.attach",
+        commandId: CommandId.makeUnsafe("cmd-assignment-attach-child"),
+        rootThreadId,
+        projectId,
+        actor: { kind: "thread", threadId: rootThreadId },
+        protocolVersion: 1,
+        expectedRevision: 2,
+        createdAt,
+        parentThreadId: rootThreadId,
+        childThreadId,
+        role: "participant",
+        capabilities: [
+          "state.read",
+          "link.request",
+          "message.send",
+          "artifact.publish",
+          "assignment.report",
+        ],
+        continuity: {
+          kind: "clean",
+          contextBundle: {
+            id: ContextBundleId.makeUnsafe("context-assignment-child"),
+            version: 1,
+            assignmentId: null,
+            originalBrief: "Implement independently",
+            immutableUserConstraints: [],
+            acceptedDecisions: [],
+            rejectedAlternatives: [],
+            ownershipClaims: [],
+            dependencyRefs: [],
+            sourceRefs: [],
+            threadMessageRefs: [],
+            artifactRefs: [],
+            capabilityCeiling: ["state.read", "assignment.report"],
+            createdBy: { kind: "thread", threadId: rootThreadId },
+            createdAt,
+            contentHash: "sha256:assignment-context",
+          },
+        },
+        modelTarget: {
+          provider: "codex",
+          model: "gpt-5-codex",
+          runtimeMode: "approval-required",
+          workspaceRoot: "/tmp/project-assignment-atomic",
+        },
+        decisionReason: {
+          summary: "Independent implementation",
+          taskFit: ["implementation"],
+          contextHealth: "healthy",
+          cacheEconomics: "unknown",
+          selectedAt: createdAt,
+        },
+      }),
+    );
+
+    const assignmentCommandId = CommandId.makeUnsafe("cmd-assignment-atomic-create");
+    await system.run(
+      system.engine.dispatch({
+        type: "orchestrator.assignment.create",
+        commandId: assignmentCommandId,
+        rootThreadId,
+        projectId,
+        actor: { kind: "thread", threadId: rootThreadId },
+        protocolVersion: 1,
+        expectedRevision: 3,
+        createdAt,
+        processId,
+        expectedProcessRevision: 2,
+        bindingId: TaskThreadBindingId.makeUnsafe("binding-assignment-atomic"),
+        bindingRole: "owner",
+        contract: {
+          assignmentId: AssignmentId.makeUnsafe("assignment-atomic"),
+          version: 1,
+          taskId,
+          ownerThreadId: rootThreadId,
+          assigneeThreadId: childThreadId,
+          goal: "Implement task",
+          acceptanceCriteria: ["Evidence"],
+          immutableUserConstraints: [],
+          workingAssumptions: [],
+          contextBundleId: ContextBundleId.makeUnsafe("context-assignment-child"),
+          continuity: { kind: "reuse", threadId: childThreadId },
+          modelTarget: {
+            provider: "codex",
+            model: "gpt-5-codex",
+            runtimeMode: "approval-required",
+            workspaceRoot: "/tmp/project-assignment-atomic",
+          },
+          decisionReason: {
+            summary: "Reuse the focused child",
+            taskFit: ["implementation"],
+            contextHealth: "healthy",
+            cacheEconomics: "reuse",
+            selectedAt: createdAt,
+          },
+          pathOwnershipClaims: [],
+          dependencyRefs: [],
+          expectedApis: [],
+          allowedCapabilities: ["state.read", "assignment.report"],
+          evidenceRequirements: ["Checks"],
+          verifierClass: "root",
+          state: "queued",
+          supersedesVersion: null,
+          createdAt,
+          updatedAt: createdAt,
+        },
+      }),
+    );
+
+    const events = Array.from(
+      await system.run(Stream.runCollect(system.engine.readEvents(0))),
+    ).filter((event) => event.commandId === assignmentCommandId);
+    expect(events.map((event) => [event.aggregateKind, event.type])).toEqual([
+      ["orchestrator", "orchestrator.assignment.created"],
+      ["task_process", "project-task.thread-bound"],
+    ]);
+    expect(events[1]?.payload).toMatchObject({
+      acceptedRevision: 3,
+      binding: {
+        taskId,
+        threadId: childThreadId,
+        assignmentId: "assignment-atomic",
+        role: "owner",
+      },
+    });
+
+    const reportCommandId = CommandId.makeUnsafe("cmd-assignment-atomic-report");
+    await system.run(
+      system.engine.dispatch({
+        type: "orchestrator.assignment.status.report",
+        commandId: reportCommandId,
+        rootThreadId,
+        projectId,
+        actor: { kind: "thread", threadId: childThreadId },
+        protocolVersion: 1,
+        expectedRevision: 4,
+        createdAt,
+        processId,
+        expectedProcessRevision: 3,
+        progressId: TaskProgressEntryId.makeUnsafe("progress-assignment-atomic"),
+        progressKind: "progress",
+        progressEvidenceRefs: [],
+        assignmentId: AssignmentId.makeUnsafe("assignment-atomic"),
+        taskId,
+        state: "running",
+        summary: "Implementation started",
+        evidence: null,
+      }),
+    );
+    const reportEvents = Array.from(
+      await system.run(Stream.runCollect(system.engine.readEvents(0))),
+    ).filter((event) => event.commandId === reportCommandId);
+    expect(reportEvents.map((event) => [event.aggregateKind, event.type])).toEqual([
+      ["orchestrator", "orchestrator.assignment.status-reported"],
+      ["task_process", "project-task.progress-reported"],
+    ]);
+    await system.dispose();
+  });
+
   it("quiesces normal admission while draining reserved lifecycle commands", async () => {
     const system = await createOrchestrationSystem();
     const createdAt = now();
@@ -1426,210 +1987,6 @@ describe("OrchestrationEngine", () => {
             model: "gpt-5-codex",
           },
           createdAt,
-        }),
-      ),
-    ).rejects.toThrow("already uses workspace root");
-
-    await system.dispose();
-  });
-
-  it("rejects duplicate Studio workspace containers", async () => {
-    const system = await createOrchestrationSystem();
-    const { engine } = system;
-    const createdAt = now();
-
-    await system.run(
-      engine.dispatch({
-        type: "project.create",
-        commandId: CommandId.makeUnsafe("cmd-studio-project-create"),
-        projectId: asProjectId("project-studio"),
-        kind: "studio",
-        title: "Studio",
-        workspaceRoot: "/tmp/synara-studio",
-        defaultModelSelection: null,
-        createdAt,
-      }),
-    );
-
-    await expect(
-      system.run(
-        engine.dispatch({
-          type: "project.create",
-          commandId: CommandId.makeUnsafe("cmd-studio-project-duplicate-create"),
-          projectId: asProjectId("project-studio-duplicate"),
-          kind: "studio",
-          title: "Studio",
-          workspaceRoot: "/tmp/synara-studio",
-          defaultModelSelection: null,
-          createdAt,
-        }),
-      ),
-    ).rejects.toThrow("already uses workspace root");
-
-    await system.dispose();
-  });
-
-  it("rejects Studio and regular projects claiming each other's workspace root", async () => {
-    const system = await createOrchestrationSystem();
-    const { engine } = system;
-    const createdAt = now();
-
-    await system.run(
-      engine.dispatch({
-        type: "project.create",
-        commandId: CommandId.makeUnsafe("cmd-cross-kind-studio-create"),
-        projectId: asProjectId("project-cross-kind-studio"),
-        kind: "studio",
-        title: "Studio",
-        workspaceRoot: "/tmp/synara-cross-kind-studio",
-        defaultModelSelection: null,
-        createdAt,
-      }),
-    );
-    await system.run(
-      engine.dispatch({
-        type: "project.create",
-        commandId: CommandId.makeUnsafe("cmd-cross-kind-project-create"),
-        projectId: asProjectId("project-cross-kind-app"),
-        kind: "project",
-        title: "App",
-        workspaceRoot: "/tmp/synara-cross-kind-app",
-        defaultModelSelection: null,
-        createdAt,
-      }),
-    );
-
-    // Adding the Studio container's folder as a regular project must not create a second
-    // active project on that root (the empty container would otherwise be silently retired).
-    await expect(
-      system.run(
-        engine.dispatch({
-          type: "project.create",
-          commandId: CommandId.makeUnsafe("cmd-cross-kind-project-on-studio-root"),
-          projectId: asProjectId("project-on-studio-root"),
-          kind: "project",
-          title: "Studio folder",
-          workspaceRoot: "/tmp/synara-cross-kind-studio",
-          defaultModelSelection: null,
-          createdAt,
-        }),
-      ),
-    ).rejects.toThrow("already uses workspace root");
-
-    // Creating a Studio container on a root an existing regular project owns must fail too.
-    await expect(
-      system.run(
-        engine.dispatch({
-          type: "project.create",
-          commandId: CommandId.makeUnsafe("cmd-cross-kind-studio-on-project-root"),
-          projectId: asProjectId("project-studio-on-project-root"),
-          kind: "studio",
-          title: "Studio",
-          workspaceRoot: "/tmp/synara-cross-kind-app",
-          defaultModelSelection: null,
-          createdAt,
-        }),
-      ),
-    ).rejects.toThrow("already uses workspace root");
-
-    // Root moves are covered by the same cross-kind ownership rule.
-    await expect(
-      system.run(
-        engine.dispatch({
-          type: "project.meta.update",
-          commandId: CommandId.makeUnsafe("cmd-cross-kind-project-root-update"),
-          projectId: asProjectId("project-cross-kind-app"),
-          workspaceRoot: "/tmp/synara-cross-kind-studio",
-        }),
-      ),
-    ).rejects.toThrow("already uses workspace root");
-
-    // A kind-only update must not carry an existing pin onto a kind that can never be pinned.
-    await system.run(
-      engine.dispatch({
-        type: "project.meta.update",
-        commandId: CommandId.makeUnsafe("cmd-cross-kind-pin-app"),
-        projectId: asProjectId("project-cross-kind-app"),
-        isPinned: true,
-      }),
-    );
-    await expect(
-      system.run(
-        engine.dispatch({
-          type: "project.meta.update",
-          commandId: CommandId.makeUnsafe("cmd-cross-kind-pinned-kind-change"),
-          projectId: asProjectId("project-cross-kind-app"),
-          kind: "studio",
-          workspaceRoot: "/tmp/synara-cross-kind-pinned-studio",
-        }),
-      ),
-    ).rejects.toThrow("Only projects can be pinned.");
-
-    // A kind-only update must not bypass ownership either: a chat project sitting on an owned
-    // root cannot become a workspace-owning kind without the root check running.
-    await system.run(
-      engine.dispatch({
-        type: "project.create",
-        commandId: CommandId.makeUnsafe("cmd-cross-kind-chat-create"),
-        projectId: asProjectId("project-cross-kind-chat"),
-        kind: "chat",
-        title: "Home",
-        workspaceRoot: "/tmp/synara-cross-kind-studio",
-        defaultModelSelection: null,
-        createdAt,
-      }),
-    );
-    await expect(
-      system.run(
-        engine.dispatch({
-          type: "project.meta.update",
-          commandId: CommandId.makeUnsafe("cmd-cross-kind-chat-kind-only-update"),
-          projectId: asProjectId("project-cross-kind-chat"),
-          kind: "studio",
-        }),
-      ),
-    ).rejects.toThrow("already uses workspace root");
-
-    await system.dispose();
-  });
-
-  it("rejects moving a Studio container onto another Studio workspace root", async () => {
-    const system = await createOrchestrationSystem();
-    const { engine } = system;
-    const createdAt = now();
-
-    await system.run(
-      engine.dispatch({
-        type: "project.create",
-        commandId: CommandId.makeUnsafe("cmd-studio-source-create"),
-        projectId: asProjectId("project-studio-source"),
-        kind: "studio",
-        title: "Studio",
-        workspaceRoot: "/tmp/synara-studio-source",
-        defaultModelSelection: null,
-        createdAt,
-      }),
-    );
-    await system.run(
-      engine.dispatch({
-        type: "project.create",
-        commandId: CommandId.makeUnsafe("cmd-studio-target-create"),
-        projectId: asProjectId("project-studio-target"),
-        kind: "studio",
-        title: "Studio",
-        workspaceRoot: "/tmp/synara-studio-target",
-        defaultModelSelection: null,
-        createdAt,
-      }),
-    );
-
-    await expect(
-      system.run(
-        engine.dispatch({
-          type: "project.meta.update",
-          commandId: CommandId.makeUnsafe("cmd-studio-target-root-update"),
-          projectId: asProjectId("project-studio-target"),
-          workspaceRoot: "/tmp/synara-studio-source",
         }),
       ),
     ).rejects.toThrow("already uses workspace root");

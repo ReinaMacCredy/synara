@@ -75,16 +75,6 @@ describe("resolveProjectCwdForKind", () => {
     ).toBe("/tmp/chat-root");
   });
 
-  it("treats a studio-kind project's workspace root as a real cwd", () => {
-    expect(
-      resolveProjectCwdForKind({
-        kind: "studio",
-        workspaceRoot: "/tmp/studio-root",
-        worktreePath: null,
-      }),
-    ).toBe("/tmp/studio-root");
-  });
-
   it("treats a project-kind project's workspace root as a real cwd", () => {
     expect(
       resolveProjectCwdForKind({
@@ -118,16 +108,16 @@ describe("resolveThreadWorkspaceCwd", () => {
     ).toBeUndefined();
   });
 
-  it("resolves the workspace root for a studio-kind thread with no worktree", () => {
+  it("resolves the workspace root for a project thread with no worktree", () => {
     expect(
       resolveThreadWorkspaceCwd({
         thread: { projectId, envMode: "local", worktreePath: null },
-        projects: [{ id: projectId, kind: "studio", workspaceRoot: "/tmp/studio-root" }],
+        projects: [{ id: projectId, kind: "project", workspaceRoot: "/tmp/project-root" }],
       }),
-    ).toBe("/tmp/studio-root");
+    ).toBe("/tmp/project-root");
   });
 
-  it("prefers an ordinary Studio working directory without treating it as a worktree", () => {
+  it("prefers an explicit working directory without treating it as a worktree", () => {
     expect(
       resolveThreadWorkspaceCwd({
         thread: {
@@ -136,18 +126,18 @@ describe("resolveThreadWorkspaceCwd", () => {
           worktreePath: null,
           workingDirectory: "/tmp/reference-folder",
         },
-        projects: [{ id: projectId, kind: "studio", workspaceRoot: "/tmp/studio-root" }],
+        projects: [{ id: projectId, kind: "project", workspaceRoot: "/tmp/project-root" }],
       }),
     ).toBe("/tmp/reference-folder");
   });
 
-  it("resolves the materialized worktree path for a studio-kind thread", () => {
+  it("resolves the materialized worktree path for a project thread", () => {
     expect(
       resolveThreadWorkspaceCwd({
-        thread: { projectId, envMode: "worktree", worktreePath: "/tmp/studio-worktree" },
-        projects: [{ id: projectId, kind: "studio", workspaceRoot: "/tmp/studio-root" }],
+        thread: { projectId, envMode: "worktree", worktreePath: "/tmp/project-worktree" },
+        projects: [{ id: projectId, kind: "project", workspaceRoot: "/tmp/project-root" }],
       }),
-    ).toBe("/tmp/studio-worktree");
+    ).toBe("/tmp/project-worktree");
   });
 
   it("resolves the materialized worktree path for a chat-kind thread once a worktree exists", () => {

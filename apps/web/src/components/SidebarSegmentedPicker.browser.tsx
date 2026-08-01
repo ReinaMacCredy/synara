@@ -31,14 +31,14 @@ describe("SidebarSegmentedPicker", () => {
       const [activeView, setActiveView] = useState<SidebarView>("threads");
       return (
         <>
-          <button type="button" onClick={() => setActiveView("studio")}>
+          <button type="button" onClick={() => setActiveView("orchestrator")}>
             Land route
           </button>
           <button type="button" onClick={() => setActiveView("threads")}>
             Browser back
           </button>
           <SidebarSegmentedPicker
-            views={["studio", "threads"]}
+            views={["orchestrator", "threads"]}
             activeView={activeView}
             onSelectView={() => undefined}
           />
@@ -49,11 +49,11 @@ describe("SidebarSegmentedPicker", () => {
     await render(<Harness />);
     expect(selectedSegment()).toBe("Projects");
 
-    await page.getByRole("button", { name: "Studio" }).click();
-    expect(selectedSegment()).toBe("Studio");
+    await page.getByRole("button", { name: "Orchestrator" }).click();
+    expect(selectedSegment()).toBe("Orchestrator");
 
     await page.getByRole("button", { name: "Land route" }).click();
-    expect(selectedSegment()).toBe("Studio");
+    expect(selectedSegment()).toBe("Orchestrator");
 
     await page.getByRole("button", { name: "Browser back" }).click();
     expect(selectedSegment()).toBe("Projects");

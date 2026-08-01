@@ -119,7 +119,6 @@ import type {
   ProjectWriteFileResult,
 } from "./project";
 import type { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem";
-import type { StudioListThreadOutputsInput, StudioListThreadOutputsResult } from "./studio";
 import type {
   ServerConfig,
   ServerDiagnosticsResult,
@@ -180,6 +179,36 @@ import type {
   OrchestrationThreadStreamItem,
   OrchestrationUnsubscribeThreadInput,
 } from "./orchestration";
+import type {
+  ArchiveOrchestratorRootInput,
+  CreateOrchestratorRootInput,
+  DetachOrchestratorChildInput,
+  GetOrchestratorSnapshotInput,
+  GetOrchestratorSnapshotResult,
+  ListOrchestratorArtifactsInput,
+  ListOrchestratorArtifactsResult,
+  ListOrchestratorAuditEventsInput,
+  ListOrchestratorAuditEventsResult,
+  ListOrchestratorExchangesInput,
+  ListOrchestratorExchangesResult,
+  ListOrchestratorRootsInput,
+  ListOrchestratorRootsResult,
+  OrchestratorArtifact,
+  OrchestratorCommandResult,
+  ReadOrchestratorArtifactInput,
+  UpgradeOrchestratorRootInput,
+} from "./orchestrator";
+import type {
+  DispatchTaskProcessCommandInput,
+  DispatchTaskProcessCommandResult,
+  GetSessionProgressInput,
+  GetSessionProgressResult,
+  GetTaskProcessGraphResult,
+  GetTaskProcessInput,
+  GetTaskProcessSummaryResult,
+  ListTaskProcessesInput,
+  ListTaskProcessesResult,
+} from "./taskProcess";
 import type { EditorId } from "./editor";
 import type { ThreadId } from "./baseSchemas";
 import type {
@@ -579,11 +608,6 @@ export interface NativeApi {
   filesystem: {
     browse: (input: FilesystemBrowseInput) => Promise<FilesystemBrowseResult>;
   };
-  studio: {
-    listThreadOutputs: (
-      input: StudioListThreadOutputsInput,
-    ) => Promise<StudioListThreadOutputsResult>;
-  };
   shell: {
     openInEditor: (cwd: string, editor: EditorId) => Promise<void>;
     openExternal: (url: string) => Promise<void>;
@@ -741,6 +765,43 @@ export interface NativeApi {
     unsubscribeShell: () => Promise<void>;
     subscribeThread: (input: OrchestrationSubscribeThreadInput) => Promise<void>;
     unsubscribeThread: (input: OrchestrationUnsubscribeThreadInput) => Promise<void>;
+    listOrchestratorRoots: (
+      input: ListOrchestratorRootsInput,
+    ) => Promise<ListOrchestratorRootsResult>;
+    getOrchestratorSnapshot: (
+      input: GetOrchestratorSnapshotInput,
+    ) => Promise<GetOrchestratorSnapshotResult>;
+    listOrchestratorExchanges: (
+      input: ListOrchestratorExchangesInput,
+    ) => Promise<ListOrchestratorExchangesResult>;
+    listOrchestratorArtifacts: (
+      input: ListOrchestratorArtifactsInput,
+    ) => Promise<ListOrchestratorArtifactsResult>;
+    readOrchestratorArtifact: (
+      input: ReadOrchestratorArtifactInput,
+    ) => Promise<OrchestratorArtifact>;
+    listOrchestratorAuditEvents: (
+      input: ListOrchestratorAuditEventsInput,
+    ) => Promise<ListOrchestratorAuditEventsResult>;
+    createOrchestratorRoot: (
+      input: CreateOrchestratorRootInput,
+    ) => Promise<OrchestratorCommandResult>;
+    archiveOrchestratorRoot: (
+      input: ArchiveOrchestratorRootInput,
+    ) => Promise<OrchestratorCommandResult>;
+    detachOrchestratorChild: (
+      input: DetachOrchestratorChildInput,
+    ) => Promise<OrchestratorCommandResult>;
+    upgradeOrchestratorRoot: (
+      input: UpgradeOrchestratorRootInput,
+    ) => Promise<OrchestratorCommandResult>;
+    listTaskProcesses: (input: ListTaskProcessesInput) => Promise<ListTaskProcessesResult>;
+    getTaskProcessSummary: (input: GetTaskProcessInput) => Promise<GetTaskProcessSummaryResult>;
+    getTaskProcessGraph: (input: GetTaskProcessInput) => Promise<GetTaskProcessGraphResult>;
+    getSessionProgress: (input: GetSessionProgressInput) => Promise<GetSessionProgressResult>;
+    dispatchTaskProcessCommand: (
+      input: DispatchTaskProcessCommandInput,
+    ) => Promise<DispatchTaskProcessCommandResult>;
     onDomainEvent: (callback: (event: OrchestrationEvent) => void) => () => void;
     onShellEvent: (callback: (event: OrchestrationShellStreamItem) => void) => () => void;
     onThreadEvent: (callback: (event: OrchestrationThreadStreamItem) => void) => () => void;

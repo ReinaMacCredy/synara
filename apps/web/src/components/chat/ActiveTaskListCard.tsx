@@ -72,7 +72,7 @@ export function ActiveTaskListCard({
             <PiSlidersHorizontal className={COMPOSER_STACKED_PANEL_ICON_CLASS_NAME} />
           )}
           <ComposerStackedPanelRowLabel tone="meta">
-            {completedCount} out of {totalCount} tasks completed
+            Provider runtime · {completedCount} out of {totalCount} tasks completed
           </ComposerStackedPanelRowLabel>
         </ComposerStackedPanelRowMain>
         <div className="flex shrink-0 items-center gap-0.5">
@@ -82,8 +82,8 @@ export function ActiveTaskListCard({
             size="icon-xs"
             className={COMPOSER_STACKED_PANEL_ICON_BUTTON_CLASS_NAME}
             onClick={onOpenSidebar}
-            aria-label="Open tasks sidebar"
-            title="Open tasks sidebar"
+            aria-label="Open provider task activity sidebar"
+            title="Open provider task activity sidebar"
           >
             <PiSidebarSimple className="size-3" />
           </Button>

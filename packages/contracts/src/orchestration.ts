@@ -12,6 +12,18 @@ import {
 import { ProviderMentionReference, ProviderSkillReference } from "./providerDiscovery";
 import { ProjectKind } from "./project";
 import {
+  OrchestratorCommand,
+  OrchestratorDomainEvent,
+  OrchestratorEventType,
+  OrchestratorUserCommand,
+} from "./orchestrator";
+import {
+  TaskProcessCommand,
+  TaskProcessDomainEvent,
+  TaskProcessEventType,
+  TaskProcessId,
+} from "./taskProcess";
+import {
   ApprovalRequestId,
   CheckpointRef,
   CommandId,
@@ -45,6 +57,21 @@ export const ORCHESTRATION_WS_METHODS = {
   unsubscribeShell: "orchestration.unsubscribeShell",
   subscribeThread: "orchestration.subscribeThread",
   unsubscribeThread: "orchestration.unsubscribeThread",
+  listOrchestratorRoots: "orchestration.listOrchestratorRoots",
+  getOrchestratorSnapshot: "orchestration.getOrchestratorSnapshot",
+  listOrchestratorExchanges: "orchestration.listOrchestratorExchanges",
+  listOrchestratorArtifacts: "orchestration.listOrchestratorArtifacts",
+  readOrchestratorArtifact: "orchestration.readOrchestratorArtifact",
+  listOrchestratorAuditEvents: "orchestration.listOrchestratorAuditEvents",
+  createOrchestratorRoot: "orchestration.createOrchestratorRoot",
+  archiveOrchestratorRoot: "orchestration.archiveOrchestratorRoot",
+  detachOrchestratorChild: "orchestration.detachOrchestratorChild",
+  upgradeOrchestratorRoot: "orchestration.upgradeOrchestratorRoot",
+  listTaskProcesses: "orchestration.listTaskProcesses",
+  getTaskProcessSummary: "orchestration.getTaskProcessSummary",
+  getTaskProcessGraph: "orchestration.getTaskProcessGraph",
+  getSessionProgress: "orchestration.getSessionProgress",
+  dispatchTaskProcessCommand: "orchestration.dispatchTaskProcessCommand",
 } as const;
 
 export const ORCHESTRATION_WS_CHANNELS = {
@@ -228,6 +255,7 @@ export const ProviderRequestKind = Schema.Literals([
   "file-read",
   "file-change",
   "permissions",
+  "mcp-tool",
 ]);
 export type ProviderRequestKind = typeof ProviderRequestKind.Type;
 export const AssistantDeliveryMode = Schema.Literals(["buffered", "streaming"]);
@@ -239,7 +267,12 @@ export const DEFAULT_TURN_DISPATCH_MODE: TurnDispatchMode = "queue";
 // Marks who dispatched a user turn: a person typing, an automation run, or
 // another agent through the Synara agent gateway (MCP tools).
 // Absent is treated as "user"; only server-dispatched turns carry the flag.
-export const MessageDispatchOrigin = Schema.Literals(["user", "automation", "agent"]);
+export const MessageDispatchOrigin = Schema.Literals([
+  "user",
+  "automation",
+  "agent",
+  "orchestrator",
+]);
 export type MessageDispatchOrigin = typeof MessageDispatchOrigin.Type;
 export const ThreadCreationSource = Schema.Literals([
   "synara_mcp",
@@ -279,6 +312,7 @@ export const OrchestrationMessageSource = Schema.Literals([
   "native",
   "handoff-import",
   "fork-import",
+  "orchestrator",
 ]);
 export type OrchestrationMessageSource = typeof OrchestrationMessageSource.Type;
 
@@ -469,8 +503,22 @@ export const OrchestrationProjectShell = Schema.Struct({
 });
 export type OrchestrationProjectShell = typeof OrchestrationProjectShell.Type;
 
-export const OrchestrationMessageRole = Schema.Literals(["user", "assistant", "system"]);
+export const OrchestrationMessageRole = Schema.Literals(["user", "assistant", "system", "thread"]);
 export type OrchestrationMessageRole = typeof OrchestrationMessageRole.Type;
+
+export const ThreadOriginEnvelope = Schema.Struct({
+  messageId: TrimmedNonEmptyString,
+  rootThreadId: ThreadId,
+  senderThreadId: ThreadId,
+  targetThreadId: ThreadId,
+  assignmentId: Schema.NullOr(TrimmedNonEmptyString),
+  runId: Schema.NullOr(TrimmedNonEmptyString),
+  correlationId: Schema.NullOr(TrimmedNonEmptyString),
+  replyToMessageId: Schema.NullOr(TrimmedNonEmptyString),
+  hopCount: NonNegativeInt,
+  artifactRefs: Schema.Array(TrimmedNonEmptyString),
+});
+export type ThreadOriginEnvelope = typeof ThreadOriginEnvelope.Type;
 
 export const OrchestrationMessage = Schema.Struct({
   id: MessageId,
@@ -1259,7 +1307,7 @@ export const ThreadTurnStartCommand = Schema.Struct({
   threadId: ThreadId,
   message: Schema.Struct({
     messageId: MessageId,
-    role: Schema.Literal("user"),
+    role: Schema.Literals(["user", "thread"]),
     text: Schema.String.check(Schema.isMaxLength(PROVIDER_SEND_TURN_MAX_INPUT_CHARS)),
     attachments: ChatAttachmentList,
     skills: Schema.optional(Schema.Array(ProviderSkillReference)),
@@ -1275,6 +1323,7 @@ export const ThreadTurnStartCommand = Schema.Struct({
   // Set by the automation engine when it dispatches a turn. Clients cannot set it:
   // ClientThreadTurnStartCommand omits the field, so decoding strips any spoofed value.
   dispatchOrigin: Schema.optional(MessageDispatchOrigin),
+  threadOrigin: Schema.optional(ThreadOriginEnvelope),
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
   interactionMode: ProviderInteractionMode.pipe(
     Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
@@ -1345,6 +1394,7 @@ const ThreadDispatchQueuedTurnCommand = Schema.Struct({
     Schema.withDecodingDefault(() => DEFAULT_TURN_DISPATCH_MODE),
   ),
   dispatchOrigin: Schema.optional(MessageDispatchOrigin),
+  threadOrigin: Schema.optional(ThreadOriginEnvelope),
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
   interactionMode: ProviderInteractionMode.pipe(
     Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
@@ -1496,6 +1546,8 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadMessageEditAndResendCommand,
   ThreadActivityAppendCommand,
   ThreadSessionStopCommand,
+  OrchestratorUserCommand,
+  TaskProcessCommand,
 ]);
 export type ClientOrchestrationCommand = typeof ClientOrchestrationCommand.Type;
 
@@ -1597,10 +1649,12 @@ export type InternalOrchestrationCommand = typeof InternalOrchestrationCommand.T
 export const OrchestrationCommand = Schema.Union([
   DispatchableClientOrchestrationCommand,
   InternalOrchestrationCommand,
+  OrchestratorCommand,
+  TaskProcessCommand,
 ]);
 export type OrchestrationCommand = typeof OrchestrationCommand.Type;
 
-export const OrchestrationEventType = Schema.Literals([
+const CoreOrchestrationEventType = Schema.Literals([
   "space.created",
   "space.meta-updated",
   "space.order-updated",
@@ -1643,9 +1697,20 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.turn-diff-completed",
   "thread.activity-appended",
 ]);
+export const OrchestrationEventType = Schema.Union([
+  CoreOrchestrationEventType,
+  OrchestratorEventType,
+  TaskProcessEventType,
+]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 
-export const OrchestrationAggregateKind = Schema.Literals(["space", "project", "thread"]);
+export const OrchestrationAggregateKind = Schema.Literals([
+  "space",
+  "project",
+  "thread",
+  "orchestrator",
+  "task_process",
+]);
 export type OrchestrationAggregateKind = typeof OrchestrationAggregateKind.Type;
 export const OrchestrationActorKind = Schema.Literals(["client", "server", "provider"]);
 
@@ -1900,6 +1965,7 @@ export const ThreadTurnStartRequestedPayload = Schema.Struct({
   assistantDeliveryMode: Schema.optional(AssistantDeliveryMode),
   dispatchMode: TurnDispatchMode.pipe(Schema.withDecodingDefault(() => DEFAULT_TURN_DISPATCH_MODE)),
   dispatchOrigin: Schema.optional(MessageDispatchOrigin),
+  threadOrigin: Schema.optional(ThreadOriginEnvelope),
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
   interactionMode: ProviderInteractionMode.pipe(
     Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
@@ -2032,7 +2098,7 @@ const EventBaseFields = {
   sequence: NonNegativeInt,
   eventId: EventId,
   aggregateKind: OrchestrationAggregateKind,
-  aggregateId: Schema.Union([SpaceId, ProjectId, ThreadId]),
+  aggregateId: Schema.Union([SpaceId, ProjectId, ThreadId, TaskProcessId]),
   occurredAt: IsoDateTime,
   commandId: Schema.NullOr(CommandId),
   causationEventId: Schema.NullOr(EventId),
@@ -2041,6 +2107,8 @@ const EventBaseFields = {
 } as const;
 
 export const OrchestrationEvent = Schema.Union([
+  OrchestratorDomainEvent,
+  TaskProcessDomainEvent,
   Schema.Struct({
     ...EventBaseFields,
     type: Schema.Literal("space.created"),

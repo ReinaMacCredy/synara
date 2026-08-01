@@ -44,6 +44,19 @@ import type { Stream } from "effect";
 
 export type ProviderSessionModelSwitchMode = "in-session" | "restart-session" | "unsupported";
 
+export interface ProviderAdapterOrchestratorCapabilities {
+  /** The provider installs Synara's role text above the user-message channel. */
+  readonly authoritativeRoleInstruction: boolean;
+  /** The provider session receives the per-thread authenticated Synara MCP lease. */
+  readonly authenticatedMcp: boolean;
+  /** One Synara thread owns one independently resumable provider runtime/session. */
+  readonly independentSession: boolean;
+  readonly instructionChannel:
+    | "codex-developer-instructions"
+    | "claude-system-prompt"
+    | "acp-process-system-prompt";
+}
+
 /**
  * Per-adapter ingress budget. A bounded queue makes a slow durable consumer
  * apply backpressure to the provider instead of growing the process heap
@@ -80,6 +93,19 @@ export interface ProviderAdapterCapabilities {
   readonly supportsTurnSteering?: boolean;
   /** True when `turn.diff.updated.payload.unifiedDiff` contains a parseable live patch. */
   readonly supportsLiveTurnDiffPatch?: boolean;
+  /** Absent means the adapter is not eligible for Orchestrator Root/child sessions. */
+  readonly orchestrator?: ProviderAdapterOrchestratorCapabilities;
+}
+
+export function isProviderAdapterOrchestratorCapable(
+  capabilities: ProviderAdapterCapabilities,
+): boolean {
+  const orchestrator = capabilities.orchestrator;
+  return (
+    orchestrator?.authoritativeRoleInstruction === true &&
+    orchestrator.authenticatedMcp === true &&
+    orchestrator.independentSession === true
+  );
 }
 
 export interface ProviderThreadTurnSnapshot {

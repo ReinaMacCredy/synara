@@ -9,18 +9,23 @@ import { describe, expect, it } from "vitest";
 import {
   getGitInvalidationThreadIdForEvent,
   getProjectFileInvalidationThreadIdForEvent,
-  getStudioOutputInvalidationThreadIdForEvent,
   resolveGitInvalidationCwdForThreadId,
   shouldInvalidateGitQueriesForEvent,
+  shouldInvalidateOrchestratorQueriesForEvent,
   shouldInvalidateProviderQueriesForEvent,
 } from "./-rootEventInvalidation";
 import type { AppState } from "../store";
 import type { Thread } from "../types";
 
-function event(type: OrchestrationEvent["type"], payload: object = {}): OrchestrationEvent {
+function event(
+  type: OrchestrationEvent["type"],
+  payload: object = {},
+  aggregateKind: OrchestrationEvent["aggregateKind"] = "thread",
+): OrchestrationEvent {
   return {
     type,
     payload,
+    aggregateKind,
   } as OrchestrationEvent;
 }
 
@@ -46,6 +51,22 @@ describe("root event invalidation", () => {
   it("leaves unrelated events alone", () => {
     expect(shouldInvalidateGitQueriesForEvent(event("thread.message-sent"))).toBe(false);
     expect(shouldInvalidateProviderQueriesForEvent(event("thread.message-sent"))).toBe(false);
+  });
+
+  it("invalidates aggregate UI reads for Orchestrator and TaskProcess events only", () => {
+    expect(
+      shouldInvalidateOrchestratorQueriesForEvent(
+        event("orchestrator.child.attached", {}, "orchestrator"),
+      ),
+    ).toBe(true);
+    expect(
+      shouldInvalidateOrchestratorQueriesForEvent(
+        event("project-task.created", {}, "task_process"),
+      ),
+    ).toBe(true);
+    expect(
+      shouldInvalidateOrchestratorQueriesForEvent(event("thread.message-sent", {}, "thread")),
+    ).toBe(false);
   });
 
   it("extracts thread ids from mid-turn file-change activities", () => {
@@ -86,40 +107,6 @@ describe("root event invalidation", () => {
     expect(getGitInvalidationThreadIdForEvent(event("thread.message-sent", { threadId }))).toBe(
       null,
     );
-  });
-
-  it("invalidates Studio outputs for file-change activities and finalized checkpoints", () => {
-    const threadId = ThreadId.makeUnsafe("thread-studio");
-    const fileChangeActivity = event("thread.activity-appended", {
-      threadId,
-      activity: { kind: "tool.completed", payload: { itemType: "file_change" } },
-    });
-
-    expect(getStudioOutputInvalidationThreadIdForEvent(fileChangeActivity)).toBe(threadId);
-    expect(
-      getStudioOutputInvalidationThreadIdForEvent(
-        event("thread.activity-appended", {
-          threadId,
-          activity: { kind: "studio.outputs.captured", payload: { itemType: "studio_outputs" } },
-        }),
-      ),
-    ).toBe(threadId);
-    expect(
-      getStudioOutputInvalidationThreadIdForEvent(
-        event("thread.turn-diff-completed", { threadId }),
-      ),
-    ).toBe(threadId);
-    expect(
-      getStudioOutputInvalidationThreadIdForEvent(event("thread.message-sent", { threadId })),
-    ).toBe(null);
-    expect(
-      getStudioOutputInvalidationThreadIdForEvent(
-        event("thread.activity-appended", {
-          threadId,
-          activity: { kind: "tool.updated", payload: { itemType: "file_change" } },
-        }),
-      ),
-    ).toBe(null);
   });
 
   it("resolves local and worktree cwd from the current thread projection", () => {

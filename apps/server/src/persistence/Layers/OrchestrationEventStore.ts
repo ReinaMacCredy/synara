@@ -9,6 +9,7 @@ import {
   OrchestrationEventType,
   ProjectId,
   SpaceId,
+  TaskProcessId,
   ThreadId,
 } from "@synara/contracts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -36,7 +37,7 @@ const UnknownFromJsonString = Schema.fromJsonString(Schema.Unknown);
 const AppendEventRequestSchema = Schema.Struct({
   eventId: EventId,
   aggregateKind: OrchestrationAggregateKind,
-  streamId: Schema.Union([SpaceId, ProjectId, ThreadId]),
+  streamId: Schema.Union([SpaceId, ProjectId, ThreadId, TaskProcessId]),
   type: OrchestrationEventType,
   causationEventId: Schema.NullOr(EventId),
   correlationId: Schema.NullOr(CommandId),
@@ -76,6 +77,10 @@ const ReadThreadEventsRequestSchema = Schema.Struct({
   eventTypes: Schema.Array(Schema.String),
 });
 const ThreadHighWaterRequestSchema = Schema.Struct({ threadId: Schema.String });
+const AggregateEventsRequestSchema = Schema.Struct({
+  aggregateKind: OrchestrationAggregateKind,
+  aggregateId: Schema.String,
+});
 const HighWaterSequenceRowSchema = Schema.Struct({
   highWaterSequence: NonNegativeInt,
 });
@@ -465,6 +470,30 @@ const makeEventStore = Effect.gen(function* () {
     },
   });
 
+  const readAggregateEventRows = SqlSchema.findAll({
+    Request: AggregateEventsRequestSchema,
+    Result: RawPersistedEventRowSchema,
+    execute: (request) =>
+      sql`
+        SELECT
+          sequence,
+          event_id AS "eventId",
+          event_type AS "type",
+          aggregate_kind AS "aggregateKind",
+          stream_id AS "aggregateId",
+          occurred_at AS "occurredAt",
+          command_id AS "commandId",
+          causation_event_id AS "causationEventId",
+          correlation_id AS "correlationId",
+          payload_json AS "payloadJson",
+          metadata_json AS "metadataJson"
+        FROM orchestration_events
+        WHERE aggregate_kind = ${request.aggregateKind}
+          AND stream_id = ${request.aggregateId}
+        ORDER BY sequence ASC
+      `,
+  });
+
   const append: OrchestrationEventStoreShape["append"] = (event) =>
     appendEventRow({
       eventId: event.eventId,
@@ -568,6 +597,23 @@ const makeEventStore = Effect.gen(function* () {
       Effect.map((row) => row.highWaterSequence),
     );
 
+  const getAggregateHighWaterSequence: OrchestrationEventStoreShape["getAggregateHighWaterSequence"] =
+    (input) =>
+      sql<{ readonly highWaterSequence: number }>`
+        SELECT COALESCE(MAX(sequence), 0) AS "highWaterSequence"
+        FROM orchestration_events
+        WHERE aggregate_kind = ${input.aggregateKind}
+          AND stream_id = ${input.aggregateId}
+      `.pipe(
+        Effect.map((rows) => rows[0]?.highWaterSequence ?? 0),
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "OrchestrationEventStore.getAggregateHighWaterSequence:query",
+            "OrchestrationEventStore.getAggregateHighWaterSequence:decodeRow",
+          ),
+        ),
+      );
+
   const readThreadEvents: OrchestrationEventStoreShape["readThreadEvents"] = (input) => {
     const limit = Math.max(0, Math.floor(input.limit));
     if (limit === 0) return Effect.succeed([]);
@@ -595,11 +641,71 @@ const makeEventStore = Effect.gen(function* () {
     );
   };
 
+  const readAggregateEvents: OrchestrationEventStoreShape["readAggregateEvents"] = (input) =>
+    readAggregateEventRows(input).pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "OrchestrationEventStore.readAggregateEvents:query",
+          "OrchestrationEventStore.readAggregateEvents:decodeRows",
+        ),
+      ),
+      Effect.flatMap((rows) =>
+        Effect.forEach(rows, (row) =>
+          decodePersistedEventRow("OrchestrationEventStore.readAggregateEvents:rowToEvent", row),
+        ),
+      ),
+    );
+
+  const readAggregateEventPage: OrchestrationEventStoreShape["readAggregateEventPage"] = (
+    input,
+  ) => {
+    const limit = Math.max(1, Math.min(101, Math.floor(input.limit)));
+    const beforeSequenceExclusive = Math.max(
+      0,
+      Math.floor(input.beforeSequenceExclusive ?? Number.MAX_SAFE_INTEGER),
+    );
+    return sql<RawPersistedEventRow>`
+      SELECT
+        sequence,
+        event_id AS "eventId",
+        event_type AS "type",
+        aggregate_kind AS "aggregateKind",
+        stream_id AS "aggregateId",
+        occurred_at AS "occurredAt",
+        command_id AS "commandId",
+        causation_event_id AS "causationEventId",
+        correlation_id AS "correlationId",
+        payload_json AS "payloadJson",
+        metadata_json AS "metadataJson"
+      FROM orchestration_events
+      WHERE aggregate_kind = ${input.aggregateKind}
+        AND stream_id = ${input.aggregateId}
+        AND sequence < ${beforeSequenceExclusive}
+      ORDER BY sequence DESC
+      LIMIT ${limit}
+    `.pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "OrchestrationEventStore.readAggregateEventPage:query",
+          "OrchestrationEventStore.readAggregateEventPage:decodeRows",
+        ),
+      ),
+      Effect.flatMap((rows) =>
+        Effect.forEach(rows, (row) =>
+          decodePersistedEventRow("OrchestrationEventStore.readAggregateEventPage:rowToEvent", row),
+        ),
+      ),
+    );
+  };
+
   return {
     append,
     getHighWaterSequence,
     getThreadHighWaterSequence,
+    getAggregateHighWaterSequence,
     readThreadEvents,
+    readAggregateEvents,
+    readAggregateEventPage,
     readFromSequence,
     readAll: () => readFromSequence(0, Number.MAX_SAFE_INTEGER),
   } satisfies OrchestrationEventStoreShape;

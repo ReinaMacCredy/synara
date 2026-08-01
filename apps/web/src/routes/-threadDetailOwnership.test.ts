@@ -1,6 +1,31 @@
 import { describe, expect, it } from "vitest";
 import { ThreadId } from "@synara/contracts";
-import { canApplyThreadSnapshot, selectOrphanedThreadDetailIds } from "./-threadDetailOwnership";
+import {
+  canApplyThreadSnapshot,
+  resolveRouteVisibleThreadIds,
+  selectOrphanedThreadDetailIds,
+} from "./-threadDetailOwnership";
+
+describe("resolveRouteVisibleThreadIds", () => {
+  it("leases both an Orchestrator Root and its selected child", () => {
+    expect(
+      resolveRouteVisibleThreadIds({
+        routeThreadId: "root" as ThreadId,
+        orchestratorSelectedThreadId: "child" as ThreadId,
+      }),
+    ).toEqual(["root", "child"]);
+  });
+
+  it("lets split view ownership take precedence", () => {
+    expect(
+      resolveRouteVisibleThreadIds({
+        routeThreadId: "root" as ThreadId,
+        orchestratorSelectedThreadId: "child" as ThreadId,
+        splitViewThreadIds: ["split-a", "split-b", "split-a"] as ThreadId[],
+      }),
+    ).toEqual(["split-a", "split-b"]);
+  });
+});
 
 const threadId = (value: string) => ThreadId.makeUnsafe(value);
 

@@ -1,6 +1,6 @@
 // FILE: pullRequestStatePresentation.tsx
 // Purpose: Single source of truth for how a pull request's state renders across the app —
-//          the sidebar thread badge, kanban card chip, list rows, detail panel, and dock tab
+//          the sidebar thread badge, list rows, detail panel, and dock tab
 //          all resolve label, color, and glyph from here so no surface can drift. Icons come
 //          from the same three-node Central "reversed" family (pull-request / draft /
 //          request-closed / merged-simple).

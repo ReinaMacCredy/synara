@@ -28,6 +28,7 @@ import {
 } from "./codexProcessEnv";
 import {
   buildCodexInitializeParams,
+  buildCodexOrchestratorThreadOpenOverrides,
   CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
   CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS,
   __codexCliVersionGateTesting,
@@ -145,6 +146,7 @@ function createSendTurnHarness(runtimeMode: RuntimeMode = "full-access") {
       planType: null,
       sparkEnabled: true,
     },
+    orchestratorInstruction: undefined as string | null | undefined,
     pendingApprovals: new Map(),
     pendingUserInputs: new Map(),
     collabReceiverTurns: new Map(),
@@ -1451,6 +1453,30 @@ describe("resolveCodexModelForAccount", () => {
 });
 
 describe("startSession", () => {
+  it("builds pinned Root and child developer-instruction overrides and an explicit clear", () => {
+    const rootThreadId = asThreadId("root-codex");
+    const root = buildCodexOrchestratorThreadOpenOverrides({
+      protocolVersion: 1,
+      rootThreadId,
+      role: "root",
+      capabilities: ["state.read", "child.assign"],
+    });
+    const child = buildCodexOrchestratorThreadOpenOverrides({
+      protocolVersion: 1,
+      rootThreadId,
+      role: "participant",
+      capabilities: ["state.read"],
+    });
+
+    expect(root.developerInstructions).toContain("ORCHESTRATOR_PROTOCOL_V1");
+    expect(root.developerInstructions).toContain('"role":"root"');
+    expect(child.developerInstructions).toContain('"role":"participant"');
+    expect(buildCodexOrchestratorThreadOpenOverrides(null)).toEqual({
+      developerInstructions: null,
+    });
+    expect(buildCodexOrchestratorThreadOpenOverrides(undefined)).toEqual({});
+  });
+
   it("enables Codex experimental api capabilities during initialize", () => {
     expect(buildCodexInitializeParams()).toEqual({
       clientInfo: {
@@ -1460,6 +1486,7 @@ describe("startSession", () => {
       },
       capabilities: {
         experimentalApi: true,
+        mcpServerOpenaiFormElicitation: true,
       },
     });
   });
@@ -1623,7 +1650,7 @@ describe("startSession", () => {
 });
 
 describe("sendTurn", () => {
-  it("clears stale collaboration receiver routing before a new turn", async () => {
+  it("retains collaboration receiver routing for native children that finish late", async () => {
     const { manager, context } = createSendTurnHarness();
     context.collabReceiverTurns.set("reused-child", "old-turn");
     context.collabReceiverParents.set("reused-child", "old-parent");
@@ -1633,8 +1660,8 @@ describe("sendTurn", () => {
       input: "Start the next turn",
     });
 
-    expect(context.collabReceiverTurns.size).toBe(0);
-    expect(context.collabReceiverParents.size).toBe(0);
+    expect(context.collabReceiverTurns.get("reused-child")).toBe("old-turn");
+    expect(context.collabReceiverParents.get("reused-child")).toBe("old-parent");
   });
 
   it("sends text and image user input items to turn/start", async () => {
@@ -1795,6 +1822,30 @@ describe("sendTurn", () => {
         },
       },
     });
+  });
+
+  it("reasserts the pinned Orchestrator role on the first resumed turn", async () => {
+    const { manager, context, sendRequest } = createSendTurnHarness();
+    context.orchestratorInstruction =
+      "You are a standalone Synara Orchestrator thread running ORCHESTRATOR_PROTOCOL_V1.\nRole: participant";
+
+    await manager.sendTurn({
+      threadId: asThreadId("thread_1"),
+      input: "Continue independently",
+    });
+
+    expect(sendRequest).toHaveBeenCalledWith(
+      context,
+      "turn/start",
+      expect.objectContaining({
+        collaborationMode: {
+          mode: "default",
+          settings: expect.objectContaining({
+            developer_instructions: expect.stringContaining("Role: participant"),
+          }),
+        },
+      }),
+    );
   });
 
   it("keeps the session model when interaction mode is set without an explicit model", async () => {
@@ -2861,6 +2912,65 @@ describe("respondToRequest", () => {
     );
   });
 
+  it("surfaces MCP tool approval elicitations and resolves session approval on the tool only", async () => {
+    const { manager, context, writeMessage, emitEvent } = createPendingApprovalHarness();
+
+    await handleServerRequestForTest(manager, context, {
+      id: 102,
+      method: "mcpServer/elicitation/request",
+      params: {
+        threadId: "thread_1",
+        turnId: "turn_1",
+        serverName: "synara",
+        mode: "form",
+        message: "Allow Synara to create a thread?",
+        requestedSchema: { type: "object", properties: {} },
+        _meta: {
+          codex_approval_kind: "mcp_tool_call",
+          persist: ["session", "always"],
+        },
+      },
+    });
+
+    const pendingEntry = Array.from(context.pendingApprovals.entries()).find(
+      ([requestId]) => requestId !== "req-approval-1",
+    );
+    expect(pendingEntry?.[1]).toEqual(
+      expect.objectContaining({
+        method: "mcpServer/elicitation/request",
+        requestKind: "mcp-tool",
+      }),
+    );
+    expect(emitEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "request",
+        method: "mcpServer/elicitation/request",
+        requestKind: "mcp-tool",
+        payload: expect.objectContaining({
+          message: "Allow Synara to create a thread?",
+          sessionApprovalAvailable: true,
+        }),
+      }),
+    );
+
+    await manager.respondToRequest(
+      asThreadId("thread_1"),
+      ApprovalRequestId.makeUnsafe(pendingEntry![0]),
+      "acceptForSession",
+    );
+
+    expect(writeMessage).toHaveBeenCalledWith(context, {
+      id: 102,
+      result: {
+        action: "accept",
+        content: {},
+        _meta: { persist: "session" },
+      },
+    });
+    expect(context.sessionApprovalOverride).toBeUndefined();
+    expect(context.pendingApprovals.has(ApprovalRequestId.makeUnsafe("req-approval-1"))).toBe(true);
+  });
+
   it("does not sweep a pending permission-profile request into always allow", async () => {
     const { manager, context, writeMessage } = createPendingApprovalHarness();
     const permissions = {
@@ -3127,6 +3237,37 @@ describe("collab child conversation routing", () => {
         turnId: "turn_child_unmapped",
         itemId: "msg_child_unmapped",
         providerThreadId: "child_provider_unmapped",
+        providerParentThreadId: "provider_parent",
+      }),
+    );
+  });
+
+  it("retains mapped native-child routing after the parent turn settles", () => {
+    const { manager, context, emitEvent } = createCollabNotificationHarness();
+    context.collabReceiverTurns.set("child_provider_late", "turn_parent");
+    context.collabReceiverParents.set("child_provider_late", "provider_parent");
+
+    handleServerNotificationForTest(manager, context, {
+      method: "turn/completed",
+      params: {
+        threadId: "provider_parent",
+        turn: { id: "turn_parent", status: "completed", items: [] },
+      },
+    });
+    handleServerNotificationForTest(manager, context, {
+      method: "item/completed",
+      params: {
+        threadId: "child_provider_late",
+        turnId: "turn_child_late",
+        item: { type: "agentMessage", id: "msg_child_late", text: "done later" },
+      },
+    });
+
+    expect(context.collabReceiverParents.get("child_provider_late")).toBe("provider_parent");
+    expect(emitEvent).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        method: "item/completed",
+        providerThreadId: "child_provider_late",
         providerParentThreadId: "provider_parent",
       }),
     );

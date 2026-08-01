@@ -1,13 +1,17 @@
 import type {
+  ArtifactId,
   ProviderKind,
+  ProjectId,
   ServerConfig,
   ServerListProviderUsageInput,
   ServerProviderStatus,
   ServerStopLocalServerInput,
   ThreadId,
+  TaskProcessId,
 } from "@synara/contracts";
 import { mutationOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
 import { ensureNativeApi } from "~/nativeApi";
+import { orchestratorQueryKeys } from "~/lib/orchestratorRoots";
 
 export const LOCAL_SERVERS_VISIBLE_REFETCH_INTERVAL_MS = 10_000;
 const LOCAL_SERVERS_DEFAULT_STALE_TIME_MS = 3_000;
@@ -28,12 +32,24 @@ export const serverQueryKeys = {
     ["server", "profileStats", "peak-hour-v2", utcOffsetMinutes] as const,
   profileTokenStats: (utcOffsetMinutes: number) =>
     ["server", "profileTokenStats", utcOffsetMinutes] as const,
-  studioThreadOutputs: (threadId: ThreadId | null) =>
-    ["server", "studioThreadOutputs", threadId] as const,
 };
 
 export const serverMutationKeys = {
   stopLocalServer: () => ["server", "mutation", "stopLocalServer"] as const,
+};
+
+export const taskProcessQueryKeys = {
+  all: ["task-process"] as const,
+  lists: () => ["task-process", "list"] as const,
+  list: (projectId: ProjectId, includeArchived = false) =>
+    ["task-process", "list", projectId, includeArchived] as const,
+  summaries: () => ["task-process", "summary"] as const,
+  summary: (processId: TaskProcessId) => ["task-process", "summary", processId] as const,
+  graphs: () => ["task-process", "graph"] as const,
+  graph: (processId: TaskProcessId) => ["task-process", "graph", processId] as const,
+  progresses: () => ["task-process", "progress"] as const,
+  progress: (threadId: ThreadId, processId?: TaskProcessId) =>
+    ["task-process", "progress", threadId, processId ?? null] as const,
 };
 
 export function serverConfigQueryOptions() {
@@ -212,29 +228,114 @@ export function sidebarLocalServersQueryOptions(input: {
   });
 }
 
-const STUDIO_THREAD_OUTPUTS_STALE_TIME_MS = 10_000;
-
-/**
- * Outbox files attributed server-side to one Studio chat. Domain events invalidate this
- * query after checkpoint and non-Git file-change updates.
- */
-export function studioThreadOutputsQueryOptions(input: {
-  threadId: ThreadId | null;
-  enabled?: boolean;
-}) {
-  const threadId = input.threadId;
+export function orchestratorExchangesQueryOptions(rootThreadId: ThreadId) {
   return queryOptions({
-    queryKey: serverQueryKeys.studioThreadOutputs(threadId),
+    queryKey: orchestratorQueryKeys.exchanges(rootThreadId),
     queryFn: async () => {
       const api = ensureNativeApi();
-      if (!threadId) {
-        return { entries: [] };
-      }
-      return api.studio.listThreadOutputs({ threadId });
+      return api.orchestration.listOrchestratorExchanges({ rootThreadId, limit: 100 });
     },
-    enabled: (input.enabled ?? true) && threadId !== null,
-    staleTime: STUDIO_THREAD_OUTPUTS_STALE_TIME_MS,
-    refetchOnWindowFocus: true,
+    staleTime: 5_000,
+    refetchOnReconnect: true,
+  });
+}
+
+export function orchestratorArtifactsQueryOptions(rootThreadId: ThreadId) {
+  return queryOptions({
+    queryKey: orchestratorQueryKeys.artifacts(rootThreadId),
+    queryFn: async () => {
+      const api = ensureNativeApi();
+      return api.orchestration.listOrchestratorArtifacts({ rootThreadId, limit: 100 });
+    },
+    staleTime: 10_000,
+    refetchOnReconnect: true,
+  });
+}
+
+export function orchestratorArtifactQueryOptions(input: {
+  rootThreadId: ThreadId;
+  artifactId: ArtifactId;
+  enabled?: boolean;
+}) {
+  return queryOptions({
+    queryKey: orchestratorQueryKeys.artifact(input.rootThreadId, input.artifactId),
+    queryFn: async () => {
+      const api = ensureNativeApi();
+      return api.orchestration.readOrchestratorArtifact({
+        rootThreadId: input.rootThreadId,
+        artifactId: input.artifactId,
+      });
+    },
+    enabled: input.enabled ?? true,
+    staleTime: Infinity,
+  });
+}
+
+export function orchestratorAuditQueryOptions(rootThreadId: ThreadId) {
+  return queryOptions({
+    queryKey: orchestratorQueryKeys.audit(rootThreadId),
+    queryFn: async () => {
+      const api = ensureNativeApi();
+      return api.orchestration.listOrchestratorAuditEvents({ rootThreadId, limit: 100 });
+    },
+    staleTime: 10_000,
+    refetchOnReconnect: true,
+  });
+}
+
+export function taskProcessesQueryOptions(input: {
+  projectId: ProjectId;
+  includeArchived?: boolean;
+  enabled?: boolean;
+}) {
+  return queryOptions({
+    queryKey: taskProcessQueryKeys.list(input.projectId, input.includeArchived ?? false),
+    queryFn: async () =>
+      ensureNativeApi().orchestration.listTaskProcesses({
+        projectId: input.projectId,
+        includeArchived: input.includeArchived ?? false,
+        limit: 100,
+      }),
+    enabled: input.enabled ?? true,
+    staleTime: 5_000,
+    refetchOnReconnect: true,
+  });
+}
+
+export function taskProcessSummaryQueryOptions(processId: TaskProcessId) {
+  return queryOptions({
+    queryKey: taskProcessQueryKeys.summary(processId),
+    queryFn: async () => ensureNativeApi().orchestration.getTaskProcessSummary({ processId }),
+    staleTime: 3_000,
+    refetchOnReconnect: true,
+  });
+}
+
+export function taskProcessGraphQueryOptions(processId: TaskProcessId) {
+  return queryOptions({
+    queryKey: taskProcessQueryKeys.graph(processId),
+    queryFn: async () => ensureNativeApi().orchestration.getTaskProcessGraph({ processId }),
+    staleTime: 3_000,
+    refetchOnReconnect: true,
+  });
+}
+
+export function sessionProgressQueryOptions(input: {
+  threadId: ThreadId;
+  processId?: TaskProcessId;
+  enabled?: boolean;
+  limit?: number;
+}) {
+  return queryOptions({
+    queryKey: taskProcessQueryKeys.progress(input.threadId, input.processId),
+    queryFn: async () =>
+      ensureNativeApi().orchestration.getSessionProgress({
+        threadId: input.threadId,
+        ...(input.processId ? { processId: input.processId } : {}),
+        limit: input.limit ?? 50,
+      }),
+    enabled: input.enabled ?? true,
+    staleTime: 3_000,
     refetchOnReconnect: true,
   });
 }

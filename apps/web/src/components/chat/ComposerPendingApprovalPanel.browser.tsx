@@ -107,4 +107,21 @@ describe("ComposerPendingApprovalPanel", () => {
       await mounted.cleanup();
     }
   });
+
+  it("scopes persistent MCP approval copy to the requested tool", async () => {
+    const mounted = await mountApprovalPanel({
+      approval: makeApproval({ requestKind: "mcp-tool" }),
+    });
+
+    try {
+      await expect
+        .element(page.getByRole("button", { name: /Always allow this tool/u }))
+        .toBeInTheDocument();
+      await expect
+        .element(page.getByText("Don't ask again for this tool this session"))
+        .toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
 });

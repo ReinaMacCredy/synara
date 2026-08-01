@@ -8,6 +8,8 @@ import {
   ProviderListPluginsInput,
   ProviderListSkillsInput,
   type ProviderListSkillsResult,
+  type OrchestratorProviderCapability,
+  type ProviderModelDescriptor,
   ProviderReadPluginInput,
   type ProviderSkillDescriptor,
 } from "@synara/contracts";
@@ -17,6 +19,7 @@ import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProviderValidationError } from "../Errors.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
+import { isProviderAdapterOrchestratorCapable } from "../Services/ProviderAdapter.ts";
 import {
   ProviderDiscoveryService,
   type ProviderDiscoveryServiceShape,
@@ -55,6 +58,32 @@ const disabledCapabilitiesForProvider = (
   supportsRuntimeModelList: false,
   supportsThreadCompaction: false,
   supportsThreadImport: false,
+});
+
+function parseContextWindowTokens(value: string): number | undefined {
+  const normalized = value.trim().toLowerCase().replaceAll("_", "");
+  const match = /^(\d+(?:\.\d+)?)([km]?)$/.exec(normalized);
+  if (!match) return undefined;
+  const amount = Number(match[1]);
+  const multiplier = match[2] === "m" ? 1_000_000 : match[2] === "k" ? 1_000 : 1;
+  const tokens = amount * multiplier;
+  return Number.isSafeInteger(tokens) && tokens > 0 ? tokens : undefined;
+}
+
+function maximumModelContextWindow(model: ProviderModelDescriptor): number | undefined {
+  const values = [
+    ...(model.contextWindowOptions ?? []).map((option) => option.value),
+    ...(model.defaultContextWindow ? [model.defaultContextWindow] : []),
+  ]
+    .map(parseContextWindowTokens)
+    .filter((value): value is number => value !== undefined);
+  return values.length > 0 ? Math.max(...values) : undefined;
+}
+
+const unknownTelemetry = (reason: string, at: string) => ({
+  kind: "unknown" as const,
+  reason,
+  at,
 });
 
 const make = Effect.gen(function* () {
@@ -222,6 +251,74 @@ const make = Effect.gen(function* () {
       return yield* adapter.listModels(parsed);
     });
 
+  const listOrchestratorCapabilities: ProviderDiscoveryServiceShape["listOrchestratorCapabilities"] =
+    (input) =>
+      Effect.gen(function* () {
+        const parsed = yield* decodeInputOrValidationError({
+          operation: "ProviderDiscoveryService.listOrchestratorCapabilities",
+          schema: ProviderListModelsInput,
+          payload: input,
+        });
+        const models = yield* listModels(parsed);
+        const adapter = yield* registry.getByProvider(parsed.provider);
+        const adapterOrchestrator = adapter.capabilities.orchestrator;
+        const observedAt = new Date().toISOString();
+        return models.models.map((model): OrchestratorProviderCapability => {
+          const contextWindow = maximumModelContextWindow(model);
+          const runtimeUnknown = unknownTelemetry(
+            "No active provider session telemetry is part of model discovery.",
+            observedAt,
+          );
+          return {
+            provider: parsed.provider,
+            model: model.slug,
+            orchestratorCapable: isProviderAdapterOrchestratorCapable(adapter.capabilities),
+            authoritativeRoleInstruction:
+              adapterOrchestrator?.authoritativeRoleInstruction === true,
+            authenticatedMcp: adapterOrchestrator?.authenticatedMcp === true,
+            independentSession: adapterOrchestrator?.independentSession === true,
+            contextWindow:
+              contextWindow === undefined
+                ? unknownTelemetry(
+                    "Provider model discovery did not expose a numeric context-window maximum.",
+                    observedAt,
+                  )
+                : {
+                    kind: "known",
+                    value: contextWindow,
+                    source: models.source ?? "provider-model-discovery",
+                    at: observedAt,
+                  },
+            inputTokens: runtimeUnknown,
+            outputTokens: runtimeUnknown,
+            cacheReadTokens: runtimeUnknown,
+            cacheWriteTokens: runtimeUnknown,
+            cacheTtlSeconds: unknownTelemetry(
+              "Provider model discovery did not expose a cache TTL.",
+              observedAt,
+            ),
+            estimatedCost: unknownTelemetry(
+              "No mechanically attributable session cost is available in model discovery.",
+              observedAt,
+            ),
+            observedAt,
+          };
+        });
+      });
+
+  const getOrchestratorCapability: ProviderDiscoveryServiceShape["getOrchestratorCapability"] = (
+    input,
+  ) =>
+    Effect.gen(function* () {
+      const capabilities = yield* listOrchestratorCapabilities(input);
+      const capability = capabilities.find((entry) => entry.model === input.model);
+      if (capability) return capability;
+      return yield* new ProviderValidationError({
+        operation: "ProviderDiscoveryService.getOrchestratorCapability",
+        issue: `Model '${input.model}' is not available from provider '${input.provider}'.`,
+      });
+    });
+
   const listAgents: ProviderDiscoveryServiceShape["listAgents"] = (input) =>
     Effect.gen(function* () {
       const parsed = yield* decodeInputOrValidationError({
@@ -247,6 +344,8 @@ const make = Effect.gen(function* () {
     listPlugins,
     readPlugin,
     listModels,
+    listOrchestratorCapabilities,
+    getOrchestratorCapability,
     listAgents,
   } satisfies ProviderDiscoveryServiceShape;
 });

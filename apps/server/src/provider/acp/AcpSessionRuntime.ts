@@ -180,6 +180,13 @@ export interface AcpSessionRuntimeOptions {
   readonly clientCapabilities?: Acp.InitializeRequest["clientCapabilities"];
   /** Provider-specific metadata sent on session/new, session/load, and session/resume. */
   readonly sessionMeta?: Record<string, unknown>;
+  /** Audit receipt for a role instruction already installed by an authoritative adapter channel. */
+  readonly orchestratorSession?: {
+    readonly protocolVersion: 1;
+    readonly rootThreadId: string;
+    readonly role: string;
+    readonly instructionChannel: "acp-process-system-prompt";
+  };
   readonly clientInfo: {
     readonly name: string;
     readonly version: string;
@@ -205,6 +212,24 @@ export interface AcpSessionRuntimeOptions {
   };
   /** Test seam for the single shared ACP subprocess teardown owner. */
   readonly teardownProcessTree?: typeof teardownProviderProcessTree;
+}
+
+export function mergeAcpSessionMeta(
+  sessionMeta: Record<string, unknown> | undefined,
+  orchestratorSession: AcpSessionRuntimeOptions["orchestratorSession"],
+): Record<string, unknown> | undefined {
+  if (!orchestratorSession) return sessionMeta;
+  const existingSynara =
+    sessionMeta?.synara !== null && typeof sessionMeta?.synara === "object"
+      ? (sessionMeta.synara as Record<string, unknown>)
+      : {};
+  return {
+    ...sessionMeta,
+    synara: {
+      ...existingSynara,
+      orchestrator: orchestratorSession,
+    },
+  };
 }
 
 export interface AcpSessionRequestLogEvent {
@@ -691,6 +716,7 @@ const makeAcpSessionRuntime = (
   Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const runtimeScope = yield* Scope.Scope;
+    const sessionMeta = mergeAcpSessionMeta(options.sessionMeta, options.orchestratorSession);
     const eventQueue = yield* Queue.bounded<AcpParsedSessionEvent>(2_048);
     const modeStateRef = yield* Ref.make<AcpSessionModeState | undefined>(undefined);
     const availableCommandsRef = yield* Ref.make<ReadonlyArray<Acp.AvailableCommand>>([]);
@@ -1091,7 +1117,7 @@ const makeAcpSessionRuntime = (
           sessionId: options.resumeSessionId,
           cwd: options.cwd,
           mcpServers,
-          ...(options.sessionMeta ? { _meta: options.sessionMeta } : {}),
+          ...(sessionMeta ? { _meta: sessionMeta } : {}),
         } satisfies Acp.ResumeSessionRequest;
         const supportsResume =
           initializeResult.agentCapabilities?.sessionCapabilities?.resume != null;
@@ -1118,7 +1144,7 @@ const makeAcpSessionRuntime = (
                 sessionId: options.resumeSessionId,
                 cwd: options.cwd,
                 mcpServers,
-                ...(options.sessionMeta ? { _meta: options.sessionMeta } : {}),
+                ...(sessionMeta ? { _meta: sessionMeta } : {}),
               } satisfies Acp.LoadSessionRequest;
               return withStartupTimeout(
                 "session/load",
@@ -1139,7 +1165,7 @@ const makeAcpSessionRuntime = (
         const createPayload = {
           cwd: options.cwd,
           mcpServers,
-          ...(options.sessionMeta ? { _meta: options.sessionMeta } : {}),
+          ...(sessionMeta ? { _meta: sessionMeta } : {}),
         } satisfies Acp.NewSessionRequest;
         const created = yield* withStartupTimeout(
           "session/new",

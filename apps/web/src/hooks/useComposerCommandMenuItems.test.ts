@@ -39,13 +39,9 @@ function thread(input: {
 }
 
 describe("buildThreadMentionComposerItems", () => {
-  const projects = [
-    project("project", "project", "Synara"),
-    project("chats", "chat", "Home"),
-    project("studio", "studio", "Studio workspace"),
-  ];
+  const projects = [project("project", "project", "Synara"), project("chats", "chat", "Home")];
 
-  it("searches titles across project, chat, and studio sections and excludes the current thread", () => {
+  it("searches project, chat, and Orchestrator child threads while excluding the current thread", () => {
     const items = buildThreadMentionComposerItems({
       projects,
       currentThreadId: "current",
@@ -55,9 +51,9 @@ describe("buildThreadMentionComposerItems", () => {
         thread({ id: "project-thread", projectId: "project", title: "Release Synara" }),
         thread({ id: "chat-thread", projectId: "chats", title: "Release notes" }),
         thread({
-          id: "studio-thread",
-          projectId: "studio",
-          title: "Release artwork",
+          id: "orchestrator-child",
+          projectId: "project",
+          title: "Release architecture review",
           provider: "claudeAgent",
         }),
         thread({ id: "unrelated", projectId: "project", title: "Bug triage" }),
@@ -66,17 +62,20 @@ describe("buildThreadMentionComposerItems", () => {
 
     expect(items.map((item) => item.id).toSorted()).toEqual([
       "thread:chat-thread",
+      "thread:orchestrator-child",
       "thread:project-thread",
-      "thread:studio-thread",
     ]);
     expect(Object.fromEntries(items.map((item) => [item.id, item.description]))).toEqual({
       "thread:chat-thread": "Chats",
+      "thread:orchestrator-child": "Synara",
       "thread:project-thread": "Synara",
-      "thread:studio-thread": "Studio",
     });
-    expect(items.find((item) => item.id === "thread:studio-thread")).toMatchObject({
+    expect(items.find((item) => item.id === "thread:orchestrator-child")).toMatchObject({
       provider: "claudeAgent",
-      mention: { name: "Release artwork", path: "thread://studio-thread" },
+      mention: {
+        name: "Release architecture review",
+        path: "thread://orchestrator-child",
+      },
     });
   });
 

@@ -201,7 +201,7 @@ export function findLastLiveWorkGroupId(rows: ReadonlyArray<MessagesTimelineRow>
 
 export interface TimelineDurationMessage {
   id: string;
-  role: "user" | "assistant" | "system";
+  role: "user" | "assistant" | "system" | "thread";
   createdAt: string;
   turnId?: string | null;
   completedAt?: string | undefined;
@@ -209,7 +209,7 @@ export interface TimelineDurationMessage {
 
 interface TimelineDiffMessage {
   id: MessageId;
-  role: "user" | "assistant" | "system";
+  role: "user" | "assistant" | "system" | "thread";
   turnId: TurnId | null;
 }
 

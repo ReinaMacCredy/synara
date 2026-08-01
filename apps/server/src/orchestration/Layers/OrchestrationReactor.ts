@@ -7,21 +7,24 @@ import {
 import { CheckpointReactor } from "../Services/CheckpointReactor.ts";
 import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
-import { StudioOutputReactor } from "../Services/StudioOutputReactor.ts";
+import { OrchestratorMailbox } from "../Services/OrchestratorMailbox.ts";
+import { OrchestratorMonitor } from "../Services/OrchestratorMonitor.ts";
 
 export const makeOrchestrationReactor = Effect.gen(function* () {
   const providerRuntimeIngestion = yield* ProviderRuntimeIngestionService;
   const providerCommandReactor = yield* ProviderCommandReactor;
   const checkpointReactor = yield* CheckpointReactor;
-  const studioOutputReactor = yield* StudioOutputReactor;
+  const orchestratorMailbox = yield* OrchestratorMailbox;
+  const orchestratorMonitor = yield* OrchestratorMonitor;
 
   const start: OrchestrationReactorShape["start"] = Effect.gen(function* () {
-    yield* studioOutputReactor.start;
     yield* checkpointReactor.start;
     yield* providerRuntimeIngestion.start;
+    yield* orchestratorMailbox.start;
+    yield* orchestratorMonitor.start;
     // Install every runtime observer before provider command dispatch can
-    // begin. Reverse-order finalization then drains provider commands first,
-    // runtime ingestion second, checkpoints third, and Studio output last.
+    // begin. Mailbox and monitor wakes persist target-thread turns before the
+    // provider command reactor can observe and execute them.
     yield* providerCommandReactor.start;
   });
 

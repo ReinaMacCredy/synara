@@ -84,7 +84,12 @@ export function makeAgentGatewayMcpTransport(input: {
           return jsonRpcResult(request.id, {});
         case "tools/list":
           return jsonRpcResult(request.id, {
-            tools: input.tools.map((tool) => tool.definition),
+            tools: (yield* Effect.forEach(input.tools, (tool) =>
+              (tool.isVisible?.(context) ?? Effect.succeed(true)).pipe(
+                Effect.orElseSucceed(() => false),
+                Effect.map((visible) => (visible ? tool.definition : null)),
+              ),
+            )).filter((definition) => definition !== null),
           });
         case "tools/call": {
           const toolName = request.params.name;
@@ -94,6 +99,20 @@ export function makeAgentGatewayMcpTransport(input: {
           const tool = toolsByName.get(toolName);
           if (!tool) {
             return jsonRpcError(request.id, JSON_RPC_INVALID_PARAMS, `Unknown tool "${toolName}".`);
+          }
+          const visible = yield* (tool.isVisible?.(context) ?? Effect.succeed(true)).pipe(
+            Effect.orElseSucceed(() => false),
+          );
+          if (!visible) {
+            return jsonRpcResult(
+              request.id,
+              gatewayToolErrorResult(
+                new GatewayToolError(
+                  "tool_unavailable",
+                  `Tool "${toolName}" is not available to this thread's durable Orchestrator role.`,
+                ),
+              ),
+            );
           }
           const rawArgs = request.params.arguments;
           const args = asRecord(rawArgs) ?? {};

@@ -67,12 +67,6 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
       "Show the standalone Chats list in the sidebar footer chats not tied to a project. sidebar section",
   },
   {
-    id: "general:studio-section",
-    section: "general",
-    title: "Studio",
-    keywords: "Show the Studio tab in the sidebar switcher. sidebar section content outbox",
-  },
-  {
     id: "general:environment-default-open",
     section: "general",
     title: "Open by default",

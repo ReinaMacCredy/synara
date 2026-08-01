@@ -102,7 +102,13 @@ export interface ReadableToolTitleInput {
   readonly title?: string | null;
   readonly fallbackLabel: string;
   readonly itemType?: ToolLifecycleItemType | undefined;
-  readonly requestKind?: "command" | "file-read" | "file-change" | "permissions" | undefined;
+  readonly requestKind?:
+    | "command"
+    | "file-read"
+    | "file-change"
+    | "permissions"
+    | "mcp-tool"
+    | undefined;
   readonly command?: string | null;
   readonly payload?: Record<string, unknown> | null;
   readonly isRunning?: boolean;
@@ -465,6 +471,7 @@ function humanizeRequestKind(
 ): string | null {
   if (requestKind === "file-read") return "Read";
   if (requestKind === "file-change" || itemType === "file_change") return "Edited";
+  if (requestKind === "mcp-tool") return "MCP tool";
   // Don't handle command types here — let humanizeCommandToolLabel produce more specific labels
   if (itemType === "web_search") return "Searched the web";
   if (itemType === "image_generation") return "Generated image";

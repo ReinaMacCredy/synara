@@ -47,7 +47,7 @@ export const THREAD_SELECTION_SAFE_SELECTOR = "[data-thread-item], [data-thread-
 export const SIDEBAR_THREAD_PREWARM_LIMIT = 10;
 export const DEBUG_FEATURE_FLAGS_MENU_STORAGE_KEY = "synara:show-debug-feature-flags-menu";
 export type SidebarNewThreadEnvMode = "local" | "worktree";
-export type SidebarView = "threads" | "studio";
+export type SidebarView = "threads" | "orchestrator";
 export type SidebarActionBadge = {
   readonly text: string;
   readonly accessibleLabel: string;
@@ -55,9 +55,9 @@ export type SidebarActionBadge = {
 
 export function isProjectsSidebarSurface(input: {
   readonly isOnSettings: boolean;
-  readonly isOnStudio: boolean;
+  readonly isOnOrchestrator: boolean;
 }): boolean {
-  return !input.isOnSettings && !input.isOnStudio;
+  return !input.isOnSettings && !input.isOnOrchestrator;
 }
 
 /** Keep partial review counts visible without presenting them as exact. */
@@ -484,7 +484,7 @@ export function resolveThreadStatusPill(input: {
   const { thread } = input;
   // A dead session can't receive approval/input answers anymore — drop the
   // actionable pills instead of advertising a request nobody can fulfill.
-  // Mirrored by the kanban board's deriveKanbanColumn.
+  // Keep this runtime status mapping independent from canonical Process lifecycle.
   const canAnswerPendingRequests = canSessionAnswerPendingRequests(thread.session);
   const hasPendingApprovals = input.hasPendingApprovals && canAnswerPendingRequests;
   const hasPendingUserInput = input.hasPendingUserInput && canAnswerPendingRequests;
@@ -1385,27 +1385,6 @@ export function groupSidebarThreadsByProjectId(
   return byProjectId;
 }
 
-export function partitionSidebarThreadsByProjectIds<
-  T extends Pick<SidebarThreadSummary, "projectId">,
->(
-  threads: readonly T[],
-  studioProjectIds: ReadonlySet<ProjectId>,
-): {
-  readonly studioThreads: T[];
-  readonly nonStudioThreads: T[];
-} {
-  const studioThreads: T[] = [];
-  const nonStudioThreads: T[] = [];
-  for (const thread of threads) {
-    if (studioProjectIds.has(thread.projectId)) {
-      studioThreads.push(thread);
-    } else {
-      nonStudioThreads.push(thread);
-    }
-  }
-  return { studioThreads, nonStudioThreads };
-}
-
 // Centralizes the expensive per-project row derivation so Sidebar.tsx can mostly orchestrate UI state.
 export function deriveSidebarProjectData(input: {
   projects: readonly Pick<Project, "id" | "cwd" | "expanded">[];
@@ -1524,5 +1503,5 @@ export function deriveSidebarProjectData(input: {
 }
 
 // PR-state presentation (label/color/glyph) moved to
-// ~/components/pullRequest/pullRequestStatePresentation so the sidebar badge, kanban chip,
+// ~/components/pullRequest/pullRequestStatePresentation so the sidebar badge
 // and the pull request feature surfaces all share one mapping.

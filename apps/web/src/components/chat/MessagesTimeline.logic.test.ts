@@ -890,6 +890,20 @@ describe("deriveMessagesTimelineRows", () => {
     },
   });
 
+  const threadEntry = (id: string, createdAt: string): TimelineEntry => ({
+    id: `entry-${id}`,
+    kind: "message",
+    createdAt,
+    message: {
+      id: MessageId.makeUnsafe(id),
+      role: "thread",
+      text: "A child reports a scoped change request.",
+      createdAt,
+      streaming: false,
+      source: "orchestrator",
+    },
+  });
+
   const workEntry = (
     id: string,
     createdAt: string,
@@ -925,6 +939,23 @@ describe("deriveMessagesTimelineRows", () => {
 
   const collapsedSignature = (row: MessageTimelineRow): string[] =>
     (row.collapsedTurnItems ?? []).map((item) => `${item.kind}:${String(item.id)}`);
+
+  it("keeps thread-origin messages as distinct non-user, non-assistant transcript rows", () => {
+    const rows = deriveMessagesTimelineRows({
+      ...baseInput,
+      timelineEntries: [
+        assistantEntry("a1", "2026-01-01T00:00:00Z", { turnId: "t1" }),
+        threadEntry("x1", "2026-01-01T00:00:01Z"),
+        workEntry("w1", "2026-01-01T00:00:02Z", "queued mailbox receipt"),
+      ],
+    });
+
+    const exchangeRow = messageRow(rows, "x1");
+    expect(exchangeRow?.message.role).toBe("thread");
+    expect(exchangeRow?.showAssistantCopyButton).toBe(false);
+    expect(exchangeRow?.assistantCopyStreaming).toBe(false);
+    expect(rows.find((row) => row.kind === "work")?.id).toBe("entry-w1");
+  });
 
   it("folds a settled turn's narration and work into one collapsed group on the terminal message", () => {
     const rows = deriveMessagesTimelineRows({

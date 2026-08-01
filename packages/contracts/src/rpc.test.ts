@@ -6,6 +6,8 @@ import {
   WsAutomationResolveProposalRpc,
   WsBootstrapRpcGroup,
   WsFeatureRpcGroup,
+  WsOrchestrationGetOrchestratorSnapshotRpc,
+  WsOrchestrationGetTaskProcessGraphRpc,
   WsProjectsDiscoverScriptsRpc,
   WsPullRequestsReviewRequestCountRpc,
   WsRpcError,
@@ -24,6 +26,16 @@ describe("WS RPC contracts", () => {
     expect(WsFeatureRpcGroup.requests.has(ORCHESTRATION_WS_METHODS.reconcileProviderDelivery)).toBe(
       true,
     );
+    expect(WsFeatureRpcGroup.requests.has(ORCHESTRATION_WS_METHODS.listOrchestratorRoots)).toBe(
+      true,
+    );
+    expect(WsFeatureRpcGroup.requests.has(ORCHESTRATION_WS_METHODS.getTaskProcessGraph)).toBe(true);
+    expect(WsFeatureRpcGroup.requests.has("studio.listThreadOutputs")).toBe(false);
+  });
+
+  it("exports Orchestrator and TaskProcess RPCs", () => {
+    expect(WsOrchestrationGetOrchestratorSnapshotRpc).toBeDefined();
+    expect(WsOrchestrationGetTaskProcessGraphRpc).toBeDefined();
   });
 
   it("uses a schema-backed transport error", () => {

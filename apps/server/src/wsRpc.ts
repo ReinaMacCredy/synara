@@ -1,9 +1,14 @@
 import { execFile } from "node:child_process";
 
 import {
+  ArtifactId,
   CommandId,
   DEFAULT_TERMINAL_ID,
+  OrchestratorMessageId,
+  OrchestratorDomainEvent,
   ORCHESTRATION_WS_METHODS,
+  TaskProcessDomainEvent,
+  TaskProcessId,
   ThreadId,
   WS_BOOTSTRAP_METHOD,
   WS_BOOTSTRAP_PATH,
@@ -18,6 +23,7 @@ import {
   type GitActionProgressEvent,
   type OrchestrationCommand,
   type OrchestrationEvent,
+  type OrchestratorCommand,
   type ProjectDevServerEvent,
   type OrchestrationShellStreamEvent,
   type OrchestrationShellStreamItem,
@@ -43,14 +49,8 @@ import {
 } from "./auth/Services/ServerAuth";
 import { SessionCredentialService } from "./auth/Services/SessionCredentialService";
 import { CheckpointDiffQuery } from "./checkpointing/Services/CheckpointDiffQuery";
-import { resolveThreadWorkspaceCwd } from "./checkpointing/Utils";
 import { ServerConfig, type ServerConfigShape } from "./config";
 import { realpathNearestExisting } from "./realpathNearestExisting";
-import { listStudioThreadOutputs } from "./studioOutputs";
-import {
-  ensureStudioWorkspaceInstructionsFiles,
-  STUDIO_WORKSPACE_SUBDIRECTORIES,
-} from "./studioWorkspaceScaffold";
 import { DevServerManager, findProjectDevServerForLocalServer } from "./devServerManager";
 import { GitCore } from "./git/Services/GitCore";
 import { GitManager } from "./git/Services/GitManager";
@@ -79,6 +79,8 @@ import { makeImportThreadHandler } from "./orchestration/importThreadRoute";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { ProviderCommandReactor } from "./orchestration/Services/ProviderCommandReactor";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
+import { TaskProcessQuery } from "./orchestration/Services/TaskProcessQuery";
+import { ORCHESTRATOR_RESOURCE_POLICY_V1 } from "./orchestration/orchestrator/resourcePolicy";
 import { shouldPublishThreadShellForEvent } from "./orchestration/threadShellEvents";
 import { ProviderDiscoveryService } from "./provider/Services/ProviderDiscoveryService";
 import { discoverSkillsCatalog, synaraSkillsDir } from "./provider/skillsCatalog";
@@ -129,6 +131,10 @@ import { bufferLiveUiStream, type LiveUiStreamDropReport } from "./wsStreamBackp
 import { makeCursorSafeSnapshotLiveStream } from "./wsSnapshotLiveStream";
 import { PullRequestService } from "./pullRequests/Services/PullRequestService";
 import { resolveGitHubRepository } from "./pullRequests/repositoryResolution";
+import { OrchestrationEventStore } from "./persistence/Services/OrchestrationEventStore";
+import { OrchestratorArtifactRepository } from "./persistence/Services/OrchestratorArtifacts";
+import { ProjectionOrchestratorRepository } from "./persistence/Services/ProjectionOrchestrator";
+import { ProjectionTaskProcessRepository } from "./persistence/Services/ProjectionTaskProcess";
 
 export function canManageExternalMcp(role: "owner" | "client"): boolean {
   return role === "owner";
@@ -165,7 +171,6 @@ const wsRequestAdmissionMiddlewareLayer = Layer.effect(
 );
 
 // Relative subdirectories scaffolded under a freshly created chat container workspace root.
-// The Studio layout lives in studioWorkspaceScaffold.ts alongside its instruction files.
 const CHAT_WORKSPACE_SUBDIRECTORIES = ["work", "outputs"] as const;
 
 interface ProcessTableRow {
@@ -250,6 +255,39 @@ function toWsRpcError(cause: unknown, fallbackMessage: string) {
       });
 }
 
+type OpaquePageCursor = Readonly<Record<string, string | number>>;
+
+function encodeOpaquePageCursor(cursor: OpaquePageCursor): string {
+  return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
+}
+
+function decodeOpaquePageCursor(
+  cursor: string | undefined,
+  requiredFields: ReadonlyArray<string>,
+): OpaquePageCursor | null {
+  if (cursor === undefined) return null;
+  try {
+    const value = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as unknown;
+    if (
+      value !== null &&
+      typeof value === "object" &&
+      requiredFields.every((field) => {
+        const item = (value as Record<string, unknown>)[field];
+        return typeof item === "string" || typeof item === "number";
+      })
+    ) {
+      return value as OpaquePageCursor;
+    }
+  } catch {
+    // Converted to a stable public RPC error below.
+  }
+  throw new WsRpcError({ message: "Invalid pagination cursor." });
+}
+
+function boundedRpcLimit(value: number | undefined, fallback = 50): number {
+  return Math.max(1, Math.min(100, Math.floor(value ?? fallback)));
+}
+
 const failLiveUiStreamForSnapshotResync = (report: LiveUiStreamDropReport) =>
   Effect.fail(
     new WsRpcError({
@@ -314,6 +352,11 @@ const makeWsRpcHandlersLayer = () =>
       const keybindings = yield* Keybindings;
       const open = yield* Open;
       const orchestrationEngine = yield* OrchestrationEngineService;
+      const orchestrationEventStore = yield* OrchestrationEventStore;
+      const orchestratorArtifacts = yield* OrchestratorArtifactRepository;
+      const orchestratorProjections = yield* ProjectionOrchestratorRepository;
+      const taskProcessProjections = yield* ProjectionTaskProcessRepository;
+      const taskProcessQuery = yield* TaskProcessQuery;
       const providerCommandReactor = yield* ProviderCommandReactor;
       const path = yield* Path.Path;
       const pullRequests = yield* PullRequestService;
@@ -481,10 +524,6 @@ const makeWsRpcHandlersLayer = () =>
           Effect.provideService(Path.Path, path),
         );
       });
-      // One mkdir loop shared by every container kind; the relative directory set is the
-      // only thing that varies (general chats scaffold work/outputs, Studio mirrors the
-      // Claude Outbox layout). Keeping a single implementation keeps error handling and
-      // idempotency identical across kinds.
       const prepareWorkspaceSubdirectories = Effect.fnUntraced(function* (
         workspaceRoot: string,
         relativeDirnames: readonly string[],
@@ -504,33 +543,14 @@ const makeWsRpcHandlersLayer = () =>
       });
       const prepareChatWorkspaceRoot = (workspaceRoot: string) =>
         prepareWorkspaceSubdirectories(workspaceRoot, CHAT_WORKSPACE_SUBDIRECTORIES);
-      // Instruction files are best-effort: they steer agents toward the Outbox layout but
-      // must never fail (or retry-loop) the container create that scaffolds the folders.
-      const prepareStudioWorkspaceRoot = (workspaceRoot: string) =>
-        prepareWorkspaceSubdirectories(workspaceRoot, STUDIO_WORKSPACE_SUBDIRECTORIES).pipe(
-          Effect.andThen(
-            ensureStudioWorkspaceInstructionsFiles(workspaceRoot).pipe(
-              Effect.catch((cause) =>
-                Effect.logWarning("failed to write studio workspace instructions", {
-                  workspaceRoot,
-                  cause,
-                }),
-              ),
-              Effect.provideService(FileSystem.FileSystem, fileSystem),
-              Effect.provideService(Path.Path, path),
-            ),
-          ),
-        );
 
       const normalizeDispatchCommand = makeDispatchCommandNormalizer<WsRpcError>({
         attachmentsDir: config.attachmentsDir,
         chatWorkspaceRoot: config.chatWorkspaceRoot,
-        studioWorkspaceRoot: config.studioWorkspaceRoot,
         fileSystem,
         path,
         canonicalizeProjectWorkspaceRoot,
         prepareChatWorkspaceRoot,
-        prepareStudioWorkspaceRoot,
       });
 
       const importThread = makeImportThreadHandler({
@@ -616,7 +636,6 @@ const makeWsRpcHandlersLayer = () =>
           cwd: config.cwd,
           homeDir: config.homeDir,
           chatWorkspaceRoot: config.chatWorkspaceRoot,
-          studioWorkspaceRoot: config.studioWorkspaceRoot,
           worktreesDir: config.worktreesDir,
           keybindingsConfigPath: config.keybindingsConfigPath,
           keybindings: keybindingsConfig.keybindings,
@@ -759,6 +778,56 @@ const makeWsRpcHandlersLayer = () =>
         }
       });
 
+      const requireOwnerSession = Effect.gen(function* () {
+        if ((yield* CurrentWsSessionRole) !== "owner") {
+          return yield* Effect.fail(
+            new WsRpcError({ message: "Owner authorization is required for this operation." }),
+          );
+        }
+      });
+
+      const readAcceptedAggregateEvent = (input: {
+        readonly aggregateKind: "orchestrator" | "task_process";
+        readonly aggregateId: ThreadId | TaskProcessId;
+        readonly sequence: number;
+      }) =>
+        orchestrationEventStore
+          .readAggregateEventPage({
+            aggregateKind: input.aggregateKind,
+            aggregateId: input.aggregateId,
+            beforeSequenceExclusive: input.sequence + 1,
+            limit: 1,
+          })
+          .pipe(
+            Effect.flatMap((events) => {
+              const event = events[0];
+              return event?.sequence === input.sequence
+                ? Effect.succeed(event)
+                : Effect.fail(
+                    new Error(
+                      `Accepted ${input.aggregateKind} event ${input.sequence} could not be read back.`,
+                    ),
+                  );
+            }),
+          );
+
+      const dispatchOrchestratorUserCommand = (command: OrchestratorCommand) =>
+        Effect.gen(function* () {
+          const result = yield* dispatchOrchestrationCommand(command);
+          const event = yield* readAcceptedAggregateEvent({
+            aggregateKind: "orchestrator",
+            aggregateId: command.rootThreadId,
+            sequence: result.sequence,
+          });
+          if (!Schema.is(OrchestratorDomainEvent)(event)) {
+            return yield* Effect.fail(new Error("Accepted event is not an Orchestrator event."));
+          }
+          return {
+            sequence: event.sequence,
+            revision: event.payload.acceptedRevision,
+          };
+        });
+
       return AdmittedWsFeatureRpcGroup.of({
         [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
           rpcEffect(
@@ -850,6 +919,361 @@ const makeWsRpcHandlersLayer = () =>
               return result;
             }),
             "Failed to reconcile provider delivery",
+          ),
+        [ORCHESTRATION_WS_METHODS.listOrchestratorRoots]: (input) =>
+          rpcEffect(
+            Effect.gen(function* () {
+              const limit = boundedRpcLimit(input.limit);
+              const cursor = decodeOpaquePageCursor(input.cursor, ["createdAt", "rootThreadId"]);
+              const page = yield* orchestratorProjections.listRootPage({
+                ...(input.projectId === undefined ? {} : { projectId: input.projectId }),
+                includeArchived: input.includeArchived === true,
+                ...(cursor === null
+                  ? {}
+                  : {
+                      beforeCreatedAt: String(cursor.createdAt),
+                      afterRootThreadIdAtTimestamp: ThreadId.makeUnsafe(
+                        String(cursor.rootThreadId),
+                      ),
+                    }),
+                limit: limit + 1,
+              });
+              const items = page.slice(0, limit).map(({ root }) => root);
+              const last = page.length > limit ? items.at(-1) : undefined;
+              return {
+                items,
+                nextCursor: last
+                  ? encodeOpaquePageCursor({
+                      createdAt: last.createdAt,
+                      rootThreadId: last.rootThreadId,
+                    })
+                  : null,
+                highWaterCursor: String(yield* orchestrationEventStore.getHighWaterSequence()),
+              };
+            }),
+            "Failed to list Orchestrator Roots",
+          ),
+        [ORCHESTRATION_WS_METHODS.getOrchestratorSnapshot]: (input) =>
+          rpcEffect(
+            Effect.gen(function* () {
+              const coreOption = yield* orchestratorProjections.getCore(input.rootThreadId);
+              if (Option.isNone(coreOption)) {
+                return yield* Effect.fail(
+                  new Error(`Orchestrator Root '${input.rootThreadId}' was not found.`),
+                );
+              }
+              const core = coreOption.value;
+              const discoveredCapabilities = yield* Effect.forEach(
+                yield* providerAdapterRegistry.listProviders(),
+                (provider) =>
+                  providerDiscoveryService.listOrchestratorCapabilities({ provider }).pipe(
+                    Effect.catch((cause) =>
+                      Effect.logWarning("Orchestrator provider discovery failed", {
+                        provider,
+                        cause: String(cause),
+                      }).pipe(Effect.as([])),
+                    ),
+                  ),
+                { concurrency: 4 },
+              ).pipe(Effect.map((groups) => groups.flat().slice(0, 256)));
+              const capabilityByKey = new Map(
+                core.providerCapabilities.map((capability) => [
+                  `${capability.provider}:${capability.model}`,
+                  capability,
+                ]),
+              );
+              for (const capability of discoveredCapabilities) {
+                capabilityByKey.set(`${capability.provider}:${capability.model}`, capability);
+                yield* orchestratorProjections.upsertProviderCapability(capability);
+              }
+
+              let projectionBehind =
+                Number(core.root.highWaterCursor) <
+                (yield* orchestrationEventStore.getAggregateHighWaterSequence({
+                  aggregateKind: "orchestrator",
+                  aggregateId: input.rootThreadId,
+                }));
+              const activeProcess =
+                core.root.root.activeProcessId === null
+                  ? null
+                  : yield* taskProcessQuery
+                      .getSummary({ processId: core.root.root.activeProcessId })
+                      .pipe(
+                        Effect.map((result) => {
+                          projectionBehind ||= result.projectionBehind;
+                          return result.summary;
+                        }),
+                        Effect.catch(() => {
+                          projectionBehind = true;
+                          return Effect.succeed(null);
+                        }),
+                      );
+              const observedAt = new Date().toISOString();
+              return {
+                snapshot: {
+                  root: core.root.root,
+                  ownershipEdges: core.ownershipEdges,
+                  communicationLinks: core.communicationLinks,
+                  assignments: core.assignments,
+                  runs: core.runs,
+                  activeProcess,
+                  providerCapabilities: Array.from(capabilityByKey.values()).slice(0, 256),
+                  capacity: core.capacity ?? {
+                    policyVersion: ORCHESTRATOR_RESOURCE_POLICY_V1.version,
+                    activeSessions: 0,
+                    sessionLimit: ORCHESTRATOR_RESOURCE_POLICY_V1.maxActiveSessions,
+                    activeTurns: 0,
+                    turnLimit: ORCHESTRATOR_RESOURCE_POLICY_V1.maxActiveTurns,
+                    activeWriters: 0,
+                    writerLimit: ORCHESTRATOR_RESOURCE_POLICY_V1.maxActiveWriters,
+                    mailboxDepth: 0,
+                    mailboxLimit:
+                      ORCHESTRATOR_RESOURCE_POLICY_V1.maxMailboxDepthPerThread *
+                      ORCHESTRATOR_RESOURCE_POLICY_V1.maxActiveSessions,
+                    activeMonitors: 0,
+                    monitorLimit: ORCHESTRATOR_RESOURCE_POLICY_V1.maxActiveMonitorsPerRoot,
+                    estimatedSpend: {
+                      kind: "unknown" as const,
+                      reason: "Provider spend telemetry has not been observed for this Root.",
+                      at: observedAt,
+                    },
+                    observedAt,
+                  },
+                  highWaterCursor: core.root.highWaterCursor,
+                },
+                projectionBehind,
+              };
+            }),
+            "Failed to load Orchestrator snapshot",
+          ),
+        [ORCHESTRATION_WS_METHODS.listOrchestratorExchanges]: (input) =>
+          rpcEffect(
+            Effect.gen(function* () {
+              const limit = boundedRpcLimit(input.limit);
+              const cursor = decodeOpaquePageCursor(input.cursor, ["createdAt", "messageId"]);
+              const page = yield* orchestratorProjections.listMessagePage({
+                rootThreadId: input.rootThreadId,
+                ...(cursor === null
+                  ? {}
+                  : {
+                      beforeCreatedAt: String(cursor.createdAt),
+                      afterMessageIdAtTimestamp: OrchestratorMessageId.makeUnsafe(
+                        String(cursor.messageId),
+                      ),
+                    }),
+                limit: limit + 1,
+              });
+              const items = page.slice(0, limit);
+              const last = page.length > limit ? items.at(-1) : undefined;
+              return {
+                items,
+                nextCursor: last
+                  ? encodeOpaquePageCursor({
+                      createdAt: last.createdAt,
+                      messageId: last.messageId,
+                    })
+                  : null,
+              };
+            }),
+            "Failed to list Orchestrator exchanges",
+          ),
+        [ORCHESTRATION_WS_METHODS.listOrchestratorArtifacts]: (input) =>
+          rpcEffect(
+            Effect.gen(function* () {
+              const limit = boundedRpcLimit(input.limit);
+              const cursor = decodeOpaquePageCursor(input.cursor, ["createdAt", "artifactId"]);
+              const page = yield* orchestratorArtifacts.list({
+                rootThreadId: input.rootThreadId,
+                limit: limit + 1,
+                ...(cursor === null
+                  ? {}
+                  : {
+                      beforeCreatedAt: String(cursor.createdAt),
+                      beforeArtifactId: ArtifactId.makeUnsafe(String(cursor.artifactId)),
+                    }),
+              });
+              const items = page.slice(0, limit);
+              const last = page.length > limit ? items.at(-1) : undefined;
+              return {
+                items,
+                nextCursor: last
+                  ? encodeOpaquePageCursor({ createdAt: last.createdAt, artifactId: last.id })
+                  : null,
+              };
+            }),
+            "Failed to list Orchestrator artifacts",
+          ),
+        [ORCHESTRATION_WS_METHODS.readOrchestratorArtifact]: (input) =>
+          rpcEffect(
+            orchestratorArtifacts.read(input).pipe(
+              Effect.flatMap(
+                Option.match({
+                  onNone: () =>
+                    Effect.fail(
+                      new Error(
+                        `Artifact '${input.artifactId}' was not found in Root '${input.rootThreadId}'.`,
+                      ),
+                    ),
+                  onSome: Effect.succeed,
+                }),
+              ),
+            ),
+            "Failed to read Orchestrator artifact",
+          ),
+        [ORCHESTRATION_WS_METHODS.listOrchestratorAuditEvents]: (input) =>
+          rpcEffect(
+            Effect.gen(function* () {
+              const limit = boundedRpcLimit(input.limit);
+              const cursor = decodeOpaquePageCursor(input.cursor, ["sequence"]);
+              const page = yield* orchestrationEventStore.readAggregateEventPage({
+                aggregateKind: "orchestrator",
+                aggregateId: input.rootThreadId,
+                ...(cursor === null ? {} : { beforeSequenceExclusive: Number(cursor.sequence) }),
+                limit: limit + 1,
+              });
+              const items = page.filter(Schema.is(OrchestratorDomainEvent)).slice(0, limit);
+              const last = page.length > limit ? items.at(-1) : undefined;
+              return {
+                items,
+                nextCursor: last ? encodeOpaquePageCursor({ sequence: last.sequence }) : null,
+              };
+            }),
+            "Failed to list Orchestrator audit events",
+          ),
+        [ORCHESTRATION_WS_METHODS.createOrchestratorRoot]: (input) =>
+          rpcEffect(
+            requireOwnerSession.pipe(
+              Effect.andThen(
+                dispatchOrchestratorUserCommand({
+                  ...input.command,
+                  actor: { kind: "user" as const, actorId: "owner" },
+                }),
+              ),
+            ),
+            "Failed to create Orchestrator Root",
+          ),
+        [ORCHESTRATION_WS_METHODS.archiveOrchestratorRoot]: (input) =>
+          rpcEffect(
+            requireOwnerSession.pipe(
+              Effect.andThen(
+                dispatchOrchestratorUserCommand({
+                  ...input.command,
+                  actor: { kind: "user" as const, actorId: "owner" },
+                }),
+              ),
+            ),
+            "Failed to archive Orchestrator Root",
+          ),
+        [ORCHESTRATION_WS_METHODS.detachOrchestratorChild]: (input) =>
+          rpcEffect(
+            requireOwnerSession.pipe(
+              Effect.andThen(
+                Effect.gen(function* () {
+                  const root = yield* orchestratorProjections.getRoot(input.rootThreadId);
+                  if (Option.isNone(root)) {
+                    return yield* Effect.fail(new Error("Orchestrator Root was not found."));
+                  }
+                  return yield* dispatchOrchestratorUserCommand({
+                    type: "orchestrator.child.retire",
+                    commandId: CommandId.makeUnsafe(`user:detach-child:${crypto.randomUUID()}`),
+                    rootThreadId: input.rootThreadId,
+                    projectId: root.value.root.projectId,
+                    actor: { kind: "user", actorId: "owner" },
+                    protocolVersion: root.value.root.protocolVersion,
+                    expectedRevision: input.expectedRevision,
+                    childThreadId: input.childThreadId,
+                    reason: input.reason,
+                    createdAt: new Date().toISOString(),
+                  });
+                }),
+              ),
+            ),
+            "Failed to detach Orchestrator child",
+          ),
+        [ORCHESTRATION_WS_METHODS.upgradeOrchestratorRoot]: (input) =>
+          rpcEffect(
+            requireOwnerSession.pipe(
+              Effect.andThen(
+                Effect.fail(
+                  new Error(
+                    input.targetProtocolVersion === 1
+                      ? "The Root already uses the only installed Orchestrator protocol version."
+                      : `Orchestrator protocol ${input.targetProtocolVersion} is not installed; Root upgrade was not performed.`,
+                  ),
+                ),
+              ),
+            ),
+            "Failed to upgrade Orchestrator Root",
+          ),
+        [ORCHESTRATION_WS_METHODS.listTaskProcesses]: (input) =>
+          rpcEffect(taskProcessQuery.listProcesses(input), "Failed to list TaskProcesses"),
+        [ORCHESTRATION_WS_METHODS.getTaskProcessSummary]: (input) =>
+          rpcEffect(taskProcessQuery.getSummary(input), "Failed to load TaskProcess summary"),
+        [ORCHESTRATION_WS_METHODS.getTaskProcessGraph]: (input) =>
+          rpcEffect(taskProcessQuery.getGraph(input), "Failed to load TaskProcess graph"),
+        [ORCHESTRATION_WS_METHODS.getSessionProgress]: (input) =>
+          rpcEffect(taskProcessQuery.getSessionProgress(input), "Failed to load session progress"),
+        [ORCHESTRATION_WS_METHODS.dispatchTaskProcessCommand]: (input) =>
+          rpcEffect(
+            requireOwnerSession.pipe(
+              Effect.andThen(
+                Effect.gen(function* () {
+                  const command = input.command;
+                  const process = yield* taskProcessProjections.getProcess(command.processId);
+                  if (command.type === "task-process.create") {
+                    if (command.owner.kind !== "user") {
+                      return yield* Effect.fail(
+                        new Error(
+                          "Human NativeApi callers may create only user-owned TaskProcesses.",
+                        ),
+                      );
+                    }
+                  } else if (Option.isNone(process)) {
+                    return yield* Effect.fail(
+                      new Error(`TaskProcess '${command.processId}' was not found.`),
+                    );
+                  } else {
+                    if (process.value.process.projectId !== command.projectId) {
+                      return yield* Effect.fail(new Error("TaskProcess project scope mismatch."));
+                    }
+                    if (process.value.process.owner.kind === "orchestrator") {
+                      const allowed =
+                        command.type === "task-process.pause" ||
+                        command.type === "task-process.resume" ||
+                        command.type === "project-task.reopen" ||
+                        (command.type === "project-task.transition" &&
+                          command.lifecycle === "cancelled");
+                      if (!allowed) {
+                        return yield* Effect.fail(
+                          new Error(
+                            "This TaskProcess is Root-owned; the requested semantic mutation requires the Root lease.",
+                          ),
+                        );
+                      }
+                    }
+                  }
+                  const result = yield* dispatchOrchestrationCommand({
+                    ...command,
+                    actor: { kind: "user" as const, actorId: "owner" },
+                    ...(command.type === "task-process.create"
+                      ? { owner: { kind: "user" as const } }
+                      : {}),
+                  });
+                  const event = yield* readAcceptedAggregateEvent({
+                    aggregateKind: "task_process",
+                    aggregateId: command.processId,
+                    sequence: result.sequence,
+                  });
+                  if (!Schema.is(TaskProcessDomainEvent)(event)) {
+                    return yield* Effect.fail(
+                      new Error("Accepted event is not a TaskProcess event."),
+                    );
+                  }
+                  return { sequence: event.sequence, mutation: event.payload.mutation };
+                }),
+              ),
+            ),
+            "Failed to dispatch TaskProcess command",
           ),
         [ORCHESTRATION_WS_METHODS.subscribeShell]: (_, { clientId }) =>
           streamAdmission.guard(
@@ -992,14 +1416,39 @@ const makeWsRpcHandlersLayer = () =>
             ),
           ),
         [ORCHESTRATION_WS_METHODS.unsubscribeThread]: () => Effect.void,
-        [WS_METHODS.subscribeOrchestrationDomainEvents]: (_, { clientId }) =>
-          streamAdmission.guard(
+        [WS_METHODS.subscribeOrchestrationDomainEvents]: (input, { clientId }) => {
+          const afterSequence = input.afterSequence;
+          return streamAdmission.guard(
             clientId,
             { key: "orchestration.domain-events" },
-            bufferLiveUiStream(orchestrationEngine.streamDomainEvents, {
-              label: "orchestration.domain-events",
-            }),
-          ),
+            bufferLiveUiStream(
+              afterSequence === undefined
+                ? orchestrationEngine.streamDomainEvents
+                : Stream.unwrap(
+                    Effect.gen(function* () {
+                      const live = yield* orchestrationEngine.subscribeDomainEvents;
+                      const highWater = yield* getOrchestrationHighWaterSequence;
+                      const fromSequence = clamp(afterSequence, {
+                        maximum: Number.MAX_SAFE_INTEGER,
+                        minimum: 0,
+                      });
+                      return Stream.concat(
+                        orchestrationEngine.readEventsThrough(fromSequence, highWater),
+                        live.pipe(Stream.filter((event) => event.sequence > highWater)),
+                      ).pipe(
+                        Stream.mapError((cause) =>
+                          toWsRpcError(cause, "Failed to resume orchestration domain events"),
+                        ),
+                      );
+                    }),
+                  ),
+              {
+                label: "orchestration.domain-events",
+                onDroppedEvents: failLiveUiStreamForSnapshotResync,
+              },
+            ),
+          );
+        },
 
         [WS_METHODS.projectsListDirectories]: (input) =>
           rpcEffect(
@@ -1047,54 +1496,6 @@ const makeWsRpcHandlersLayer = () =>
                 onDroppedEvents: failLiveUiStreamForSnapshotResync,
               }),
             ),
-          ),
-        [WS_METHODS.studioListThreadOutputs]: (input) =>
-          rpcEffect(
-            Effect.gen(function* () {
-              // Self-heal the Studio folder tree: an accepted create whose deferred scaffold
-              // failed (crash, transient FS error) must not leave Studio without its Outbox
-              // forever. mkdir -p is idempotent and cheap, and this endpoint only fires while
-              // a Studio chat's environment panel is actually open. Failures degrade to the
-              // empty-list behavior.
-              yield* prepareStudioWorkspaceRoot(config.studioWorkspaceRoot).pipe(
-                Effect.catch(() => Effect.void),
-              );
-              // Checkpoints cover Git workspaces; file-change activities preserve the same
-              // attribution in the default non-Git Studio root. Unknown/non-Studio ids stay empty.
-              const context = yield* projectionReadModelQuery.getThreadCheckpointContext(
-                input.threadId,
-                { includeFileChangeActivityPayloads: true },
-              );
-              if (Option.isNone(context) || context.value.projectKind !== "studio") {
-                return { entries: [] };
-              }
-              const workspaceCwd = resolveThreadWorkspaceCwd({
-                thread: {
-                  projectId: context.value.projectId,
-                  envMode: context.value.envMode,
-                  worktreePath: context.value.worktreePath,
-                  workingDirectory: context.value.workingDirectory,
-                },
-                projects: [
-                  {
-                    id: context.value.projectId,
-                    kind: context.value.projectKind,
-                    workspaceRoot: context.value.workspaceRoot,
-                  },
-                ],
-              });
-              if (!workspaceCwd) {
-                return { entries: [] };
-              }
-              return yield* listStudioThreadOutputs({
-                workspaceRoot: workspaceCwd,
-                checkpoints: context.value.checkpoints,
-                ...(context.value.fileChangeActivityPayloads
-                  ? { fileChangeActivityPayloads: context.value.fileChangeActivityPayloads }
-                  : {}),
-              });
-            }),
-            "Failed to list studio thread outputs",
           ),
         [WS_METHODS.filesystemBrowse]: (input) =>
           rpcEffect(workspaceEntries.browse(input), "Failed to browse filesystem"),

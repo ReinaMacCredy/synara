@@ -1,4 +1,10 @@
-import { ApprovalRequestId, CommandId, type OrchestrationEvent } from "@synara/contracts";
+import {
+  ApprovalRequestId,
+  CommandId,
+  OrchestratorDomainEvent,
+  TaskProcessDomainEvent,
+  type OrchestrationEvent,
+} from "@synara/contracts";
 import {
   addPinnedMessage,
   removePinnedMessage,
@@ -12,10 +18,14 @@ import {
   setThreadMarkerLabel,
 } from "@synara/shared/threadMarkers";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { Effect, FileSystem, Layer, Option, Path, Stream } from "effect";
+import { Effect, FileSystem, Layer, Option, Path, Schema, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { toPersistenceSqlError, type ProjectionRepositoryError } from "../../persistence/Errors.ts";
+import {
+  PersistenceSqlError,
+  toPersistenceSqlError,
+  type ProjectionRepositoryError,
+} from "../../persistence/Errors.ts";
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
 import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedAttachments.ts";
 import {
@@ -23,6 +33,9 @@ import {
   ProjectionPendingInteractionRepository,
 } from "../../persistence/Services/ProjectionPendingInteractions.ts";
 import { ProjectionProjectRepository } from "../../persistence/Services/ProjectionProjects.ts";
+import { ProjectionOrchestratorRepository } from "../../persistence/Services/ProjectionOrchestrator.ts";
+import { OrchestratorArtifactRepository } from "../../persistence/Services/OrchestratorArtifacts.ts";
+import { ProjectionTaskProcessRepository } from "../../persistence/Services/ProjectionTaskProcess.ts";
 import { ProjectionSpaceRepository } from "../../persistence/Services/ProjectionSpaces.ts";
 import { ProjectionStateRepository } from "../../persistence/Services/ProjectionState.ts";
 import { ProjectionThreadActivityRepository } from "../../persistence/Services/ProjectionThreadActivities.ts";
@@ -46,6 +59,9 @@ import {
 } from "../../persistence/Services/ProjectionThreads.ts";
 import { ProjectionPendingInteractionRepositoryLive } from "../../persistence/Layers/ProjectionPendingInteractions.ts";
 import { ProjectionProjectRepositoryLive } from "../../persistence/Layers/ProjectionProjects.ts";
+import { ProjectionOrchestratorRepositoryLive } from "../../persistence/Layers/ProjectionOrchestrator.ts";
+import { OrchestratorArtifactRepositoryLive } from "../../persistence/Layers/OrchestratorArtifacts.ts";
+import { ProjectionTaskProcessRepositoryLive } from "../../persistence/Layers/ProjectionTaskProcess.ts";
 import { ProjectionSpaceRepositoryLive } from "../../persistence/Layers/ProjectionSpaces.ts";
 import { ProjectionStateRepositoryLive } from "../../persistence/Layers/ProjectionState.ts";
 import { ProjectionThreadActivityRepositoryLive } from "../../persistence/Layers/ProjectionThreadActivities.ts";
@@ -80,6 +96,11 @@ import {
   shouldApplyDeferredThreadShellSummary,
   shouldApplyThreadsProjection,
 } from "../threadShellEvents.ts";
+import {
+  createEmptyTaskProcessState,
+  projectTaskProcessEvent,
+  type TaskProcessAggregateState,
+} from "../taskProcess/projector.ts";
 
 export const ORCHESTRATION_PROJECTOR_NAMES = {
   hot: "projection.hot",
@@ -95,6 +116,8 @@ export const ORCHESTRATION_PROJECTOR_NAMES = {
   // Preserve the established cursor identity. Migration 062 resets it so the
   // widened projector replays approval and user-input history exactly once.
   pendingInteractions: "projection.pending-approvals",
+  orchestrator: "projection.orchestrator",
+  taskProcess: "projection.task-process",
 } as const;
 
 type ProjectorName =
@@ -461,6 +484,9 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
   const managedAttachments = yield* ManagedAttachmentRepository;
   const projectionStateRepository = yield* ProjectionStateRepository;
   const projectionProjectRepository = yield* ProjectionProjectRepository;
+  const projectionOrchestratorRepository = yield* ProjectionOrchestratorRepository;
+  const orchestratorArtifactRepository = yield* OrchestratorArtifactRepository;
+  const projectionTaskProcessRepository = yield* ProjectionTaskProcessRepository;
   const projectionSpaceRepository = yield* ProjectionSpaceRepository;
   const projectionThreadRepository = yield* ProjectionThreadRepository;
   const projectionThreadMessageRepository = yield* ProjectionThreadMessageRepository;
@@ -473,6 +499,149 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const serverConfig = yield* ServerConfig;
+
+  const loadTaskProcessProjectionState = (event: typeof TaskProcessDomainEvent.Type) =>
+    projectionTaskProcessRepository.getGraph(event.payload.processId).pipe(
+      Effect.flatMap((graph) =>
+        Option.match(graph, {
+          onNone: () => Effect.succeed(createEmptyTaskProcessState()),
+          onSome: (value) =>
+            projectionTaskProcessRepository.listProgress(event.payload.processId).pipe(
+              Effect.map(
+                (progress): TaskProcessAggregateState => ({
+                  process: value.process,
+                  tasks: value.tasks,
+                  dependencies: value.dependencies,
+                  bindings: value.bindings.map((binding) => binding.binding),
+                  progress,
+                  blockers: value.blockers,
+                  revision: value.graphRevision,
+                  highWaterSequence: Number(value.highWaterCursor),
+                }),
+              ),
+            ),
+        }),
+      ),
+    );
+
+  const applyTaskProcessProjection: ProjectorDefinition["apply"] = (event) => {
+    if (!Schema.is(TaskProcessDomainEvent)(event)) return Effect.void;
+    return Effect.gen(function* () {
+      const current = yield* loadTaskProcessProjectionState(event);
+      const next = projectTaskProcessEvent(current, event);
+      if (next.process === null) {
+        return yield* new PersistenceSqlError({
+          operation: "ProjectionPipeline.applyTaskProcessProjection:process",
+          detail: `TaskProcess event ${event.type} is missing its process snapshot.`,
+        });
+      }
+      yield* projectionTaskProcessRepository.upsertProcess({
+        process: next.process,
+        graphRevision: next.revision,
+        highWaterCursor: String(event.sequence),
+      });
+      if (event.payload.dependency !== undefined) {
+        yield* projectionTaskProcessRepository.upsertDependency({
+          processId: event.payload.processId,
+          dependency: event.payload.dependency,
+        });
+      }
+      if (event.payload.binding !== undefined) {
+        yield* projectionTaskProcessRepository.upsertBinding({
+          processId: event.payload.processId,
+          binding: event.payload.binding,
+        });
+      }
+      if (event.payload.progress !== undefined) {
+        yield* projectionTaskProcessRepository.appendProgress({
+          processId: event.payload.processId,
+          progress: event.payload.progress,
+        });
+      }
+      if (event.payload.blocker !== undefined) {
+        yield* projectionTaskProcessRepository.upsertBlocker({
+          processId: event.payload.processId,
+          blocker: event.payload.blocker,
+        });
+      }
+      yield* Effect.forEach(next.tasks, (task) =>
+        projectionTaskProcessRepository.upsertTask({
+          processId: event.payload.processId,
+          task,
+        }),
+      );
+    });
+  };
+
+  const applyOrchestratorProjection: ProjectorDefinition["apply"] = (event) => {
+    if (!Schema.is(OrchestratorDomainEvent)(event)) return Effect.void;
+
+    return Effect.gen(function* () {
+      const root = event.payload.root;
+      if (root === undefined) {
+        return yield* new PersistenceSqlError({
+          operation: "ProjectionPipeline.applyOrchestratorProjection:root",
+          detail: `Orchestrator event ${event.type} is missing its Root snapshot.`,
+        });
+      }
+      yield* projectionOrchestratorRepository.upsertRoot({
+        root,
+        highWaterCursor: String(event.sequence),
+      });
+
+      const ownershipEdge = event.payload.ownershipEdge;
+      if (ownershipEdge !== undefined) {
+        if (event.type === "orchestrator.child.reparented") {
+          yield* projectionOrchestratorRepository.retireActiveOwnershipForChild({
+            rootThreadId: root.rootThreadId,
+            childThreadId: ownershipEdge.childThreadId,
+            retiredAt: event.occurredAt,
+          });
+        }
+        yield* projectionOrchestratorRepository.upsertOwnershipEdge(ownershipEdge);
+      }
+
+      if (event.payload.link !== undefined) {
+        yield* projectionOrchestratorRepository.upsertCommunicationLink(event.payload.link);
+      }
+      if (event.payload.assignment !== undefined) {
+        if (root.activeProcessId === null) {
+          return yield* new PersistenceSqlError({
+            operation: "ProjectionPipeline.applyOrchestratorProjection:assignment",
+            detail: `Orchestrator assignment event ${event.type} has no active TaskProcess.`,
+          });
+        }
+        yield* projectionOrchestratorRepository.upsertAssignmentVersion({
+          rootThreadId: root.rootThreadId,
+          processId: root.activeProcessId,
+          contract: event.payload.assignment,
+        });
+      }
+      if (event.payload.message !== undefined) {
+        yield* projectionOrchestratorRepository.upsertMessage(event.payload.message);
+      }
+      if (event.payload.artifact !== undefined) {
+        if (event.type === "orchestrator.artifact.published") {
+          yield* orchestratorArtifactRepository.publish(event.payload.artifact);
+        } else if (event.type === "orchestrator.artifact.released") {
+          yield* orchestratorArtifactRepository.release({
+            rootThreadId: root.rootThreadId,
+            artifactId: event.payload.artifact.id,
+            visibility: event.payload.artifact.visibility,
+          });
+        }
+      }
+      if (event.payload.run !== undefined) {
+        yield* projectionOrchestratorRepository.upsertRun(event.payload.run);
+      }
+      if (event.payload.monitor !== undefined) {
+        yield* projectionOrchestratorRepository.upsertMonitor(event.payload.monitor);
+      }
+      if (event.payload.writerClaim !== undefined) {
+        yield* projectionOrchestratorRepository.upsertWriterClaim(event.payload.writerClaim);
+      }
+    });
+  };
 
   const applyProjectsProjection: ProjectorDefinition["apply"] = (event, _attachmentSideEffects) => {
     switch (event.type) {
@@ -517,10 +686,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
     Effect.gen(function* () {
       switch (event.type) {
         case "thread.created": {
-          const project = yield* projectionProjectRepository.getById({
-            projectId: event.payload.projectId,
-          });
-          const isStudio = Option.isSome(project) && project.value.kind === "studio";
           yield* projectionThreadRepository.upsert({
             threadId: event.payload.threadId,
             projectId: event.payload.projectId,
@@ -528,22 +693,14 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             modelSelection: event.payload.modelSelection,
             runtimeMode: event.payload.runtimeMode,
             interactionMode: event.payload.interactionMode,
-            envMode: isStudio ? "local" : (event.payload.envMode ?? "local"),
-            branch: isStudio ? null : event.payload.branch,
-            worktreePath: isStudio ? null : event.payload.worktreePath,
-            workingDirectory: isStudio
-              ? (event.payload.workingDirectory ?? event.payload.worktreePath)
-              : (event.payload.workingDirectory ?? null),
-            associatedWorktreePath: isStudio
-              ? null
-              : (event.payload.associatedWorktreePath ?? null),
-            associatedWorktreeBranch: isStudio
-              ? null
-              : (event.payload.associatedWorktreeBranch ?? null),
-            associatedWorktreeRef: isStudio ? null : (event.payload.associatedWorktreeRef ?? null),
-            createBranchFlowCompleted: isStudio
-              ? false
-              : (event.payload.createBranchFlowCompleted ?? false),
+            envMode: event.payload.envMode ?? "local",
+            branch: event.payload.branch,
+            worktreePath: event.payload.worktreePath,
+            workingDirectory: event.payload.workingDirectory ?? null,
+            associatedWorktreePath: event.payload.associatedWorktreePath ?? null,
+            associatedWorktreeBranch: event.payload.associatedWorktreeBranch ?? null,
+            associatedWorktreeRef: event.payload.associatedWorktreeRef ?? null,
+            createBranchFlowCompleted: event.payload.createBranchFlowCompleted ?? false,
             isPinned: event.payload.isPinned ?? false,
             parentThreadId: event.payload.parentThreadId ?? null,
             creationSource: event.payload.creationSource ?? null,
@@ -575,15 +732,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
         }
 
         case "thread.meta-updated": {
-          const currentThread = yield* projectionThreadRepository.getById({
-            threadId: event.payload.threadId,
-          });
-          const project = Option.isSome(currentThread)
-            ? yield* projectionProjectRepository.getById({
-                projectId: currentThread.value.projectId,
-              })
-            : Option.none();
-          const isStudio = Option.isSome(project) && project.value.kind === "studio";
           return yield* updateThreadProjection(event.payload.threadId, (thread) => {
             const nextCreateBranchFlowCompleted =
               event.payload.createBranchFlowCompleted !== undefined
@@ -597,30 +745,14 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               ...(event.payload.modelSelection !== undefined
                 ? { modelSelection: event.payload.modelSelection }
                 : {}),
-              ...(isStudio
-                ? {
-                    envMode: "local" as const,
-                    branch: null,
-                    worktreePath: null,
-                    workingDirectory:
-                      event.payload.workingDirectory !== undefined
-                        ? event.payload.workingDirectory
-                        : event.payload.worktreePath !== undefined
-                          ? event.payload.worktreePath
-                          : (thread.workingDirectory ?? thread.worktreePath),
-                  }
-                : {
-                    ...(event.payload.envMode !== undefined
-                      ? { envMode: event.payload.envMode }
-                      : {}),
-                    ...(event.payload.branch !== undefined ? { branch: event.payload.branch } : {}),
-                    ...(event.payload.worktreePath !== undefined
-                      ? { worktreePath: event.payload.worktreePath }
-                      : {}),
-                    ...(event.payload.workingDirectory !== undefined
-                      ? { workingDirectory: event.payload.workingDirectory }
-                      : {}),
-                  }),
+              ...(event.payload.envMode !== undefined ? { envMode: event.payload.envMode } : {}),
+              ...(event.payload.branch !== undefined ? { branch: event.payload.branch } : {}),
+              ...(event.payload.worktreePath !== undefined
+                ? { worktreePath: event.payload.worktreePath }
+                : {}),
+              ...(event.payload.workingDirectory !== undefined
+                ? { workingDirectory: event.payload.workingDirectory }
+                : {}),
               ...(event.payload.associatedWorktreePath !== undefined
                 ? { associatedWorktreePath: event.payload.associatedWorktreePath }
                 : {}),
@@ -632,14 +764,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
                 : {}),
               ...(nextCreateBranchFlowCompleted !== undefined
                 ? { createBranchFlowCompleted: nextCreateBranchFlowCompleted }
-                : {}),
-              ...(isStudio
-                ? {
-                    associatedWorktreePath: null,
-                    associatedWorktreeBranch: null,
-                    associatedWorktreeRef: null,
-                    createBranchFlowCompleted: false,
-                  }
                 : {}),
               ...(event.payload.isPinned !== undefined ? { isPinned: event.payload.isPinned } : {}),
               ...(event.payload.parentThreadId !== undefined
@@ -1787,6 +1911,12 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
       apply: applyProjectsProjection,
     },
     {
+      name: ORCHESTRATION_PROJECTOR_NAMES.taskProcess,
+      phase: "hot",
+      shouldApply: Schema.is(TaskProcessDomainEvent),
+      apply: applyTaskProcessProjection,
+    },
+    {
       name: ORCHESTRATION_PROJECTOR_NAMES.threadMessages,
       phase: "hot",
       shouldApply: (event) => THREAD_MESSAGE_PROJECTION_EVENT_TYPES.has(event.type),
@@ -1809,6 +1939,12 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
       phase: "hot",
       shouldApply: shouldApplyThreadsProjection,
       apply: applyThreadsProjection,
+    },
+    {
+      name: ORCHESTRATION_PROJECTOR_NAMES.orchestrator,
+      phase: "hot",
+      shouldApply: Schema.is(OrchestratorDomainEvent),
+      apply: applyOrchestratorProjection,
     },
     {
       name: ORCHESTRATION_PROJECTOR_NAMES.threadSessions,
@@ -2227,6 +2363,9 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
 ).pipe(
   Layer.provideMerge(NodeServices.layer),
   Layer.provideMerge(ProjectionProjectRepositoryLive),
+  Layer.provideMerge(ProjectionOrchestratorRepositoryLive),
+  Layer.provideMerge(OrchestratorArtifactRepositoryLive),
+  Layer.provideMerge(ProjectionTaskProcessRepositoryLive),
   Layer.provideMerge(ProjectionSpaceRepositoryLive),
   Layer.provideMerge(ProjectionThreadRepositoryLive),
   Layer.provideMerge(ProjectionThreadMessageRepositoryLive),

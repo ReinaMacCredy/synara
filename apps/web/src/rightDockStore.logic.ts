@@ -18,6 +18,10 @@ export const RIGHT_DOCK_PANE_KINDS = [
   "sidechat",
   "git",
   "pullRequest",
+  "orchestratorTeam",
+  "orchestratorProcess",
+  "orchestratorExchanges",
+  "orchestratorRuns",
 ] as const;
 
 export type RightDockPaneKind = (typeof RIGHT_DOCK_PANE_KINDS)[number];
@@ -255,6 +259,33 @@ export function openPaneInState(
     panes: [...state.panes, pane],
     activePaneId: pane.id,
   };
+}
+
+export function ensurePanesInState(
+  state: RightDockThreadState,
+  inputs: readonly OpenPaneInput[],
+  initialActivePaneId: string,
+): RightDockThreadState {
+  const requiredPaneIds = new Set(inputs.map((input) => input.paneId));
+  const panes = inputs.map((input) => {
+    const existing = state.panes.find(
+      (pane) => pane.id === input.paneId && pane.kind === input.kind,
+    );
+    return existing ?? createPane(input);
+  });
+  const activePaneId =
+    state.activePaneId && requiredPaneIds.has(state.activePaneId)
+      ? state.activePaneId
+      : requiredPaneIds.has(initialActivePaneId)
+        ? initialActivePaneId
+        : (inputs[0]?.paneId ?? null);
+  const unchangedPanes =
+    state.panes.length === panes.length &&
+    panes.every((pane, index) => pane === state.panes[index]);
+  if (state.open === panes.length > 0 && state.activePaneId === activePaneId && unchangedPanes) {
+    return state;
+  }
+  return { open: panes.length > 0, panes, activePaneId };
 }
 
 function resolveActiveAfterRemoval(

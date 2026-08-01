@@ -8,7 +8,7 @@ import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
 
 layer("086_NormalizeStudioThreadWorkspaces", (it) => {
-  it.effect("clears legacy worktree metadata only from Studio threads", () =>
+  it.effect("preserves the historical identity as an inert tombstone", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* runMigrations({ toMigrationInclusive: 85 });
@@ -102,7 +102,6 @@ layer("086_NormalizeStudioThreadWorkspaces", (it) => {
         readonly envMode: string;
         readonly branch: string | null;
         readonly worktreePath: string | null;
-        readonly workingDirectory: string | null;
         readonly associatedWorktreePath: string | null;
         readonly createBranchFlowCompleted: number;
       }>`
@@ -111,7 +110,6 @@ layer("086_NormalizeStudioThreadWorkspaces", (it) => {
           env_mode AS "envMode",
           branch,
           worktree_path AS "worktreePath",
-          working_directory AS "workingDirectory",
           associated_worktree_path AS "associatedWorktreePath",
           create_branch_flow_completed AS "createBranchFlowCompleted"
         FROM projection_threads
@@ -124,18 +122,16 @@ layer("086_NormalizeStudioThreadWorkspaces", (it) => {
           envMode: "worktree",
           branch: "feature/regular",
           worktreePath: "/workspace/worktrees/regular",
-          workingDirectory: null,
           associatedWorktreePath: "/workspace/worktrees/regular",
           createBranchFlowCompleted: 1,
         },
         {
           threadId: "studio-thread",
-          envMode: "local",
-          branch: null,
-          worktreePath: null,
-          workingDirectory: "/workspace/external-folder",
-          associatedWorktreePath: null,
-          createBranchFlowCompleted: 0,
+          envMode: "worktree",
+          branch: "feature/studio",
+          worktreePath: "/workspace/external-folder",
+          associatedWorktreePath: "/workspace/external-folder",
+          createBranchFlowCompleted: 1,
         },
       ]);
     }),

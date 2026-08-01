@@ -69,7 +69,10 @@ export function useFocusedChatContext(): FocusedChatContext {
   const draftThreadsByThreadId = useComposerDraftStore((store) => store.draftThreadsByThreadId);
   const routeThreadId = useParams({
     strict: false,
-    select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
+    select: (params) => {
+      const value = params.threadId ?? params.rootThreadId;
+      return value ? ThreadId.makeUnsafe(value) : null;
+    },
   });
   const routeSearch = useDiffRouteSearch();
   const activeSplitView = useSplitViewStore(

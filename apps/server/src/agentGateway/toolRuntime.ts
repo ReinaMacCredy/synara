@@ -61,6 +61,7 @@ export interface ToolEntry {
   readonly handler: ToolHandler;
   readonly requiredCapability: AgentGatewayCapability;
   readonly requiresActiveTurn?: boolean;
+  readonly isVisible?: (context: Omit<ToolContext, "jsonRpcRequestId">) => Effect.Effect<boolean>;
 }
 
 export interface McpToolEntry<Context, Capability extends string> {

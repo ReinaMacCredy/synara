@@ -14,6 +14,7 @@ import {
   type RightDockThreadState,
   closePaneInState,
   createDefaultRightDockState,
+  ensurePanesInState,
   openPaneInState,
   sanitizeRightDockStateByThreadId,
   setActivePaneInState,
@@ -53,6 +54,11 @@ interface RightDockStore {
         | "pullRequestInitialTab"
       >
     >,
+  ) => void;
+  ensurePanes: (
+    threadId: ThreadId,
+    inputs: readonly OpenPaneInput[],
+    initialActivePaneId: string,
   ) => void;
   clearThreadDockState: (threadId: ThreadId) => void;
 }
@@ -104,6 +110,8 @@ export const useRightDockStore = create<RightDockStore>()(
         commit(set, threadId, (state) => setDockOpenInState(state, open)),
       updatePane: (threadId, paneId, patch) =>
         commit(set, threadId, (state) => updatePaneInState(state, paneId, patch)),
+      ensurePanes: (threadId, inputs, initialActivePaneId) =>
+        commit(set, threadId, (state) => ensurePanesInState(state, inputs, initialActivePaneId)),
       clearThreadDockState: (threadId) =>
         set((store) => {
           if (!Object.hasOwn(store.dockStateByThreadId, threadId)) {

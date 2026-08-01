@@ -27,7 +27,6 @@ import {
   getVisibleThreadsForProject,
   getProjectSortTimestamp,
   hasUnseenCompletion,
-  partitionSidebarThreadsByProjectIds,
   isLatestPinnedThreadMutation,
   isLoopbackHostname,
   isDuplicateProjectCreateError,
@@ -74,7 +73,7 @@ function makeLatestTurn(overrides?: {
 
 describe("resolvePendingSidebarViewSelection", () => {
   it("optimistically follows a destination segment", () => {
-    expect(resolvePendingSidebarViewSelection("threads", "studio")).toBe("studio");
+    expect(resolvePendingSidebarViewSelection("threads", "orchestrator")).toBe("orchestrator");
   });
 
   it("clears the optimistic segment when the user returns to the active view", () => {
@@ -84,9 +83,9 @@ describe("resolvePendingSidebarViewSelection", () => {
 
 describe("isProjectsSidebarSurface", () => {
   it("enables Space shortcuts only where the Space switcher is visible", () => {
-    expect(isProjectsSidebarSurface({ isOnSettings: false, isOnStudio: false })).toBe(true);
-    expect(isProjectsSidebarSurface({ isOnSettings: false, isOnStudio: true })).toBe(false);
-    expect(isProjectsSidebarSurface({ isOnSettings: true, isOnStudio: false })).toBe(false);
+    expect(isProjectsSidebarSurface({ isOnSettings: false, isOnOrchestrator: false })).toBe(true);
+    expect(isProjectsSidebarSurface({ isOnSettings: false, isOnOrchestrator: true })).toBe(false);
+    expect(isProjectsSidebarSurface({ isOnSettings: true, isOnOrchestrator: false })).toBe(false);
   });
 });
 
@@ -1553,27 +1552,6 @@ function makeSidebarThreadSummary(
     ...overrides,
   };
 }
-
-describe("partitionSidebarThreadsByProjectIds", () => {
-  it("splits Studio threads from the regular Threads surface by project id", () => {
-    const projectThread = makeSidebarThreadSummary({
-      id: ThreadId.makeUnsafe("thread-project"),
-      projectId: ProjectId.makeUnsafe("project-app"),
-    });
-    const studioThread = makeSidebarThreadSummary({
-      id: ThreadId.makeUnsafe("thread-studio"),
-      projectId: ProjectId.makeUnsafe("project-studio"),
-    });
-
-    const partitioned = partitionSidebarThreadsByProjectIds(
-      [projectThread, studioThread],
-      new Set([ProjectId.makeUnsafe("project-studio")]),
-    );
-
-    expect(partitioned.nonStudioThreads.map((thread) => thread.id)).toEqual(["thread-project"]);
-    expect(partitioned.studioThreads.map((thread) => thread.id)).toEqual(["thread-studio"]);
-  });
-});
 
 describe("deriveSidebarProjectData", () => {
   it("keeps pinned threads in the total project thread count", () => {

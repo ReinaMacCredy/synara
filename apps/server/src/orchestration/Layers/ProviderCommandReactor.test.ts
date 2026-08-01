@@ -19,6 +19,7 @@ import {
   ApprovalRequestId,
   type ChatAttachment,
   CommandId,
+  ContextBundleId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   EventId,
   MessageId,
@@ -82,10 +83,6 @@ import {
 } from "../Services/OrchestrationEngine.ts";
 import { OrchestrationCommandInvariantError, type OrchestrationDispatchError } from "../Errors.ts";
 import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
-import {
-  StudioOutputReactor,
-  type StudioOutputReactorShape,
-} from "../Services/StudioOutputReactor.ts";
 import { attachmentRelativePath } from "../../attachmentStore.ts";
 import { resolveProviderAttachmentPath } from "../../provider/providerAttachmentPaths.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -198,7 +195,6 @@ describe("ProviderCommandReactor", () => {
     readonly sessionModelSwitch?: "unsupported" | "in-session" | "restart-session";
     readonly conversationRollback?: "native" | "restart-session";
     readonly checkpointStore?: Partial<CheckpointStoreShape>;
-    readonly studioOutputReactor?: Partial<StudioOutputReactorShape>;
     readonly forkThreadResult?: ProviderForkThreadResult | null;
     readonly startReactor?: boolean;
     readonly interruptTurn?: ProviderServiceShape["interruptTurn"];
@@ -438,19 +434,6 @@ describe("ProviderCommandReactor", () => {
         }),
       ),
     );
-    const captureStudioOutputBaseline = vi.fn<
-      StudioOutputReactorShape["captureBaselineBeforeTurn"]
-    >(input?.studioOutputReactor?.captureBaselineBeforeTurn ?? (() => Effect.void));
-    const cancelPendingStudioOutputBaseline = vi.fn<
-      StudioOutputReactorShape["cancelPendingTurnBaseline"]
-    >(input?.studioOutputReactor?.cancelPendingTurnBaseline ?? (() => Effect.void));
-    const studioOutputReactor: StudioOutputReactorShape = {
-      captureBaselineBeforeTurn: captureStudioOutputBaseline,
-      cancelPendingTurnBaseline: cancelPendingStudioOutputBaseline,
-      start: input?.studioOutputReactor?.start ?? Effect.void,
-      drain: input?.studioOutputReactor?.drain ?? Effect.void,
-    };
-
     const unsupported = () => Effect.die(new Error("Unsupported provider call in test")) as never;
     const service: ProviderServiceShape = {
       startSession: startSession as ProviderServiceShape["startSession"],
@@ -501,7 +484,6 @@ describe("ProviderCommandReactor", () => {
       Layer.provideMerge(OrchestrationProjectionSnapshotQueryLive),
       Layer.provideMerge(TurnCheckpointCoordinatorLive),
       Layer.provideMerge(Layer.succeed(ProviderService, service)),
-      Layer.provideMerge(Layer.succeed(StudioOutputReactor, studioOutputReactor)),
       Layer.provideMerge(Layer.succeed(CheckpointStore, checkpointStore)),
       Layer.provideMerge(
         Layer.succeed(GitCore, {
@@ -622,8 +604,6 @@ describe("ProviderCommandReactor", () => {
       publishBranch,
       generateBranchName,
       generateThreadTitle,
-      captureStudioOutputBaseline,
-      cancelPendingStudioOutputBaseline,
       stateDir,
       stageAttachment: async (
         attachment: {
@@ -3323,6 +3303,172 @@ describe("ProviderCommandReactor", () => {
     expect(harness.listSessions).toHaveBeenCalledTimes(2);
   });
 
+  it("starts owned children as independent role-scoped sessions instead of provider forks", async () => {
+    const harness = await createHarness({
+      forkThreadResult: {
+        threadId: ThreadId.makeUnsafe("orchestrator-child-1"),
+        resumeCursor: { providerThreadId: "native-fork-must-not-be-used" },
+      },
+    });
+    const createdAt = new Date().toISOString();
+    const rootThreadId = ThreadId.makeUnsafe("thread-1");
+    const childThreadId = ThreadId.makeUnsafe("orchestrator-child-1");
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "orchestrator.root.create",
+        commandId: CommandId.makeUnsafe("cmd-reactor-orchestrator-root"),
+        rootThreadId,
+        projectId: asProjectId("project-1"),
+        actor: { kind: "user", actorId: "owner" },
+        protocolVersion: 1,
+        expectedRevision: 0,
+        createdAt,
+        modelTarget: {
+          provider: "codex",
+          model: "gpt-5-codex",
+          runtimeMode: "approval-required",
+          workspaceRoot: "/tmp/provider-project",
+        },
+        title: "Root",
+        activeProcessId: null,
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.makeUnsafe("cmd-reactor-orchestrator-child-thread"),
+        threadId: childThreadId,
+        projectId: asProjectId("project-1"),
+        title: "Independent child",
+        modelSelection: { provider: "claudeAgent", model: "claude-opus-4-8" },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        parentThreadId: rootThreadId,
+        branch: null,
+        worktreePath: null,
+        createdAt,
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "orchestrator.child.attach",
+        commandId: CommandId.makeUnsafe("cmd-reactor-orchestrator-child-attach"),
+        rootThreadId,
+        projectId: asProjectId("project-1"),
+        actor: { kind: "thread", threadId: rootThreadId },
+        protocolVersion: 1,
+        expectedRevision: 1,
+        createdAt,
+        parentThreadId: rootThreadId,
+        childThreadId,
+        role: "participant",
+        capabilities: [
+          "state.read",
+          "link.request",
+          "message.send",
+          "artifact.publish",
+          "assignment.report",
+        ],
+        continuity: {
+          kind: "clean",
+          contextBundle: {
+            id: ContextBundleId.makeUnsafe("context-reactor-child-1"),
+            version: 1,
+            assignmentId: null,
+            originalBrief: "Explore independently.",
+            immutableUserConstraints: [],
+            acceptedDecisions: [],
+            rejectedAlternatives: [],
+            ownershipClaims: [],
+            dependencyRefs: [],
+            sourceRefs: [],
+            threadMessageRefs: [],
+            artifactRefs: [],
+            capabilityCeiling: [
+              "state.read",
+              "link.request",
+              "message.send",
+              "artifact.publish",
+              "assignment.report",
+            ],
+            createdBy: { kind: "thread", threadId: rootThreadId },
+            createdAt,
+            contentHash: "sha256:reactor-child-context",
+          },
+        },
+        modelTarget: {
+          provider: "claudeAgent",
+          model: "claude-opus-4-8",
+          runtimeMode: "approval-required",
+          workspaceRoot: "/tmp/provider-project",
+        },
+        decisionReason: {
+          summary: "Use a clean independent Claude frame.",
+          taskFit: ["independent design"],
+          contextHealth: "healthy",
+          cacheEconomics: "unknown",
+          selectedAt: createdAt,
+        },
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-reactor-orchestrator-root-turn"),
+        threadId: rootThreadId,
+        message: {
+          messageId: asMessageId("message-reactor-orchestrator-root"),
+          role: "user",
+          text: "Coordinate independently.",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt,
+      }),
+    );
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-reactor-orchestrator-child-turn"),
+        threadId: childThreadId,
+        message: {
+          messageId: asMessageId("message-reactor-orchestrator-child"),
+          role: "user",
+          text: "Produce an independent proposal.",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt,
+      }),
+    );
+    await waitFor(() => harness.startSession.mock.calls.length === 2);
+
+    expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
+      threadId: rootThreadId,
+      orchestratorContext: {
+        protocolVersion: 1,
+        rootThreadId,
+        role: "root",
+      },
+    });
+    expect(harness.startSession.mock.calls[1]?.[1]).toMatchObject({
+      threadId: childThreadId,
+      modelSelection: { provider: "claudeAgent", model: "claude-opus-4-8" },
+      orchestratorContext: {
+        protocolVersion: 1,
+        rootThreadId,
+        role: "participant",
+      },
+    });
+    expect(harness.forkThread).not.toHaveBeenCalled();
+    expect((await readHarnessThread(harness, childThreadId))?.parentThreadId).toBe(rootThreadId);
+  });
+
   it("routes subagent-thread turn starts to the parent session as steers", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
@@ -3704,45 +3850,6 @@ describe("ProviderCommandReactor", () => {
     expect(captureCheckpoint.mock.calls[0]?.[0].checkpointRef).toContain("/message-start/");
   });
 
-  it("waits for the Studio output baseline before sending the provider turn", async () => {
-    let releaseCapture: (() => void) | undefined;
-    const captureGate = new Promise<void>((resolve) => {
-      releaseCapture = resolve;
-    });
-    const captureBaselineBeforeTurn = vi.fn<StudioOutputReactorShape["captureBaselineBeforeTurn"]>(
-      () => Effect.promise(() => captureGate),
-    );
-    const harness = await createHarness({
-      studioOutputReactor: { captureBaselineBeforeTurn },
-    });
-    const now = new Date().toISOString();
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.turn.start",
-        commandId: CommandId.makeUnsafe("cmd-turn-start-slow-studio-baseline"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        message: {
-          messageId: asMessageId("user-message-slow-studio-baseline"),
-          role: "user",
-          text: "create an output immediately",
-          attachments: [],
-        },
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-        runtimeMode: "approval-required",
-        createdAt: now,
-      }),
-    );
-
-    await waitFor(() => captureBaselineBeforeTurn.mock.calls.length === 1);
-    await new Promise((resolve) => setTimeout(resolve, 25));
-    expect(harness.sendTurn).not.toHaveBeenCalled();
-
-    releaseCapture?.();
-    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
-    expect(captureBaselineBeforeTurn).toHaveBeenCalledWith(ThreadId.makeUnsafe("thread-1"));
-  });
-
   it("publishes a starting session status before the provider session is ready", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
@@ -4011,9 +4118,6 @@ describe("ProviderCommandReactor", () => {
     expect(
       thread?.activities.some((activity) => activity.kind === "provider.turn.start.failed"),
     ).toBe(true);
-    expect(harness.cancelPendingStudioOutputBaseline).toHaveBeenCalledWith(
-      ThreadId.makeUnsafe("thread-1"),
-    );
     await waitFor(async () => {
       const delivery = await Effect.runPromise(
         harness.deliveryRepository.firstBlockingDeliveryForThread({
@@ -4068,7 +4172,8 @@ describe("ProviderCommandReactor", () => {
         (await readHarnessThread(harness))?.activities.some(
           (activity) =>
             activity.kind === "provider.turn.start.failed" &&
-            activity.payload?.settlementStatus === "uncertain",
+            (activity.payload as { readonly settlementStatus?: unknown } | undefined)
+              ?.settlementStatus === "uncertain",
         ),
       ),
     );

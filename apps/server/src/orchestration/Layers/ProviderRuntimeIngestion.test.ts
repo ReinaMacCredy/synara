@@ -912,18 +912,18 @@ describe("ProviderRuntimeIngestion", () => {
     expect(assistantMessage?.streaming).toBe(false);
   });
 
-  it("prefers a persisted Studio copy over its provider-home image source", () => {
+  it("ignores unrelated activity rows when restoring provider image paths", () => {
     expect(
       collectPersistedGeneratedImagePaths([
         {
-          kind: "studio.outputs.captured",
+          kind: "unrelated.activity",
           payload: {
-            itemType: "studio_outputs",
+            itemType: "unrelated",
             data: {
               files: [{ path: "Outbox/Images/generated.png" }],
               generatedImage: {
                 sourcePath: "/codex/generated.png",
-                fullPath: "/studio/Outbox/Images/generated.png",
+                fullPath: "/workspace/generated.png",
               },
             },
           },
@@ -937,7 +937,7 @@ describe("ProviderRuntimeIngestion", () => {
           },
         },
       ]),
-    ).toEqual(["/studio/Outbox/Images/generated.png"]);
+    ).toEqual(["/codex/generated.png"]);
   });
 
   it("recovers generated-image references from persisted turn activities", async () => {

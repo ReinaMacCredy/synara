@@ -23,7 +23,13 @@ import {
   ProviderStartOptions,
   ProviderUserInputAnswers,
   RuntimeMode,
+  ThreadOriginEnvelope,
 } from "./orchestration";
+import {
+  OrchestratorCapabilities,
+  OrchestratorProtocolVersion,
+  OrchestratorRole,
+} from "./orchestrator";
 import { ProviderMentionReference, ProviderSkillReference } from "./providerDiscovery";
 
 const ProviderSessionStatus = Schema.Literals([
@@ -49,6 +55,19 @@ export const ProviderSession = Schema.Struct({
 });
 export type ProviderSession = typeof ProviderSession.Type;
 
+/**
+ * Server-derived Orchestrator authority installed into one standalone provider
+ * session. Clients never author this value: the provider command reactor
+ * resolves it from the active Root and ownership projections.
+ */
+export const ProviderOrchestratorSessionContext = Schema.Struct({
+  protocolVersion: OrchestratorProtocolVersion,
+  rootThreadId: ThreadId,
+  role: OrchestratorRole,
+  capabilities: OrchestratorCapabilities,
+});
+export type ProviderOrchestratorSessionContext = typeof ProviderOrchestratorSessionContext.Type;
+
 export const ProviderSessionStartInput = Schema.Struct({
   threadId: ThreadId,
   provider: Schema.optional(ProviderKind),
@@ -59,6 +78,7 @@ export const ProviderSessionStartInput = Schema.Struct({
   approvalPolicy: Schema.optional(ProviderApprovalPolicy),
   sandboxMode: Schema.optional(ProviderSandboxMode),
   providerOptions: Schema.optional(ProviderStartOptions),
+  orchestratorContext: Schema.optional(Schema.NullOr(ProviderOrchestratorSessionContext)),
   runtimeMode: RuntimeMode,
 });
 export type ProviderSessionStartInput = typeof ProviderSessionStartInput.Type;
@@ -75,6 +95,7 @@ export const ProviderSendTurnInput = Schema.Struct({
   mentions: Schema.optional(Schema.Array(ProviderMentionReference)),
   modelSelection: Schema.optional(ModelSelection),
   interactionMode: Schema.optional(ProviderInteractionMode),
+  threadOrigin: Schema.optional(ThreadOriginEnvelope),
 });
 export type ProviderSendTurnInput = typeof ProviderSendTurnInput.Type;
 export const ProviderSteerTurnInput = ProviderSendTurnInput;

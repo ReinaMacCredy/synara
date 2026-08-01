@@ -442,6 +442,134 @@ describe("decider project scripts", () => {
     });
   });
 
+  it("projects an authenticated thread-origin row and queues it behind a busy standalone turn", async () => {
+    const now = new Date().toISOString();
+    const threadId = ThreadId.makeUnsafe("thread-origin-target");
+    const rootThreadId = ThreadId.makeUnsafe("thread-origin-root");
+    const initial = createEmptyReadModel(now);
+    const withProject = await Effect.runPromise(
+      projectEvent(initial, {
+        sequence: 1,
+        eventId: asEventId("evt-thread-origin-project"),
+        aggregateKind: "project",
+        aggregateId: asProjectId("thread-origin-project"),
+        type: "project.created",
+        occurredAt: now,
+        commandId: CommandId.makeUnsafe("cmd-thread-origin-project"),
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+        payload: {
+          projectId: asProjectId("thread-origin-project"),
+          title: "Project",
+          workspaceRoot: "/tmp/thread-origin",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt: now,
+          updatedAt: now,
+        },
+      }),
+    );
+    const withThread = await Effect.runPromise(
+      projectEvent(withProject, {
+        sequence: 2,
+        eventId: asEventId("evt-thread-origin-target"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        type: "thread.created",
+        occurredAt: now,
+        commandId: CommandId.makeUnsafe("cmd-thread-origin-target"),
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+        payload: {
+          threadId,
+          projectId: asProjectId("thread-origin-project"),
+          title: "Target",
+          modelSelection: { provider: "codex", model: "gpt-5-codex" },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          handoff: null,
+          createdAt: now,
+          updatedAt: now,
+        },
+      }),
+    );
+    const readModel = {
+      ...withThread,
+      threads: withThread.threads.map((thread) =>
+        thread.id === threadId
+          ? {
+              ...thread,
+              session: {
+                threadId,
+                status: "running" as const,
+                providerName: "codex" as const,
+                providerSessionId: "session-thread-origin",
+                providerThreadId: "provider-thread-origin",
+                runtimeMode: "full-access" as const,
+                activeTurnId: "active-turn" as never,
+                lastError: null,
+                updatedAt: now,
+              },
+            }
+          : thread,
+      ),
+    };
+
+    const result = await Effect.runPromise(
+      decideOrchestrationCommand({
+        readModel,
+        command: {
+          type: "thread.turn.start",
+          commandId: CommandId.makeUnsafe("server:orchestrator-message:origin-message"),
+          threadId,
+          message: {
+            messageId: asMessageId("origin-message"),
+            role: "thread",
+            text: "Review the competing proposal.",
+            attachments: [],
+          },
+          dispatchMode: "queue",
+          dispatchOrigin: "orchestrator",
+          threadOrigin: {
+            messageId: "origin-message",
+            rootThreadId,
+            senderThreadId: rootThreadId,
+            targetThreadId: threadId,
+            assignmentId: null,
+            runId: null,
+            correlationId: null,
+            replyToMessageId: null,
+            hopCount: 0,
+            artifactRefs: [],
+          },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          createdAt: now,
+        },
+      }),
+    );
+    const events = Array.isArray(result) ? result : [result];
+    expect(events.map((event) => event.type)).toEqual([
+      "thread.message-sent",
+      "thread.turn-queued",
+    ]);
+    expect(events[0]?.payload).toMatchObject({
+      role: "thread",
+      source: "orchestrator",
+      dispatchOrigin: "orchestrator",
+    });
+    expect(events[1]?.payload).toMatchObject({
+      threadOrigin: {
+        senderThreadId: rootThreadId,
+        targetThreadId: threadId,
+      },
+    });
+  });
+
   it("emits thread.runtime-mode-set from thread.runtime-mode.set", async () => {
     const now = new Date().toISOString();
     const initial = createEmptyReadModel(now);

@@ -572,6 +572,7 @@ export class WsTransport {
   private readonly threadSubscriptions = new Map<string, unknown>();
   private compatibility: WsBootstrapNegotiateResult | null = null;
   private compatibilityIssue: WsCompatibilityError | null = null;
+  private orchestrationDomainCursor: number | null = null;
   // Tracks the last server generation this transport observed so cross-restart
   // reconnects still reset replayed push state even after the negotiation
   // cache was cleared by an intervening failure.
@@ -732,6 +733,13 @@ export class WsTransport {
     return this.compatibility;
   }
 
+  advanceOrchestrationDomainCursor(cursor: string | number | null | undefined): void {
+    if (cursor === null || cursor === undefined) return;
+    const parsed = typeof cursor === "number" ? cursor : Number(cursor);
+    if (!Number.isSafeInteger(parsed) || parsed < 0) return;
+    this.orchestrationDomainCursor = Math.max(this.orchestrationDomainCursor ?? 0, parsed);
+  }
+
   onCompatibilityIssue(
     listener: (issue: WsCompatibilityError | null) => void,
     options?: { readonly replayCurrent?: boolean },
@@ -843,6 +851,7 @@ export class WsTransport {
       // plain restarts of the same journal, acceptable until the protocol
       // carries a durable journal epoch.
       resetThreadDetailResumeCursors();
+      this.orchestrationDomainCursor = null;
     }
     this.lastServerInstanceId = compatibility.serverInstanceId;
     this.compatibility = compatibility;
@@ -1213,8 +1222,15 @@ export class WsTransport {
           this.startStream(
             client,
             "orchestration.domain",
-            client[WS_METHODS.subscribeOrchestrationDomainEvents]({}),
-            (event: OrchestrationEvent) => this.emit(ORCHESTRATION_WS_CHANNELS.domainEvent, event),
+            client[WS_METHODS.subscribeOrchestrationDomainEvents](
+              this.orchestrationDomainCursor === null
+                ? {}
+                : { afterSequence: this.orchestrationDomainCursor },
+            ),
+            (event: OrchestrationEvent) => {
+              this.advanceOrchestrationDomainCursor(event.sequence);
+              this.emit(ORCHESTRATION_WS_CHANNELS.domainEvent, event);
+            },
             restartChannel,
           );
         }

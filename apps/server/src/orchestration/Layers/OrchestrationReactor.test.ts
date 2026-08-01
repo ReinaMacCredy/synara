@@ -4,8 +4,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { CheckpointReactor } from "../Services/CheckpointReactor.ts";
 import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
-import { StudioOutputReactor } from "../Services/StudioOutputReactor.ts";
 import { OrchestrationReactor } from "../Services/OrchestrationReactor.ts";
+import { OrchestratorMailbox } from "../Services/OrchestratorMailbox.ts";
+import { OrchestratorMonitor } from "../Services/OrchestratorMonitor.ts";
 import { makeOrchestrationReactor } from "./OrchestrationReactor.ts";
 
 describe("OrchestrationReactor", () => {
@@ -25,6 +26,64 @@ describe("OrchestrationReactor", () => {
 
     runtime = ManagedRuntime.make(
       Layer.effect(OrchestrationReactor, makeOrchestrationReactor).pipe(
+        Layer.provideMerge(
+          Layer.succeed(OrchestratorMailbox, {
+            start: Effect.acquireRelease(
+              Effect.sync(() => {
+                started.push("orchestrator-mailbox");
+              }),
+              () => Effect.sync(() => stopped.push("orchestrator-mailbox")),
+            ),
+            reconcileRoot: () =>
+              Effect.succeed({
+                rootsVisited: 1,
+                messagesDelivered: 0,
+                messagesExpired: 0,
+                messagesFailed: 0,
+                responsesCorrelated: 0,
+              }),
+            reconcileAll: Effect.succeed({
+              rootsVisited: 0,
+              messagesDelivered: 0,
+              messagesExpired: 0,
+              messagesFailed: 0,
+              responsesCorrelated: 0,
+            }),
+          }),
+        ),
+        Layer.provideMerge(
+          Layer.succeed(OrchestratorMonitor, {
+            start: Effect.acquireRelease(
+              Effect.sync(() => {
+                started.push("orchestrator-monitor");
+              }),
+              () => Effect.sync(() => stopped.push("orchestrator-monitor")),
+            ),
+            reconcileRoot: () =>
+              Effect.succeed({
+                rootsVisited: 1,
+                monitorsFired: 0,
+                monitorsExpired: 0,
+                monitorsCancelled: 0,
+                wakesDispatched: 0,
+              }),
+            reconcileEvent: () =>
+              Effect.succeed({
+                rootsVisited: 0,
+                monitorsFired: 0,
+                monitorsExpired: 0,
+                monitorsCancelled: 0,
+                wakesDispatched: 0,
+              }),
+            reconcileAll: Effect.succeed({
+              rootsVisited: 0,
+              monitorsFired: 0,
+              monitorsExpired: 0,
+              monitorsCancelled: 0,
+              wakesDispatched: 0,
+            }),
+          }),
+        ),
         Layer.provideMerge(
           Layer.succeed(ProviderRuntimeIngestionService, {
             start: Effect.acquireRelease(
@@ -63,19 +122,6 @@ describe("OrchestrationReactor", () => {
             drain: Effect.void,
           }),
         ),
-        Layer.provideMerge(
-          Layer.succeed(StudioOutputReactor, {
-            captureBaselineBeforeTurn: () => Effect.void,
-            cancelPendingTurnBaseline: () => Effect.void,
-            start: Effect.acquireRelease(
-              Effect.sync(() => {
-                started.push("studio-output-reactor");
-              }),
-              () => Effect.sync(() => stopped.push("studio-output-reactor")),
-            ),
-            drain: Effect.void,
-          }),
-        ),
       ),
     );
 
@@ -85,9 +131,10 @@ describe("OrchestrationReactor", () => {
     await Effect.runPromise(reactor.reconcileSettledOpenTurns);
 
     expect(started).toEqual([
-      "studio-output-reactor",
       "checkpoint-reactor",
       "provider-runtime-ingestion",
+      "orchestrator-mailbox",
+      "orchestrator-monitor",
       "provider-command-reactor",
     ]);
     expect(reconciledOpenTurns).toBe(1);
@@ -95,9 +142,10 @@ describe("OrchestrationReactor", () => {
     await Effect.runPromise(Scope.close(scope, Exit.void));
     expect(stopped).toEqual([
       "provider-command-reactor",
+      "orchestrator-monitor",
+      "orchestrator-mailbox",
       "provider-runtime-ingestion",
       "checkpoint-reactor",
-      "studio-output-reactor",
     ]);
   });
 });

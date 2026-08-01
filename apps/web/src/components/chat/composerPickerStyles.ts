@@ -141,7 +141,7 @@ export const COMPOSER_STACKED_SURFACE_BORDER_CLASS_NAME = [
   "dark:border-[color:color-mix(in_srgb,var(--color-border-heavy)_50%,transparent)]",
 ].join(" ");
 
-/** Border + shadow chrome for raised opaque surfaces (composer shell, kanban cards):
+/** Border + shadow chrome for raised opaque surfaces (composer shell, Process cards):
  *  a real border follows squircle/corner-shape geometry more evenly than an outer
  *  ring (box-shadow). Dark mode drops the border and leans on the shadow for separation. */
 export const RAISED_SURFACE_CHROME_CLASS_NAME = `border ${COMPOSER_SURFACE_BORDER_CLASS_NAME} ${COMPOSER_SURFACE_SHADOW_CLASS_NAME} dark:border-0`;

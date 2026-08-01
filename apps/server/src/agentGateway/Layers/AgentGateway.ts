@@ -38,6 +38,9 @@ import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionT
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
 import { OrchestrationEventDeliveryRepository } from "../../persistence/Services/OrchestrationEventDeliveries.ts";
 import { ProviderRuntimeEventRepository } from "../../persistence/Services/ProviderRuntimeEvents.ts";
+import { OrchestratorArtifactRepository } from "../../persistence/Services/OrchestratorArtifacts.ts";
+import { ProjectionOrchestratorRepository } from "../../persistence/Services/ProjectionOrchestrator.ts";
+import { ProjectionTaskProcessRepository } from "../../persistence/Services/ProjectionTaskProcess.ts";
 import { ThreadDiagnosticsQuery } from "../../diagnostics/Services/ThreadDiagnosticsQuery.ts";
 import { AgentGateway, type AgentGatewayShape } from "../Services/AgentGateway.ts";
 import { AgentGatewayCredentials } from "../Services/AgentGatewayCredentials.ts";
@@ -75,6 +78,7 @@ import { makeThreadReadTools } from "../threadReadTools.ts";
 import { makeThreadDiagnosticTools } from "../threadDiagnosticTools.ts";
 import { pruneProjectedArchivedManagedWorktrees } from "../../managedWorktrees.ts";
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
+import { makeOrchestratorTools } from "../orchestratorTools.ts";
 
 // Providers already receive the versioned host policy exactly once in their
 // private prompt. MCP clients prepend initialize.instructions to every exposed
@@ -97,6 +101,9 @@ export const makeAgentGateway = Effect.gen(function* () {
   const eventStore = yield* OrchestrationEventStore;
   const eventDeliveries = yield* OrchestrationEventDeliveryRepository;
   const providerRuntimeEvents = yield* ProviderRuntimeEventRepository;
+  const orchestratorRepository = yield* ProjectionOrchestratorRepository;
+  const taskProcessRepository = yield* ProjectionTaskProcessRepository;
+  const artifactRepository = yield* OrchestratorArtifactRepository;
   const diagnostics = yield* ThreadDiagnosticsQuery;
   const serverConfig = yield* ServerConfig;
   const browserAutomationHost = Option.getOrElse(
@@ -608,6 +615,13 @@ export const makeAgentGateway = Effect.gen(function* () {
         );
       }).pipe(Effect.orElseSucceed(() => null)),
   });
+  const orchestratorTools = makeOrchestratorTools({
+    orchestratorRepository,
+    taskProcessRepository,
+    artifactRepository,
+    orchestrationEngine,
+    snapshotQuery,
+  });
 
   const tools: ReadonlyArray<ToolEntry> = [
     ...readTools,
@@ -618,6 +632,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     interruptThread,
     setThreadTitle,
     setThreadArchived,
+    ...orchestratorTools,
     ...automationTools,
     ...browserTools,
   ];

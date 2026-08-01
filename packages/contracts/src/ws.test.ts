@@ -94,6 +94,40 @@ it.effect("accepts project script discovery requests", () =>
   }),
 );
 
+it.effect("accepts bounded Orchestrator and TaskProcess requests", () =>
+  Effect.gen(function* () {
+    const roots = yield* decode(WebSocketRequest, {
+      id: "req-roots-1",
+      body: {
+        _tag: ORCHESTRATION_WS_METHODS.listOrchestratorRoots,
+        projectId: "project-1",
+        limit: 25,
+      },
+    });
+    const graph = yield* decode(WebSocketRequest, {
+      id: "req-process-1",
+      body: {
+        _tag: ORCHESTRATION_WS_METHODS.getTaskProcessGraph,
+        processId: "process-1",
+      },
+    });
+    assert.strictEqual(roots.body._tag, ORCHESTRATION_WS_METHODS.listOrchestratorRoots);
+    assert.strictEqual(graph.body._tag, ORCHESTRATION_WS_METHODS.getTaskProcessGraph);
+  }),
+);
+
+it.effect("rejects removed Studio requests", () =>
+  Effect.gen(function* () {
+    const result = yield* Effect.exit(
+      decode(WebSocketRequest, {
+        id: "req-studio-1",
+        body: { _tag: "studio.listThreadOutputs", threadId: "thread-1" },
+      }),
+    );
+    assert.strictEqual(result._tag, "Failure");
+  }),
+);
+
 it.effect("accepts automation create requests", () =>
   Effect.gen(function* () {
     const parsed = yield* decode(WebSocketRequest, {
@@ -171,6 +205,7 @@ it.effect("accepts typed websocket push envelopes with sequence", () =>
     assert.strictEqual(parsed.type, "push");
     assert.strictEqual(parsed.sequence, 1);
     assert.strictEqual(parsed.channel, WS_CHANNELS.serverWelcome);
+    assert.strictEqual("studioWorkspaceRoot" in parsed.data, false);
   }),
 );
 

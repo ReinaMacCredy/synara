@@ -1,6 +1,6 @@
 // FILE: useProviderModelCatalog.ts
 // Purpose: Shared provider→model option catalog (static + custom + runtime-discovered)
-//          for composer-like surfaces outside ChatView, e.g. the kanban new-task dialog.
+//          for composer-like surfaces outside ChatView.
 // Layer: Web hooks
 // Exports: useProviderModelCatalog, ProviderModelCatalog
 

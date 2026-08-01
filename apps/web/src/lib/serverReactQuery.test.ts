@@ -2,12 +2,21 @@
 // Purpose: Locks down server React Query polling profiles and cache options.
 // Layer: Web data-fetching unit tests
 
-import type { ServerConfig, ServerProviderStatus } from "@synara/contracts";
+import {
+  ProjectId,
+  TaskProcessId,
+  ThreadId,
+  type ServerConfig,
+  type ServerProviderStatus,
+} from "@synara/contracts";
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 
 import {
   LOCAL_SERVERS_VISIBLE_REFETCH_INTERVAL_MS,
+  orchestratorArtifactsQueryOptions,
+  orchestratorAuditQueryOptions,
+  orchestratorExchangesQueryOptions,
   reconcileServerProviderStatuses,
   refreshServerConfigAfterTransportOpen,
   serverAllProviderUsageQueryOptions,
@@ -15,7 +24,13 @@ import {
   serverProviderUsageSnapshotQueryOptions,
   serverQueryKeys,
   sidebarLocalServersQueryOptions,
+  sessionProgressQueryOptions,
+  taskProcessGraphQueryOptions,
+  taskProcessQueryKeys,
+  taskProcessesQueryOptions,
+  taskProcessSummaryQueryOptions,
 } from "./serverReactQuery";
+import { orchestratorQueryKeys } from "./orchestratorRoots";
 
 const READY_CODEX_STATUS = {
   provider: "codex",
@@ -25,12 +40,48 @@ const READY_CODEX_STATUS = {
   checkedAt: "2026-07-26T16:41:38.945Z",
 } satisfies ServerProviderStatus;
 
+describe("Orchestrator bounded read queries", () => {
+  it("uses one Root-scoped cache hierarchy and reconnect refresh", () => {
+    const rootThreadId = ThreadId.makeUnsafe("root-a");
+    const exchanges = orchestratorExchangesQueryOptions(rootThreadId);
+    const artifacts = orchestratorArtifactsQueryOptions(rootThreadId);
+    const audit = orchestratorAuditQueryOptions(rootThreadId);
+
+    expect(exchanges.queryKey).toEqual(orchestratorQueryKeys.exchanges(rootThreadId));
+    expect(artifacts.queryKey).toEqual(orchestratorQueryKeys.artifacts(rootThreadId));
+    expect(audit.queryKey).toEqual(orchestratorQueryKeys.audit(rootThreadId));
+    expect(exchanges.refetchOnReconnect).toBe(true);
+    expect(artifacts.refetchOnReconnect).toBe(true);
+    expect(audit.refetchOnReconnect).toBe(true);
+  });
+});
+
+describe("TaskProcess projection queries", () => {
+  it("separates bounded lists, summaries, graphs, and session progress", () => {
+    const projectId = ProjectId.makeUnsafe("project-a");
+    const processId = TaskProcessId.makeUnsafe("process-a");
+    const threadId = ThreadId.makeUnsafe("thread-a");
+
+    expect(taskProcessesQueryOptions({ projectId }).queryKey).toEqual(
+      taskProcessQueryKeys.list(projectId, false),
+    );
+    expect(taskProcessSummaryQueryOptions(processId).queryKey).toEqual(
+      taskProcessQueryKeys.summary(processId),
+    );
+    expect(taskProcessGraphQueryOptions(processId).queryKey).toEqual(
+      taskProcessQueryKeys.graph(processId),
+    );
+    expect(sessionProgressQueryOptions({ threadId, processId }).queryKey).toEqual(
+      taskProcessQueryKeys.progress(threadId, processId),
+    );
+  });
+});
+
 function makeServerConfig(providers: readonly ServerProviderStatus[]): ServerConfig {
   return {
     cwd: "G:\\synara",
     homeDir: "C:\\Users\\tester",
     chatWorkspaceRoot: "C:\\Users\\tester\\Documents\\Synara",
-    studioWorkspaceRoot: "C:\\Users\\tester\\Documents\\Synara\\Studio",
     worktreesDir: "C:\\SynaraDev\\worktrees",
     keybindingsConfigPath: "C:\\SynaraDev\\keybindings.json",
     keybindings: [],

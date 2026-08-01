@@ -488,9 +488,6 @@ export function createWsNativeApi(): NativeApi {
     filesystem: {
       browse: (input) => transport.request(WS_METHODS.filesystemBrowse, input),
     },
-    studio: {
-      listThreadOutputs: (input) => transport.request(WS_METHODS.studioListThreadOutputs, input),
-    },
     shell: {
       openInEditor: (cwd, editor) =>
         transport.request(WS_METHODS.shellOpenInEditor, { cwd, editor }),
@@ -705,6 +702,66 @@ export function createWsNativeApi(): NativeApi {
         transport.request<void>(ORCHESTRATION_WS_METHODS.subscribeThread, input),
       unsubscribeThread: (input) =>
         transport.request<void>(ORCHESTRATION_WS_METHODS.unsubscribeThread, input),
+      listOrchestratorRoots: async (input) => {
+        const result = await transport.request<
+          Awaited<ReturnType<NativeApi["orchestration"]["listOrchestratorRoots"]>>
+        >(ORCHESTRATION_WS_METHODS.listOrchestratorRoots, input);
+        transport.advanceOrchestrationDomainCursor(result.highWaterCursor);
+        return result;
+      },
+      getOrchestratorSnapshot: async (input) => {
+        const result = await transport.request<
+          Awaited<ReturnType<NativeApi["orchestration"]["getOrchestratorSnapshot"]>>
+        >(ORCHESTRATION_WS_METHODS.getOrchestratorSnapshot, input);
+        transport.advanceOrchestrationDomainCursor(result.snapshot.highWaterCursor);
+        return result;
+      },
+      listOrchestratorExchanges: (input) =>
+        transport.request(ORCHESTRATION_WS_METHODS.listOrchestratorExchanges, input),
+      listOrchestratorArtifacts: (input) =>
+        transport.request(ORCHESTRATION_WS_METHODS.listOrchestratorArtifacts, input),
+      readOrchestratorArtifact: (input) =>
+        transport.request(ORCHESTRATION_WS_METHODS.readOrchestratorArtifact, input),
+      listOrchestratorAuditEvents: (input) =>
+        transport.request(ORCHESTRATION_WS_METHODS.listOrchestratorAuditEvents, input),
+      createOrchestratorRoot: (input) =>
+        transport.request(ORCHESTRATION_WS_METHODS.createOrchestratorRoot, input),
+      archiveOrchestratorRoot: (input) =>
+        transport.request(ORCHESTRATION_WS_METHODS.archiveOrchestratorRoot, input),
+      detachOrchestratorChild: (input) =>
+        transport.request(ORCHESTRATION_WS_METHODS.detachOrchestratorChild, input),
+      upgradeOrchestratorRoot: (input) =>
+        transport.request(ORCHESTRATION_WS_METHODS.upgradeOrchestratorRoot, input),
+      listTaskProcesses: async (input) => {
+        const result = await transport.request<
+          Awaited<ReturnType<NativeApi["orchestration"]["listTaskProcesses"]>>
+        >(ORCHESTRATION_WS_METHODS.listTaskProcesses, input);
+        transport.advanceOrchestrationDomainCursor(result.highWaterCursor);
+        return result;
+      },
+      getTaskProcessSummary: async (input) => {
+        const result = await transport.request<
+          Awaited<ReturnType<NativeApi["orchestration"]["getTaskProcessSummary"]>>
+        >(ORCHESTRATION_WS_METHODS.getTaskProcessSummary, input);
+        transport.advanceOrchestrationDomainCursor(result.summary.highWaterCursor);
+        return result;
+      },
+      getTaskProcessGraph: async (input) => {
+        const result = await transport.request<
+          Awaited<ReturnType<NativeApi["orchestration"]["getTaskProcessGraph"]>>
+        >(ORCHESTRATION_WS_METHODS.getTaskProcessGraph, input);
+        transport.advanceOrchestrationDomainCursor(result.graph.highWaterCursor);
+        return result;
+      },
+      getSessionProgress: async (input) => {
+        const result = await transport.request<
+          Awaited<ReturnType<NativeApi["orchestration"]["getSessionProgress"]>>
+        >(ORCHESTRATION_WS_METHODS.getSessionProgress, input);
+        transport.advanceOrchestrationDomainCursor(result.progress?.cursor);
+        return result;
+      },
+      dispatchTaskProcessCommand: (input) =>
+        transport.request(ORCHESTRATION_WS_METHODS.dispatchTaskProcessCommand, input),
       onDomainEvent: (callback) => {
         const shouldStartTransport = orchestrationDomainEventListeners.size === 0;
         const unsubscribe = orchestrationDomainEventListeners.subscribe(callback);

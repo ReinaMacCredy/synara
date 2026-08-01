@@ -57,6 +57,7 @@ import { ProviderSessionDirectory } from "../Services/ProviderSessionDirectory.t
 import {
   makeProviderServiceLive,
   PROVIDER_RUNTIME_QUARANTINE_CAUSE_MAX_BYTES,
+  renderThreadOriginProviderInput,
   summarizeProviderRuntimeQuarantineCause,
 } from "./ProviderService.ts";
 import { ProviderSessionDirectoryLive } from "./ProviderSessionDirectory.ts";
@@ -122,7 +123,10 @@ function asRuntimePayloadRecord(value: unknown): Record<string, unknown> {
 
 function makeFakeCodexAdapter(
   provider: ProviderKind = "codex",
-  options?: { readonly conversationRollback?: "native" | "restart-session" },
+  options?: {
+    readonly conversationRollback?: "native" | "restart-session";
+    readonly orchestrator?: boolean;
+  },
 ) {
   const sessions = new Map<ThreadId, ProviderSession>();
   const runtimeEventPubSub = Effect.runSync(PubSub.unbounded<ProviderRuntimeEvent>());
@@ -267,6 +271,21 @@ function makeFakeCodexAdapter(
       ...(options?.conversationRollback
         ? { conversationRollback: options.conversationRollback }
         : {}),
+      ...(options?.orchestrator === true
+        ? {
+            orchestrator: {
+              authoritativeRoleInstruction: true,
+              authenticatedMcp: true,
+              independentSession: true,
+              instructionChannel:
+                provider === "codex"
+                  ? ("codex-developer-instructions" as const)
+                  : provider === "claudeAgent"
+                    ? ("claude-system-prompt" as const)
+                    : ("acp-process-system-prompt" as const),
+            },
+          }
+        : {}),
     },
     startSession,
     sendTurn,
@@ -349,6 +368,28 @@ const waitUntil = (
     }
   });
 
+it("renders authenticated thread-origin input without impersonating the user", () => {
+  const rendered = renderThreadOriginProviderInput({
+    body: "Please review the lifecycle edge.",
+    origin: {
+      messageId: "orchestrator-message-1",
+      rootThreadId: asThreadId("root-thread"),
+      senderThreadId: asThreadId("sender-thread"),
+      targetThreadId: asThreadId("target-thread"),
+      assignmentId: null,
+      runId: null,
+      correlationId: null,
+      replyToMessageId: null,
+      hopCount: 0,
+      artifactRefs: [],
+    },
+  });
+
+  assert.match(rendered, /not a human user message/);
+  assert.match(rendered, /"senderThreadId":"sender-thread"/);
+  assert.match(rendered, /"body":"Please review the lifecycle edge\."/);
+});
+
 const waitUntilEffect = <E = never, R = never>(
   predicate: () => Effect.Effect<boolean, E, R>,
   timeoutMs = 500,
@@ -374,10 +415,13 @@ function makeProviderServiceLayer(
     readonly includePi?: boolean;
   },
 ) {
-  const codex = makeFakeCodexAdapter();
-  const claude = makeFakeCodexAdapter("claudeAgent");
+  const codex = makeFakeCodexAdapter("codex", { orchestrator: true });
+  const claude = makeFakeCodexAdapter("claudeAgent", { orchestrator: true });
   const antigravity = makeFakeCodexAdapter("antigravity");
-  const droid = makeFakeCodexAdapter("droid", { conversationRollback: "restart-session" });
+  const droid = makeFakeCodexAdapter("droid", {
+    conversationRollback: "restart-session",
+    orchestrator: true,
+  });
   const pi = makeFakeCodexAdapter("pi");
   const registry: typeof ProviderAdapterRegistry.Service = {
     getByProvider: (provider) =>
@@ -708,6 +752,44 @@ it.effect(
 );
 
 routing.layer("ProviderServiceLive routing", (it) => {
+  it.effect("wraps thread-origin turns at the provider boundary", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const threadId = asThreadId("thread-origin-target");
+      yield* provider.startSession(threadId, {
+        provider: "codex",
+        threadId,
+        cwd: "/tmp/project",
+        runtimeMode: "full-access",
+      });
+      routing.codex.sendTurn.mockClear();
+
+      yield* provider.sendTurn({
+        threadId,
+        input: "Review the proposal.",
+        attachments: [],
+        threadOrigin: {
+          messageId: "orchestrator-message-1",
+          rootThreadId: asThreadId("root-thread"),
+          senderThreadId: asThreadId("sender-thread"),
+          targetThreadId: threadId,
+          assignmentId: null,
+          runId: null,
+          correlationId: null,
+          replyToMessageId: null,
+          hopCount: 0,
+          artifactRefs: [],
+        },
+      });
+
+      const adapterInput = routing.codex.sendTurn.mock.calls[0]?.[0];
+      assert.match(adapterInput?.input ?? "", /not a human user message/);
+      assert.match(adapterInput?.input ?? "", /"senderThreadId":"sender-thread"/);
+      assert.match(adapterInput?.input ?? "", /"body":"Review the proposal\."/);
+      yield* provider.stopSession({ threadId });
+    }),
+  );
+
   it.effect("runs the idempotent adapter cleanup barrier for an inactive binding", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;
@@ -1855,6 +1937,111 @@ routing.layer("ProviderServiceLive routing", (it) => {
         assert.equal(startPayload.provider, "claudeAgent");
         assert.equal(startPayload.cwd, "/tmp/project-claude");
       }
+    }),
+  );
+
+  it.effect("keeps Root and child Orchestrator sessions independent across providers", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const rootThreadId = asThreadId("orchestrator-root-cross-provider");
+      const childThreadId = asThreadId("orchestrator-child-cross-provider");
+
+      routing.codex.startSession.mockClear();
+      routing.claude.startSession.mockClear();
+      yield* provider.startSession(rootThreadId, {
+        provider: "codex",
+        threadId: rootThreadId,
+        runtimeMode: "full-access",
+        orchestratorContext: {
+          protocolVersion: 1,
+          rootThreadId,
+          role: "root",
+          capabilities: ["state.read", "child.assign", "message.send"],
+        },
+      });
+      yield* provider.startSession(childThreadId, {
+        provider: "claudeAgent",
+        threadId: childThreadId,
+        runtimeMode: "full-access",
+        orchestratorContext: {
+          protocolVersion: 1,
+          rootThreadId,
+          role: "participant",
+          capabilities: ["state.read", "message.send"],
+        },
+      });
+
+      assert.equal(routing.codex.startSession.mock.calls.length, 1);
+      assert.equal(routing.claude.startSession.mock.calls.length, 1);
+      assert.deepEqual(routing.codex.startSession.mock.calls[0]?.[0].orchestratorContext, {
+        protocolVersion: 1,
+        rootThreadId,
+        role: "root",
+        capabilities: ["state.read", "child.assign", "message.send"],
+      });
+      assert.deepEqual(routing.claude.startSession.mock.calls[0]?.[0].orchestratorContext, {
+        protocolVersion: 1,
+        rootThreadId,
+        role: "participant",
+        capabilities: ["state.read", "message.send"],
+      });
+    }),
+  );
+
+  it.effect("persists and restores Orchestrator role authority after provider process loss", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const threadId = asThreadId("orchestrator-resume-role");
+      const orchestratorContext = {
+        protocolVersion: 1 as const,
+        rootThreadId: threadId,
+        role: "root" as const,
+        capabilities: ["state.read", "child.assign", "message.send"] as const,
+      };
+
+      const session = yield* provider.startSession(threadId, {
+        provider: "codex",
+        threadId,
+        cwd: "/tmp/orchestrator-resume-role",
+        runtimeMode: "full-access",
+        orchestratorContext,
+      });
+      yield* routing.codex.stopSession(threadId);
+      routing.codex.startSession.mockClear();
+
+      yield* provider.sendTurn({ threadId, input: "resume", attachments: [] });
+
+      const recovered = routing.codex.startSession.mock.calls[0]?.[0];
+      assert.deepEqual(recovered?.resumeCursor, session.resumeCursor);
+      assert.deepEqual(recovered?.orchestratorContext, orchestratorContext);
+    }),
+  );
+
+  it.effect("rejects Orchestrator sessions on generic providers without conformance", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const threadId = asThreadId("orchestrator-generic-rejected");
+      routing.antigravity.startSession.mockClear();
+
+      const failure = yield* Effect.flip(
+        provider.startSession(threadId, {
+          provider: "antigravity",
+          threadId,
+          runtimeMode: "full-access",
+          orchestratorContext: {
+            protocolVersion: 1,
+            rootThreadId: threadId,
+            role: "root",
+            capabilities: ["state.read"],
+          },
+        }),
+      );
+
+      if (failure._tag !== "ProviderValidationError") {
+        assert.fail(`Expected ProviderValidationError, received ${failure._tag}.`);
+      }
+      assert.match(failure.issue, /cannot host Orchestrator sessions/i);
+      assert.equal(routing.antigravity.startSession.mock.calls.length, 0);
     }),
   );
 

@@ -163,7 +163,7 @@ export const WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         description:
           "Start from the project you want directly in the new-task heading, with fewer intermediate workspace screens and steadier navigation state.",
         details:
-          "The project name in the empty-chat heading is now a picker trigger, Space navigation is normalized through one shared path, and Studio workspace metadata is repaired during migration so restored tasks open in the right place.",
+          "The project name in the empty-chat heading is now a picker trigger, Space navigation is normalized through one shared path, and restored tasks open in the right workspace.",
       },
       {
         id: "reliable-diffs-and-git",
@@ -271,9 +271,9 @@ export const WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "workspace-polish",
         title: "Hundreds of small edges feel calmer",
         description:
-          "Sharper Markdown hierarchy, steadier pickers, better composer spacing, smarter sidebar priority, clearer Studio Git controls, and new shortcuts make daily work easier to scan.",
+          "Sharper Markdown hierarchy, steadier pickers, better composer spacing, smarter sidebar priority, clearer Git controls, and new shortcuts make daily work easier to scan.",
         details:
-          "This release also adds Commit and Push from the active task, configurable AppSnap shortcuts, a folder opener in Studio, a slimmer running indicator, reliable Cmd+K search on macOS, fixed PR review counts, safer file-icon lookup, cleaner stacked composer panels, and a global new-task flow that uses the latest project state.",
+          "This release also adds Commit and Push from the active task, configurable AppSnap shortcuts, a slimmer running indicator, reliable Cmd+K search on macOS, fixed PR review counts, safer file-icon lookup, cleaner stacked composer panels, and a global new-task flow that uses the latest project state.",
       },
     ],
   },
@@ -558,10 +558,10 @@ export const WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
           "A durable install marker survives restarts and tracks handoff state, an install watchdog recovers from hung installs, and on macOS dedicated diagnostics capture updater state to make failures actionable.",
       },
       {
-        id: "studio-and-migration-fixes",
-        title: "Studio shortcut and migration fixes",
+        id: "draft-and-migration-fixes",
+        title: "Draft and migration fixes",
         description:
-          "The new-chat keyboard shortcut now routes correctly inside Studio, composer drafts survive the storage migration, and incomplete legacy home imports repair themselves.",
+          "New-chat routing is more reliable, composer drafts survive the storage migration, and incomplete legacy home imports repair themselves.",
         details:
           "Renderer storage migration is guaranteed to run before app hydration, the legacy environment identity is restored from the bridge marker, and checkpoint metadata is canonicalized while keeping existing persisted refs readable.",
       },
@@ -572,22 +572,6 @@ export const WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
     date: "Jul 9",
     features: [
       {
-        id: "studio-workspace",
-        title: "A dedicated Studio workspace for agent-led work",
-        description:
-          "Studio gives long-running, agent-led work its own focused space, keeping it distinct from your regular chats while making it quick to start or revisit.",
-        details:
-          "Studio projects, threads, routing, sidebar rows, empty-state entry points, and restore behavior now share a clear workspace boundary. The release also hardens cross-kind project ownership so a regular chat and a Studio thread cannot accidentally reuse the same container.",
-      },
-      {
-        id: "studio-outputs",
-        title: "Studio outputs are collected where you need them",
-        description:
-          "Files, generated images, and other agent outputs from Studio are surfaced in the Environment panel so finished work is easier to find and open.",
-        details:
-          "The server records Studio output activity and generated-image metadata, then projects it into a dedicated Environment section with resilient display helpers and targeted coverage for output ordering and presentation.",
-      },
-      {
         id: "worktree-setup",
         title: "Starting work in a worktree is more transparent",
         description:
@@ -597,7 +581,7 @@ export const WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
       },
       {
         id: "restore-and-routing-reliability",
-        title: "Returning to a chat or Studio is more reliable",
+        title: "Returning to a chat is more reliable",
         description:
           "Synara is more careful about restoring the right destination after reloads, segment switches, reconnects, and partially completed project creation.",
         details:

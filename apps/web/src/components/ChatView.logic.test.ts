@@ -62,7 +62,7 @@ import {
 } from "./ChatView.logic";
 
 describe("transcript auto-follow signal", () => {
-  it("stays stable when only non-message turn activity changes", () => {
+  it("stays stable when only non-message turn activity or Process progress changes", () => {
     const before = buildTranscriptAutoFollowSignal({
       messageCount: 3,
       tailKey: "assistant-3:assistant:streaming:content",
@@ -952,22 +952,14 @@ describe("environment panel visibility", () => {
 });
 
 describe("git repository UI state", () => {
-  it("waits for positive repository detection in Studio", () => {
+  it("uses repository detection when it is available", () => {
     expect(
       resolveGitRepoUiState({
-        isStudioContainer: true,
-        queriedIsRepo: undefined,
-      }),
-    ).toBe(false);
-    expect(
-      resolveGitRepoUiState({
-        isStudioContainer: true,
         queriedIsRepo: true,
       }),
     ).toBe(true);
     expect(
       resolveGitRepoUiState({
-        isStudioContainer: true,
         queriedIsRepo: false,
       }),
     ).toBe(false);
@@ -976,7 +968,6 @@ describe("git repository UI state", () => {
   it("keeps normal project Git UI stable while discovery is pending", () => {
     expect(
       resolveGitRepoUiState({
-        isStudioContainer: false,
         queriedIsRepo: undefined,
       }),
     ).toBe(true);
@@ -1802,6 +1793,7 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
             role: "user",
             text: "an unrelated message",
             createdAt: "2026-04-13T00:00:00.000Z",
+            streaming: false,
           },
         ],
         session: {
@@ -1880,6 +1872,7 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
             role: "user",
             text: "the submitted message",
             createdAt: "2026-04-13T00:00:01.000Z",
+            streaming: false,
           },
         ],
         session: {
