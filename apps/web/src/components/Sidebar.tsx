@@ -224,6 +224,7 @@ import {
   normalizeSidebarProjectThreadListCwd,
   persistSidebarUiState,
   readSidebarUiState,
+  subscribeSidebarUiState,
 } from "./Sidebar.uiState";
 import {
   getArm64IntelBuildWarningDescription,
@@ -1540,6 +1541,22 @@ export default function Sidebar() {
   const [activityViewEnabled, setActivityViewEnabled] = useState(
     () => readSidebarUiState().activityViewEnabled,
   );
+  // Another tab toggling the Activity view rewrites the shared localStorage
+  // blob; adopt its choice so this tab's next persist doesn't clobber it back.
+  useEffect(
+    () =>
+      subscribeSidebarUiState((state) => {
+        setActivityViewEnabled(state.activityViewEnabled);
+      }),
+    [],
+  );
+  // The swap unmounts one full surface and mounts the other; a transition keeps
+  // the click responsive instead of blocking the main thread on large sidebars.
+  const setActivityViewEnabledSmoothly = useCallback((enabled: boolean) => {
+    startTransition(() => {
+      setActivityViewEnabled(enabled);
+    });
+  }, []);
   const [optimisticActiveThreadId, setOptimisticActiveThreadId] = useState<ThreadId | null>(null);
   const lastThreadRenameTapRef = useRef<{
     threadId: ThreadId;
@@ -5848,9 +5865,9 @@ export default function Sidebar() {
               onPrewarmView={prewarmSidebarViewTarget}
             />
             {/* The keyed content remounts with a short enter animation while the picker
-                  stays mounted so its thumb can glide between Projects and Orchestrator. */}
+                stays mounted across Projects and Orchestrator. */}
             <div
-              key={isOnOrchestrator ? "orchestrator" : "threads"}
+              key={isOnOrchestrator ? "orchestrator" : activityViewEnabled ? "activity" : "threads"}
               className="sidebar-surface-enter"
             >
               {/* Primary sidebar actions stay limited to features we currently ship. */}
@@ -6069,7 +6086,7 @@ export default function Sidebar() {
                         label="Switch to classic view"
                         tooltip="Classic view"
                         tooltipSide="bottom"
-                        onClick={() => setActivityViewEnabled(false)}
+                        onClick={() => setActivityViewEnabledSmoothly(false)}
                       />
                     }
                   />
@@ -6104,7 +6121,7 @@ export default function Sidebar() {
                         label="Switch to activity view"
                         tooltip="Activity view"
                         tooltipSide="bottom"
-                        onClick={() => setActivityViewEnabled(true)}
+                        onClick={() => setActivityViewEnabledSmoothly(true)}
                       />
                       {standardProjects.length > 0 ? (
                         <SidebarIconButton
