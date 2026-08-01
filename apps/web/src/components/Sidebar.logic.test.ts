@@ -37,7 +37,6 @@ import {
   resolveTaskNavigationSignal,
   resolveSidebarThreadListPaging,
   resolveProjectEmptyState,
-  resolvePendingSidebarViewSelection,
   resolveSettingsBackTarget,
   resolveProjectStatusIndicator,
   resolveSidebarNewThreadEnvMode,
@@ -72,16 +71,6 @@ function makeLatestTurn(overrides?: {
     completedAt: overrides?.completedAt ?? "2026-03-09T10:05:00.000Z",
   };
 }
-
-describe("resolvePendingSidebarViewSelection", () => {
-  it("optimistically follows a destination segment", () => {
-    expect(resolvePendingSidebarViewSelection("threads", "orchestrator")).toBe("orchestrator");
-  });
-
-  it("clears the optimistic segment when the user returns to the active view", () => {
-    expect(resolvePendingSidebarViewSelection("threads", "threads")).toBeNull();
-  });
-});
 
 describe("isProjectsSidebarSurface", () => {
   it("enables Space shortcuts only where the Space switcher is visible", () => {
