@@ -193,7 +193,7 @@ export function AdvancedSettingsPanel(props: {
             ))
           )}
         </div>
-        <p className="mt-2 text-[11px] text-muted-foreground">
+        <p className="px-3 pb-3 pt-2 text-[11px] text-muted-foreground">
           Read-only registry inspection. Orchestration strategy remains developer-controlled.
         </p>
       </SettingsSection>
