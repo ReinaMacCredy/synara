@@ -6183,9 +6183,7 @@ export default function Sidebar() {
                         visualActiveSidebarThreadId === thread.id,
                       )
                     }
-                    onCreateChat={() => {
-                      void handleCreateHomeChat();
-                    }}
+                    onCreateChat={handlePrimaryNewThread}
                     onAddProject={handleStartAddProject}
                   />
                 </SidebarGroup>
