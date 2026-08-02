@@ -24,6 +24,29 @@ describe("composerDraftStore stable empty draft identity", () => {
     const after = selectComposerThreadDraft(useComposerDraftStore.getState(), missingThreadId);
     expect(after).toBe(before);
   });
+
+  it.each([
+    { initialPrompt: "draft", nextPrompt: "draft" },
+    { initialPrompt: null, nextPrompt: "" },
+  ])(
+    "does not publish an update when prompt text is unchanged ($initialPrompt -> $nextPrompt)",
+    ({ initialPrompt, nextPrompt }) => {
+      resetComposerDraftStore();
+      const threadId = ThreadId.makeUnsafe("thread-unchanged-prompt");
+      if (initialPrompt !== null) {
+        useComposerDraftStore.getState().setPrompt(threadId, initialPrompt);
+      }
+      const stateBefore = useComposerDraftStore.getState();
+      const subscriber = vi.fn();
+      const unsubscribe = useComposerDraftStore.subscribe(subscriber);
+
+      useComposerDraftStore.getState().setPrompt(threadId, nextPrompt);
+
+      expect(useComposerDraftStore.getState()).toBe(stateBefore);
+      expect(subscriber).not.toHaveBeenCalled();
+      unsubscribe();
+    },
+  );
 });
 
 describe("composerDraftStore clearComposerContent", () => {

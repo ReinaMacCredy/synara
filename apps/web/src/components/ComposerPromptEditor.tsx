@@ -963,6 +963,7 @@ function ComposerPromptEditorInner({
     terminalContextIds: terminalContexts.map((context) => context.id),
   });
   const isApplyingControlledUpdateRef = useRef(false);
+  const pendingEditorValueRef = useRef<string | null>(null);
 
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -994,12 +995,36 @@ function ComposerPromptEditorInner({
     const previousSnapshot = snapshotRef.current;
     const contextsChanged = terminalContextsSignatureRef.current !== terminalContextsSignature;
     const mentionsChanged = mentionsSignatureRef.current !== mentionsSignature;
-    if (
-      previousSnapshot.value === value &&
-      previousSnapshot.cursor === normalizedCursor &&
-      !contextsChanged &&
-      !mentionsChanged
-    ) {
+    const rootElement = editor.getRootElement();
+    const isFocused = Boolean(rootElement && document.activeElement === rootElement);
+    const pendingEditorValue = pendingEditorValueRef.current;
+    if (pendingEditorValue !== null) {
+      if (value === pendingEditorValue) {
+        pendingEditorValueRef.current = null;
+      } else if (isFocused) {
+        return;
+      } else {
+        pendingEditorValueRef.current = null;
+      }
+    }
+    const editorContentChanged =
+      previousSnapshot.value !== value || contextsChanged || mentionsChanged;
+
+    if (!editorContentChanged) {
+      if (previousSnapshot.cursor === normalizedCursor) {
+        return;
+      }
+      // A focused editor owns its live selection. The parent cursor can lag one
+      // render behind an editor change and must not be written back into Lexical.
+      if (isFocused) {
+        return;
+      }
+      snapshotRef.current = {
+        ...previousSnapshot,
+        cursor: normalizedCursor,
+        expandedCursor: expandCollapsedComposerCursor(value, normalizedCursor),
+        selectionCollapsed: true,
+      };
       return;
     }
 
@@ -1013,22 +1038,10 @@ function ComposerPromptEditorInner({
     terminalContextsSignatureRef.current = terminalContextsSignature;
     mentionsSignatureRef.current = mentionsSignature;
 
-    const rootElement = editor.getRootElement();
-    const isFocused = Boolean(rootElement && document.activeElement === rootElement);
-    if (previousSnapshot.value === value && !contextsChanged && !mentionsChanged && !isFocused) {
-      return;
-    }
-
     isApplyingControlledUpdateRef.current = true;
     editor.update(() => {
-      const shouldRewriteEditorState =
-        previousSnapshot.value !== value || contextsChanged || mentionsChanged;
-      if (shouldRewriteEditorState) {
-        $setComposerEditorPrompt(value, terminalContexts, mentionReferences);
-      }
-      if (shouldRewriteEditorState || isFocused) {
-        $setSelectionAtComposerOffset(normalizedCursor);
-      }
+      $setComposerEditorPrompt(value, terminalContexts, mentionReferences);
+      $setSelectionAtComposerOffset(normalizedCursor);
     });
     queueMicrotask(() => {
       isApplyingControlledUpdateRef.current = false;
@@ -1173,6 +1186,9 @@ function ComposerPromptEditorInner({
       }
       if (isApplyingControlledUpdateRef.current) {
         return;
+      }
+      if (previousSnapshot.value !== nextValue) {
+        pendingEditorValueRef.current = nextValue;
       }
       snapshotRef.current = {
         value: nextValue,

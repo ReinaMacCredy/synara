@@ -569,9 +569,12 @@ export const createComposerDraftStoreState =
         return;
       }
       set((state) => {
-        const existing = state.draftsByThreadId[threadId] ?? createEmptyThreadDraft();
+        const existing = state.draftsByThreadId[threadId];
+        if ((existing?.prompt ?? "") === prompt) {
+          return state;
+        }
         const nextDraft: ComposerThreadDraftState = {
-          ...existing,
+          ...(existing ?? createEmptyThreadDraft()),
           prompt,
         };
         const nextDraftsByThreadId = { ...state.draftsByThreadId };
