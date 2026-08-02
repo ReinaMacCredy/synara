@@ -2,17 +2,17 @@ import { createHash, randomUUID } from "node:crypto";
 
 import {
   ArtifactId,
-  AssignmentCompletionEvidence,
   AssignmentContract,
   AssignmentId,
   ChildContinuity,
   CommandId,
   ContextBundleId,
-  MessageId,
   ModelSelection,
   MonitorId,
   OrchestrationCommand,
   OrchestratorArtifact,
+  OrchestratorPublishArtifactInput,
+  OrchestratorReportStatusInput,
   OrchestratorLinkId,
   OrchestratorMessageId,
   OrchestratorDecisionReason,
@@ -22,7 +22,6 @@ import {
   ProjectTaskId,
   TaskDependencyEdgeId,
   TaskProcessId,
-  TaskProgressEntryId,
   TaskThreadBindingId,
   ThreadId,
   TurnId,
@@ -88,6 +87,14 @@ const objectSchema = (
   properties: Readonly<Record<string, unknown>>,
   required: ReadonlyArray<string> = [],
 ): JsonSchema => ({ type: "object", properties, required, additionalProperties: false });
+
+const projectSchema = (schema: Schema.Top): JsonSchema => {
+  const document = Schema.toJsonSchemaDocument(schema);
+  return {
+    ...document.schema,
+    ...(Object.keys(document.definitions).length === 0 ? {} : { $defs: document.definitions }),
+  };
+};
 
 const integer = { type: "integer", minimum: 0 } as const;
 const stringArray = (maxItems = 128) => ({
@@ -309,6 +316,8 @@ const asToolError = (error: unknown): OrchestratorToolExecutionResult =>
   orchestratorToolFailure(
     error instanceof OrchestratorToolError
       ? error
+      : error instanceof ToolInputError
+        ? new OrchestratorToolError("orchestrator_tool_input_invalid", error.message)
       : new OrchestratorToolError("orchestrator_tool_failed", errorText(error)),
   );
 
@@ -586,8 +595,11 @@ export function makeOrchestratorTools(
             ),
           );
         }
-        return yield* definition.handle(args, context, authority);
-      }).pipe(Effect.catch((error) => Effect.succeed(asToolError(error)))),
+        return yield* Effect.suspend(() => definition.handle(args, context, authority));
+      }).pipe(
+        Effect.catch((error) => Effect.succeed(asToolError(error))),
+        Effect.catchDefect((defect) => Effect.succeed(asToolError(defect))),
+      ),
   });
 
   const entries: OrchestratorToolEntry[] = [];
@@ -1513,20 +1525,25 @@ export function makeOrchestratorTools(
             contract,
           });
           if (startInitialTurn) {
-            const messageId = MessageId.makeUnsafe(
+            const messageId = OrchestratorMessageId.makeUnsafe(
               `orchestrator-assignment:${assignmentId}:v${contractVersion}:initial`,
             );
             yield* context.assertCallerTurnActive();
             yield* dispatch({
-              type: "thread.turn.start",
-              commandId: CommandId.makeUnsafe(
-                `orchestrator-assignment:${assignmentId}:v${contractVersion}:turn-start`,
-              ),
-              threadId: contract.assigneeThreadId,
+              type: "orchestrator.message.enqueue",
+              ...rootCommandBase(authority, assignmentExpectedRevision + 1),
               message: {
                 messageId,
-                role: "thread",
-                text: renderAssignmentPrompt({
+                rootThreadId: authority.rootThreadId,
+                senderThreadId: authority.callerThreadId,
+                targetThreadId: contract.assigneeThreadId,
+                assignmentId,
+                runId: null,
+                correlationId: null,
+                replyToMessageId: null,
+                hopCount: 0,
+                expiresAt: new Date(Date.parse(timestamp) + 10 * 60 * 1_000).toISOString(),
+                body: renderAssignmentPrompt({
                   assignmentId,
                   taskId,
                   goal,
@@ -1535,26 +1552,12 @@ export function makeOrchestratorTools(
                   workingAssumptions,
                   contextBundle,
                 }),
-                attachments: [],
+                artifactRefs: contextBundle?.artifactRefs ?? [],
+                deliveryState: "queued",
+                deliveryAttemptId: null,
+                createdAt: timestamp,
+                updatedAt: timestamp,
               },
-              modelSelection,
-              dispatchMode: "queue",
-              dispatchOrigin: "orchestrator",
-              threadOrigin: {
-                messageId,
-                rootThreadId: authority.rootThreadId,
-                senderThreadId: authority.callerThreadId,
-                targetThreadId: contract.assigneeThreadId,
-                assignmentId,
-                runId: null,
-                correlationId: assignmentId,
-                replyToMessageId: null,
-                hopCount: 0,
-                artifactRefs: [],
-              },
-              runtimeMode,
-              interactionMode: "default",
-              createdAt: timestamp,
             });
           }
           const graph = yield* getGraph(authority);
@@ -1813,22 +1816,16 @@ export function makeOrchestratorTools(
 
   entries.push(
     makeEntry({
-        name: "publish_artifact",
+      name: "publish_artifact",
       description:
         "Publish one immutable bounded artifact with caller-derived Root and producer identity.",
-      inputSchema: objectSchema(
-        {
-          ...expectedRevisionSchema,
-          artifact: { type: "object" },
-        },
-        ["expectedRevision", "artifact"],
-      ),
+      inputSchema: projectSchema(OrchestratorPublishArtifactInput),
       handle: (args, _context, authority) => {
-        const raw = readRequiredRecord(args, "artifact");
+        const input = decode(OrchestratorPublishArtifactInput, args, "publish_artifact");
         const artifact = decode(
           OrchestratorArtifact,
           {
-            ...raw,
+            ...input.artifact,
             rootThreadId: authority.rootThreadId,
             producerThreadId: authority.callerThreadId,
           },
@@ -1836,7 +1833,7 @@ export function makeOrchestratorTools(
         ) as OrchestratorArtifact;
         return dispatch({
           type: "orchestrator.artifact.publish",
-          ...rootCommandBase(authority, readInteger(args, "expectedRevision", { required: true })!),
+          ...rootCommandBase(authority, input.expectedRevision),
           artifact,
         }).pipe(Effect.map((result) => orchestratorToolSuccess(result)));
       },
@@ -2020,66 +2017,29 @@ export function makeOrchestratorTools(
 
   entries.push(
     makeEntry({
-        name: "report_status",
+      name: "report_status",
       description:
-        "Record structured assignment status and evidence. This cannot assert task readiness or semantic completion.",
-      inputSchema: objectSchema(
-        {
-          ...expectedRevisionSchema,
-          expectedProcessRevision: integer,
-          progressId: { type: "string" },
-          progressKind: {
-            type: "string",
-            enum: ["progress", "waiting", "blocker", "failure", "completion_evidence"],
-          },
-          progressEvidenceRefs: stringArray(),
-          assignmentId: { type: "string" },
-          taskId: { type: "string" },
-          state: { type: "string" },
-          summary: { type: "string" },
-          evidence: { type: ["object", "null"] },
-        },
-        [
-          "expectedRevision",
-          "expectedProcessRevision",
-          "progressId",
-          "progressKind",
-          "progressEvidenceRefs",
-          "assignmentId",
-          "taskId",
-          "state",
-          "summary",
-        ],
-      ),
+        "Record structured assignment status and evidence. Completion evidence must reference durable artifacts published first. This cannot assert task readiness or semantic completion.",
+      inputSchema: projectSchema(OrchestratorReportStatusInput),
       handle: (args, _context, authority) => {
         const processId = authority.core.root.root.activeProcessId;
         if (processId === null) {
           return Effect.fail(new ToolInputError("This Root has no active TaskProcess."));
         }
+        const input = decode(OrchestratorReportStatusInput, args, "report_status");
         return dispatch({
           type: "orchestrator.assignment.status.report",
-          ...rootCommandBase(authority, readInteger(args, "expectedRevision", { required: true })!),
+          ...rootCommandBase(authority, input.expectedRevision),
           processId,
-          expectedProcessRevision: readInteger(args, "expectedProcessRevision", {
-            required: true,
-          })!,
-          progressId: TaskProgressEntryId.makeUnsafe(
-            readStringArg(args, "progressId", { required: true })!,
-          ),
-          progressKind: readStringArg(args, "progressKind", { required: true })! as never,
-          progressEvidenceRefs: readStrings(args, "progressEvidenceRefs", {
-            required: true,
-          })!.map((artifactId) => ArtifactId.makeUnsafe(artifactId)),
-          assignmentId: AssignmentId.makeUnsafe(
-            readStringArg(args, "assignmentId", { required: true })!,
-          ),
-          taskId: ProjectTaskId.makeUnsafe(readStringArg(args, "taskId", { required: true })!),
-          state: readStringArg(args, "state", { required: true })! as never,
-          summary: readStringArg(args, "summary", { required: true })!,
-          evidence:
-            args.evidence === null || args.evidence === undefined
-              ? null
-              : decode(AssignmentCompletionEvidence, args.evidence, "evidence"),
+          expectedProcessRevision: input.expectedProcessRevision,
+          progressId: input.progressId,
+          progressKind: input.progressKind,
+          progressEvidenceRefs: input.progressEvidenceRefs,
+          assignmentId: input.assignmentId,
+          taskId: input.taskId,
+          state: input.state,
+          summary: input.summary,
+          evidence: input.evidence,
         }).pipe(Effect.map((result) => orchestratorToolSuccess(result)));
       },
     }),

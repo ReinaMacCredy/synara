@@ -249,6 +249,103 @@ describe("Orchestrator tools", () => {
     ]);
   });
 
+  it("advertises the canonical report-status and artifact schemas to providers", () => {
+    const { tools } = makeTools();
+    const report = tools.find((tool) => tool.definition.name === "report_status")!;
+    const publish = tools.find((tool) => tool.definition.name === "publish_artifact")!;
+    const reportSchema = report.definition.inputSchema as {
+      readonly required: ReadonlyArray<string>;
+      readonly properties: {
+        readonly state: { readonly anyOf: ReadonlyArray<{ readonly enum: ReadonlyArray<string> }> };
+        readonly evidence: {
+          readonly anyOf: ReadonlyArray<{
+            readonly type: string;
+            readonly required?: ReadonlyArray<string>;
+          }>;
+        };
+      };
+    };
+    const publishSchema = publish.definition.inputSchema as {
+      readonly properties: {
+        readonly artifact: {
+          readonly properties: Readonly<Record<string, unknown>>;
+          readonly required: ReadonlyArray<string>;
+        };
+      };
+    };
+
+    expect(reportSchema.required).toContain("evidence");
+    expect(reportSchema.properties.state.anyOf.flatMap((branch) => branch.enum)).toContain(
+      "reported_complete",
+    );
+    expect(
+      reportSchema.properties.evidence.anyOf.find((branch) => branch.type === "object")?.required,
+    ).toEqual(
+      expect.arrayContaining([
+        "assignmentId",
+        "taskId",
+        "summary",
+        "checks",
+        "artifactRefs",
+        "reportedAt",
+      ]),
+    );
+    expect(publishSchema.properties.artifact.required).toEqual(
+      expect.arrayContaining(["id", "kind", "contentHash", "content", "sourceRefs", "createdAt"]),
+    );
+    expect(publishSchema.properties.artifact.properties).not.toHaveProperty("rootThreadId");
+    expect(publishSchema.properties.artifact.properties).not.toHaveProperty("producerThreadId");
+  });
+
+  it.each([
+    {
+      name: "missing report task identity",
+      toolName: "report_status" as const,
+      args: {
+        expectedRevision: 7,
+        expectedProcessRevision: 3,
+        progressId: "progress-missing-task",
+        progressKind: "completion_evidence",
+        progressEvidenceRefs: [],
+        assignmentId: "assignment",
+        state: "reported_complete",
+        summary: "Completed",
+        evidence: null,
+      },
+    },
+    {
+      name: "malformed nested completion evidence",
+      toolName: "report_status" as const,
+      args: {
+        expectedRevision: 7,
+        expectedProcessRevision: 3,
+        progressId: "progress-bad-evidence",
+        progressKind: "completion_evidence",
+        progressEvidenceRefs: [],
+        assignmentId: "assignment",
+        taskId: "task",
+        state: "reported_complete",
+        summary: "Completed",
+        evidence: { ackCode: "DEMO-LIVE-ACK" },
+      },
+    },
+    {
+      name: "malformed artifact",
+      toolName: "publish_artifact" as const,
+      args: { expectedRevision: 7, artifact: {} },
+    },
+  ])("returns a recoverable native tool failure for $name", async ({ toolName, args }) => {
+    const { tools } = makeTools();
+    const tool = tools.find((candidate) => candidate.definition.name === toolName)!;
+
+    await expect(Effect.runPromise(tool.execute(args, context(rootThreadId)))).resolves.toMatchObject(
+      {
+        ok: false,
+        error: { code: "orchestrator_tool_input_invalid" },
+      },
+    );
+  });
+
   it("lets Root grant a scoped sibling link without making Root an endpoint", async () => {
     const peerTwoThreadId = ThreadId.makeUnsafe("participant-two");
     const { tools, dispatched } = makeTools({
@@ -612,7 +709,7 @@ describe("Orchestrator tools", () => {
       "thread.create",
       "orchestrator.child.attach",
       "orchestrator.assignment.create",
-      "thread.turn.start",
+      "orchestrator.message.enqueue",
     ]);
     expect(providerCapabilityRequests).toEqual([
       { provider: "codex", model: "gpt-5.4-mini" },
@@ -646,11 +743,17 @@ describe("Orchestrator tools", () => {
       contract: { assignmentId, assigneeThreadId: childThreadId },
     });
     expect(dispatched[3]).toMatchObject({
-      type: "thread.turn.start",
-      threadId: childThreadId,
-      message: { role: "thread" },
-      dispatchOrigin: "orchestrator",
-      threadOrigin: { senderThreadId: rootThreadId, assignmentId },
+      type: "orchestrator.message.enqueue",
+      message: {
+        messageId: `orchestrator-assignment:${assignmentId}:v1:initial`,
+        senderThreadId: rootThreadId,
+        targetThreadId: childThreadId,
+        assignmentId,
+        correlationId: null,
+        replyToMessageId: null,
+        hopCount: 0,
+        deliveryState: "queued",
+      },
     });
   });
 

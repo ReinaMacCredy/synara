@@ -333,9 +333,8 @@ export const OrchestratorArtifactVisibility = Schema.Literals([
   "root_released",
   "public",
 ]);
-export const OrchestratorArtifact = Schema.Struct({
+const OrchestratorArtifactInputFields = {
   id: ArtifactId,
-  rootThreadId: ThreadId,
   runId: Schema.NullOr(OrchestratorRunId),
   round: Schema.NullOr(PositiveInt),
   kind: Schema.Literals([
@@ -350,12 +349,18 @@ export const OrchestratorArtifact = Schema.Struct({
   ]),
   contentHash: TrimmedNonEmptyString,
   content: BoundedText,
-  producerThreadId: ThreadId,
   visibility: OrchestratorArtifactVisibility,
   sourceRefs: StringRefs,
   supersedesArtifactId: Schema.NullOr(ArtifactId),
   schemaVersion: PositiveInt,
   createdAt: IsoDateTime,
+} as const;
+export const OrchestratorArtifactInput = Schema.Struct(OrchestratorArtifactInputFields);
+export type OrchestratorArtifactInput = typeof OrchestratorArtifactInput.Type;
+export const OrchestratorArtifact = Schema.Struct({
+  ...OrchestratorArtifactInputFields,
+  rootThreadId: ThreadId,
+  producerThreadId: ThreadId,
 });
 export type OrchestratorArtifact = typeof OrchestratorArtifact.Type;
 
@@ -1065,6 +1070,10 @@ export const OrchestratorReadChildInput = Schema.Struct({
   ]),
   cursor: Schema.optional(TrimmedNonEmptyString),
   limit: Schema.optional(PositiveInt.check(Schema.isLessThanOrEqualTo(200))),
+});
+export const OrchestratorPublishArtifactInput = Schema.Struct({
+  expectedRevision: NonNegativeInt,
+  artifact: OrchestratorArtifactInput,
 });
 export const OrchestratorReportStatusInput = Schema.Struct({
   expectedRevision: NonNegativeInt,
