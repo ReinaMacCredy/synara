@@ -42,6 +42,18 @@ function messageEntry(
   } as TimelineEntry;
 }
 
+function dispatchedUserEntry(
+  id: string,
+  text: string,
+  dispatchOrigin: "agent" | "orchestrator" | "automation",
+): TimelineEntry {
+  const entry = messageEntry(id, "user", text) as Extract<TimelineEntry, { kind: "message" }>;
+  return {
+    ...entry,
+    message: { ...entry.message, dispatchOrigin },
+  };
+}
+
 function workEntry(id: string): TimelineEntry {
   return {
     id,
@@ -70,6 +82,23 @@ describe("deriveMessageTrailItems", () => {
       MessageId.makeUnsafe("u2"),
     ]);
     expect(items.map((item) => item.ordinal)).toEqual([1, 2]);
+  });
+
+  it("includes canonical peer-delivered prompts but excludes automation turns", () => {
+    const items = deriveMessageTrailItems([
+      messageEntry("u1", "user", "direct prompt"),
+      dispatchedUserEntry("peer-agent", "peer prompt", "agent"),
+      dispatchedUserEntry("peer-orchestrator", "root prompt", "orchestrator"),
+      dispatchedUserEntry("automation", "scheduled notification", "automation"),
+      messageEntry("automation-reply", "assistant", "scheduled result"),
+    ]);
+
+    expect(items.map((item) => item.id)).toEqual([
+      MessageId.makeUnsafe("u1"),
+      MessageId.makeUnsafe("peer-agent"),
+      MessageId.makeUnsafe("peer-orchestrator"),
+    ]);
+    expect(items.at(-1)?.responsePreview).toBe("");
   });
 
   it("collapses whitespace and caps very long previews", () => {

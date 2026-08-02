@@ -23,7 +23,7 @@ export function RightDockProcessPanelView(props: {
   readonly onOpenProcess: (processId: TaskProcessId) => void;
 }) {
   if (!props.summary) {
-    return <PanelStateMessage>No active Process is attached to this Root.</PanelStateMessage>;
+    return <PanelStateMessage>No active task plan is attached to this Root.</PanelStateMessage>;
   }
   const counts = props.summary.counts;
   return (
@@ -71,7 +71,7 @@ export function RightDockProcessPanelView(props: {
             variant="outline"
             onClick={() => props.onOpenProcess(props.summary!.process.id)}
           >
-            Open full process
+            Open task board
           </Button>
         </div>
       ) : null}

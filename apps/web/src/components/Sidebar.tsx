@@ -21,6 +21,7 @@ import {
   SearchIcon,
   SettingsIcon,
   StopFilledIcon,
+  ProcessIcon,
   TemporaryThreadIcon,
   TerminalIcon,
   Trash2,
@@ -144,7 +145,11 @@ import {
   resolveNewThreadModelPrefetchCwd,
   resolveNewThreadModelPrefetchProvider,
 } from "../lib/providerModelPrefetch";
-import { serverConfigQueryOptions } from "../lib/serverReactQuery";
+import {
+  serverConfigQueryOptions,
+  taskProcessesQueryOptions,
+  taskProcessSummaryQueryOptions,
+} from "../lib/serverReactQuery";
 import { readNativeApi } from "../nativeApi";
 import { isHomeChatContainerProject, prewarmHomeChatProject } from "../lib/chatProjects";
 import {
@@ -293,6 +298,7 @@ import {
   pruneProjectThreadListPagingForCollapsedProjects,
   recoverExistingAddProjectTarget,
   resolvePullRequestReviewBadge,
+  resolveTaskNavigationSignal,
   resolveSidebarThreadListPaging,
   DEBUG_FEATURE_FLAGS_MENU_STORAGE_KEY,
   resolveProjectEmptyState,
@@ -975,17 +981,24 @@ function ThreadSortMenuItems({
 function ChatSortMenu({
   threadSortOrder,
   onThreadSortOrderChange,
+  disabled: disabledProp,
+  disabledTooltip,
 }: {
   threadSortOrder: SidebarThreadSortOrder;
   onThreadSortOrderChange: (sortOrder: SidebarThreadSortOrder) => void;
+  disabled?: boolean;
+  disabledTooltip?: string;
 }) {
+  const disabled = disabledProp ?? false;
   return (
     <Menu>
       <SidebarIconButton
         render={<MenuTrigger />}
         icon={SortFilterIcon}
         label="Sort chats"
-        tooltip="Sort chats"
+        disabled={disabled}
+        className="disabled:cursor-default disabled:opacity-45"
+        tooltip={disabled ? (disabledTooltip ?? "Sorting is unavailable") : "Sort chats"}
         tooltipSide="top"
       />
       <ComposerPickerMenuPopup align="end" side="bottom" className="min-w-44">
@@ -1011,6 +1024,7 @@ function SidebarPrimaryAction({
   disabled: disabledProp,
   shortcutLabel,
   badge,
+  activity: activityProp,
 }: {
   // Accepts both Lucide adapters and raw react-icons glyphs (rendered via SidebarGlyph).
   icon: ComponentType<{ className?: string }>;
@@ -1022,11 +1036,13 @@ function SidebarPrimaryAction({
   disabled?: boolean;
   shortcutLabel?: string | null;
   badge?: SidebarActionBadge | null;
+  activity?: boolean;
 }) {
   // Defaults live in the body, not the destructuring pattern: an AssignmentPattern in
   // the parameter list makes React Compiler bail out on the whole component.
   const active = activeProp ?? false;
   const disabled = disabledProp ?? false;
+  const activity = activityProp ?? false;
   const shortcutParts = shortcutLabel ? splitShortcutLabel(shortcutLabel) : [];
 
   return (
@@ -1054,12 +1070,23 @@ function SidebarPrimaryAction({
         <span className="truncate">{label}</span>
         {badge ? (
           <span
-            className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-md bg-muted px-1 text-[10px] font-medium text-muted-foreground"
+            className={cn(
+              "ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-md px-1 text-[10px] font-medium",
+              badge.tone === "attention"
+                ? "bg-amber-500/15 text-amber-700 dark:text-amber-300"
+                : "bg-muted text-muted-foreground",
+            )}
             aria-label={badge.accessibleLabel}
             title={badge.accessibleLabel}
           >
             {badge.text}
           </span>
+        ) : activity ? (
+          <span
+            className="ml-auto size-1.5 rounded-full bg-muted-foreground/55"
+            aria-label="Tasks are running"
+            title="Tasks are running"
+          />
         ) : shortcutParts.length > 0 ? (
           <span className="ml-auto opacity-0 transition-opacity group-hover/sidebar-primary-action:opacity-100 group-focus-visible/sidebar-primary-action:opacity-100">
             <KbdGroup>
@@ -1300,6 +1327,7 @@ export default function Sidebar() {
   const isOnOrchestratorRoute = pathname.startsWith("/orchestrator");
   const isOnAutomations = pathname.startsWith("/automations");
   const isOnPullRequests = pathname.startsWith("/pull-requests");
+  const isOnTasks = pathname.startsWith("/tasks") || pathname.includes("/tasks/");
   // Lightweight read of automations to drive the sidebar attention badge. Shares the
   // ["automations"] query cache with the Automations route (and its live stream updates).
   const automationListQuery = useQuery({
@@ -1478,6 +1506,7 @@ export default function Sidebar() {
   const { activeProjectId: focusedProjectId } = useFocusedChatContext();
   const latestProjectId = useLatestProjectStore((state) => state.latestProjectId);
   const [createProjectDialogOpen, setCreateProjectDialogOpen] = useState(false);
+  const [createProjectReturnToOrchestrator, setCreateProjectReturnToOrchestrator] = useState(false);
   const [searchPaletteOpen, setSearchPaletteOpen] = useState(false);
   const openFeedbackDialog = useFeedbackDialogStore((state) => state.openDialog);
   const [searchPaletteMode, setSearchPaletteMode] = useState<SidebarSearchPaletteMode>("search");
@@ -1492,6 +1521,9 @@ export default function Sidebar() {
   >(() => new Map(Object.entries(readSidebarUiState().projectThreadListExtraPagesByCwd)));
   const [chatSectionExpanded, setChatSectionExpanded] = useState(
     () => readSidebarUiState().chatSectionExpanded,
+  );
+  const [orchestratorRootsSectionExpanded, setOrchestratorRootsSectionExpanded] = useState(
+    () => readSidebarUiState().orchestratorRootsSectionExpanded,
   );
   const [chatThreadListExtraPages, setChatThreadListExtraPages] = useState(
     () => readSidebarUiState().chatThreadListExtraPages,
@@ -2336,11 +2368,17 @@ export default function Sidebar() {
     await handleNewChat({ fresh: true });
   }, [handleNewChat]);
   const handleCreateOrchestrator = useCallback(() => {
+    const projectId = focusedProjectId ?? orchestratorRoots[0]?.projectId ?? null;
+    if (!projectId) {
+      setCreateProjectReturnToOrchestrator(true);
+      setCreateProjectDialogOpen(true);
+      return;
+    }
     void navigate({
       to: "/orchestrator",
-      search: focusedProjectId ? { projectId: focusedProjectId } : {},
+      search: { projectId },
     });
-  }, [focusedProjectId, navigate]);
+  }, [focusedProjectId, navigate, orchestratorRoots]);
 
   const addProjectFromPath = useCallback(
     async (
@@ -2465,6 +2503,11 @@ export default function Sidebar() {
     setCreateProjectDialogOpen(true);
   }, []);
 
+  const handleStartAddProjectForOrchestrator = useCallback(() => {
+    setCreateProjectReturnToOrchestrator(true);
+    setCreateProjectDialogOpen(true);
+  }, []);
+
   const activeSpaceProjects = useMemo(
     () => ordinarySpaceProjects.filter((project) => (project.spaceId ?? null) === activeSpaceId),
     [activeSpaceId, ordinarySpaceProjects],
@@ -2485,6 +2528,101 @@ export default function Sidebar() {
       }),
     [currentProjectShortcutTargetId, latestUsableProjectId],
   );
+  const activeOrchestratorRootId = routeThreadId
+    ? (orchestratorRootIdByThreadId.get(routeThreadId) ?? null)
+    : null;
+  const activeOrchestratorRoot = activeOrchestratorRootId
+    ? (orchestratorRootByThreadId.get(activeOrchestratorRootId) ?? null)
+    : null;
+  const tasksProjectId = primaryNewThreadTarget?.projectId ?? null;
+  const taskProcessesQuery = useQuery(
+    taskProcessesQueryOptions({
+      projectId: tasksProjectId ?? ProjectId.makeUnsafe("sidebar-tasks-pending"),
+      includeArchived: false,
+      enabled: !isOnOrchestrator && tasksProjectId !== null,
+    }),
+  );
+  const projectTaskProcessId = resolveUserOwnedTaskProcessId(taskProcessesQuery.data?.items ?? []);
+  const activeTaskProcessId = isOnOrchestrator
+    ? (activeOrchestratorRoot?.activeProcessId ?? null)
+    : projectTaskProcessId;
+  const taskProcessSummaryQuery = useQuery({
+    ...taskProcessSummaryQueryOptions(
+      activeTaskProcessId ?? TaskProcessId.makeUnsafe("sidebar-task-summary-pending"),
+    ),
+    enabled: activeTaskProcessId !== null,
+  });
+  const taskNavigationSignal = resolveTaskNavigationSignal(taskProcessSummaryQuery.data?.summary);
+
+  const openOrCreateProjectTasks = useCallback(
+    async (projectId: ProjectId) => {
+      const api = readNativeApi();
+      const project = projectById.get(projectId);
+      if (!api || !project) return;
+      const result = await api.orchestration.listTaskProcesses({
+        projectId,
+        includeArchived: false,
+        limit: 100,
+      });
+      let processId = resolveUserOwnedTaskProcessId(result.items);
+      if (!processId) {
+        processId = TaskProcessId.makeUnsafe(randomUUID());
+        await api.orchestration.dispatchTaskProcessCommand({
+          command: {
+            type: "task-process.create",
+            commandId: newCommandId(),
+            processId,
+            projectId,
+            actor: { kind: "user", actorId: "owner" },
+            expectedRevision: 0,
+            createdAt: new Date().toISOString(),
+            title: `${project.name} Tasks`,
+            owner: { kind: "user" },
+          },
+        });
+      }
+      void navigate({ to: "/tasks/$processId", params: { processId } });
+    },
+    [navigate, projectById],
+  );
+
+  const handleOpenTasks = useCallback(() => {
+    if (isOnOrchestrator) {
+      const rootThreadId = activeOrchestratorRoot?.rootThreadId;
+      const processId = activeOrchestratorRoot?.activeProcessId;
+      if (!rootThreadId || !processId) {
+        toastManager.add({
+          type: "info",
+          title: "No active task plan",
+          description: "This Root has not created a task plan yet.",
+        });
+        return;
+      }
+      void navigate({
+        to: "/orchestrator/$rootThreadId/tasks/$processId",
+        params: { rootThreadId, processId },
+      });
+      return;
+    }
+    if (!tasksProjectId) {
+      handleStartAddProject();
+      return;
+    }
+    void openOrCreateProjectTasks(tasksProjectId).catch((error) => {
+      toastManager.add({
+        type: "error",
+        title: "Unable to open Tasks",
+        description: error instanceof Error ? error.message : "The task board could not be opened.",
+      });
+    });
+  }, [
+    activeOrchestratorRoot,
+    handleStartAddProject,
+    isOnOrchestrator,
+    navigate,
+    openOrCreateProjectTasks,
+    tasksProjectId,
+  ]);
 
   // Warm model discovery before ChatView mounts so new-thread composers skip
   // the "Loading models" skeleton when React Query already has a fresh cache hit.
@@ -3136,6 +3274,7 @@ export default function Sidebar() {
       setLastThreadRoute(nextLastThreadRoute);
       persistSidebarUiState({
         chatSectionExpanded,
+        orchestratorRootsSectionExpanded,
         chatThreadListExtraPages,
         projectThreadListExtraPagesByCwd: Object.fromEntries(threadListExtraPagesByProjectCwd),
         dismissedThreadStatusKeyByThreadId,
@@ -3146,6 +3285,7 @@ export default function Sidebar() {
       chatSectionExpanded,
       chatThreadListExtraPages,
       dismissedThreadStatusKeyByThreadId,
+      orchestratorRootsSectionExpanded,
       threadListExtraPagesByProjectCwd,
     ],
   );
@@ -3253,11 +3393,28 @@ export default function Sidebar() {
       // Land on the destination space before creating so the sidebar follows the
       // new project's thread instead of bouncing back to the previous space.
       handleSelectSpaceForIncomingProject(destinationSpaceId);
-      try {
+      const runAddProject = async () => {
         await addProjectFromPath(value.workspaceRoot, {
           createIfMissing: value.createIfMissing,
           spaceId: value.spaceId,
         });
+        if (!createProjectReturnToOrchestrator) return;
+
+        const snapshot = await readNativeApi()?.orchestration.getShellSnapshot();
+        const project = snapshot
+          ? findWorkspaceRootMatch(
+              snapshot.projects,
+              value.workspaceRoot,
+              (candidate) => candidate.workspaceRoot,
+            )
+          : null;
+        setCreateProjectReturnToOrchestrator(false);
+        if (project) {
+          void navigate({ to: "/orchestrator", search: { projectId: project.id } });
+        }
+      };
+      try {
+        await runAddProject();
       } catch (error) {
         // Project creation is one UI transaction: a failed command must not
         // strand the sidebar in a Space unrelated to the current route.
@@ -3265,7 +3422,14 @@ export default function Sidebar() {
         throw error;
       }
     },
-    [activeSpaceId, addProjectFromPath, handleSelectSpaceForIncomingProject, projects],
+    [
+      activeSpaceId,
+      addProjectFromPath,
+      createProjectReturnToOrchestrator,
+      handleSelectSpaceForIncomingProject,
+      navigate,
+      projects,
+    ],
   );
 
   // Tab index 0 is Void, then spaces in strip order — the same mapping the
@@ -3303,35 +3467,13 @@ export default function Sidebar() {
       }
       if (clicked === "open-in-process") {
         try {
-          const result = await api.orchestration.listTaskProcesses({
-            projectId,
-            includeArchived: false,
-            limit: 100,
-          });
-          let processId = resolveUserOwnedTaskProcessId(result.items);
-          if (!processId) {
-            processId = TaskProcessId.makeUnsafe(randomUUID());
-            await api.orchestration.dispatchTaskProcessCommand({
-              command: {
-                type: "task-process.create",
-                commandId: newCommandId(),
-                processId,
-                projectId,
-                actor: { kind: "user", actorId: "owner" },
-                expectedRevision: 0,
-                createdAt: new Date().toISOString(),
-                title: `${project.name} Process`,
-                owner: { kind: "user" },
-              },
-            });
-          }
-          void navigate({ to: "/process/$processId", params: { processId } });
+          await openOrCreateProjectTasks(projectId);
         } catch (error) {
           toastManager.add({
             type: "error",
-            title: "Unable to open Process",
+            title: "Unable to open Tasks",
             description:
-              error instanceof Error ? error.message : "The Process could not be loaded.",
+              error instanceof Error ? error.message : "The task board could not be loaded.",
           });
         }
         return;
@@ -3438,7 +3580,7 @@ export default function Sidebar() {
       deleteProjectThreads,
       handleOpenProjectRunServer,
       handleStopProjectRun,
-      navigate,
+      openOrCreateProjectTasks,
       openProjectRunDialog,
       projectById,
       removeDeletedProjectFromClientState,
@@ -3765,6 +3907,7 @@ export default function Sidebar() {
   useEffect(() => {
     persistSidebarUiState({
       chatSectionExpanded,
+      orchestratorRootsSectionExpanded,
       chatThreadListExtraPages,
       projectThreadListExtraPagesByCwd: Object.fromEntries(threadListExtraPagesByProjectCwd),
       dismissedThreadStatusKeyByThreadId,
@@ -3774,6 +3917,7 @@ export default function Sidebar() {
     chatSectionExpanded,
     chatThreadListExtraPages,
     dismissedThreadStatusKeyByThreadId,
+    orchestratorRootsSectionExpanded,
     threadListExtraPagesByProjectCwd,
     lastThreadRoute,
   ]);
@@ -5726,6 +5870,14 @@ export default function Sidebar() {
                         }}
                         shortcutLabel={searchShortcutLabel}
                       />
+                      <SidebarPrimaryAction
+                        icon={ProcessIcon}
+                        label="Tasks"
+                        active={isOnTasks}
+                        badge={taskNavigationSignal.badge}
+                        activity={taskNavigationSignal.running}
+                        onClick={handleOpenTasks}
+                      />
                     </>
                   ) : (
                     <>
@@ -5744,6 +5896,14 @@ export default function Sidebar() {
                           setSearchPaletteOpen(true);
                         }}
                         shortcutLabel={searchShortcutLabel}
+                      />
+                      <SidebarPrimaryAction
+                        icon={ProcessIcon}
+                        label="Tasks"
+                        active={isOnTasks}
+                        badge={taskNavigationSignal.badge}
+                        activity={taskNavigationSignal.running}
+                        onClick={handleOpenTasks}
                       />
                       <SidebarPrimaryAction
                         icon={IoIosGitCompare}
@@ -5773,63 +5933,112 @@ export default function Sidebar() {
 
               {isOnOrchestrator ? (
                 <SidebarGroup className="px-1.5 py-1.5">
-                  {renderListSectionHeader(
-                    "Roots",
-                    <>
-                      <SidebarIconButton
-                        icon={NewThreadIcon}
-                        label="New Orchestrator Root"
-                        tooltip="New Orchestrator Root"
-                        tooltipSide="top"
-                        onClick={handleCreateOrchestrator}
-                      />
-                      <ChatSortMenu
-                        threadSortOrder={appSettings.sidebarThreadSortOrder}
-                        onThreadSortOrderChange={(sortOrder) => {
-                          updateSettings({ sidebarThreadSortOrder: sortOrder });
-                        }}
-                      />
-                    </>,
-                  )}
-                  <SidebarMenu ref={attachProjectListAutoAnimateRef} className="gap-1">
-                    {orchestratorRootRows.length > 0 ? (
-                      orchestratorRootRows.map((row, index) => {
-                        const isLastRowForRoot =
-                          index === orchestratorRootRows.length - 1 ||
-                          orchestratorRootRows[index + 1]?.depth === 0;
-                        return (
-                          <Fragment key={row.thread.id}>
-                            {row.depth === 1 && orchestratorRootRows[index - 1]?.depth === 0 ? (
-                              <div className="px-3 pb-0.5 pt-1 text-[9px] font-medium uppercase tracking-[0.16em] text-muted-foreground/55">
-                                Now
-                              </div>
-                            ) : null}
-                            {renderThreadRow(
-                              row.thread,
-                              orchestratorRootThreadIds,
-                              row.depth,
-                              row.depth === 0,
-                            )}
-                            {isLastRowForRoot ? (
-                              <button
-                                type="button"
-                                className="ml-7 mt-0.5 w-fit rounded px-1.5 py-0.5 text-[10px] text-muted-foreground/58 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                                onClick={() => openOrchestratorTeam(row.rootThreadId)}
-                              >
-                                Open Team, {orchestratorThreadCountByRootId.get(row.rootThreadId) ?? 1} total
-                              </button>
-                            ) : null}
-                          </Fragment>
-                        );
-                      })
-                    ) : (
-                      <div className="px-2 pt-4 text-center text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/58">
-                        {orchestratorRootsQuery.isPending
-                          ? "Loading Roots..."
-                          : "No Orchestrator Roots yet"}
+                  <div className="group/collapsible">
+                    <div className="group/project-header relative">
+                      <SidebarMenuButton
+                        size="sm"
+                        aria-expanded={orchestratorRootsSectionExpanded}
+                        className={cn(
+                          SIDEBAR_HEADER_ROW_CLASS_NAME,
+                          SIDEBAR_ROW_IDLE_TEXT_CLASS_NAME,
+                          SIDEBAR_ROW_HOVER_CLASS_NAME,
+                          "cursor-pointer",
+                        )}
+                        onClick={() => setOrchestratorRootsSectionExpanded((current) => !current)}
+                      >
+                        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
+                          <span className="truncate font-system-ui text-[length:var(--app-font-size-ui,12px)] font-normal text-muted-foreground/79">
+                            Roots
+                          </span>
+                          <DisclosureChevron
+                            open={orchestratorRootsSectionExpanded}
+                            className="text-muted-foreground/79"
+                          />
+                        </div>
+                      </SidebarMenuButton>
+                      <SidebarSectionToolbar placement="overlay">
+                        <SidebarIconButton
+                          icon={NewThreadIcon}
+                          label="New Orchestrator Root"
+                          tooltip="New Orchestrator Root"
+                          tooltipSide="top"
+                          onClick={handleCreateOrchestrator}
+                        />
+                        <ChatSortMenu
+                          disabled={orchestratorRoots.length < 2}
+                          disabledTooltip="Create another Root to sort"
+                          threadSortOrder={appSettings.sidebarThreadSortOrder}
+                          onThreadSortOrderChange={(sortOrder) => {
+                            updateSettings({ sidebarThreadSortOrder: sortOrder });
+                          }}
+                        />
+                        <SidebarIconButton
+                          icon={AddPlusIcon}
+                          label="Add project"
+                          tooltip="Add project"
+                          tooltipSide="right"
+                          onClick={handleStartAddProjectForOrchestrator}
+                        />
+                      </SidebarSectionToolbar>
+                    </div>
+                    <div
+                      className={cn(
+                        disclosureShellClassName(orchestratorRootsSectionExpanded),
+                        "pt-1",
+                      )}
+                    >
+                      <div className={DISCLOSURE_INNER_CLASS}>
+                        <SidebarMenu
+                          ref={attachProjectListAutoAnimateRef}
+                          className={cn(
+                            "gap-1",
+                            disclosureContentClassName(orchestratorRootsSectionExpanded),
+                          )}
+                        >
+                          {orchestratorRootRows.length > 0 ? (
+                            orchestratorRootRows.map((row, index) => {
+                              const isLastRowForRoot =
+                                index === orchestratorRootRows.length - 1 ||
+                                orchestratorRootRows[index + 1]?.depth === 0;
+                              return (
+                                <Fragment key={row.thread.id}>
+                                  {row.depth === 1 &&
+                                  orchestratorRootRows[index - 1]?.depth === 0 ? (
+                                    <div className="px-3 pb-0.5 pt-1 text-[9px] font-medium uppercase tracking-[0.16em] text-muted-foreground/55">
+                                      Now
+                                    </div>
+                                  ) : null}
+                                  {renderThreadRow(
+                                    row.thread,
+                                    orchestratorRootThreadIds,
+                                    row.depth,
+                                    row.depth === 0,
+                                  )}
+                                  {isLastRowForRoot ? (
+                                    <button
+                                      type="button"
+                                      className="ml-7 mt-0.5 w-fit rounded px-1.5 py-0.5 text-[10px] text-muted-foreground/58 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                                      onClick={() => openOrchestratorTeam(row.rootThreadId)}
+                                    >
+                                      Open Team,{" "}
+                                      {orchestratorThreadCountByRootId.get(row.rootThreadId) ?? 1}{" "}
+                                      total
+                                    </button>
+                                  ) : null}
+                                </Fragment>
+                              );
+                            })
+                          ) : (
+                            <div className="px-2 pt-4 text-center text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/58">
+                              {orchestratorRootsQuery.isPending
+                                ? "Loading Roots..."
+                                : "No Orchestrator Roots yet"}
+                            </div>
+                          )}
+                        </SidebarMenu>
                       </div>
-                    )}
-                  </SidebarMenu>
+                    </div>
+                  </div>
                 </SidebarGroup>
               ) : (
                 <SidebarGroup className="px-1.5 py-1.5">
@@ -6158,7 +6367,10 @@ export default function Sidebar() {
         open={createProjectDialogOpen}
         spaces={spaces}
         activeSpaceId={activeSpaceId}
-        onOpenChange={setCreateProjectDialogOpen}
+        onOpenChange={(open) => {
+          setCreateProjectDialogOpen(open);
+          if (!open) setCreateProjectReturnToOrchestrator(false);
+        }}
         onSubmit={handleCreateProjectSubmit}
       />
 
@@ -6227,7 +6439,7 @@ export default function Sidebar() {
                 }
               >
                 <ProjectContextMenuIcon icon={WorkflowIcon} />
-                <span>Open Process</span>
+                <span>Open Tasks</span>
               </MenuItem>
               <MenuItem
                 className={PROJECT_CONTEXT_MENU_ITEM_CLASS_NAME}

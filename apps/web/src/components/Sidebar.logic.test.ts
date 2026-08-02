@@ -34,6 +34,7 @@ import {
   pruneProjectThreadListPagingForCollapsedProjects,
   recoverExistingAddProjectTarget,
   resolvePullRequestReviewBadge,
+  resolveTaskNavigationSignal,
   resolveSidebarThreadListPaging,
   resolveProjectEmptyState,
   resolvePendingSidebarViewSelection,
@@ -106,6 +107,31 @@ describe("resolvePullRequestReviewBadge", () => {
     expect(resolvePullRequestReviewBadge({ count: 1, incomplete: false })?.accessibleLabel).toBe(
       "1 pull request is waiting for your review",
     );
+  });
+});
+
+describe("resolveTaskNavigationSignal", () => {
+  it("keeps ordinary dependency blocking quiet while showing running activity", () => {
+    expect(
+      resolveTaskNavigationSignal({
+        counts: { total: 4, done: 0, ready: 0, blocked: 3, running: 1, review: 0, failed: 0 },
+      } as never),
+    ).toEqual({ running: true, badge: null });
+  });
+
+  it("lets review and failure attention replace the running dot", () => {
+    expect(
+      resolveTaskNavigationSignal({
+        counts: { total: 4, done: 0, ready: 0, blocked: 0, running: 1, review: 1, failed: 2 },
+      } as never),
+    ).toEqual({
+      running: true,
+      badge: {
+        text: "3",
+        accessibleLabel: "3 tasks need attention",
+        tone: "attention",
+      },
+    });
   });
 });
 

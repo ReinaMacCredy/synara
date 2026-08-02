@@ -30,7 +30,7 @@ describe("RightDockProcessPanel", () => {
     );
     expect(markup).toContain("Authentication");
     expect(markup).toContain("2/5");
-    expect(markup).toContain("Open full process");
+    expect(markup).toContain("Open task board");
     expect(markup).not.toContain("Add task");
   });
 });

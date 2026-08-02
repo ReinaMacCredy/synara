@@ -311,7 +311,7 @@ type PersistedDraftThreadState = typeof PersistedDraftThreadState.Type;
 const PersistedComposerDraftStoreState = Schema.Struct({
   draftsByThreadId: Schema.Record(ThreadId, PersistedComposerThreadDraftState),
   draftThreadsByThreadId: Schema.Record(ThreadId, PersistedDraftThreadState),
-  projectDraftThreadIdByProjectId: Schema.Record(ProjectId, ThreadId),
+  projectDraftThreadIdByProjectId: Schema.Record(Schema.String, ThreadId),
   stickyModelSelectionByProvider: Schema.optionalKey(
     Schema.Record(ProviderKind, Schema.optionalKey(ModelSelection)),
   ),

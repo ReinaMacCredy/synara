@@ -43,7 +43,7 @@ export const RIGHT_DOCK_PANE_META: Record<RightDockPaneKind, RightDockPaneMeta> 
   git: { label: "Git", Icon: GitCommitIcon },
   pullRequest: { label: "Pull request", Icon: GitPullRequestIcon },
   orchestratorTeam: { label: "Team", Icon: UsersIcon },
-  orchestratorProcess: { label: "Process", Icon: ProcessIcon },
+  orchestratorProcess: { label: "Tasks", Icon: ProcessIcon },
   orchestratorExchanges: { label: "Exchanges", Icon: MessageCircleIcon },
   orchestratorRuns: { label: "Runs", Icon: WorkflowIcon },
 };

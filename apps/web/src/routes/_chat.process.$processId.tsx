@@ -1,13 +1,46 @@
 import { TaskProcessId } from "@synara/contracts";
-import { createFileRoute } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useEffect } from "react";
 
-import { ProcessWorkspace } from "~/components/process/ProcessWorkspace";
+import { RouteInsetSurface } from "~/components/RouteInsetSurface";
+import { PanelStateMessage } from "~/components/chat/PanelStateMessage";
+import { taskProcessGraphQueryOptions } from "~/lib/serverReactQuery";
+import { resolveTaskProcessNavigationTarget } from "~/lib/taskProcessNavigation";
 
 function ProcessRouteView() {
+  const navigate = useNavigate();
   const processId = Route.useParams({
     select: (params) => TaskProcessId.makeUnsafe(params.processId),
   });
-  return <ProcessWorkspace processId={processId} />;
+  const graphQuery = useQuery(taskProcessGraphQueryOptions(processId));
+
+  useEffect(() => {
+    const owner = graphQuery.data?.graph.process.owner;
+    if (!owner) return;
+    const target = resolveTaskProcessNavigationTarget(processId, owner);
+    if (target.mode === "orchestrator") {
+      void navigate({
+        to: "/orchestrator/$rootThreadId/tasks/$processId",
+        params: { rootThreadId: target.rootThreadId, processId: target.processId },
+        replace: true,
+      });
+      return;
+    }
+    void navigate({
+      to: "/tasks/$processId",
+      params: { processId: target.processId },
+      replace: true,
+    });
+  }, [graphQuery.data?.graph.process.owner, navigate, processId]);
+
+  return (
+    <RouteInsetSurface>
+      <PanelStateMessage>
+        {graphQuery.isError ? "Unable to resolve this task board." : "Opening task board…"}
+      </PanelStateMessage>
+    </RouteInsetSurface>
+  );
 }
 
 export const Route = createFileRoute("/_chat/process/$processId")({

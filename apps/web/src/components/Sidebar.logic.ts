@@ -7,6 +7,7 @@ import {
   type KeybindingCommand,
   type ProjectId,
   type PullRequestReviewRequestCountResult,
+  type TaskProcessSummaryProjection,
   type ThreadId,
 } from "@synara/contracts";
 import { pluralize } from "@synara/shared/text";
@@ -51,7 +52,31 @@ export type SidebarView = "threads" | "orchestrator";
 export type SidebarActionBadge = {
   readonly text: string;
   readonly accessibleLabel: string;
+  readonly tone?: "neutral" | "attention";
 };
+
+export type TaskNavigationSignal = {
+  readonly running: boolean;
+  readonly badge: SidebarActionBadge | null;
+};
+
+export function resolveTaskNavigationSignal(
+  summary: TaskProcessSummaryProjection | null | undefined,
+): TaskNavigationSignal {
+  if (!summary) return { running: false, badge: null };
+  const attentionCount = summary.counts.review + summary.counts.failed;
+  return {
+    running: summary.counts.running > 0,
+    badge:
+      attentionCount > 0
+        ? {
+            text: String(attentionCount),
+            accessibleLabel: `${attentionCount} ${pluralize(attentionCount, "task needs", "tasks need")} attention`,
+            tone: "attention",
+          }
+        : null,
+  };
+}
 
 export function isProjectsSidebarSurface(input: {
   readonly isOnSettings: boolean;

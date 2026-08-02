@@ -14,7 +14,7 @@ import type { SplitViewPanePanelState } from "~/splitViewStore";
 import { useStore } from "~/store";
 import { createAllThreadsSelector } from "~/storeSelectors";
 
-interface OrchestratorIndexSearch {
+export interface OrchestratorIndexSearch {
   readonly projectId?: ProjectId;
   readonly sourceThreadId?: ThreadId;
 }

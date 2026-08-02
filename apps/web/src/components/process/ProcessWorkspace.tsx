@@ -14,6 +14,8 @@ import { useEffect, useMemo, useState } from "react";
 import { RouteInsetSurface } from "~/components/RouteInsetSurface";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
+import { Select, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
+import { ComposerPickerSelectPopup } from "~/components/chat/ComposerPickerMenuPopup";
 import { toastManager } from "~/components/ui/toast";
 import {
   sessionProgressQueryOptions,
@@ -25,6 +27,7 @@ import { newCommandId } from "~/lib/utils";
 import { ensureNativeApi } from "~/nativeApi";
 import { useStore } from "~/store";
 import { createAllThreadsSelector } from "~/storeSelectors";
+import { resolveTaskProcessNavigationTarget } from "~/lib/taskProcessNavigation";
 import { useTaskProcessStore, type TaskProcessFilter } from "~/taskProcessStore";
 
 import { ProcessBoard } from "./ProcessBoard";
@@ -118,12 +121,29 @@ export function ProcessWorkspace(props: { readonly processId: TaskProcessId }) {
   if (graphQuery.isError || !graph) {
     return (
       <RouteInsetSurface>
-        <div className="p-6 text-sm text-destructive">Unable to load this Process.</div>
+        <div className="p-6 text-sm text-destructive">Unable to load this task board.</div>
       </RouteInsetSurface>
     );
   }
 
   const authority = resolveProcessAuthority(graph);
+  const visibleProcesses = (processListQuery.data?.items ?? [graph.process]).filter((process) =>
+    graph.process.owner.kind === "user"
+      ? process.owner.kind === "user"
+      : process.owner.kind === "orchestrator" &&
+        process.owner.rootThreadId === graph.process.owner.rootThreadId,
+  );
+  const openProcess = (processId: TaskProcessId) => {
+    const target = resolveTaskProcessNavigationTarget(processId, graph.process.owner);
+    if (target.mode === "orchestrator") {
+      void navigate({
+        to: "/orchestrator/$rootThreadId/tasks/$processId",
+        params: { rootThreadId: target.rootThreadId, processId: target.processId },
+      });
+      return;
+    }
+    void navigate({ to: "/tasks/$processId", params: { processId: target.processId } });
+  };
   const selectedTask = selectedTaskProjection;
   const refresh = async () => {
     await Promise.all([
@@ -150,9 +170,9 @@ export function ProcessWorkspace(props: { readonly processId: TaskProcessId }) {
     } catch (error) {
       toastManager.add({
         type: "error",
-        title: "Process change rejected",
+        title: "Task change rejected",
         description:
-          error instanceof Error ? error.message : "The process projection could not be changed.",
+          error instanceof Error ? error.message : "The task board could not be changed.",
       });
     } finally {
       setPending(false);
@@ -225,12 +245,12 @@ export function ProcessWorkspace(props: { readonly processId: TaskProcessId }) {
         },
       });
       await queryClient.invalidateQueries({ queryKey: taskProcessQueryKeys.lists() });
-      void navigate({ to: "/process/$processId", params: { processId } });
+      openProcess(processId);
     } catch (error) {
       toastManager.add({
         type: "error",
-        title: "Unable to create Process",
-        description: error instanceof Error ? error.message : "The Process was not created.",
+        title: "Unable to create task plan",
+        description: error instanceof Error ? error.message : "The task plan was not created.",
       });
     } finally {
       setPending(false);
@@ -240,61 +260,36 @@ export function ProcessWorkspace(props: { readonly processId: TaskProcessId }) {
   return (
     <RouteInsetSurface surfaceClassName="bg-background">
       <div className="flex h-full min-h-0 min-w-0" data-process-workspace={props.processId}>
-        <aside className="flex w-52 shrink-0 flex-col border-r border-border bg-muted/10 p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-            Processes
-          </p>
-          <div className="mt-2 grid gap-1">
-            {(processListQuery.data?.items ?? [graph.process]).map((process) => (
-              <button
-                key={process.id}
-                type="button"
-                className={`rounded-lg px-2 py-2 text-left text-xs ${process.id === props.processId ? "bg-foreground/8 font-medium" : "text-muted-foreground hover:bg-foreground/5"}`}
-                onClick={() =>
-                  void navigate({ to: "/process/$processId", params: { processId: process.id } })
-                }
-              >
-                <span className="block truncate">{process.title}</span>
-                <span className="mt-0.5 block text-[10px] capitalize opacity-70">
-                  {process.state} · {process.owner.kind}
-                </span>
-              </button>
-            ))}
-          </div>
-          {authority.canCreateProcess ? (
-            <Button
-              className="mt-3"
-              size="sm"
-              variant="outline"
-              disabled={pending}
-              onClick={createSiblingProcess}
-            >
-              New process
-            </Button>
-          ) : null}
-          <p className="mt-5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-            Filters
-          </p>
-          <div className="mt-2 grid gap-1">
-            {(
-              ["all", "ready", "blocked", "input"] as const satisfies readonly TaskProcessFilter[]
-            ).map((item) => (
-              <button
-                key={item}
-                type="button"
-                className={`rounded-md px-2 py-1 text-left text-[11px] capitalize ${filter === item ? "bg-foreground/8" : "text-muted-foreground"}`}
-                onClick={() => setFilter(props.processId, item)}
-              >
-                {item === "input" ? "Needs input" : item}
-              </button>
-            ))}
-          </div>
-        </aside>
-
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <header className="flex min-h-14 items-center gap-3 border-b border-border px-4">
             <div className="min-w-0 flex-1">
-              <h1 className="truncate text-sm font-semibold">{graph.process.title}</h1>
+              <div className="flex min-w-0 items-center gap-2">
+                <Select
+                  value={props.processId}
+                  onValueChange={(value) => openProcess(TaskProcessId.makeUnsafe(value as string))}
+                >
+                  <SelectTrigger size="sm" variant="ghost" className="max-w-72 font-medium">
+                    <SelectValue>{graph.process.title}</SelectValue>
+                  </SelectTrigger>
+                  <ComposerPickerSelectPopup align="start">
+                    {visibleProcesses.map((process) => (
+                      <SelectItem key={process.id} value={process.id}>
+                        {process.title}
+                      </SelectItem>
+                    ))}
+                  </ComposerPickerSelectPopup>
+                </Select>
+                {authority.canCreateProcess ? (
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    disabled={pending}
+                    onClick={createSiblingProcess}
+                  >
+                    New plan
+                  </Button>
+                ) : null}
+              </div>
               <p className="text-[10px] capitalize text-muted-foreground">
                 {authority.mode} authority · revision {graph.graphRevision} · {graph.process.state}
               </p>
@@ -318,6 +313,30 @@ export function ProcessWorkspace(props: { readonly processId: TaskProcessId }) {
                 Graph
               </Button>
             </div>
+            <Select
+              value={filter}
+              onValueChange={(value) => setFilter(props.processId, value as TaskProcessFilter)}
+            >
+              <SelectTrigger size="xs" variant="ghost" aria-label="Filter tasks">
+                <SelectValue>
+                  {filter === "all" ? "Filter" : filter === "input" ? "Needs input" : filter}
+                </SelectValue>
+              </SelectTrigger>
+              <ComposerPickerSelectPopup align="end">
+                {(
+                  [
+                    "all",
+                    "ready",
+                    "blocked",
+                    "input",
+                  ] as const satisfies readonly TaskProcessFilter[]
+                ).map((item) => (
+                  <SelectItem key={item} value={item}>
+                    {item === "all" ? "All tasks" : item === "input" ? "Needs input" : item}
+                  </SelectItem>
+                ))}
+              </ComposerPickerSelectPopup>
+            </Select>
             {graph.process.state === "active" ? (
               <Button
                 size="xs"

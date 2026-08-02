@@ -36,7 +36,8 @@ function normalizePreview(text: string): string {
 }
 
 /**
- * Project the timeline into one trail item per user message, in transcript order.
+ * Project the timeline into one trail item per direct-user or peer-delivered prompt, in transcript
+ * order. Automation notifications are transcript messages but are not navigation-worthy prompts.
  * Each item also carries the start of its turn's *final* assistant message (the muted
  * second line in the hover card) — the reply that lands after the turn's work, not the
  * opening preamble. System / work rows are skipped, and a turn with no assistant text
@@ -54,7 +55,9 @@ export function deriveMessageTrailItems(
       continue;
     }
     const { role } = entry.message;
-    if (role === "user") {
+    if (role === "user" && entry.message.dispatchOrigin === "automation") {
+      currentTurnIndex = -1;
+    } else if (role === "user") {
       items.push({
         id: entry.message.id,
         ordinal: items.length + 1,

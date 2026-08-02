@@ -157,10 +157,16 @@ export function OrchestratorSurface(props: {
               const processId = props.snapshot.activeProcess?.process.id;
               if (!processId) return;
               selectProcessTask(processId, taskId);
-              void navigate({ to: "/process/$processId", params: { processId } });
+              void navigate({
+                to: "/orchestrator/$rootThreadId/tasks/$processId",
+                params: { rootThreadId, processId },
+              });
             }}
             onOpenProcess={(processId) =>
-              void navigate({ to: "/process/$processId", params: { processId } })
+              void navigate({
+                to: "/orchestrator/$rootThreadId/tasks/$processId",
+                params: { rootThreadId, processId },
+              })
             }
           />
         );

@@ -11,18 +11,22 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as ChatRouteImport } from './routes/_chat'
 import { Route as ChatIndexRouteImport } from './routes/_chat.index'
+import { Route as ChatTasksRouteImport } from './routes/_chat.tasks'
 import { Route as ChatSettingsRouteImport } from './routes/_chat.settings'
 import { Route as ChatPullRequestsRouteImport } from './routes/_chat.pull-requests'
 import { Route as ChatPluginsRouteImport } from './routes/_chat.plugins'
 import { Route as ChatOrchestratorRouteImport } from './routes/_chat.orchestrator'
 import { Route as ChatAutomationsRouteImport } from './routes/_chat.automations'
 import { Route as ChatThreadIdRouteImport } from './routes/_chat.$threadId'
+import { Route as ChatTasksIndexRouteImport } from './routes/_chat.tasks.index'
 import { Route as ChatPullRequestsIndexRouteImport } from './routes/_chat.pull-requests.index'
 import { Route as ChatOrchestratorIndexRouteImport } from './routes/_chat.orchestrator.index'
 import { Route as ChatAutomationsIndexRouteImport } from './routes/_chat.automations.index'
+import { Route as ChatTasksProcessIdRouteImport } from './routes/_chat.tasks.$processId'
 import { Route as ChatProcessProcessIdRouteImport } from './routes/_chat.process.$processId'
 import { Route as ChatOrchestratorRootThreadIdRouteImport } from './routes/_chat.orchestrator.$rootThreadId'
 import { Route as ChatAutomationsAutomationIdRouteImport } from './routes/_chat.automations.$automationId'
+import { Route as ChatOrchestratorRootThreadIdTasksProcessIdRouteImport } from './routes/_chat.orchestrator.$rootThreadId_.tasks.$processId'
 
 const ChatRoute = ChatRouteImport.update({
   id: '/_chat',
@@ -31,6 +35,11 @@ const ChatRoute = ChatRouteImport.update({
 const ChatIndexRoute = ChatIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => ChatRoute,
+} as any)
+const ChatTasksRoute = ChatTasksRouteImport.update({
+  id: '/tasks',
+  path: '/tasks',
   getParentRoute: () => ChatRoute,
 } as any)
 const ChatSettingsRoute = ChatSettingsRouteImport.update({
@@ -63,6 +72,11 @@ const ChatThreadIdRoute = ChatThreadIdRouteImport.update({
   path: '/$threadId',
   getParentRoute: () => ChatRoute,
 } as any)
+const ChatTasksIndexRoute = ChatTasksIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => ChatTasksRoute,
+} as any)
 const ChatPullRequestsIndexRoute = ChatPullRequestsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -77,6 +91,11 @@ const ChatAutomationsIndexRoute = ChatAutomationsIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => ChatAutomationsRoute,
+} as any)
+const ChatTasksProcessIdRoute = ChatTasksProcessIdRouteImport.update({
+  id: '/$processId',
+  path: '/$processId',
+  getParentRoute: () => ChatTasksRoute,
 } as any)
 const ChatProcessProcessIdRoute = ChatProcessProcessIdRouteImport.update({
   id: '/process/$processId',
@@ -95,6 +114,12 @@ const ChatAutomationsAutomationIdRoute =
     path: '/$automationId',
     getParentRoute: () => ChatAutomationsRoute,
   } as any)
+const ChatOrchestratorRootThreadIdTasksProcessIdRoute =
+  ChatOrchestratorRootThreadIdTasksProcessIdRouteImport.update({
+    id: '/$rootThreadId_/tasks/$processId',
+    path: '/$rootThreadId/tasks/$processId',
+    getParentRoute: () => ChatOrchestratorRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof ChatIndexRoute
@@ -104,12 +129,16 @@ export interface FileRoutesByFullPath {
   '/plugins': typeof ChatPluginsRoute
   '/pull-requests': typeof ChatPullRequestsRouteWithChildren
   '/settings': typeof ChatSettingsRoute
+  '/tasks': typeof ChatTasksRouteWithChildren
   '/automations/$automationId': typeof ChatAutomationsAutomationIdRoute
   '/orchestrator/$rootThreadId': typeof ChatOrchestratorRootThreadIdRoute
   '/process/$processId': typeof ChatProcessProcessIdRoute
+  '/tasks/$processId': typeof ChatTasksProcessIdRoute
   '/automations/': typeof ChatAutomationsIndexRoute
   '/orchestrator/': typeof ChatOrchestratorIndexRoute
   '/pull-requests/': typeof ChatPullRequestsIndexRoute
+  '/tasks/': typeof ChatTasksIndexRoute
+  '/orchestrator/$rootThreadId/tasks/$processId': typeof ChatOrchestratorRootThreadIdTasksProcessIdRoute
 }
 export interface FileRoutesByTo {
   '/$threadId': typeof ChatThreadIdRoute
@@ -119,9 +148,12 @@ export interface FileRoutesByTo {
   '/automations/$automationId': typeof ChatAutomationsAutomationIdRoute
   '/orchestrator/$rootThreadId': typeof ChatOrchestratorRootThreadIdRoute
   '/process/$processId': typeof ChatProcessProcessIdRoute
+  '/tasks/$processId': typeof ChatTasksProcessIdRoute
   '/automations': typeof ChatAutomationsIndexRoute
   '/orchestrator': typeof ChatOrchestratorIndexRoute
   '/pull-requests': typeof ChatPullRequestsIndexRoute
+  '/tasks': typeof ChatTasksIndexRoute
+  '/orchestrator/$rootThreadId/tasks/$processId': typeof ChatOrchestratorRootThreadIdTasksProcessIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -132,13 +164,17 @@ export interface FileRoutesById {
   '/_chat/plugins': typeof ChatPluginsRoute
   '/_chat/pull-requests': typeof ChatPullRequestsRouteWithChildren
   '/_chat/settings': typeof ChatSettingsRoute
+  '/_chat/tasks': typeof ChatTasksRouteWithChildren
   '/_chat/': typeof ChatIndexRoute
   '/_chat/automations/$automationId': typeof ChatAutomationsAutomationIdRoute
   '/_chat/orchestrator/$rootThreadId': typeof ChatOrchestratorRootThreadIdRoute
   '/_chat/process/$processId': typeof ChatProcessProcessIdRoute
+  '/_chat/tasks/$processId': typeof ChatTasksProcessIdRoute
   '/_chat/automations/': typeof ChatAutomationsIndexRoute
   '/_chat/orchestrator/': typeof ChatOrchestratorIndexRoute
   '/_chat/pull-requests/': typeof ChatPullRequestsIndexRoute
+  '/_chat/tasks/': typeof ChatTasksIndexRoute
+  '/_chat/orchestrator/$rootThreadId_/tasks/$processId': typeof ChatOrchestratorRootThreadIdTasksProcessIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -150,12 +186,16 @@ export interface FileRouteTypes {
     | '/plugins'
     | '/pull-requests'
     | '/settings'
+    | '/tasks'
     | '/automations/$automationId'
     | '/orchestrator/$rootThreadId'
     | '/process/$processId'
+    | '/tasks/$processId'
     | '/automations/'
     | '/orchestrator/'
     | '/pull-requests/'
+    | '/tasks/'
+    | '/orchestrator/$rootThreadId/tasks/$processId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/$threadId'
@@ -165,9 +205,12 @@ export interface FileRouteTypes {
     | '/automations/$automationId'
     | '/orchestrator/$rootThreadId'
     | '/process/$processId'
+    | '/tasks/$processId'
     | '/automations'
     | '/orchestrator'
     | '/pull-requests'
+    | '/tasks'
+    | '/orchestrator/$rootThreadId/tasks/$processId'
   id:
     | '__root__'
     | '/_chat'
@@ -177,13 +220,17 @@ export interface FileRouteTypes {
     | '/_chat/plugins'
     | '/_chat/pull-requests'
     | '/_chat/settings'
+    | '/_chat/tasks'
     | '/_chat/'
     | '/_chat/automations/$automationId'
     | '/_chat/orchestrator/$rootThreadId'
     | '/_chat/process/$processId'
+    | '/_chat/tasks/$processId'
     | '/_chat/automations/'
     | '/_chat/orchestrator/'
     | '/_chat/pull-requests/'
+    | '/_chat/tasks/'
+    | '/_chat/orchestrator/$rootThreadId_/tasks/$processId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -204,6 +251,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof ChatIndexRouteImport
+      parentRoute: typeof ChatRoute
+    }
+    '/_chat/tasks': {
+      id: '/_chat/tasks'
+      path: '/tasks'
+      fullPath: '/tasks'
+      preLoaderRoute: typeof ChatTasksRouteImport
       parentRoute: typeof ChatRoute
     }
     '/_chat/settings': {
@@ -248,6 +302,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatThreadIdRouteImport
       parentRoute: typeof ChatRoute
     }
+    '/_chat/tasks/': {
+      id: '/_chat/tasks/'
+      path: '/'
+      fullPath: '/tasks/'
+      preLoaderRoute: typeof ChatTasksIndexRouteImport
+      parentRoute: typeof ChatTasksRoute
+    }
     '/_chat/pull-requests/': {
       id: '/_chat/pull-requests/'
       path: '/'
@@ -268,6 +329,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/automations/'
       preLoaderRoute: typeof ChatAutomationsIndexRouteImport
       parentRoute: typeof ChatAutomationsRoute
+    }
+    '/_chat/tasks/$processId': {
+      id: '/_chat/tasks/$processId'
+      path: '/$processId'
+      fullPath: '/tasks/$processId'
+      preLoaderRoute: typeof ChatTasksProcessIdRouteImport
+      parentRoute: typeof ChatTasksRoute
     }
     '/_chat/process/$processId': {
       id: '/_chat/process/$processId'
@@ -290,6 +358,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatAutomationsAutomationIdRouteImport
       parentRoute: typeof ChatAutomationsRoute
     }
+    '/_chat/orchestrator/$rootThreadId_/tasks/$processId': {
+      id: '/_chat/orchestrator/$rootThreadId_/tasks/$processId'
+      path: '/$rootThreadId/tasks/$processId'
+      fullPath: '/orchestrator/$rootThreadId/tasks/$processId'
+      preLoaderRoute: typeof ChatOrchestratorRootThreadIdTasksProcessIdRouteImport
+      parentRoute: typeof ChatOrchestratorRoute
+    }
   }
 }
 
@@ -310,11 +385,14 @@ const ChatAutomationsRouteWithChildren = ChatAutomationsRoute._addFileChildren(
 interface ChatOrchestratorRouteChildren {
   ChatOrchestratorRootThreadIdRoute: typeof ChatOrchestratorRootThreadIdRoute
   ChatOrchestratorIndexRoute: typeof ChatOrchestratorIndexRoute
+  ChatOrchestratorRootThreadIdTasksProcessIdRoute: typeof ChatOrchestratorRootThreadIdTasksProcessIdRoute
 }
 
 const ChatOrchestratorRouteChildren: ChatOrchestratorRouteChildren = {
   ChatOrchestratorRootThreadIdRoute: ChatOrchestratorRootThreadIdRoute,
   ChatOrchestratorIndexRoute: ChatOrchestratorIndexRoute,
+  ChatOrchestratorRootThreadIdTasksProcessIdRoute:
+    ChatOrchestratorRootThreadIdTasksProcessIdRoute,
 }
 
 const ChatOrchestratorRouteWithChildren =
@@ -331,6 +409,20 @@ const ChatPullRequestsRouteChildren: ChatPullRequestsRouteChildren = {
 const ChatPullRequestsRouteWithChildren =
   ChatPullRequestsRoute._addFileChildren(ChatPullRequestsRouteChildren)
 
+interface ChatTasksRouteChildren {
+  ChatTasksProcessIdRoute: typeof ChatTasksProcessIdRoute
+  ChatTasksIndexRoute: typeof ChatTasksIndexRoute
+}
+
+const ChatTasksRouteChildren: ChatTasksRouteChildren = {
+  ChatTasksProcessIdRoute: ChatTasksProcessIdRoute,
+  ChatTasksIndexRoute: ChatTasksIndexRoute,
+}
+
+const ChatTasksRouteWithChildren = ChatTasksRoute._addFileChildren(
+  ChatTasksRouteChildren,
+)
+
 interface ChatRouteChildren {
   ChatThreadIdRoute: typeof ChatThreadIdRoute
   ChatAutomationsRoute: typeof ChatAutomationsRouteWithChildren
@@ -338,6 +430,7 @@ interface ChatRouteChildren {
   ChatPluginsRoute: typeof ChatPluginsRoute
   ChatPullRequestsRoute: typeof ChatPullRequestsRouteWithChildren
   ChatSettingsRoute: typeof ChatSettingsRoute
+  ChatTasksRoute: typeof ChatTasksRouteWithChildren
   ChatIndexRoute: typeof ChatIndexRoute
   ChatProcessProcessIdRoute: typeof ChatProcessProcessIdRoute
 }
@@ -349,6 +442,7 @@ const ChatRouteChildren: ChatRouteChildren = {
   ChatPluginsRoute: ChatPluginsRoute,
   ChatPullRequestsRoute: ChatPullRequestsRouteWithChildren,
   ChatSettingsRoute: ChatSettingsRoute,
+  ChatTasksRoute: ChatTasksRouteWithChildren,
   ChatIndexRoute: ChatIndexRoute,
   ChatProcessProcessIdRoute: ChatProcessProcessIdRoute,
 }
