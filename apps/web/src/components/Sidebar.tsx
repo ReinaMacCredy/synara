@@ -208,7 +208,6 @@ import { ThreadPinToggleButton } from "./ThreadPinToggleButton";
 import { ThreadActivityGlyph, type ThreadActivityState } from "./ThreadActivityGlyph";
 import { ProviderIcon } from "./ProviderIcon";
 import { DisclosureRegion } from "./ui/DisclosureRegion";
-import { groupSidebarHistory } from "./sidebarHistory.logic";
 import {
   projectOrchestratorSidebarChildren,
   visibleOrchestratorSidebarChildren,
@@ -1573,7 +1572,7 @@ export default function Sidebar() {
   const [chatSectionExpanded, setChatSectionExpanded] = useState(
     () => readSidebarUiState().chatSectionExpanded,
   );
-  const [orchestratorRootsSectionExpanded, setOrchestratorRootsSectionExpanded] = useState(
+  const [orchestratorRootsSectionExpanded] = useState(
     () => readSidebarUiState().orchestratorRootsSectionExpanded,
   );
   const [orchestratorExpandedRootIds, setOrchestratorExpandedRootIds] = useState<
@@ -2515,7 +2514,11 @@ export default function Sidebar() {
   const addProjectFromPath = useCallback(
     async (
       rawCwd: string,
-      options: { createIfMissing?: boolean; spaceId?: SpaceId | null } = {},
+      options: {
+        createIfMissing?: boolean;
+        spaceId?: SpaceId | null;
+        surface?: "project" | "orchestrator";
+      } = {},
     ) => {
       const cwd = rawCwd.trim();
       if (!cwd) {
@@ -2533,6 +2536,44 @@ export default function Sidebar() {
       const finishAddingProject = () => {
         setIsAddingProject(false);
       };
+      const openResolvedProject = async (
+        projectId: ProjectId,
+        snapshot: OrchestrationShellSnapshot,
+        created: boolean,
+      ): Promise<boolean> => {
+        syncServerShellSnapshot(snapshot);
+        if (options.surface === "orchestrator") {
+          setProjectExpanded(projectId, true);
+          await navigate({ to: "/orchestrator", search: { projectId } });
+          return true;
+        }
+        return created
+          ? openOrCreateProjectThreadFromSnapshot(projectId, snapshot)
+          : openExistingProjectFromSnapshot(projectId, snapshot);
+      };
+      const recoverForOrchestrator = async (
+        recovery: Promise<{
+          project: OrchestrationShellSnapshot["projects"][number] | null;
+          snapshot: OrchestrationShellSnapshot | null;
+        }>,
+      ): Promise<boolean> => {
+        const { project, snapshot } = await recovery;
+        if (snapshot) {
+          syncServerShellSnapshot(snapshot);
+        }
+        if (!project || !snapshot) {
+          return false;
+        }
+        return openResolvedProject(project.id, snapshot, false);
+      };
+      const recoverByProjectId = (projectId: ProjectId) =>
+        options.surface === "orchestrator"
+          ? recoverForOrchestrator(waitForProjectInSnapshot(api, projectId))
+          : recoverExistingProjectFromServer(api, projectId);
+      const recoverByWorkspaceRoot = (workspaceRoot: string) =>
+        options.surface === "orchestrator"
+          ? recoverForOrchestrator(waitForProjectWorkspaceRootInSnapshot(api, workspaceRoot))
+          : recoverExistingProjectByWorkspaceRootFromServer(api, workspaceRoot);
 
       // The flow lives in a nested function that the `try` below merely awaits: React
       // Compiler's BuildHIR cannot lower a `throw` or a value block (`?.`, `??`, ternary,
@@ -2545,9 +2586,8 @@ export default function Sidebar() {
         const existingRecovery = await recoverExistingAddProjectTarget({
           existingProjectId: existing?.id,
           workspaceRoot: cwd,
-          recoverByProjectId: (projectId) => recoverExistingProjectFromServer(api, projectId),
-          recoverByWorkspaceRoot: (workspaceRoot) =>
-            recoverExistingProjectByWorkspaceRootFromServer(api, workspaceRoot),
+          recoverByProjectId,
+          recoverByWorkspaceRoot,
         });
         if (existingRecovery === "recovered") {
           finishAddingProject();
@@ -2569,19 +2609,12 @@ export default function Sidebar() {
           maxAttempts: ADD_PROJECT_SNAPSHOT_CATCH_UP_MAX_ATTEMPTS,
           delayMs: ADD_PROJECT_SNAPSHOT_CATCH_UP_DELAY_MS,
         });
-        if (creationResult.snapshot) {
-          syncServerShellSnapshot(creationResult.snapshot);
-        }
         if (creationResult.project && creationResult.snapshot) {
-          const recovered = creationResult.created
-            ? await openOrCreateProjectThreadFromSnapshot(
-                creationResult.project.id,
-                creationResult.snapshot,
-              )
-            : await openExistingProjectFromSnapshot(
-                creationResult.project.id,
-                creationResult.snapshot,
-              );
+          const recovered = await openResolvedProject(
+            creationResult.project.id,
+            creationResult.snapshot,
+            creationResult.created,
+          );
           if (recovered) {
             finishAddingProject();
             return;
@@ -2589,7 +2622,7 @@ export default function Sidebar() {
         }
 
         if (!creationResult.created) {
-          const recovered = await recoverExistingProjectFromServer(api, creationResult.projectId);
+          const recovered = await recoverByProjectId(creationResult.projectId);
           if (recovered) {
             finishAddingProject();
             return;
@@ -2599,9 +2632,17 @@ export default function Sidebar() {
         }
 
         // The command already committed successfully at this point. If the projection
-        // snapshot is just slow to catch up, continue with the local new-thread flow
-        // instead of surfacing a false-negative sidebar sync error.
+        // snapshot is just slow to catch up, preserve the initiating surface while the
+        // domain-event stream catches the shared project list up.
         setProjectExpanded(creationResult.projectId, true);
+        if (options.surface === "orchestrator") {
+          await navigate({
+            to: "/orchestrator",
+            search: { projectId: creationResult.projectId },
+          });
+          finishAddingProject();
+          return;
+        }
         void handleNewThread(creationResult.projectId, {
           envMode: appSettings.defaultThreadEnvMode,
         }).catch(() => undefined);
@@ -2621,6 +2662,7 @@ export default function Sidebar() {
       appSettings.defaultThreadEnvMode,
       handleNewThread,
       isAddingProject,
+      navigate,
       projects,
       recoverExistingProjectFromServer,
       recoverExistingProjectByWorkspaceRootFromServer,
@@ -2628,6 +2670,8 @@ export default function Sidebar() {
       openExistingProjectFromSnapshot,
       setProjectExpanded,
       syncServerShellSnapshot,
+      waitForProjectInSnapshot,
+      waitForProjectWorkspaceRootInSnapshot,
     ],
   );
 
@@ -3533,20 +3577,10 @@ export default function Sidebar() {
         await addProjectFromPath(value.workspaceRoot, {
           createIfMissing: value.createIfMissing,
           spaceId: value.spaceId,
+          ...(createProjectReturnToOrchestrator ? { surface: "orchestrator" as const } : {}),
         });
-        if (!createProjectReturnToOrchestrator) return;
-
-        const snapshot = await readNativeApi()?.orchestration.getShellSnapshot();
-        const project = snapshot
-          ? findWorkspaceRootMatch(
-              snapshot.projects,
-              value.workspaceRoot,
-              (candidate) => candidate.workspaceRoot,
-            )
-          : null;
-        setCreateProjectReturnToOrchestrator(false);
-        if (project) {
-          void navigate({ to: "/orchestrator", search: { projectId: project.id } });
+        if (createProjectReturnToOrchestrator) {
+          setCreateProjectReturnToOrchestrator(false);
         }
       };
       try {
@@ -3563,7 +3597,6 @@ export default function Sidebar() {
       addProjectFromPath,
       createProjectReturnToOrchestrator,
       handleSelectSpaceForIncomingProject,
-      navigate,
       projects,
     ],
   );
@@ -3903,9 +3936,21 @@ export default function Sidebar() {
       pinnedThreadIds,
     ],
   );
-  const orchestratorHistorySections = useMemo(
-    () => groupSidebarHistory({ items: orchestratorRootPresentations }),
-    [orchestratorRootPresentations],
+  const orchestratorRootPresentationsByProjectId = useMemo(() => {
+    const byProjectId = new Map<ProjectId, Array<(typeof orchestratorRootPresentations)[number]>>();
+    for (const entry of orchestratorRootPresentations) {
+      const bucket = byProjectId.get(entry.thread.projectId);
+      if (bucket) bucket.push(entry);
+      else byProjectId.set(entry.thread.projectId, [entry]);
+    }
+    return byProjectId;
+  }, [orchestratorRootPresentations]);
+  const noProjectOrchestratorRootPresentations = useMemo(
+    () =>
+      orchestratorRootPresentations.filter(
+        (entry) => projectById.get(entry.thread.projectId)?.kind !== "project",
+      ),
+    [orchestratorRootPresentations, projectById],
   );
   const orchestratorSearchEntries = useMemo(
     () =>
@@ -4205,21 +4250,23 @@ export default function Sidebar() {
       addVisibleThreadId(thread.id);
     }
 
-    for (const project of surfaceProjects) {
-      const projectSidebarData = surfaceProjectSidebarDataById.get(project.id);
-      if (!projectSidebarData) {
-        continue;
-      }
-
-      if (!project.expanded) {
-        if (projectSidebarData.activeEntryId) {
-          addVisibleThreadId(projectSidebarData.activeEntryId);
+    if (!isOnOrchestrator) {
+      for (const project of surfaceProjects) {
+        const projectSidebarData = surfaceProjectSidebarDataById.get(project.id);
+        if (!projectSidebarData) {
+          continue;
         }
-        continue;
-      }
 
-      for (const entry of projectSidebarData.visibleEntries) {
-        addVisibleThreadId(entry.rowId);
+        if (!project.expanded) {
+          if (projectSidebarData.activeEntryId) {
+            addVisibleThreadId(projectSidebarData.activeEntryId);
+          }
+          continue;
+        }
+
+        for (const entry of projectSidebarData.visibleEntries) {
+          addVisibleThreadId(entry.rowId);
+        }
       }
     }
 
@@ -4228,7 +4275,13 @@ export default function Sidebar() {
     }
 
     return [...visibleThreadIdSet];
-  }, [orchestratorRootThreadIds, pinnedThreads, surfaceProjectSidebarDataById, surfaceProjects]);
+  }, [
+    isOnOrchestrator,
+    orchestratorRootThreadIds,
+    pinnedThreads,
+    surfaceProjectSidebarDataById,
+    surfaceProjects,
+  ]);
   const visibleSidebarThreadIds = activityViewEnabled
     ? activityVisibleThreadIds
     : classicVisibleSidebarThreadIds;
@@ -4239,12 +4292,7 @@ export default function Sidebar() {
           ? visibleSidebarThreadIds
           : [...visibleSidebarThreadIds, ...visibleChatThreadIds, ...orchestratorRootThreadIds],
       ),
-    [
-      activityViewEnabled,
-      orchestratorRootThreadIds,
-      visibleChatThreadIds,
-      visibleSidebarThreadIds,
-    ],
+    [activityViewEnabled, orchestratorRootThreadIds, visibleChatThreadIds, visibleSidebarThreadIds],
   );
   const visibleSidebarThreads = useMemo(
     // Tree source so an active subagent row also gets PR badges and git targets.
@@ -4601,12 +4649,13 @@ export default function Sidebar() {
     );
   }
 
-  // Interactive hover card for project/folder rows: name + pin toggle, chat
-  // count, path, and an "Edit project" action. Rendered inside a PreviewCard so
+  // Interactive hover card for project/folder rows: name + pin toggle, mode-owned
+  // item count, path, and an "Edit project" action. Rendered inside a PreviewCard so
   // its controls stay reachable when the pointer moves into the card.
   function renderProjectHoverCardPopup(
     project: (typeof sortedProjects)[number],
-    chatCount: number,
+    itemCount: number,
+    itemNoun: "chat" | "Root",
   ) {
     return (
       <PreviewCardPopup
@@ -4617,7 +4666,8 @@ export default function Sidebar() {
         <ProjectHoverCardContent
           name={project.name}
           isPinned={pinnedProjectIdSet.has(project.id)}
-          chatCount={chatCount}
+          itemCount={itemCount}
+          itemNoun={itemNoun}
           path={abbreviateHomePath(project.cwd, homeDir)}
           onTogglePin={() => toggleProjectPinned(project.id)}
           onEditProject={() => void handleProjectContextMenuAction(project.id, "rename")}
@@ -5236,24 +5286,13 @@ export default function Sidebar() {
     );
   }
 
-  function renderHistorySection<T>(input: {
-    section: { key: string; label: string; items: readonly T[] };
-    renderItem: (item: T) => ReactNode;
-  }) {
-    return (
-      <div key={input.section.key} className="mb-3">
-        <div className="px-2 pb-1 pt-2 text-[length:var(--app-font-size-ui,12px)] font-normal text-muted-foreground/58">
-          {input.section.label}
-        </div>
-        <div className="flex flex-col gap-0.5">{input.section.items.map(input.renderItem)}</div>
-      </div>
-    );
-  }
-
   function renderProjectItem(
     project: (typeof sortedProjects)[number],
     dragHandleProps: SortableProjectHandleProps | null,
+    surface: "project" | "orchestrator" = "project",
   ) {
+    const isOrchestratorProject = surface === "orchestrator";
+    const orchestratorRootEntries = orchestratorRootPresentationsByProjectId.get(project.id) ?? [];
     const isProjectPinned = pinnedProjectIdSet.has(project.id);
     const projectSidebarData = surfaceProjectSidebarDataById.get(project.id);
     if (!projectSidebarData) {
@@ -5262,12 +5301,20 @@ export default function Sidebar() {
     const {
       orderedProjectThreadIds,
       allProjectThreadCount,
-      projectStatus,
+      projectStatus: ordinaryProjectStatus,
       visibleEntries,
       threadListExtraPages,
       canShowMoreThreads,
       canShowLessThreads,
     } = projectSidebarData;
+    const projectStatus = isOrchestratorProject
+      ? resolveProjectStatusIndicator(
+          orchestratorRootEntries.map((entry) => resolveThreadStatusForSidebar(entry.thread)),
+        )
+      : ordinaryProjectStatus;
+    const projectItemCount = isOrchestratorProject
+      ? orchestratorRootEntries.length
+      : allProjectThreadCount;
     const projectFolderIconClassName = isProjectPinned
       ? "opacity-0"
       : sidebarHoverRevealHideClassName("project-header");
@@ -5408,70 +5455,92 @@ export default function Sidebar() {
               <PinStatusIcon pinned={isProjectPinned} className="size-3.5" />
             </button>
             <SidebarSectionToolbar placement="overlay" revealOnHover>
-              <SidebarIconButton
-                icon={IoIosGitCompare}
-                label={`View pull requests for ${project.name}`}
-                tooltip="Pull requests"
-                tooltipSide="top"
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  // Opens the in-app pull requests view scoped to this project (selecting a
-                  // row there opens the right-dock detail panel) instead of leaving for GitHub.
-                  void navigate({
-                    to: "/pull-requests",
-                    search: { involvement: "all", state: "open", projectId: project.id },
-                  });
-                }}
-              />
-              <SidebarIconButton
-                icon={TerminalIcon}
-                label={`Create new terminal thread in ${project.name}`}
-                tooltip={
-                  newTerminalThreadShortcutLabel
-                    ? `New terminal thread (${newTerminalThreadShortcutLabel})`
-                    : "New terminal thread"
-                }
-                tooltipSide="top"
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  void handleNewThread(project.id, {
-                    envMode: resolveSidebarNewThreadEnvMode({
-                      defaultEnvMode: appSettings.defaultThreadEnvMode,
-                    }),
-                    entryPoint: "terminal",
-                  });
-                }}
-              />
-              <SidebarIconButton
-                icon={NewThreadIcon}
-                label={`Create new thread in ${project.name}`}
-                tooltip={
-                  newThreadShortcutLabel ? `New thread (${newThreadShortcutLabel})` : "New thread"
-                }
-                tooltipSide="top"
-                data-testid="new-thread-button"
-                onMouseEnter={() => {
-                  prefetchModelsForProjectNewThread(project.id, { includeDroid: true });
-                }}
-                onFocus={() => {
-                  prefetchModelsForProjectNewThread(project.id, { includeDroid: true });
-                }}
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  prefetchModelsForProjectNewThread(project.id, { includeDroid: true });
-                  void handleNewThread(project.id, {
-                    envMode: resolveSidebarNewThreadEnvMode({
-                      defaultEnvMode: appSettings.defaultThreadEnvMode,
-                    }),
-                  });
-                }}
-              />
+              {isOrchestratorProject ? (
+                <SidebarIconButton
+                  icon={NewThreadIcon}
+                  label={`New Orchestrator Root in ${project.name}`}
+                  tooltip="New Orchestrator Root"
+                  tooltipSide="top"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void navigate({ to: "/orchestrator", search: { projectId: project.id } });
+                  }}
+                />
+              ) : (
+                <>
+                  <SidebarIconButton
+                    icon={IoIosGitCompare}
+                    label={`View pull requests for ${project.name}`}
+                    tooltip="Pull requests"
+                    tooltipSide="top"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      // Opens the in-app pull requests view scoped to this project (selecting a
+                      // row there opens the right-dock detail panel) instead of leaving for GitHub.
+                      void navigate({
+                        to: "/pull-requests",
+                        search: { involvement: "all", state: "open", projectId: project.id },
+                      });
+                    }}
+                  />
+                  <SidebarIconButton
+                    icon={TerminalIcon}
+                    label={`Create new terminal thread in ${project.name}`}
+                    tooltip={
+                      newTerminalThreadShortcutLabel
+                        ? `New terminal thread (${newTerminalThreadShortcutLabel})`
+                        : "New terminal thread"
+                    }
+                    tooltipSide="top"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      void handleNewThread(project.id, {
+                        envMode: resolveSidebarNewThreadEnvMode({
+                          defaultEnvMode: appSettings.defaultThreadEnvMode,
+                        }),
+                        entryPoint: "terminal",
+                      });
+                    }}
+                  />
+                  <SidebarIconButton
+                    icon={NewThreadIcon}
+                    label={`Create new thread in ${project.name}`}
+                    tooltip={
+                      newThreadShortcutLabel
+                        ? `New thread (${newThreadShortcutLabel})`
+                        : "New thread"
+                    }
+                    tooltipSide="top"
+                    data-testid="new-thread-button"
+                    onMouseEnter={() => {
+                      prefetchModelsForProjectNewThread(project.id, { includeDroid: true });
+                    }}
+                    onFocus={() => {
+                      prefetchModelsForProjectNewThread(project.id, { includeDroid: true });
+                    }}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      prefetchModelsForProjectNewThread(project.id, { includeDroid: true });
+                      void handleNewThread(project.id, {
+                        envMode: resolveSidebarNewThreadEnvMode({
+                          defaultEnvMode: appSettings.defaultThreadEnvMode,
+                        }),
+                      });
+                    }}
+                  />
+                </>
+              )}
             </SidebarSectionToolbar>
           </PreviewCardTrigger>
-          {renderProjectHoverCardPopup(project, allProjectThreadCount)}
+          {renderProjectHoverCardPopup(
+            project,
+            projectItemCount,
+            isOrchestratorProject ? "Root" : "chat",
+          )}
         </PreviewCard>
 
         <div
@@ -5488,11 +5557,21 @@ export default function Sidebar() {
                 disclosureContentClassName(project.expanded),
               )}
             >
-              {visibleEntries.map((entry) =>
-                renderThreadRow(entry.thread, orderedProjectThreadIds, entry.depth),
+              {isOrchestratorProject ? (
+                orchestratorRootEntries.length > 0 ? (
+                  orchestratorRootEntries.map(renderOrchestratorRootHistoryRow)
+                ) : (
+                  <SidebarMenuSubItem className="w-full px-8 py-1 text-[10px] text-muted-foreground/52">
+                    No Orchestrator Roots yet
+                  </SidebarMenuSubItem>
+                )
+              ) : (
+                visibleEntries.map((entry) =>
+                  renderThreadRow(entry.thread, orderedProjectThreadIds, entry.depth),
+                )
               )}
 
-              {(canShowMoreThreads || canShowLessThreads) && (
+              {!isOrchestratorProject && (canShowMoreThreads || canShowLessThreads) && (
                 <SidebarMenuSubItem className="w-full">
                   <div className="flex w-full items-center gap-1">
                     {canShowMoreThreads && (
@@ -5534,6 +5613,44 @@ export default function Sidebar() {
           </div>
         </div>
       </div>
+    );
+  }
+
+  function renderProjectFolderList(surface: "project" | "orchestrator") {
+    if (isManualProjectSorting) {
+      return (
+        <DndContext
+          sensors={projectDnDSensors}
+          collisionDetection={projectCollisionDetection}
+          modifiers={[restrictToVerticalAxis, restrictToFirstScrollableAncestor]}
+          onDragStart={handleProjectDragStart}
+          onDragEnd={handleProjectDragEnd}
+          onDragCancel={handleProjectDragCancel}
+        >
+          <SidebarMenu className="gap-3">
+            <SortableContext
+              items={standardProjects.map((project) => project.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              {standardProjects.map((project) => (
+                <SortableProjectItem key={project.id} projectId={project.id}>
+                  {(dragHandleProps) => renderProjectItem(project, dragHandleProps, surface)}
+                </SortableProjectItem>
+              ))}
+            </SortableContext>
+          </SidebarMenu>
+        </DndContext>
+      );
+    }
+
+    return (
+      <SidebarMenu ref={attachProjectListAutoAnimateRef} className="gap-3">
+        {standardProjects.map((project) => (
+          <SidebarMenuItem key={project.id} className="rounded-md">
+            {renderProjectItem(project, null, surface)}
+          </SidebarMenuItem>
+        ))}
+      </SidebarMenu>
     );
   }
 
@@ -5657,6 +5774,7 @@ export default function Sidebar() {
       if (command === "sidebar.addProject") {
         event.preventDefault();
         event.stopPropagation();
+        setCreateProjectReturnToOrchestrator(isOnOrchestrator);
         setCreateProjectDialogOpen(true);
         return;
       }
@@ -6523,89 +6641,71 @@ export default function Sidebar() {
                       isOnOrchestrator ? handleCreateOrchestrator : handlePrimaryNewThread
                     }
                     onAddProject={
-                      isOnOrchestrator ? handleStartAddProjectForOrchestrator : handleStartAddProject
+                      isOnOrchestrator
+                        ? handleStartAddProjectForOrchestrator
+                        : handleStartAddProject
                     }
                   />
                 </SidebarGroup>
               ) : isOnOrchestrator ? (
                 <SidebarGroup className="px-1.5 py-1.5">
-                  <div className="group/collapsible">
-                    <div className="group/project-header relative">
-                      <SidebarMenuButton
-                        size="sm"
-                        aria-expanded={orchestratorRootsSectionExpanded}
-                        className={cn(
-                          SIDEBAR_HEADER_ROW_CLASS_NAME,
-                          SIDEBAR_ROW_IDLE_TEXT_CLASS_NAME,
-                          SIDEBAR_ROW_HOVER_CLASS_NAME,
-                          "cursor-pointer",
+                  {renderListSectionHeader(
+                    "Projects",
+                    <>
+                      {standardProjects.length > 0 ? (
+                        <SidebarIconButton
+                          icon={allProjectsExpanded ? CollapseAllIcon : ExpandAllIcon}
+                          label={
+                            allProjectsExpanded ? "Collapse all projects" : "Expand all projects"
+                          }
+                          tooltip={
+                            allProjectsExpanded ? "Collapse all projects" : "Expand all projects"
+                          }
+                          tooltipSide="bottom"
+                          onClick={handleToggleProjects}
+                        />
+                      ) : null}
+                      <ProjectSortMenu
+                        projectSortOrder={appSettings.sidebarProjectSortOrder}
+                        threadSortOrder={appSettings.sidebarThreadSortOrder}
+                        onProjectSortOrderChange={(sortOrder) => {
+                          updateSettings({ sidebarProjectSortOrder: sortOrder });
+                        }}
+                        onThreadSortOrderChange={(sortOrder) => {
+                          updateSettings({ sidebarThreadSortOrder: sortOrder });
+                        }}
+                      />
+                      <SidebarIconButton
+                        icon={AddPlusIcon}
+                        label="Add project"
+                        tooltip="Add project"
+                        tooltipSide="right"
+                        onClick={handleStartAddProjectForOrchestrator}
+                      />
+                    </>,
+                  )}
+
+                  {renderProjectFolderList("orchestrator")}
+
+                  {noProjectOrchestratorRootPresentations.length > 0 ? (
+                    <div className="mt-3">
+                      <div className="px-2 pb-1 text-[length:var(--app-font-size-ui,12px)] font-normal text-muted-foreground/58">
+                        No project
+                      </div>
+                      <div className="flex flex-col gap-0.5">
+                        {noProjectOrchestratorRootPresentations.map(
+                          renderOrchestratorRootHistoryRow,
                         )}
-                        onClick={() => setOrchestratorRootsSectionExpanded((current) => !current)}
-                      >
-                        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
-                          <span className="truncate font-system-ui text-[length:var(--app-font-size-ui,12px)] font-normal text-muted-foreground/79">
-                            Roots
-                          </span>
-                          <DisclosureChevron
-                            open={orchestratorRootsSectionExpanded}
-                            className="text-muted-foreground/79"
-                          />
-                        </div>
-                      </SidebarMenuButton>
-                      <SidebarSectionToolbar placement="overlay">
-                        <SidebarIconButton
-                          icon={NewThreadIcon}
-                          label="New Orchestrator Root"
-                          tooltip="New Orchestrator Root"
-                          tooltipSide="top"
-                          onClick={handleCreateOrchestrator}
-                        />
-                        <ChatSortMenu
-                          disabled={orchestratorRoots.length < 2}
-                          disabledTooltip="Create another Root to sort"
-                          threadSortOrder={appSettings.sidebarThreadSortOrder}
-                          onThreadSortOrderChange={(sortOrder) => {
-                            updateSettings({ sidebarThreadSortOrder: sortOrder });
-                          }}
-                        />
-                        <SidebarIconButton
-                          icon={AddPlusIcon}
-                          label="Add project"
-                          tooltip="Add project"
-                          tooltipSide="right"
-                          onClick={handleStartAddProjectForOrchestrator}
-                        />
-                      </SidebarSectionToolbar>
-                    </div>
-                    <div
-                      className={cn(
-                        disclosureShellClassName(orchestratorRootsSectionExpanded),
-                        "pt-1",
-                      )}
-                    >
-                      <div className={DISCLOSURE_INNER_CLASS}>
-                        <div
-                          ref={attachProjectListAutoAnimateRef}
-                          className={disclosureContentClassName(orchestratorRootsSectionExpanded)}
-                        >
-                          {orchestratorHistorySections.length > 0 ? (
-                            orchestratorHistorySections.map((section) =>
-                              renderHistorySection({
-                                section,
-                                renderItem: renderOrchestratorRootHistoryRow,
-                              }),
-                            )
-                          ) : (
-                            <div className="px-2 pt-4 text-center text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/58">
-                              {orchestratorRootsQuery.isPending
-                                ? "Loading Roots..."
-                                : "No Orchestrator Roots yet"}
-                            </div>
-                          )}
-                        </div>
                       </div>
                     </div>
-                  </div>
+                  ) : null}
+
+                  {standardProjects.length === 0 &&
+                  noProjectOrchestratorRootPresentations.length === 0 ? (
+                    <div className="px-2 pt-4 text-center text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/58">
+                      {orchestratorRootsQuery.isPending ? "Loading projects..." : "No projects yet"}
+                    </div>
+                  ) : null}
                 </SidebarGroup>
               ) : (
                 <SidebarGroup className="px-1.5 py-1.5">
@@ -6674,37 +6774,7 @@ export default function Sidebar() {
                     </>,
                   )}
 
-                  {isManualProjectSorting ? (
-                    <DndContext
-                      sensors={projectDnDSensors}
-                      collisionDetection={projectCollisionDetection}
-                      modifiers={[restrictToVerticalAxis, restrictToFirstScrollableAncestor]}
-                      onDragStart={handleProjectDragStart}
-                      onDragEnd={handleProjectDragEnd}
-                      onDragCancel={handleProjectDragCancel}
-                    >
-                      <SidebarMenu className="gap-3">
-                        <SortableContext
-                          items={standardProjects.map((project) => project.id)}
-                          strategy={verticalListSortingStrategy}
-                        >
-                          {standardProjects.map((project) => (
-                            <SortableProjectItem key={project.id} projectId={project.id}>
-                              {(dragHandleProps) => renderProjectItem(project, dragHandleProps)}
-                            </SortableProjectItem>
-                          ))}
-                        </SortableContext>
-                      </SidebarMenu>
-                    </DndContext>
-                  ) : (
-                    <SidebarMenu ref={attachProjectListAutoAnimateRef} className="gap-3">
-                      {standardProjects.map((project) => (
-                        <SidebarMenuItem key={project.id} className="rounded-md">
-                          {renderProjectItem(project, null)}
-                        </SidebarMenuItem>
-                      ))}
-                    </SidebarMenu>
-                  )}
+                  {renderProjectFolderList("project")}
 
                   {projectEmptyState === "loading" && (
                     <div
@@ -7133,10 +7203,11 @@ export default function Sidebar() {
                 <ProjectContextMenuIcon icon={PinIcon} />
                 <span>{pinActionLabel("project", projectContextMenuIsPinned)}</span>
               </MenuItem>
-              {projectContextMenuHasArchivableThreads || projectContextMenuHasAnyThreads ? (
+              {!isOnOrchestrator &&
+              (projectContextMenuHasArchivableThreads || projectContextMenuHasAnyThreads) ? (
                 <MenuSeparator />
               ) : null}
-              {projectContextMenuHasArchivableThreads ? (
+              {!isOnOrchestrator && projectContextMenuHasArchivableThreads ? (
                 <MenuItem
                   className={PROJECT_CONTEXT_MENU_ITEM_CLASS_NAME}
                   onClick={() =>
@@ -7150,7 +7221,7 @@ export default function Sidebar() {
                   <span>Archive threads</span>
                 </MenuItem>
               ) : null}
-              {projectContextMenuHasAnyThreads ? (
+              {!isOnOrchestrator && projectContextMenuHasAnyThreads ? (
                 <MenuItem
                   className={PROJECT_CONTEXT_MENU_ITEM_CLASS_NAME}
                   onClick={() =>
@@ -7300,7 +7371,12 @@ export default function Sidebar() {
             void (isOnOrchestrator ? handleCreateOrchestrator() : handleCreateHomeChat())
           }
           onCreateThread={handlePrimaryNewThread}
-          onAddProjectPath={addProjectFromPath}
+          onAddProjectPath={(path, options) =>
+            addProjectFromPath(path, {
+              ...options,
+              ...(isOnOrchestrator ? { surface: "orchestrator" as const } : {}),
+            })
+          }
           homeDir={homeDir}
           onOpenSettings={() => {
             void navigate({ to: "/settings" });

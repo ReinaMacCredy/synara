@@ -4485,9 +4485,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await expect.element(newThreadButton).toBeInTheDocument();
       await newThreadButton.click();
 
-      await expect
-        .element(page.getByRole("heading", { name: "Create project" }))
-        .toBeInTheDocument();
+      await expect.element(page.getByRole("heading", { name: "Add project" })).toBeInTheDocument();
       expect(mounted.router.state.location.pathname).toBe(initialPath);
     } finally {
       await mounted.cleanup();
@@ -4516,7 +4514,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await waitForLayout();
 
       await expect
-        .element(page.getByRole("heading", { name: "Create project" }))
+        .element(page.getByRole("heading", { name: "Add project" }))
         .not.toBeInTheDocument();
       expect(mounted.router.state.location.pathname).toBe(initialPath);
     } finally {
@@ -4876,12 +4874,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
     try {
       await page.getByRole("button", { name: "Add project", exact: true }).click();
-      await expect
-        .element(page.getByRole("heading", { name: "Create project" }))
-        .toBeInTheDocument();
+      await expect.element(page.getByRole("heading", { name: "Add project" })).toBeInTheDocument();
 
       await page.getByLabelText("Project folder path").fill("/repo/new-project");
-      await page.getByRole("button", { name: "Create project", exact: true }).click();
+      await page.getByRole("button", { name: "Add project", exact: true }).click();
 
       await vi.waitFor(
         () => {
@@ -4904,11 +4900,114 @@ describe("ChatView timeline estimator parity (full app)", () => {
       // The dialog closes on success and the sidebar picks the project up from
       // the refreshed shell snapshot.
       await expect
-        .element(page.getByRole("heading", { name: "Create project" }))
+        .element(page.getByRole("heading", { name: "Add project" }))
         .not.toBeInTheDocument();
       await expect
         .element(page.getByText("new-project", { exact: true }).first())
         .toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("adds a project from Orchestrator without creating an ordinary chat or leaving the mode", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-orchestrator-add-project-test" as MessageId,
+        targetText: "orchestrator add project test",
+      }),
+      initialEntry: `/orchestrator?projectId=${PROJECT_ID}`,
+    });
+
+    try {
+      await expect.element(page.getByText("Project", { exact: true }).first()).toBeInTheDocument();
+      await expect.element(page.getByText(THREAD_TITLE, { exact: true })).not.toBeInTheDocument();
+
+      await page.getByRole("button", { name: "Add project", exact: true }).click();
+      await expect.element(page.getByRole("heading", { name: "Add project" })).toBeInTheDocument();
+
+      await page.getByLabelText("Project folder path").fill("/repo/orchestrator-project");
+      await page.getByRole("button", { name: "Add project", exact: true }).click();
+
+      let createdProjectId: ProjectId | null = null;
+      await vi.waitFor(() => {
+        const command = wsRequests
+          .filter((request) => request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand)
+          .map((request) => ("command" in request ? request.command : null))
+          .find(
+            (candidate) =>
+              candidate &&
+              typeof candidate === "object" &&
+              "type" in candidate &&
+              candidate.type === "project.create" &&
+              "workspaceRoot" in candidate &&
+              candidate.workspaceRoot === "/repo/orchestrator-project",
+          );
+        expect(command).toBeDefined();
+        createdProjectId =
+          command && typeof command === "object" && "projectId" in command
+            ? (command.projectId as ProjectId)
+            : null;
+        expect(createdProjectId).not.toBeNull();
+      });
+
+      await vi.waitFor(() => {
+        expect(mounted.router.state.location.pathname).toBe("/orchestrator");
+        expect(mounted.router.state.location.search).toEqual({ projectId: createdProjectId });
+        expect(
+          useComposerDraftStore.getState().getDraftThreadByProjectId(createdProjectId!, "chat"),
+        ).toBeNull();
+        expect(
+          useComposerDraftStore
+            .getState()
+            .getDraftThreadByProjectId(createdProjectId!, "orchestrator"),
+        ).not.toBeNull();
+      });
+      await expect
+        .element(page.getByText("orchestrator-project", { exact: true }).first())
+        .toBeInTheDocument();
+      await expect.element(page.getByText(THREAD_TITLE, { exact: true })).not.toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("reuses an existing shared project from Orchestrator without creating an ordinary chat", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-orchestrator-existing-project-test" as MessageId,
+        targetText: "orchestrator existing project test",
+      }),
+      initialEntry: `/orchestrator?projectId=${PROJECT_ID}`,
+    });
+
+    try {
+      await page.getByRole("button", { name: "Add project", exact: true }).click();
+      await page.getByLabelText("Project folder path").fill("/repo/project");
+      await page.getByRole("button", { name: "Add project", exact: true }).click();
+
+      await vi.waitFor(() => {
+        expect(mounted.router.state.location.pathname).toBe("/orchestrator");
+        expect(mounted.router.state.location.search).toEqual({ projectId: PROJECT_ID });
+        expect(
+          useComposerDraftStore.getState().getDraftThreadByProjectId(PROJECT_ID, "chat"),
+        ).toBeNull();
+      });
+      expect(
+        wsRequests.some(
+          (request) =>
+            request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+            "command" in request &&
+            request.command &&
+            typeof request.command === "object" &&
+            "type" in request.command &&
+            request.command.type === "project.create",
+        ),
+      ).toBe(false);
+      await expect.element(page.getByText("Project", { exact: true }).first()).toBeInTheDocument();
+      await expect.element(page.getByText(THREAD_TITLE, { exact: true })).not.toBeInTheDocument();
     } finally {
       await mounted.cleanup();
     }
@@ -4933,9 +5032,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
     try {
       await page.getByRole("button", { name: "Add project", exact: true }).click();
-      await expect
-        .element(page.getByRole("heading", { name: "Create project" }))
-        .toBeInTheDocument();
+      await expect.element(page.getByRole("heading", { name: "Add project" })).toBeInTheDocument();
 
       await page.getByRole("button", { name: "New space", exact: true }).click();
       await expect.element(page.getByRole("heading", { name: "New space" })).toBeInTheDocument();
@@ -4962,7 +5059,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await expect.element(page.getByText("Focus", { exact: true }).first()).toBeInTheDocument();
 
       await page.getByLabelText("Project folder path").fill("/repo/spaced-project");
-      await page.getByRole("button", { name: "Create project", exact: true }).click();
+      await page.getByRole("button", { name: "Add project", exact: true }).click();
 
       await vi.waitFor(
         () => {
@@ -5053,15 +5150,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
         "Unable to find the destination Space option.",
       );
       destinationOption.click();
-      await page.getByRole("button", { name: "Create project", exact: true }).click();
+      await page.getByRole("button", { name: "Add project", exact: true }).click();
 
       await expect
         .element(page.getByRole("alert"))
         .toHaveTextContent("Project creation failed for test.");
       expect(useSpacesUiStore.getState().activeSpaceId).toBe(currentSpaceId);
-      await expect
-        .element(page.getByRole("heading", { name: "Create project" }))
-        .toBeInTheDocument();
+      await expect.element(page.getByRole("heading", { name: "Add project" })).toBeInTheDocument();
     } finally {
       useSpacesUiStore.getState().setActiveSpaceId(null);
       if (previousNativeApi) {

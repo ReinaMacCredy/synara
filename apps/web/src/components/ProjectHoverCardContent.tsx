@@ -1,14 +1,14 @@
 // FILE: ProjectHoverCardContent.tsx
 // Purpose: Interactive hover-card body for sidebar project/folder rows — project
-//          name + pin toggle on the header line, then the chat count, the project
-//          path, and a clickable "Edit project" action.
+//          name + pin toggle on the header line, then the mode-owned item count,
+//          the project path, and a clickable "Edit project" action.
 // Layer: Sidebar UI component
 // Exports: ProjectHoverCardContent
 // Why: Rendered inside a Base UI PreviewCard (hover-open + interactive), so the
 //      pin and "Edit project" rows are real controls. Spacing/type mirror the
 //      app's menu rows (12px UI font, compact padding) so it reads as native.
 
-import { MessageCircleIcon, SettingsIcon } from "~/lib/icons";
+import { MessageCircleIcon, SettingsIcon, WorkflowIcon } from "~/lib/icons";
 import { PinStatusIcon, pinActionLabel } from "~/lib/pin";
 import { cn } from "~/lib/utils";
 import { FolderClosed, FolderOpen } from "./FolderClosed";
@@ -20,7 +20,8 @@ import {
 export type ProjectHoverCardContentProps = {
   name: string;
   isPinned: boolean;
-  chatCount: number;
+  itemCount: number;
+  itemNoun: "chat" | "Root";
   /** Display path (already home-abbreviated, e.g. ~/Developer/synara). */
   path: string;
   onTogglePin: () => void;
@@ -37,18 +38,20 @@ const ROW_CLASS_NAME = SIDEBAR_HOVER_CARD_ROW_CLASS_NAME;
 // the explicit text color here tints them directly.
 const ICON_CLASS_NAME = "size-3.5 shrink-0 text-muted-foreground";
 
-function formatChatCount(count: number): string {
-  return `${count} ${count === 1 ? "chat" : "chats"}`;
+function formatItemCount(count: number, noun: "chat" | "Root"): string {
+  return `${count} ${count === 1 ? noun : `${noun}s`}`;
 }
 
 export function ProjectHoverCardContent({
   name,
   isPinned,
-  chatCount,
+  itemCount,
+  itemNoun,
   path,
   onTogglePin,
   onEditProject,
 }: ProjectHoverCardContentProps) {
+  const ItemIcon = itemNoun === "Root" ? WorkflowIcon : MessageCircleIcon;
   return (
     <div
       className={cn("flex w-full flex-col gap-0", SIDEBAR_HOVER_CARD_CONTAINER_PADDING_CLASS_NAME)}
@@ -70,8 +73,8 @@ export function ProjectHoverCardContent({
         </button>
       </div>
       <div className={cn(ROW_CLASS_NAME, "text-foreground/80")}>
-        <MessageCircleIcon className={ICON_CLASS_NAME} aria-hidden />
-        <span className="min-w-0 truncate">{formatChatCount(chatCount)}</span>
+        <ItemIcon className={ICON_CLASS_NAME} aria-hidden />
+        <span className="min-w-0 truncate">{formatItemCount(itemCount, itemNoun)}</span>
       </div>
       <div className="-mx-0.5 my-0.5 h-px bg-[color:var(--color-border)]" aria-hidden />
       <div className={cn(ROW_CLASS_NAME, "text-foreground/80")}>

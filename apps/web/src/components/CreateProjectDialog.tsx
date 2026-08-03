@@ -240,7 +240,7 @@ export function CreateProjectDialog(props: {
   };
 
   // The space is created right away (same command the sidebar uses) and picked
-  // as the destination, so one Create click ships the project into it.
+  // as the destination, so one Add click ships the project into it.
   const handleCreateSpace = async (value: SpaceEditorValue) => {
     const api = readNativeApi();
     if (!api) throw new Error("The app server is unavailable.");
@@ -270,12 +270,24 @@ export function CreateProjectDialog(props: {
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogPopup>
         <DialogHeader className="px-5 pt-5">
-          <DialogTitle>Create project</DialogTitle>
+          <DialogTitle>Add project</DialogTitle>
         </DialogHeader>
         <DialogPanel className="space-y-4 px-5">
           <InputGroup className={cn(fieldControlClassName, "mt-4")}>
             <InputGroupAddon className="w-10 self-stretch border-e border-foreground/12 ps-0">
-              <FolderClosed className="size-4 text-muted-foreground/70" aria-hidden="true" />
+              {isElectron ? (
+                <button
+                  type="button"
+                  aria-label="Browse for project folder"
+                  disabled={isPickingFolder || submitting}
+                  className="inline-flex size-full cursor-pointer items-center justify-center text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-default disabled:opacity-50"
+                  onClick={() => void handleBrowse()}
+                >
+                  <FolderClosed className="size-4" aria-hidden="true" />
+                </button>
+              ) : (
+                <FolderClosed className="size-4 text-muted-foreground/70" aria-hidden="true" />
+              )}
             </InputGroupAddon>
             <InputGroupInput
               id={pathInputId}
@@ -427,7 +439,7 @@ export function CreateProjectDialog(props: {
             onClick={() => void submit()}
             disabled={submitting}
           >
-            {submitting ? "Creating…" : "Create project"}
+            {submitting ? "Adding…" : "Add project"}
           </Button>
         </DialogFooter>
         <SpaceEditorDialog
