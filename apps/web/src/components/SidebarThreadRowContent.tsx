@@ -5,6 +5,7 @@
 import { useMemo, type ReactNode } from "react";
 
 import { isGenericChatThreadTitle } from "@synara/shared/chatThreads";
+import { isAdvisorIdentity } from "@synara/shared/advisor";
 import { pluralize } from "@synara/shared/text";
 
 import { createThreadSelector } from "../storeSelectors";
@@ -199,6 +200,14 @@ export function SidebarThreadRowContent({
           },
         })
       : null;
+  const isAdvisorThread =
+    isSubagentThread &&
+    isAdvisorIdentity({
+      nickname: thread.subagentNickname,
+      role: thread.subagentRole,
+      title: thread.title,
+    });
+  const advisorProvider = thread.session?.provider ?? thread.modelSelection.provider;
   const showThreadProviderAvatar = !isGenericChatThreadTitle(thread.title);
 
   return (
@@ -206,15 +215,30 @@ export function SidebarThreadRowContent({
       {variant === "standard" && isSubagentThread ? (
         <span
           aria-hidden="true"
-          className="relative inline-flex h-3.5 w-[18px] shrink-0 items-center"
+          className={cn(
+            "relative inline-flex h-3.5 shrink-0 items-center",
+            isAdvisorThread ? "w-[28px]" : "w-[18px]",
+          )}
           style={{ marginLeft: `${subagentIndentPx}px` }}
+          title={isAdvisorThread ? thread.modelSelection.model : undefined}
         >
           <span className="absolute left-1.5 top-0 bottom-0 w-px rounded-full bg-border/35" />
-          <span className="absolute left-1.5 top-1/2 h-px w-2.5 -translate-y-1/2 bg-border/35" />
           <span
-            className="absolute left-1.5 top-1/2 size-[5px] -translate-x-1/2 -translate-y-1/2 rounded-full"
-            style={{ backgroundColor: subagentPresentation?.accentColor }}
+            className={cn(
+              "absolute left-1.5 top-1/2 h-px -translate-y-1/2 bg-border/35",
+              isAdvisorThread ? "w-4" : "w-2.5",
+            )}
           />
+          {isAdvisorThread ? (
+            <span className="sidebar-icon-chip absolute right-0 top-1/2 inline-flex size-4 -translate-y-1/2 items-center justify-center rounded-full">
+              <ProviderIcon provider={advisorProvider} className="size-3" />
+            </span>
+          ) : (
+            <span
+              className="absolute left-1.5 top-1/2 size-[5px] -translate-x-1/2 -translate-y-1/2 rounded-full"
+              style={{ backgroundColor: subagentPresentation?.accentColor }}
+            />
+          )}
         </span>
       ) : terminalEntryPoint ? (
         <SidebarGlyph icon={TerminalIcon} variant="chrome" />

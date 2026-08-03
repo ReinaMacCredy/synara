@@ -148,6 +148,10 @@
       "types": "./src/subagents.ts",
       "import": "./src/subagents.ts"
     },
+    "./advisor": {
+      "types": "./src/advisor.ts",
+      "import": "./src/advisor.ts"
+    },
     "./agentMentions": {
       "types": "./src/agentMentions.ts",
       "import": "./src/agentMentions.ts"

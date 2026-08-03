@@ -20,6 +20,11 @@ import { Cache, Cause, Deferred, Duration, Effect, Layer, Option, Ref, Stream } 
 import * as Semaphore from "effect/Semaphore";
 import { makeDrainableWorker, startDrainableWorkerProducers } from "@synara/shared/DrainableWorker";
 import {
+  ADVISOR_NICKNAME,
+  ADVISOR_ROLE,
+  isAdvisorConsultationPrompt,
+} from "@synara/shared/advisor";
+import {
   buildSubagentIdentityDirectory,
   collectSubagentProviderThreadIds,
   extractSubagentIdentityHints,
@@ -458,6 +463,7 @@ interface SubagentIdentity {
   readonly role?: string;
   readonly model?: string;
   readonly modelIsRequestedHint?: boolean;
+  readonly prompt?: string;
 }
 
 function extractCollabPayload(event: ProviderRuntimeEvent): Record<string, unknown> | undefined {
@@ -1588,10 +1594,13 @@ const make = Effect.gen(function* () {
         providerThreadId: string,
         identity?: Pick<
           SubagentIdentity,
-          "agentId" | "nickname" | "role" | "model" | "modelIsRequestedHint"
+          "agentId" | "nickname" | "role" | "model" | "modelIsRequestedHint" | "prompt"
         >,
       ) =>
         Effect.gen(function* () {
+          const resolvedIdentity = isAdvisorConsultationPrompt(identity?.prompt)
+            ? { ...identity, nickname: ADVISOR_NICKNAME, role: ADVISOR_ROLE }
+            : identity;
           const childThreadId = ThreadId.makeUnsafe(
             `subagent:${parentThread.id}:${providerThreadId}`,
           );
@@ -1607,10 +1616,10 @@ const make = Effect.gen(function* () {
                 threadDetailFromShell,
               );
           const resolvedModelSelection =
-            identity?.model && identity.modelIsRequestedHint !== true
+            resolvedIdentity?.model && resolvedIdentity.modelIsRequestedHint !== true
               ? {
                   provider: parentThread.modelSelection.provider,
-                  model: identity.model,
+                  model: resolvedIdentity.model,
                 }
               : undefined;
 
@@ -1646,8 +1655,8 @@ const make = Effect.gen(function* () {
               threadId: childThreadId,
               projectId: parentThread.projectId,
               title: subagentThreadTitle({
-                nickname: identity?.nickname,
-                role: identity?.role,
+                nickname: resolvedIdentity?.nickname,
+                role: resolvedIdentity?.role,
                 providerThreadId,
               }),
               modelSelection: resolvedModelSelection ?? parentThread.modelSelection,
@@ -1663,29 +1672,33 @@ const make = Effect.gen(function* () {
               creationSource: "provider_native",
               sourceThreadId: parentThread.id,
               ...(sourceTurnId !== null ? { sourceTurnId } : {}),
-              subagentAgentId: identity?.agentId ?? null,
-              subagentNickname: identity?.nickname ?? null,
-              subagentRole: identity?.role ?? null,
+              subagentAgentId: resolvedIdentity?.agentId ?? null,
+              subagentNickname: resolvedIdentity?.nickname ?? null,
+              subagentRole: resolvedIdentity?.role ?? null,
               createdAt: now,
             });
           } else {
             const existingThreadShell = existingThread.value;
             if (
-              identity?.agentId !== undefined ||
-              identity?.nickname !== undefined ||
-              identity?.role !== undefined ||
-              (identity?.model !== undefined && identity.modelIsRequestedHint !== true)
+              resolvedIdentity?.agentId !== undefined ||
+              resolvedIdentity?.nickname !== undefined ||
+              resolvedIdentity?.role !== undefined ||
+              (resolvedIdentity?.model !== undefined &&
+                resolvedIdentity.modelIsRequestedHint !== true)
             ) {
               yield* orchestrationEngine.dispatch({
                 type: "thread.meta.update",
                 commandId: providerCommandId(event, "subagent-thread-meta-update", childThreadId),
                 threadId: childThreadId,
-                ...(identity?.nickname !== undefined || identity?.role !== undefined
+                ...(resolvedIdentity?.nickname !== undefined || resolvedIdentity?.role !== undefined
                   ? {
                       title: subagentThreadTitle({
                         nickname:
-                          identity?.nickname ?? existingThreadShell.subagentNickname ?? undefined,
-                        role: identity?.role ?? existingThreadShell.subagentRole ?? undefined,
+                          resolvedIdentity?.nickname ??
+                          existingThreadShell.subagentNickname ??
+                          undefined,
+                        role:
+                          resolvedIdentity?.role ?? existingThreadShell.subagentRole ?? undefined,
                         providerThreadId,
                       }),
                     }
@@ -1695,11 +1708,15 @@ const make = Effect.gen(function* () {
                 existingThreadShell.modelSelection.model !== resolvedModelSelection.model
                   ? { modelSelection: resolvedModelSelection }
                   : {}),
-                ...(identity?.agentId !== undefined ? { subagentAgentId: identity.agentId } : {}),
-                ...(identity?.nickname !== undefined
-                  ? { subagentNickname: identity.nickname }
+                ...(resolvedIdentity?.agentId !== undefined
+                  ? { subagentAgentId: resolvedIdentity.agentId }
                   : {}),
-                ...(identity?.role !== undefined ? { subagentRole: identity.role } : {}),
+                ...(resolvedIdentity?.nickname !== undefined
+                  ? { subagentNickname: resolvedIdentity.nickname }
+                  : {}),
+                ...(resolvedIdentity?.role !== undefined
+                  ? { subagentRole: resolvedIdentity.role }
+                  : {}),
               });
             }
           }
@@ -1712,8 +1729,8 @@ const make = Effect.gen(function* () {
                 ...parentThread,
                 id: childThreadId,
                 title: subagentThreadTitle({
-                  nickname: identity?.nickname,
-                  role: identity?.role,
+                  nickname: resolvedIdentity?.nickname,
+                  role: resolvedIdentity?.role,
                   providerThreadId,
                 }),
                 parentThreadId: parentThread.id,
@@ -1722,9 +1739,9 @@ const make = Effect.gen(function* () {
                 sourceTurnId,
                 gatewayOperationId: null,
                 gatewayOperationIndex: null,
-                subagentAgentId: identity?.agentId ?? null,
-                subagentNickname: identity?.nickname ?? null,
-                subagentRole: identity?.role ?? null,
+                subagentAgentId: resolvedIdentity?.agentId ?? null,
+                subagentNickname: resolvedIdentity?.nickname ?? null,
+                subagentRole: resolvedIdentity?.role ?? null,
                 modelSelection: resolvedModelSelection ?? parentThread.modelSelection,
                 latestTurn: null,
                 messages: [],

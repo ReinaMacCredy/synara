@@ -29,6 +29,7 @@ import {
 import {
   buildCodexInitializeParams,
   buildCodexOrchestratorThreadOpenOverrides,
+  CODEX_ADVISOR_DEVELOPER_INSTRUCTIONS,
   CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
   CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS,
   __codexCliVersionGateTesting,
@@ -85,6 +86,21 @@ describe("Codex Synara harness policy", () => {
       }
       expect(instructions).toContain("Do not search or filter \`ALL_TOOLS\`");
       expect(instructions).toContain("sequentially in one \`functions.exec\` invocation");
+    }
+  });
+
+  it("offers one bounded Advisor consultation in default and plan modes", () => {
+    expect(CODEX_ADVISOR_DEVELOPER_INSTRUCTIONS).toContain("SYNARA_ADVISOR_CONSULTATION_V1");
+    expect(CODEX_ADVISOR_DEVELOPER_INSTRUCTIONS).toContain('task_name: "advisor"');
+    expect(CODEX_ADVISOR_DEVELOPER_INSTRUCTIONS).toContain("Omit `agent_type`");
+    expect(CODEX_ADVISOR_DEVELOPER_INSTRUCTIONS).toContain("not a spawnable agent role");
+    expect(CODEX_ADVISOR_DEVELOPER_INSTRUCTIONS).toContain("advice-only");
+    expect(CODEX_ADVISOR_DEVELOPER_INSTRUCTIONS).toContain("one Advisor consultation");
+    for (const instructions of [
+      CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
+      CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS,
+    ]) {
+      expect(instructions.split("SYNARA_ADVISOR_CONSULTATION_V1")).toHaveLength(2);
     }
   });
 

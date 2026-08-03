@@ -22,6 +22,7 @@ import {
 } from "@synara/contracts";
 import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
+import { buildAdvisorConsultationPrompt } from "@synara/shared/advisor";
 
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
@@ -6076,6 +6077,51 @@ describe("ProviderRuntimeIngestion", () => {
     expect(
       parentThread.activities.some((activity) => activity.id === "evt-child-turn-started"),
     ).toBe(false);
+  });
+
+  it("classifies a marker-bearing native consultation as Advisor", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.updated",
+      eventId: asEventId("evt-advisor-collab-updated"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-parent"),
+      itemId: asItemId("item-advisor-collab"),
+      payload: {
+        itemType: "collab_agent_tool_call",
+        title: "Task",
+        data: {
+          item: {
+            type: "collabAgentToolCall",
+            receiverAgents: [
+              {
+                threadId: "child-provider-advisor",
+                agentNickname: "Generated nickname",
+                agentRole: "default",
+                prompt: buildAdvisorConsultationPrompt("Which retry boundary should we use?"),
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    const childThread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.id === "subagent:thread-1:child-provider-advisor" &&
+        entry.subagentNickname === "Advisor" &&
+        entry.subagentRole === "advisor",
+      2000,
+      asThreadId("subagent:thread-1:child-provider-advisor"),
+    );
+
+    expect(childThread.title).toBe("Advisor [advisor]");
+    expect(childThread.creationSource).toBe("provider_native");
   });
 
   it("handles collab receiver and child provider refs on the same event without duplicate thread creation", async () => {

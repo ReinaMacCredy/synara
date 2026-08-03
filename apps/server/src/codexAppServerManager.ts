@@ -37,6 +37,7 @@ import {
   type UserInputQuestion,
   type AcceptedCrossModeHandoffV1,
 } from "@synara/contracts";
+import { ADVISOR_CONSULTATION_MARKER, ADVISOR_QUESTION_PREFIX } from "@synara/shared/advisor";
 import { getModelSelectionBooleanOptionValue, normalizeModelSlug } from "@synara/shared/model";
 import { decodeSubagentReceiverThreadIds } from "@synara/shared/subagents";
 import { prepareWindowsSafeProcess } from "@synara/shared/windowsProcess";
@@ -456,6 +457,18 @@ Use \`Computer Use\` only when at least one of these is true:
 
 Do not choose \`Computer Use\` first for ordinary browser inspection, browser screenshots, or browser navigation when the in-app browser can handle the request.`;
 
+export const CODEX_ADVISOR_DEVELOPER_INSTRUCTIONS = `
+
+## Advisor consultation
+
+When the collaboration \`spawn_agent\` tool is available, you may ask one Advisor for a second opinion only when material uncertainty blocks a sound answer or implementation decision. Do not invoke Advisor for routine work, and never have more than one Advisor consultation running at once.
+
+To consult Advisor, spawn exactly one child with \`task_name: "advisor"\`. Omit \`agent_type\` so the child uses the current supported provider runtime; Advisor is an identity assigned by Synara, not a spawnable agent role. Begin the child message with these two lines:
+\`${ADVISOR_CONSULTATION_MARKER}\`
+\`${ADVISOR_QUESTION_PREFIX} "<the concrete question as a JSON string>"\`
+
+Then instruct the child to inspect the inherited context and answer once. The child is advice-only: it must not edit files, run mutating commands, send external messages, request approvals, delegate, or take task ownership. Treat its answer as non-binding input, expose the consultation honestly, and make the final decision yourself.`;
+
 export const CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS = `<collaboration_mode># Plan Mode (Conversational)
 
 You work in 3 phases, and you should *chat your way* to a great plan before finalizing it. A great plan is very detailed-intent- and implementation-wise-so that it can be handed to another engineer or agent to be implemented right away. It must be **decision complete**, where the implementer does not need to make any decisions.
@@ -576,7 +589,7 @@ plan content should be human and agent digestible. The final plan must be plan-o
 Do not ask "should I proceed?" in the final output. The user can easily switch out of Plan mode and request implementation if you have included a \`<proposed_plan>\` block in your response. Alternatively, they can decide to stay in Plan mode and continue refining the plan.
 
 Only produce at most one \`<proposed_plan>\` block per turn, and only when you are presenting a complete spec.
-</collaboration_mode>${CODEX_BROWSER_TOOL_ROUTING_INSTRUCTIONS}\n\n${SYNARA_GATEWAY_HARNESS_POLICY}`;
+</collaboration_mode>${CODEX_ADVISOR_DEVELOPER_INSTRUCTIONS}${CODEX_BROWSER_TOOL_ROUTING_INSTRUCTIONS}\n\n${SYNARA_GATEWAY_HARNESS_POLICY}`;
 
 export const CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS = `<collaboration_mode># Collaboration Mode: Default
 
@@ -589,7 +602,7 @@ Your active mode changes only when new developer instructions with a different \
 The \`request_user_input\` tool is unavailable in Default mode. If you call it while in Default mode, it will return an error.
 
 In Default mode, strongly prefer making reasonable assumptions and executing the user's request rather than stopping to ask questions. If you absolutely must ask a question because the answer cannot be discovered from local context and a reasonable assumption would be risky, ask the user directly with a concise plain-text question. Never write a multiple choice question as a textual assistant message.
-</collaboration_mode>${CODEX_BROWSER_TOOL_ROUTING_INSTRUCTIONS}\n\n${SYNARA_GATEWAY_HARNESS_POLICY}`;
+</collaboration_mode>${CODEX_ADVISOR_DEVELOPER_INSTRUCTIONS}${CODEX_BROWSER_TOOL_ROUTING_INSTRUCTIONS}\n\n${SYNARA_GATEWAY_HARNESS_POLICY}`;
 
 // Maps Synara's simple runtime toggle to Codex thread-level permission overrides.
 function mapCodexRuntimeMode(runtimeMode: RuntimeMode): {

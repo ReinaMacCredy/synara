@@ -874,6 +874,28 @@ describe("AppSettingsSchema", () => {
       customKiloModels: [],
       customOpenCodeModels: [],
       customPiModels: [],
+      advisorModelSelection: {
+        provider: "codex",
+        model: "gpt-5.5",
+      },
+    });
+  });
+
+  it("persists an Advisor default model selection", () => {
+    const decode = Schema.decodeSync(Schema.fromJsonString(AppSettingsSchema));
+
+    expect(
+      decode(
+        JSON.stringify({
+          advisorModelSelection: {
+            provider: "claudeAgent",
+            model: "claude-sonnet-5",
+          },
+        }),
+      ).advisorModelSelection,
+    ).toEqual({
+      provider: "claudeAgent",
+      model: "claude-sonnet-5",
     });
   });
 

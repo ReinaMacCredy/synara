@@ -11,6 +11,7 @@ import {
   DEFAULT_GIT_TEXT_GENERATION_MODEL,
   DEFAULT_SERVER_SETTINGS,
   DEFAULT_SERVER_SETTINGS_VIEW,
+  ModelSelection,
   TrimmedNonEmptyString,
   ProviderKind,
   type ProviderStartOptions,
@@ -89,6 +90,10 @@ export const DEFAULT_SIDEBAR_THREAD_SORT_ORDER: SidebarThreadSortOrder = "update
 export const FollowUpBehavior = Schema.Literals(["queue", "steer"]);
 export type FollowUpBehavior = typeof FollowUpBehavior.Type;
 export const DEFAULT_FOLLOW_UP_BEHAVIOR: FollowUpBehavior = "queue";
+export const DEFAULT_ADVISOR_MODEL_SELECTION: ModelSelection = {
+  provider: "codex",
+  model: getDefaultModel("codex"),
+};
 
 export const UiDensity = Schema.Literals(UI_DENSITY_MODES);
 export type UiDensity = typeof UiDensity.Type;
@@ -262,6 +267,9 @@ export const AppSettingsSchema = Schema.Struct({
   textGenerationModel: Schema.optional(TrimmedNonEmptyString),
   uiFontFamily: Schema.String.check(Schema.isMaxLength(256)).pipe(withDefaults(() => "")),
   defaultProvider: PersistedProviderKind.pipe(withDefaults(() => "codex" as const)),
+  advisorModelSelection: ModelSelection.pipe(
+    withDefaults(() => ({ ...DEFAULT_ADVISOR_MODEL_SELECTION })),
+  ),
   // Local-only UI preference: providers explicitly hidden from the composer picker.
   // The active/locked provider for a thread is always shown regardless, so users
   // never get stuck on a thread whose provider they later chose to hide.

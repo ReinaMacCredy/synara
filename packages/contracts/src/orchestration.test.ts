@@ -639,6 +639,38 @@ it.effect("strips client-sent agent dispatchOrigin from thread.turn.start comman
   }),
 );
 
+it.effect("decodes durable Advisor identity on thread forks", () =>
+  Effect.gen(function* () {
+    const command = yield* decodeClientOrchestrationCommand({
+      type: "thread.fork.create",
+      commandId: "cmd-advisor-fork",
+      threadId: "thread-advisor",
+      sourceThreadId: "thread-parent",
+      projectId: "project-1",
+      title: "Advisor: API boundary",
+      modelSelection: {
+        provider: "codex",
+        model: "gpt-5.6",
+      },
+      runtimeMode: "approval-required",
+      interactionMode: "default",
+      envMode: "local",
+      branch: null,
+      worktreePath: null,
+      parentThreadId: "thread-parent",
+      subagentNickname: "Advisor",
+      subagentRole: "advisor",
+      importedMessages: [],
+      createdAt: "2026-08-03T00:00:00.000Z",
+    });
+
+    assert.strictEqual(command.type, "thread.fork.create");
+    assert.strictEqual(command.parentThreadId, "thread-parent");
+    assert.strictEqual(command.subagentNickname, "Advisor");
+    assert.strictEqual(command.subagentRole, "advisor");
+  }),
+);
+
 it.effect("decodes pinned-message commands and events", () =>
   Effect.gen(function* () {
     const command = yield* decodeClientOrchestrationCommand({

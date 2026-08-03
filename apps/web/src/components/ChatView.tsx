@@ -43,6 +43,12 @@ import {
 import { automationRequiresTargetThread } from "@synara/shared/automationMode";
 import { getModelCapabilities, normalizeModelSlug } from "@synara/shared/model";
 import { resolveTailUserMessageEditTarget } from "@synara/shared/conversationEdit";
+import {
+  ADVISOR_NICKNAME,
+  ADVISOR_ROLE,
+  buildAdvisorConsultationPrompt,
+  isAdvisorIdentity,
+} from "@synara/shared/advisor";
 import { threadExportBlockedReason } from "@synara/shared/threadExport";
 import { pendingRequestInstanceKey } from "@synara/shared/threadSummary";
 import {
@@ -126,6 +132,12 @@ import { isElectron } from "../env";
 import { isScrollContainerNearBottom } from "../chat-scroll";
 import { stripDiffSearchParams } from "../diffRouteSearch";
 import { resolveSubagentPresentationForThread } from "../lib/subagentPresentation";
+import {
+  advisorDraftInsertion,
+  buildAdvisorThreadTitle,
+  deriveAdvisorConsultation,
+  findLatestAdvisorThreadShell,
+} from "../lib/advisorConsultation";
 import { ensureHomeChatProject, isHomeChatContainerProject } from "../lib/chatProjects";
 import { resolveFirstSendTarget } from "../lib/chatFirstSend";
 import { readActiveSpaceId } from "../spacesUiStore";
@@ -149,6 +161,7 @@ import {
   formatOutgoingComposerPrompt,
   hydratePendingBlobComposerAttachments,
   readFileAsDataUrl,
+  resolvePromptEffortFromModelSelection,
 } from "../lib/composerSend";
 import { composerImageBlobKey, persistComposerImageBlob } from "../lib/composerImageBlobStore";
 import { reconcileDeletedThreadFromClient } from "../lib/deletedThreadClientReconciliation";
@@ -221,7 +234,9 @@ import {
   createProjectSelector,
   createComposerThreadMentionSourcesSelector,
   createThreadSelector,
+  createThreadShellsSelector,
 } from "../storeSelectors";
+import { buildThreadHandoffImportedMessages } from "../lib/threadHandoff";
 import { buildThreadSubscribeInput } from "../threadDetailResumeCursors";
 import {
   retainPreShellThreadDetailSubscription,
@@ -505,6 +520,9 @@ import { ComposerSessionProgress } from "./chat/ComposerSessionProgress";
 import { SessionProgressCheckpoint } from "./process/SessionProgress";
 import { deriveSessionProgressActivity } from "./process/sessionProgressPresentation";
 import { ComposerSubagentStrip } from "./chat/ComposerSubagentStrip";
+import { AdvisorPopoverButton } from "./chat/AdvisorPopoverButton";
+import { ComposerAdvisorCard } from "./chat/ComposerAdvisorCard";
+import { ComposerAdvisorReturnBar } from "./chat/ComposerAdvisorReturnBar";
 import {
   collectForegroundRunningSubagentStripItems,
   collectRunningSubagentStripItems,
@@ -1176,7 +1194,7 @@ export default function ChatView({
   orchestratorRootDraft,
   onOpenSessionProgressProcess,
   orchestratorMode: orchestratorModeProp,
-  inspectOnly = false,
+  inspectOnly: inspectOnlyProp,
 }: ChatViewProps) {
   // Prop defaults are resolved here instead of in the destructuring pattern: an
   // AssignmentPattern in the parameter list makes React Compiler bail out (silently —
@@ -1187,6 +1205,7 @@ export default function ChatView({
   const presentationMode = presentationModeProp ?? "default";
   const isFocusedPane = isFocusedPaneProp ?? true;
   const viewModeAction = viewModeActionProp ?? null;
+  const inspectOnly = inspectOnlyProp ?? false;
   const adjacentRightDockOpen = adjacentRightDockOpenProp ?? false;
   const orchestratorMode = orchestratorModeProp ?? false;
   const markThreadVisited = useStore((store) => store.markThreadVisited);
@@ -1417,6 +1436,7 @@ export default function ChatView({
   const [activeTaskListCompact, setActiveTaskListCompact] = useState(false);
   const [subagentStripCompact, setSubagentStripCompact] = useState(false);
   const [workflowRunCardCompact, setWorkflowRunCardCompact] = useState(false);
+  const [advisorCreating, setAdvisorCreating] = useState(false);
   const [isComposerFooterCompact, setIsComposerFooterCompact] = useState(false);
   // Width-aware visibility for the footer picker cluster (context meter,
   // model name, traits label). Inputs live in a ref so the resize observer
@@ -1587,6 +1607,12 @@ export default function ChatView({
   const dragDepthRef = useRef(0);
   const terminalOpenByThreadRef = useRef<Record<string, boolean>>({});
   const activatedThreadIdRef = useRef<ThreadId | null>(null);
+  const advisorCreateInFlightRef = useRef(false);
+  const advisorCreationLeasesRef = useRef<{
+    threadId: ThreadId;
+    releaseWarmDetail: () => void;
+    releasePreShell: () => void;
+  } | null>(null);
   useEffect(() => {
     promptHistoryNavigationRef.current = null;
     applyingPromptHistoryNavigationRef.current = false;
@@ -1930,6 +1956,53 @@ export default function ChatView({
   const activeProjectId = activeThread?.projectId ?? draftThread?.projectId ?? null;
   const activeProject = useStore(
     useMemo(() => createProjectSelector(activeProjectId), [activeProjectId]),
+  );
+  const advisorThreadShells = useStore(useMemo(() => createThreadShellsSelector(), []));
+  const latestAdvisorShell = useMemo(
+    () => findLatestAdvisorThreadShell(advisorThreadShells, activeThread?.id ?? null),
+    [activeThread?.id, advisorThreadShells],
+  );
+  const latestAdvisorThread = useStore(
+    useMemo(() => createThreadSelector(latestAdvisorShell?.id ?? null), [latestAdvisorShell?.id]),
+  );
+  const advisorConsultation = useMemo(
+    () => deriveAdvisorConsultation(latestAdvisorThread),
+    [latestAdvisorThread],
+  );
+  const advisorHydrating = latestAdvisorShell !== null && latestAdvisorThread === undefined;
+  const activeThreadIsAdvisor =
+    activeThread?.parentThreadId !== null &&
+    activeThread?.parentThreadId !== undefined &&
+    isAdvisorIdentity({
+      nickname: activeThread.subagentNickname,
+      role: activeThread.subagentRole,
+      title: activeThread.title,
+    });
+  const advisorParentShell = useMemo(
+    () =>
+      activeThreadIsAdvisor
+        ? (advisorThreadShells.find((shell) => shell.id === activeThread?.parentThreadId) ?? null)
+        : null,
+    [activeThread?.parentThreadId, activeThreadIsAdvisor, advisorThreadShells],
+  );
+  useEffect(() => {
+    if (!latestAdvisorShell) return;
+    const releaseDetail = retainThreadDetailSubscription(latestAdvisorShell.id);
+    const creationLeases = advisorCreationLeasesRef.current;
+    if (creationLeases?.threadId === latestAdvisorShell.id) {
+      creationLeases.releasePreShell();
+      creationLeases.releaseWarmDetail();
+      advisorCreationLeasesRef.current = null;
+    }
+    return releaseDetail;
+  }, [latestAdvisorShell]);
+  useEffect(
+    () => () => {
+      advisorCreationLeasesRef.current?.releasePreShell();
+      advisorCreationLeasesRef.current?.releaseWarmDetail();
+      advisorCreationLeasesRef.current = null;
+    },
+    [],
   );
   const sourceHandoffMode = orchestratorMode
     ? activeThread?.parentThreadId
@@ -2810,8 +2883,8 @@ export default function ChatView({
     return toolUseIds;
   }, [stripSourceActivities]);
   const composerSubagentStripItems = useMemo(
-    () =>
-      deriveComposerSubagentStripItems({
+    () => {
+      const rows = deriveComposerSubagentStripItems({
         workEntries: stripWorkLogEntries,
         liveTurnId: stripLiveTurnId,
         backgroundedProviderThreadIds: backgroundedSubagentToolUseIds,
@@ -2819,7 +2892,14 @@ export default function ChatView({
         parentRow: stripParentThread
           ? { threadId: stripParentThread.id, label: stripParentThread.title ?? null }
           : null,
-      }),
+      });
+      const withoutAdvisor = rows.filter(
+        (row) =>
+          row.kind === "parent" ||
+          !isAdvisorIdentity({ nickname: row.primaryLabel, role: row.role, title: row.fullLabel }),
+      );
+      return withoutAdvisor.some((row) => row.kind === "subagent") ? withoutAdvisor : [];
+    },
     [
       activeThread?.id,
       backgroundedSubagentToolUseIds,
@@ -9046,6 +9126,170 @@ export default function ChatView({
     selectedModel,
   ]);
 
+  const onAskAdvisor = useCallback(
+    async (question: string, advisorModelSelection: ModelSelection): Promise<boolean> => {
+      const api = readNativeApi();
+      const advisorIsRunning = advisorConsultation?.status === "running";
+      if (
+        !api ||
+        !activeThread ||
+        !activeProject ||
+        !isServerThread ||
+        advisorIsRunning ||
+        advisorCreateInFlightRef.current ||
+        activeThreadIsAdvisor ||
+        advisorHydrating
+      ) {
+        return false;
+      }
+
+      const normalizedQuestion = question.trim();
+      if (!normalizedQuestion) return false;
+      const nextThreadId = newThreadId();
+      const createdAt = new Date().toISOString();
+      const importedMessages = buildThreadHandoffImportedMessages(activeThread);
+      const advisorPrompt = formatOutgoingComposerPrompt({
+        provider: advisorModelSelection.provider,
+        model: advisorModelSelection.model,
+        effort: resolvePromptEffortFromModelSelection(advisorModelSelection),
+        text: buildAdvisorConsultationPrompt(normalizedQuestion),
+      });
+      let forkCreated = false;
+
+      advisorCreateInFlightRef.current = true;
+      setAdvisorCreating(true);
+      const releaseWarmDetail = retainThreadDetailSubscription(nextThreadId);
+      const releasePreShell = retainPreShellThreadDetailSubscription(nextThreadId);
+      advisorCreationLeasesRef.current?.releasePreShell();
+      advisorCreationLeasesRef.current?.releaseWarmDetail();
+      advisorCreationLeasesRef.current = {
+        threadId: nextThreadId,
+        releaseWarmDetail,
+        releasePreShell,
+      };
+      const finish = () => {
+        advisorCreateInFlightRef.current = false;
+        setAdvisorCreating(false);
+      };
+
+      return api.orchestration
+        .dispatchCommand({
+          type: "thread.fork.create",
+          commandId: newCommandId(),
+          threadId: nextThreadId,
+          sourceThreadId: activeThread.id,
+          projectId: activeProject.id,
+          title: buildAdvisorThreadTitle(normalizedQuestion),
+          modelSelection: advisorModelSelection,
+          runtimeMode: "approval-required",
+          interactionMode: "default",
+          envMode: activeThread.envMode ?? (activeThread.worktreePath ? "worktree" : "local"),
+          branch: activeThread.branch,
+          worktreePath: activeThread.worktreePath,
+          workingDirectory: activeThread.workingDirectory ?? null,
+          associatedWorktreePath: activeThreadAssociatedWorktree.associatedWorktreePath,
+          associatedWorktreeBranch: activeThreadAssociatedWorktree.associatedWorktreeBranch,
+          associatedWorktreeRef: activeThreadAssociatedWorktree.associatedWorktreeRef,
+          createBranchFlowCompleted: activeThread.createBranchFlowCompleted ?? false,
+          parentThreadId: activeThread.id,
+          subagentNickname: ADVISOR_NICKNAME,
+          subagentRole: ADVISOR_ROLE,
+          importedMessages: [...importedMessages],
+          createdAt,
+        })
+        .then(() => {
+          forkCreated = true;
+          return api.orchestration.getShellSnapshot();
+        })
+        .then((forkSnapshot) => {
+          syncServerShellSnapshot(forkSnapshot);
+          rememberCustomBinaryPathForDispatch({
+            threadId: nextThreadId,
+            provider: advisorModelSelection.provider,
+            providerOptions: providerOptionsForDispatch,
+          });
+          return api.orchestration.dispatchCommand({
+            type: "thread.turn.start",
+            commandId: newCommandId(),
+            threadId: nextThreadId,
+            message: {
+              messageId: newMessageId(),
+              role: "user",
+              text: advisorPrompt,
+              attachments: [],
+            },
+            modelSelection: advisorModelSelection,
+            ...(providerOptionsForDispatch ? { providerOptions: providerOptionsForDispatch } : {}),
+            assistantDeliveryMode,
+            dispatchMode: "queue",
+            runtimeMode: "approval-required",
+            interactionMode: "default",
+            createdAt: new Date().toISOString(),
+          });
+        })
+        .then(() => api.orchestration.getShellSnapshot())
+        .then((turnSnapshot) => {
+          syncServerShellSnapshot(turnSnapshot);
+          return true;
+        })
+        .catch(async (error) => {
+          if (forkCreated) {
+            const deleted = await api.orchestration
+              .dispatchCommand({
+                type: "thread.delete",
+                commandId: newCommandId(),
+                threadId: nextThreadId,
+              })
+              .then(() => true)
+              .catch(() => false);
+            if (deleted) {
+              void reconcileDeletedThreadFromClient({
+                threadId: nextThreadId,
+                removeDeletedThreadFromClientState:
+                  useStore.getState().removeDeletedThreadFromClientState,
+              });
+            }
+          }
+          const creationLeases = advisorCreationLeasesRef.current;
+          if (creationLeases?.threadId === nextThreadId) {
+            creationLeases.releasePreShell();
+            creationLeases.releaseWarmDetail();
+            advisorCreationLeasesRef.current = null;
+          }
+          toastManager.add({
+            type: "error",
+            title: "Could not start Advisor",
+            description:
+              error instanceof Error ? error.message : "The consultation could not be created.",
+          });
+          return false;
+        })
+        .then(
+          (result) => {
+            finish();
+            return result;
+          },
+          (error) => {
+            finish();
+            throw error;
+          },
+        );
+    },
+    [
+      activeProject,
+      activeThread,
+      activeThreadIsAdvisor,
+      activeThreadAssociatedWorktree,
+      advisorConsultation?.status,
+      advisorHydrating,
+      assistantDeliveryMode,
+      isServerThread,
+      providerOptionsForDispatch,
+      rememberCustomBinaryPathForDispatch,
+      syncServerShellSnapshot,
+    ],
+  );
+
   const setPromptFromTraits = useCallback(
     (nextPrompt: string) => {
       const currentPrompt = promptRef.current;
@@ -9059,6 +9303,23 @@ export default function ChatView({
       setComposerCursor(nextCursor);
       setComposerTrigger(detectComposerTrigger(nextPrompt, nextPrompt.length));
       scheduleComposerFocus();
+    },
+    [scheduleComposerFocus, setPrompt],
+  );
+  const onUseAdvisorInTask = useCallback(
+    (answer: string) => {
+      const insertion = advisorDraftInsertion(answer);
+      const currentPrompt = promptRef.current.trim();
+      const nextPrompt = currentPrompt ? `${currentPrompt}\n\n${insertion}` : insertion;
+      promptRef.current = nextPrompt;
+      setPrompt(nextPrompt);
+      setComposerCursor(collapseExpandedComposerCursor(nextPrompt, nextPrompt.length));
+      setComposerTrigger(detectComposerTrigger(nextPrompt, nextPrompt.length));
+      scheduleComposerFocus();
+      toastManager.add({
+        type: "success",
+        title: "Advisor recommendation added to your draft",
+      });
     },
     [scheduleComposerFocus, setPrompt],
   );
@@ -10488,6 +10749,16 @@ export default function ChatView({
       </span>
     ) : null;
   const showPersistentComposerContext = Boolean(activeThread && activeProject);
+  const advisorActive =
+    advisorCreating || advisorHydrating || advisorConsultation?.status === "running";
+  const advisorDisabled = !isServerThread || activeThreadIsAdvisor || advisorActive;
+  const advisorDisabledReason = !isServerThread
+    ? "Send the first message before asking Advisor"
+    : activeThreadIsAdvisor
+      ? "Advisor cannot start another Advisor consultation"
+      : advisorActive
+        ? "Advisor is already reviewing this task"
+        : "Ask Advisor for a second opinion";
   const composerContextControls = showPersistentComposerContext ? (
     <div
       className={cn(
@@ -10547,6 +10818,14 @@ export default function ChatView({
           />
         ) : null}
       </div>
+      <AdvisorPopoverButton
+        disabled={advisorDisabled}
+        disabledReason={advisorDisabledReason}
+        active={advisorActive}
+        defaultModelSelection={settings.advisorModelSelection}
+        projectCwd={activeProject.cwd}
+        onAsk={onAskAdvisor}
+      />
       <Button
         type="button"
         variant="ghost"
@@ -10560,7 +10839,7 @@ export default function ChatView({
               : "Continue this thread in Projects"
             : "Send the first message before handing off this draft"
         }
-        className="ml-auto shrink-0 whitespace-nowrap px-2 text-[length:var(--app-font-size-ui-sm,11px)] font-normal text-[var(--color-text-foreground-secondary)] hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)] sm:px-2.5"
+        className="shrink-0 whitespace-nowrap px-2 text-[length:var(--app-font-size-ui-sm,11px)] font-normal text-[var(--color-text-foreground-secondary)] hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)] sm:px-2.5"
       >
         Hand off
       </Button>
@@ -10655,6 +10934,7 @@ export default function ChatView({
   );
   const showComposerWorkflowRunCard = workflowRunState !== null;
   const showComposerSubagentStrip = composerSubagentStripItems.length > 0;
+  const showComposerAdvisorCard = advisorConsultation !== null;
   // The workflow card already lists its run and member agents, so the generic
   // "N background agents" footer only counts tasks outside the workflow.
   const composerBackgroundTaskCount = workflowRunState
@@ -10736,6 +11016,19 @@ export default function ChatView({
                   }
                 />
               ) : null}
+              {advisorConsultation ? (
+                <ComposerAdvisorCard
+                  consultation={advisorConsultation}
+                  onOpenThread={onNavigateToThread}
+                  onUseInTask={onUseAdvisorInTask}
+                  attachedToPrevious={
+                    showComposerLiveChangesHeader ||
+                    showComposerActiveTaskListCard ||
+                    showComposerWorkflowRunCard ||
+                    showComposerSubagentStrip
+                  }
+                />
+              ) : null}
               {composerDraft.handoffDraft ? (
                 <ComposerHandoffPacketRail
                   handoff={composerDraft.handoffDraft}
@@ -10743,7 +11036,8 @@ export default function ChatView({
                     showComposerLiveChangesHeader ||
                     showComposerActiveTaskListCard ||
                     showComposerWorkflowRunCard ||
-                    showComposerSubagentStrip
+                    showComposerSubagentStrip ||
+                    showComposerAdvisorCard
                   }
                   onDetach={() => {
                     const handoff = composerDraft.handoffDraft;
@@ -10804,6 +11098,7 @@ export default function ChatView({
                   showComposerActiveTaskListCard ||
                   showComposerWorkflowRunCard ||
                   showComposerSubagentStrip ||
+                  showComposerAdvisorCard ||
                   hasComposerHandoffRail
                 }
               />
@@ -10815,6 +11110,7 @@ export default function ChatView({
                     showComposerActiveTaskListCard ||
                     showComposerWorkflowRunCard ||
                     showComposerSubagentStrip ||
+                    showComposerAdvisorCard ||
                     hasComposerHandoffRail ||
                     queuedComposerTurns.length > 0
                   }
@@ -10853,6 +11149,24 @@ export default function ChatView({
                     onCancel={onCancelActivePendingUserInput}
                   />
                 </div>
+              ) : null}
+              {activeThreadIsAdvisor && activeThread.parentThreadId ? (
+                <ComposerAdvisorReturnBar
+                  parentTitle={advisorParentShell?.title ?? "Main task"}
+                  attachedToPrevious={
+                    !activePendingApproval &&
+                    pendingUserInputs.length === 0 &&
+                    (showComposerLiveChangesHeader ||
+                      showComposerActiveTaskListCard ||
+                      showComposerWorkflowRunCard ||
+                      showComposerSubagentStrip ||
+                      showComposerAdvisorCard ||
+                      hasComposerHandoffRail ||
+                      queuedComposerTurns.length > 0 ||
+                      sessionProgress !== null)
+                  }
+                  onBack={() => onNavigateToThread(activeThread.parentThreadId!)}
+                />
               ) : null}
             </div>
             <div

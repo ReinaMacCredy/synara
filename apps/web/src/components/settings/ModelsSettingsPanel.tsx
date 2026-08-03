@@ -5,6 +5,7 @@
 import {
   DEFAULT_GIT_TEXT_GENERATION_MODEL,
   PROVIDER_DISPLAY_NAMES,
+  type ModelSelection,
   type ProviderKind,
 } from "@synara/contracts";
 import { getModelOptions, normalizeModelSlug } from "@synara/shared/model";
@@ -22,9 +23,11 @@ import {
   patchCustomModels,
 } from "~/appSettings";
 import { useProviderModelCatalog } from "~/hooks/useProviderModelCatalog";
+import { useProviderStatusesForLocalConfig } from "~/hooks/useProviderStatusesForLocalConfig";
 import { PlusIcon, XIcon } from "~/lib/icons";
 import { resolveProviderDiscoveryCwd } from "~/lib/providerDiscovery";
 import { serverConfigQueryOptions } from "~/lib/serverReactQuery";
+import { buildModelSelection } from "~/providerModelOptions";
 import { cn } from "~/lib/utils";
 import {
   SETTINGS_CARD_ROW_DIVIDER_CLASS_NAME,
@@ -32,6 +35,8 @@ import {
 } from "~/settingsPanelStyles";
 
 import { Button } from "../ui/button";
+import { ProviderModelPicker } from "../chat/ProviderModelPicker";
+import { resolveRuntimeModelDescriptor } from "../chat/runtimeModelCapabilities";
 import { DisclosureRegion } from "../ui/DisclosureRegion";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
@@ -90,12 +95,14 @@ export function ModelsSettingsPanel({
     Partial<Record<ProviderKind, string | null>>
   >({});
   const [showAllCustomModels, setShowAllCustomModels] = useState(false);
+  const [advisorModelPickerOpen, setAdvisorModelPickerOpen] = useState(false);
 
   useSettingsRestoreSignal(resetEpoch, () => {
     setSelectedCustomModelProvider("codex");
     setCustomModelInputByProvider({});
     setCustomModelErrorByProvider({});
     setShowAllCustomModels(false);
+    setAdvisorModelPickerOpen(false);
   });
 
   const {
@@ -116,12 +123,29 @@ export function ModelsSettingsPanel({
     activeProjectCwd: null,
     serverCwd: serverConfigQuery.data?.cwd ?? null,
   });
+  const providerStatuses = useProviderStatusesForLocalConfig();
   const { modelOptionsByProvider: gitWritingCatalogOptionsByProvider } = useProviderModelCatalog({
     selectedProvider: currentGitTextGenerationProvider,
     discoveryEnabled: active,
     cwd: providerModelDiscoveryCwd,
     modelHintByProvider: gitWritingModelHintByProvider,
     prefetchProviders: GIT_WRITING_DISCOVERY_PROVIDERS,
+  });
+  const advisorModelHintByProvider = useMemo<Partial<Record<ProviderKind, string | null>>>(
+    () => ({
+      [settings.advisorModelSelection.provider]: settings.advisorModelSelection.model,
+    }),
+    [settings.advisorModelSelection.model, settings.advisorModelSelection.provider],
+  );
+  const {
+    modelOptionsByProvider: advisorModelOptionsByProvider,
+    loadingModelProviders: advisorLoadingModelProviders,
+    runtimeModelsByProvider: advisorRuntimeModelsByProvider,
+  } = useProviderModelCatalog({
+    selectedProvider: settings.advisorModelSelection.provider,
+    discoveryEnabled: active && advisorModelPickerOpen,
+    cwd: providerModelDiscoveryCwd,
+    modelHintByProvider: advisorModelHintByProvider,
   });
   const gitTextGenerationModelOptions = useMemo(
     () =>
@@ -152,6 +176,9 @@ export function ModelsSettingsPanel({
   );
   const currentGitTextGenerationValue = `${currentGitTextGenerationProvider}:${currentGitTextGenerationModel}`;
   const isGitTextGenerationModelDirty = isGitTextGenerationSettingsDirty(settings, defaults);
+  const isAdvisorModelDirty =
+    JSON.stringify(settings.advisorModelSelection) !==
+    JSON.stringify(defaults.advisorModelSelection);
   const selectedGitTextGenerationModelLabel =
     gitTextGenerationModelOptions.find(
       (option) =>
@@ -258,6 +285,49 @@ export function ModelsSettingsPanel({
   return (
     <div className="space-y-6">
       <SettingsSection title="Generation defaults">
+        <SettingsRow
+          title="Advisor model"
+          description="Default provider and model for new user-invoked Advisor consultations."
+          resetAction={
+            isAdvisorModelDirty ? (
+              <SettingResetButton
+                label="Advisor model"
+                onClick={() =>
+                  updateSettings({ advisorModelSelection: defaults.advisorModelSelection })
+                }
+              />
+            ) : null
+          }
+          control={
+            <ProviderModelPicker
+              compact
+              provider={settings.advisorModelSelection.provider}
+              model={settings.advisorModelSelection.model}
+              lockedProvider={null}
+              providers={providerStatuses}
+              modelOptionsByProvider={advisorModelOptionsByProvider}
+              loadingModelProviders={advisorLoadingModelProviders}
+              hiddenProviders={settings.hiddenProviders}
+              providerOrder={settings.providerOrder}
+              open={advisorModelPickerOpen}
+              onOpenChange={setAdvisorModelPickerOpen}
+              onProviderModelChange={(provider, model) => {
+                const runtimeModel = resolveRuntimeModelDescriptor({
+                  provider,
+                  model,
+                  runtimeModels: advisorRuntimeModelsByProvider[provider],
+                });
+                const advisorModelSelection: ModelSelection = buildModelSelection(
+                  provider,
+                  model,
+                  undefined,
+                  provider === "claudeAgent" ? runtimeModel?.supportsAutoMode : undefined,
+                );
+                updateSettings({ advisorModelSelection });
+              }}
+            />
+          }
+        />
         <SettingsRow
           title="Git writing model"
           description="Used for generated commit messages, PR titles, and branch names."

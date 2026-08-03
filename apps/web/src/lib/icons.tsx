@@ -102,6 +102,7 @@ export const WorkflowIcon: LucideIcon = centralIconWrapper("agents");
 export const SteerIcon: LucideIcon = centralIconWrapper("arrow-corner-down-right");
 export const ComposerSendArrowIcon: LucideIcon = centralIconWrapper("arrow-up");
 export const HandoffIcon: LucideIcon = centralIconWrapper("arrow-left-right");
+export const AdvisorIcon: LucideIcon = centralIconWrapper("chat-bubbles");
 export const SkillCubeIcon: LucideIcon = centralIconWrapper("building-blocks");
 export const NewThreadIcon: LucideIcon = centralIconWrapper("compose-pencil");
 /** The "+" affordance behind every add/create action (Add project, activity header). */
