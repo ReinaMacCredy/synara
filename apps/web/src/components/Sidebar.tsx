@@ -582,10 +582,7 @@ const THREAD_ROW_META_CHIP_HOVER_FADE_CLASS_NAME = cn(
 );
 
 /** Status glyph slot; matches the 15px meta-chip column so trailing icons stay compact. */
-function threadRowStatusSlotClassName(
-  isSubagentThread: boolean,
-  toneClassName?: string,
-): string {
+function threadRowStatusSlotClassName(isSubagentThread: boolean, toneClassName?: string): string {
   return cn(
     "flex w-[15px] shrink-0 items-center justify-center leading-none tabular-nums",
     sidebarHoverRevealHideClassName("thread-row"),
@@ -1039,7 +1036,11 @@ function SidebarPrimaryAction({
         onFocus={onFocus}
       >
         <SidebarLeadingIcon size="sm" tone="text-inherit">
-          <SidebarGlyph icon={Icon} variant="leading" className={iconClassName} />
+          <SidebarGlyph
+            icon={Icon}
+            variant="leading"
+            {...(iconClassName ? { className: iconClassName } : {})}
+          />
         </SidebarLeadingIcon>
         <span className="truncate">{label}</span>
         {badge ? (
