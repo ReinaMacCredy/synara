@@ -213,15 +213,40 @@ export function SurfaceTabChip({
   onSelect?: (() => void) | undefined;
   onClose?: (() => void) | undefined;
 }) {
+  const chipClassName = cn(
+    "group/dock-tab",
+    DOCK_TAB_CHIP_CLASS_NAME,
+    active && CHAT_SURFACE_CONTROL_ACTIVE_CLASS_NAME,
+    className,
+  );
+  const labelContent = (
+    <>
+      {leading}
+      <span className="truncate">{label}</span>
+      {trailing}
+    </>
+  );
+
+  if (onSelect && !onClose) {
+    return (
+      <button
+        type="button"
+        className={cn(chipClassName, "text-left")}
+        title={title}
+        aria-pressed={active}
+        data-surface-tab-chip
+        onClick={onSelect}
+      >
+        <span className="flex size-4 shrink-0 items-center justify-center">{icon}</span>
+        <span className={cn("flex min-w-0 items-center gap-1.5", labelClassName)}>
+          {labelContent}
+        </span>
+      </button>
+    );
+  }
+
   return (
-    <div
-      className={cn(
-        "group/dock-tab",
-        DOCK_TAB_CHIP_CLASS_NAME,
-        active && CHAT_SURFACE_CONTROL_ACTIVE_CLASS_NAME,
-        className,
-      )}
-    >
+    <div className={chipClassName} data-surface-tab-chip>
       {onClose ? (
         <button
           type="button"
@@ -254,9 +279,7 @@ export function SurfaceTabChip({
             onSelect();
           }}
         >
-          {leading}
-          <span className="truncate">{label}</span>
-          {trailing}
+          {labelContent}
         </button>
       ) : (
         // Non-selectable chips (a lone tab that cannot switch to anything) render the
@@ -266,9 +289,7 @@ export function SurfaceTabChip({
           className={cn("flex min-w-0 items-center gap-1.5 text-left", labelClassName)}
           title={title}
         >
-          {leading}
-          <span className="truncate">{label}</span>
-          {trailing}
+          {labelContent}
         </span>
       )}
     </div>

@@ -1,6 +1,7 @@
 import type {
   OrchestrationReadModel,
   OrchestratorCapability,
+  ChildResultEnvelope,
   OrchestratorCommand,
   OrchestratorDomainEvent,
   OrchestratorRole,
@@ -9,11 +10,13 @@ import type {
 } from "@synara/contracts";
 import {
   ArbiterVerdict,
+  ChildResultId,
   CompiledProposal,
   EventId,
   FinalDecisionPacket,
   OrchestratorLinkId,
 } from "@synara/contracts";
+import { createHash } from "node:crypto";
 import { Effect, Schema } from "effect";
 
 import { OrchestrationCommandInvariantError } from "../Errors.ts";
@@ -106,26 +109,43 @@ const event = (input: {
   readonly type: OrchestratorDomainEvent["type"];
   readonly root: OrchestratorRoot;
   readonly payload?: Partial<OrchestratorDomainEvent["payload"]>;
-}): UnsequencedOrchestratorEvent => ({
-  eventId: EventId.makeUnsafe(crypto.randomUUID()),
-  aggregateKind: "orchestrator",
-  aggregateId: input.command.rootThreadId,
-  type: input.type,
-  payload: {
-    rootThreadId: input.command.rootThreadId,
-    projectId: input.command.projectId,
-    actor: input.command.actor,
-    protocolVersion: input.command.protocolVersion,
-    acceptedRevision: input.acceptedRevision,
-    root: input.root,
-    ...input.payload,
-  },
-  occurredAt: input.command.createdAt,
-  commandId: input.command.commandId,
-  causationEventId: null,
-  correlationId: input.command.commandId,
-  metadata: {},
-});
+}): UnsequencedOrchestratorEvent => {
+  const meaningfullyActive = new Set<OrchestratorDomainEvent["type"]>([
+    "orchestrator.child.attached",
+    "orchestrator.assignment.status-reported",
+    "orchestrator.assignment.accepted",
+    "orchestrator.assignment.reopened",
+    "orchestrator.child-result.resolved",
+    "orchestrator.message.enqueued",
+  ]).has(input.type);
+  const root = meaningfullyActive
+    ? {
+        ...input.root,
+        lastMeaningfulActivityAt: input.command.createdAt,
+        latestActivityRevision: input.acceptedRevision,
+      }
+    : input.root;
+  return {
+    eventId: EventId.makeUnsafe(crypto.randomUUID()),
+    aggregateKind: "orchestrator",
+    aggregateId: input.command.rootThreadId,
+    type: input.type,
+    payload: {
+      rootThreadId: input.command.rootThreadId,
+      projectId: input.command.projectId,
+      actor: input.command.actor,
+      protocolVersion: input.command.protocolVersion,
+      acceptedRevision: input.acceptedRevision,
+      root,
+      ...input.payload,
+    },
+    occurredAt: input.command.createdAt,
+    commandId: input.command.commandId,
+    causationEventId: null,
+    correlationId: input.command.commandId,
+    metadata: {},
+  };
+};
 
 const directOwnershipPair = (
   state: OrchestratorAggregateState,
@@ -198,10 +218,11 @@ export const decideOrchestratorCommand = Effect.fn("decideOrchestratorCommand")(
     const rootThread = readModel.threads.find(
       (candidate) => candidate.id === command.rootThreadId && candidate.deletedAt === null,
     );
-    if (project?.kind !== "project" || rootThread?.projectId !== command.projectId) {
+    const isOrchestratorWorkspace = project?.kind === "project" || project?.kind === "chat";
+    if (!isOrchestratorWorkspace || rootThread?.projectId !== command.projectId) {
       return yield* reject(
         command.type,
-        "Root must be an active thread in an active real project.",
+        "Root must be an active thread in an active workspace container.",
       );
     }
     if (rootThread.subagentAgentId !== null && rootThread.subagentAgentId !== undefined) {
@@ -219,6 +240,9 @@ export const decideOrchestratorCommand = Effect.fn("decideOrchestratorCommand")(
       resourcePolicyVersion: 1,
       createdAt: command.createdAt,
       archivedAt: null,
+      lastMeaningfulActivityAt: command.createdAt,
+      pinnedAt: null,
+      latestActivityRevision: 1,
       revision: 1,
     };
     return event({ command, acceptedRevision: 1, type: "orchestrator.root.created", root });
@@ -306,7 +330,7 @@ export const decideOrchestratorCommand = Effect.fn("decideOrchestratorCommand")(
       });
     }
 
-      case "orchestrator.child.attach": {
+    case "orchestrator.child.attach": {
       if (!hasCapability(state, command, "child.assign")) {
         return yield* reject(command.type, "Actor lacks child.assign capability.");
       }
@@ -374,20 +398,20 @@ export const decideOrchestratorCommand = Effect.fn("decideOrchestratorCommand")(
         retiredAt: null,
         decisionReason: command.decisionReason,
       } as const;
-        return event({
-          command,
-          acceptedRevision,
-          type: "orchestrator.child.attached",
-          root,
-          payload: { ownershipEdge },
-        });
-      }
+      return event({
+        command,
+        acceptedRevision,
+        type: "orchestrator.child.attached",
+        root,
+        payload: { ownershipEdge },
+      });
+    }
 
-      case "orchestrator.child.create":
-        return yield* reject(
-          command.type,
-          "Child creation must be expanded by the orchestration engine transaction boundary.",
-        );
+    case "orchestrator.child.create":
+      return yield* reject(
+        command.type,
+        "Child creation must be expanded by the orchestration engine transaction boundary.",
+      );
 
     case "orchestrator.child.retire": {
       if (!hasCapability(state, command, "child.retire")) {
@@ -597,6 +621,56 @@ export const decideOrchestratorCommand = Effect.fn("decideOrchestratorCommand")(
       });
     }
 
+    case "orchestrator.child-result.resolve": {
+      const result = state.childResults.find(
+        (candidate) => candidate.resultId === command.resultId,
+      );
+      if (result === undefined) {
+        return yield* reject(command.type, "Child result does not exist in this Root.");
+      }
+      const isRootActor =
+        command.actor.kind === "user" ||
+        (command.actor.kind === "thread" && command.actor.threadId === command.rootThreadId);
+      if (!isRootActor || !hasCapability(state, command, "assignment.accept")) {
+        return yield* reject(command.type, "Only the Root may resolve a child result.");
+      }
+      if (result.reviewState !== "pending" || result.revision !== command.expectedResultRevision) {
+        return yield* reject(command.type, "Child result revision or review state is stale.");
+      }
+      const current = latestAssignment(state, result.assignmentId);
+      if (current === null || current.taskId !== result.taskId) {
+        return yield* reject(command.type, "Child result Assignment no longer exists.");
+      }
+      const nextState = command.decision === "accept" ? "accepted" : "reopened";
+      if (!canTransitionAssignment(current.state, nextState)) {
+        return yield* reject(
+          command.type,
+          `Illegal assignment transition ${current.state} -> ${nextState}.`,
+        );
+      }
+      const childResult: ChildResultEnvelope = {
+        ...result,
+        revision: result.revision + 1,
+        reviewState: command.decision === "accept" ? "accepted" : "changes_requested",
+        reviewedAt: command.createdAt,
+        reviewedByThreadId: command.rootThreadId,
+        feedback: command.feedback,
+      };
+      return event({
+        command,
+        acceptedRevision,
+        type: "orchestrator.child-result.resolved",
+        root,
+        payload: {
+          assignment: { ...current, state: nextState, updatedAt: command.createdAt },
+          childResult,
+          ...(command.decision === "request_changes" && command.feedback !== null
+            ? { reason: command.feedback }
+            : {}),
+        },
+      });
+    }
+
     case "orchestrator.assignment.status.report":
     case "orchestrator.assignment.verify":
     case "orchestrator.assignment.accept":
@@ -609,6 +683,7 @@ export const decideOrchestratorCommand = Effect.fn("decideOrchestratorCommand")(
       let nextState = current.state;
       let eventType: OrchestratorDomainEvent["type"];
       let evidence = undefined;
+      let childResult: ChildResultEnvelope | undefined;
       let reason = undefined;
       if (command.type === "orchestrator.assignment.status.report") {
         if (!hasCapability(state, command, "assignment.report")) {
@@ -637,6 +712,34 @@ export const decideOrchestratorCommand = Effect.fn("decideOrchestratorCommand")(
             artifacts: state.artifacts,
           });
           if (issue !== null) return yield* reject(command.type, issue);
+          if (command.evidence === null) {
+            return yield* reject(command.type, "Completion evidence is required.");
+          }
+          const contentHash = `sha256:${createHash("sha256")
+            .update(JSON.stringify(command.evidence))
+            .digest("hex")}`;
+          childResult = {
+            resultId: ChildResultId.makeUnsafe(`child-result-${crypto.randomUUID()}`),
+            rootThreadId: command.rootThreadId,
+            childThreadId: current.assigneeThreadId,
+            assignmentId: current.assignmentId,
+            taskId: current.taskId,
+            finalMessage: command.summary,
+            artifactRefs: command.evidence.artifactRefs,
+            diffSummary: {
+              changedPaths: command.evidence.changedPaths,
+              diffRef: command.evidence.diffRef,
+              ...(command.evidence.diffSummary === undefined ? {} : command.evidence.diffSummary),
+            },
+            contentHash,
+            revision: 1,
+            reviewState: "pending",
+            submittedAt: command.createdAt,
+            reviewedAt: null,
+            reviewedByThreadId: null,
+            feedback: null,
+            evidence: command.evidence,
+          };
         } else if (command.evidence !== null) {
           return yield* reject(
             command.type,
@@ -690,6 +793,7 @@ export const decideOrchestratorCommand = Effect.fn("decideOrchestratorCommand")(
         payload: {
           assignment: { ...current, state: nextState, updatedAt: command.createdAt },
           ...(evidence === undefined ? {} : { evidence }),
+          ...(childResult === undefined ? {} : { childResult }),
           ...(reason === undefined ? {} : { reason }),
         },
       });

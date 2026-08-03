@@ -7,6 +7,7 @@ import {
   type AutomationDefinition,
   CheckpointRef,
   EventId,
+  type GetOrchestratorSnapshotResult,
   MessageId,
   ORCHESTRATION_WS_METHODS,
   type OrchestrationReadModel,
@@ -79,6 +80,7 @@ const BASE_TIME_MS = Date.parse(NOW_ISO);
 const ATTACHMENT_SVG = "<svg xmlns='http://www.w3.org/2000/svg' width='120' height='300'></svg>";
 let attachmentResponseDelayMs = 0;
 let attachmentUploadSequence = 0;
+const orchestratorRootThreadIds = new Set<ThreadId>();
 
 interface WsRequestEnvelope {
   id: string;
@@ -1014,6 +1016,193 @@ function recordProjectCreateCommand(command: unknown): boolean {
   return true;
 }
 
+function recordThreadCreateCommand(command: unknown): boolean {
+  if (
+    !command ||
+    typeof command !== "object" ||
+    !("type" in command) ||
+    command.type !== "thread.create" ||
+    !("threadId" in command) ||
+    !("projectId" in command)
+  ) {
+    return false;
+  }
+  const template = fixture.snapshot.threads[0];
+  if (!template) return false;
+  const threadId = command.threadId as ThreadId;
+  const createdAt = "createdAt" in command ? String(command.createdAt) : NOW_ISO;
+  const modelSelection =
+    "modelSelection" in command && command.modelSelection
+      ? (command.modelSelection as OrchestrationReadModel["threads"][number]["modelSelection"])
+      : template.modelSelection;
+  const thread = {
+    ...template,
+    id: threadId,
+    projectId: command.projectId as ProjectId,
+    title: "title" in command ? String(command.title) : "New thread",
+    modelSelection,
+    runtimeMode:
+      "runtimeMode" in command
+        ? (command.runtimeMode as OrchestrationReadModel["threads"][number]["runtimeMode"])
+        : template.runtimeMode,
+    interactionMode:
+      "interactionMode" in command
+        ? (command.interactionMode as OrchestrationReadModel["threads"][number]["interactionMode"])
+        : template.interactionMode,
+    envMode:
+      "envMode" in command
+        ? (command.envMode as OrchestrationReadModel["threads"][number]["envMode"])
+        : "local",
+    branch: "branch" in command && typeof command.branch === "string" ? command.branch : null,
+    worktreePath:
+      "worktreePath" in command && typeof command.worktreePath === "string"
+        ? command.worktreePath
+        : null,
+    latestTurn: null,
+    messages: [],
+    activities: [],
+    proposedPlans: [],
+    checkpoints: [],
+    session: null,
+    createdAt,
+    updatedAt: createdAt,
+  } satisfies OrchestrationReadModel["threads"][number];
+  fixture = {
+    ...fixture,
+    snapshot: {
+      ...fixture.snapshot,
+      snapshotSequence: fixture.snapshot.snapshotSequence + 1,
+      threads: [
+        ...fixture.snapshot.threads.filter((candidate) => candidate.id !== threadId),
+        thread,
+      ],
+      updatedAt: createdAt,
+    },
+  };
+  return true;
+}
+
+function recordThreadTurnStartCommand(command: unknown): boolean {
+  if (
+    !command ||
+    typeof command !== "object" ||
+    !("type" in command) ||
+    command.type !== "thread.turn.start" ||
+    !("threadId" in command) ||
+    !("message" in command) ||
+    !command.message ||
+    typeof command.message !== "object"
+  ) {
+    return false;
+  }
+  const threadId = command.threadId as ThreadId;
+  const message = command.message as {
+    messageId: MessageId;
+    text: string;
+    attachments?: OrchestrationReadModel["threads"][number]["messages"][number]["attachments"];
+    skills?: OrchestrationReadModel["threads"][number]["messages"][number]["skills"];
+    mentions?: OrchestrationReadModel["threads"][number]["messages"][number]["mentions"];
+  };
+  const createdAt = "createdAt" in command ? String(command.createdAt) : NOW_ISO;
+  const turnId = TurnId.makeUnsafe(`turn-${message.messageId}`);
+  const current = fixture.snapshot.threads.find((thread) => thread.id === threadId);
+  if (!current) return false;
+  const nextThread = {
+    ...current,
+    latestTurn: {
+      turnId,
+      state: "running" as const,
+      requestedAt: createdAt,
+      startedAt: createdAt,
+      completedAt: null,
+      assistantMessageId: null,
+    },
+    messages: [
+      ...current.messages,
+      {
+        id: message.messageId,
+        role: "user" as const,
+        text: message.text,
+        ...(message.attachments ? { attachments: message.attachments } : {}),
+        ...(message.skills ? { skills: message.skills } : {}),
+        ...(message.mentions ? { mentions: message.mentions } : {}),
+        createdAt,
+        updatedAt: createdAt,
+        streaming: false,
+        source: "native" as const,
+      },
+    ],
+    session: {
+      threadId,
+      status: "running" as const,
+      providerName: current.modelSelection.provider,
+      runtimeMode: current.runtimeMode,
+      activeTurnId: turnId,
+      lastError: null,
+      updatedAt: createdAt,
+    },
+    updatedAt: createdAt,
+  } satisfies OrchestrationReadModel["threads"][number];
+  fixture = {
+    ...fixture,
+    snapshot: {
+      ...fixture.snapshot,
+      snapshotSequence: fixture.snapshot.snapshotSequence + 1,
+      threads: fixture.snapshot.threads.map((thread) =>
+        thread.id === threadId ? nextThread : thread,
+      ),
+      updatedAt: createdAt,
+    },
+  };
+  if ("orchestratorRoot" in command && command.orchestratorRoot) {
+    orchestratorRootThreadIds.add(threadId);
+  }
+  return true;
+}
+
+function createOrchestratorSnapshotFixture(rootThreadId: ThreadId): GetOrchestratorSnapshotResult {
+  const thread = fixture.snapshot.threads.find((candidate) => candidate.id === rootThreadId);
+  if (!thread) throw new Error(`Missing browser fixture thread ${rootThreadId}.`);
+  return {
+    snapshot: {
+      root: {
+        rootThreadId,
+        projectId: thread.projectId,
+        protocolVersion: 1,
+        state: "active",
+        activeProcessId: null,
+        resourcePolicyVersion: 1,
+        createdAt: thread.createdAt,
+        archivedAt: null,
+        revision: 0,
+      },
+      ownershipEdges: [],
+      communicationLinks: [],
+      assignments: [],
+      runs: [],
+      activeProcess: null,
+      providerCapabilities: [],
+      capacity: {
+        policyVersion: 1,
+        activeSessions: 1,
+        sessionLimit: 8,
+        activeTurns: 1,
+        turnLimit: 8,
+        activeWriters: 0,
+        writerLimit: 1,
+        mailboxDepth: 0,
+        mailboxLimit: 128,
+        activeMonitors: 0,
+        monitorLimit: 32,
+        estimatedSpend: { kind: "unknown", reason: "Browser fixture", at: NOW_ISO },
+        observedAt: NOW_ISO,
+      },
+      highWaterCursor: String(fixture.snapshot.snapshotSequence),
+    },
+    projectionBehind: false,
+  };
+}
+
 function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
   const tag = body._tag;
   if (tag === ORCHESTRATION_WS_METHODS.getShellSnapshot) {
@@ -1124,7 +1313,10 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
   return {};
 }
 
-function installDeterministicSendNativeApi(): () => void {
+function installDeterministicSendNativeApi(options?: {
+  readonly persistOrchestratorPromotion?: boolean;
+  readonly threadDetailSnapshotDelayMs?: number;
+}): () => void {
   const previousNativeApi = window.nativeApi;
   const wsNativeApi = readNativeApi();
   if (!wsNativeApi) {
@@ -1169,6 +1361,39 @@ function installDeterministicSendNativeApi(): () => void {
       },
       orchestration: {
         ...wsNativeApi.orchestration,
+        ...(options?.persistOrchestratorPromotion
+          ? {
+              getShellSnapshot: async () => createShellSnapshotFromReadModel(fixture.snapshot),
+              getThreadDetailSnapshot: async ({ threadId }: { threadId: ThreadId }) => {
+                wsRequests.push({
+                  _tag: ORCHESTRATION_WS_METHODS.getThreadDetailSnapshot,
+                  threadId,
+                });
+                const delayMs = options.threadDetailSnapshotDelayMs ?? 0;
+                if (delayMs > 0) {
+                  await new Promise<void>((resolve) => {
+                    window.setTimeout(resolve, delayMs);
+                  });
+                }
+                const thread = findThreadDetailFromFixtureSnapshot(threadId);
+                return thread
+                  ? { snapshotSequence: fixture.snapshot.snapshotSequence, thread }
+                  : null;
+              },
+              listOrchestratorRoots: async () => ({
+                items: [...orchestratorRootThreadIds].map(
+                  (rootThreadId) => createOrchestratorSnapshotFixture(rootThreadId).snapshot.root,
+                ),
+                nextCursor: null,
+                highWaterCursor: String(fixture.snapshot.snapshotSequence),
+              }),
+              getOrchestratorSnapshot: async ({ rootThreadId }: { rootThreadId: ThreadId }) =>
+                createOrchestratorSnapshotFixture(rootThreadId),
+              listOrchestratorExchanges: async () => ({ items: [], nextCursor: null }),
+              listOrchestratorArtifacts: async () => ({ items: [], nextCursor: null }),
+              listOrchestratorAuditEvents: async () => ({ items: [], nextCursor: null }),
+            }
+          : {}),
         dispatchCommand: async (
           command: Parameters<typeof wsNativeApi.orchestration.dispatchCommand>[0],
         ) => {
@@ -1176,6 +1401,10 @@ function installDeterministicSendNativeApi(): () => void {
             _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
             command,
           });
+          if (options?.persistOrchestratorPromotion) {
+            recordThreadCreateCommand(command);
+            recordThreadTurnStartCommand(command);
+          }
           return { sequence: fixture.snapshot.snapshotSequence + 1 };
         },
       },
@@ -1805,6 +2034,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     await setViewport(DEFAULT_VIEWPORT);
     attachmentResponseDelayMs = 0;
     attachmentUploadSequence = 0;
+    orchestratorRootThreadIds.clear();
     localStorage.clear();
     useLatestProjectStore.setState({ latestProjectId: null });
     useWorkspacePathsStore.setState({
@@ -1858,6 +2088,93 @@ describe("ChatView timeline estimator parity (full app)", () => {
     await resetHomeChatProjectPrewarmStateForTests();
     resetRetainedThreadDetailSubscriptionsForTests();
     document.body.innerHTML = "";
+  });
+
+  it("promotes an Orchestrator draft without ever showing the conversation loader", async () => {
+    const restoreNativeApi = installDeterministicSendNativeApi({
+      persistOrchestratorPromotion: true,
+      threadDetailSnapshotDelayMs: 120,
+    });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-orchestrator-promotion-source" as MessageId,
+        targetText: "orchestrator promotion source",
+      }),
+      initialEntry: `/orchestrator?projectId=${PROJECT_ID}`,
+    });
+    let sawConversationLoader =
+      document.body.textContent?.includes("Loading conversation") ?? false;
+    const loaderObserver = new MutationObserver(() => {
+      sawConversationLoader ||=
+        document.body.textContent?.includes("Loading conversation") ?? false;
+    });
+    loaderObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+
+    try {
+      let draftThreadId: ThreadId | null = null;
+      await vi.waitFor(() => {
+        draftThreadId =
+          useComposerDraftStore.getState().getDraftThreadByProjectId(PROJECT_ID, "orchestrator")
+            ?.threadId ?? null;
+        expect(draftThreadId).not.toBeNull();
+      });
+      const promotedThreadId = draftThreadId!;
+      await vi.waitFor(() => {
+        expect(
+          wsRequests.some(
+            (request) =>
+              request._tag === ORCHESTRATION_WS_METHODS.subscribeThread &&
+              request.threadId === promotedThreadId,
+          ),
+        ).toBe(true);
+      });
+
+      const prompt = "keep the first Orchestrator transcript visible";
+      useComposerDraftStore.getState().setPrompt(promotedThreadId, prompt);
+      const sendButton = await waitForSendButton();
+      expect(sendButton.disabled).toBe(false);
+      sendButton.click();
+
+      await waitForURL(
+        mounted.router,
+        (pathname) => pathname === `/orchestrator/${promotedThreadId}`,
+        "Orchestrator draft did not promote to its Root route.",
+      );
+      expect(
+        wsRequests.some(
+          (request) =>
+            request._tag === ORCHESTRATION_WS_METHODS.getThreadDetailSnapshot &&
+            request.threadId === promotedThreadId,
+        ),
+      ).toBe(true);
+      await vi.waitFor(() => {
+        expect(document.body.textContent).toContain(prompt);
+        expect(useStore.getState().threadDetailSyncById?.[promotedThreadId]).toBe("synced");
+      });
+
+      const preShellSubscribeIndex = wsRequests.findIndex(
+        (request) =>
+          request._tag === ORCHESTRATION_WS_METHODS.subscribeThread &&
+          request.threadId === promotedThreadId,
+      );
+      const turnStartIndex = wsRequests.findIndex(
+        (request) =>
+          readDispatchedCommand(request)?.type === "thread.turn.start" &&
+          readDispatchedCommand(request)?.threadId === promotedThreadId,
+      );
+      expect(preShellSubscribeIndex).toBeGreaterThanOrEqual(0);
+      expect(turnStartIndex).toBeGreaterThan(preShellSubscribeIndex);
+      expect(sawConversationLoader).toBe(false);
+    } finally {
+      loaderObserver.disconnect();
+      await mounted.cleanup();
+      restoreNativeApi();
+    }
   });
 
   it("dispatches a rapid access-mode reversal while the server projection is stale", async () => {
@@ -6024,26 +6341,143 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("collapses a settled leading tool run mid-turn, then folds into Worked for after the grace delay", async () => {
+  it("keeps the settled activity row while an optimistic follow-up starts", async () => {
+    const restoreNativeApi = installDeterministicSendNativeApi();
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotWithInlineToolOverflow({ active: false }),
+    });
+
+    try {
+      await vi.waitFor(
+        () => {
+          expect(document.body.textContent).toContain("Worked for");
+          expect(document.querySelectorAll("[data-turn-work-region]").length).toBeGreaterThan(0);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+      const settledActivityRow = Array.from(
+        document.querySelectorAll<HTMLElement>("[data-turn-work-region]"),
+      ).find((row) =>
+        row.querySelector('[aria-hidden="false"]')?.textContent?.includes("Worked for"),
+      );
+      expect(settledActivityRow).not.toBeUndefined();
+
+      const prompt = "keep the activity lifecycle stable";
+      useComposerDraftStore.getState().setPrompt(THREAD_ID, prompt);
+      const sendButton = await waitForSendButton();
+      expect(sendButton.disabled).toBe(false);
+      sendButton.click();
+
+      await vi.waitFor(
+        () => {
+          expect(document.body.textContent).toContain(prompt);
+          const activityRows = Array.from(
+            document.querySelectorAll<HTMLElement>("[data-turn-work-region]"),
+          );
+          expect(activityRows).toContain(settledActivityRow);
+          expect(settledActivityRow?.querySelector('[aria-hidden="false"]')?.textContent).toContain(
+            "Worked for",
+          );
+          expect(
+            activityRows.some(
+              (row) =>
+                row !== settledActivityRow &&
+                row.querySelector('[aria-hidden="false"]')?.textContent?.startsWith("Working") ===
+                  true,
+            ),
+          ).toBe(true);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      const turnStartCommand = wsRequests
+        .map(readDispatchedCommand)
+        .find((command) => command?.type === "thread.turn.start" && command.threadId === THREAD_ID);
+      expect(turnStartCommand).toBeTruthy();
+      const sentMessage = turnStartCommand?.message as
+        | { messageId: MessageId; text: string }
+        | undefined;
+      expect(sentMessage).toBeTruthy();
+      const echoedAt = String(turnStartCommand?.createdAt ?? NOW_ISO);
+      const echoedSnapshot: OrchestrationReadModel = {
+        ...fixture.snapshot,
+        snapshotSequence: fixture.snapshot.snapshotSequence + 1,
+        threads: fixture.snapshot.threads.map((thread) =>
+          thread.id === THREAD_ID && sentMessage
+            ? {
+                ...thread,
+                messages: [
+                  ...thread.messages,
+                  {
+                    id: sentMessage.messageId,
+                    role: "user" as const,
+                    text: sentMessage.text,
+                    createdAt: echoedAt,
+                    updatedAt: echoedAt,
+                    streaming: false,
+                    source: "native" as const,
+                  },
+                ],
+                updatedAt: echoedAt,
+              }
+            : thread,
+        ),
+        updatedAt: echoedAt,
+      };
+      fixture = { ...fixture, snapshot: echoedSnapshot };
+      useStore.getState().syncServerReadModel(echoedSnapshot);
+
+      await vi.waitFor(
+        () => {
+          const activityRows = Array.from(
+            document.querySelectorAll<HTMLElement>("[data-turn-work-region]"),
+          );
+          expect(activityRows).toContain(settledActivityRow);
+          expect(settledActivityRow?.querySelector('[aria-hidden="false"]')?.textContent).toContain(
+            "Worked for",
+          );
+          expect(
+            activityRows.some(
+              (row) =>
+                row !== settledActivityRow &&
+                row.querySelector('[aria-hidden="false"]')?.textContent?.startsWith("Working") ===
+                  true,
+            ),
+          ).toBe(true);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+      restoreNativeApi();
+    }
+  });
+
+  it("settles Working to Worked atomically without a delayed layout phase", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotWithInlineToolOverflow({ active: true }),
     });
 
     try {
-      // The tools already gave way to the assistant's narration block, so even
-      // while the turn is live the run compacts behind its summary row.
+      // Wait on the canonical lifecycle surface, not provider/tool-group copy:
+      // the latter may change as semantic tool classification improves.
       await vi.waitFor(
         () => {
-          const summaryTrigger = Array.from(
-            document.querySelectorAll<HTMLButtonElement>("button[aria-expanded]"),
-          ).find((element) => element.textContent?.includes("Used 6 tools"));
-          expect(summaryTrigger).not.toBeUndefined();
-          expect(summaryTrigger!.getAttribute("aria-expanded")).toBe("false");
-          expect(document.body.textContent).not.toContain("Tool 1");
+          expect(document.body.textContent).toContain("Working for");
+          expect(document.body.textContent).toContain("Wrapped up the inline tool review.");
+          expect(document.querySelector("[data-turn-work-region]")).not.toBeNull();
         },
         { timeout: 8_000, interval: 16 },
       );
+
+      const liveWorkRegion = document.querySelector<HTMLElement>("[data-turn-work-region]");
+      const liveFinalMessage = document.querySelector<HTMLElement>(
+        '[data-message-id="msg-assistant-inline-tools"]',
+      );
+      expect(liveWorkRegion).not.toBeNull();
+      expect(liveFinalMessage).not.toBeNull();
 
       const settledSnapshot = createSnapshotWithInlineToolOverflow({ active: false });
       useStore.getState().syncServerReadModel({
@@ -6051,52 +6485,27 @@ describe("ChatView timeline estimator parity (full app)", () => {
         snapshotSequence: fixture.snapshot.snapshotSequence + 1,
       });
 
-      // The first settled paint keeps the live layout: no "Worked for" fold yet.
-      expect(document.querySelector("[data-settled-turn-collapse-transition='true']")).toBeNull();
-      expect(document.body.textContent).toContain("Used 6 tools");
-
-      await new Promise<void>((resolve) => {
-        window.setTimeout(() => resolve(), 260);
-      });
-
-      // Once the grace delay lapses the settled turn folds into "Worked for…",
-      // but the old details stay mounted briefly inside the shared disclosure
-      // close transition so the transcript height eases down instead of snapping.
+      // T3-style lifecycle projection has no fixed settle timer. The authoritative
+      // completed snapshot updates the existing activity and final-message rows in
+      // the same render instead of exposing a second, delayed layout state.
       await vi.waitFor(
         () => {
           expect(document.body.textContent).toContain("Worked for");
-          const transitionClone = document.querySelector(
-            "[data-settled-turn-collapse-transition='true']",
+          expect(document.querySelector<HTMLElement>("[data-turn-work-region]")).toBe(
+            liveWorkRegion,
           );
-          expect(transitionClone).not.toBeNull();
-          expect(transitionClone?.hasAttribute("inert")).toBe(true);
-          expect(transitionClone?.querySelector("[aria-hidden='true'][inert]")).not.toBeNull();
-          expect(transitionClone?.textContent).toContain("Used 6 tools");
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-
-      await new Promise<void>((resolve) => {
-        window.setTimeout(() => resolve(), 320);
-      });
-
-      // After the close motion finishes, details are only available by opening
-      // the "Worked for…" disclosure.
-      await vi.waitFor(
-        () => {
           expect(
-            document.querySelector("[data-settled-turn-collapse-transition='true']"),
-          ).toBeNull();
-          expect(document.body.textContent).not.toContain("Tool 1");
-          const settledTrigger = Array.from(
-            document.querySelectorAll<HTMLButtonElement>("button"),
-          ).find((element) => element.textContent?.includes("Worked for"));
-          if (settledTrigger) {
-            expect(settledTrigger.getAttribute("aria-expanded")).toBe("false");
-          }
+            document.querySelector<HTMLElement>('[data-message-id="msg-assistant-inline-tools"]'),
+          ).toBe(liveFinalMessage);
         },
-        { timeout: 8_000, interval: 16 },
+        { timeout: 1_000, interval: 16 },
       );
+
+      expect(document.body.textContent).not.toContain("Tool 1");
+      const settledTrigger = Array.from(
+        document.querySelectorAll<HTMLButtonElement>("button"),
+      ).find((element) => element.textContent?.includes("Worked for"));
+      expect(settledTrigger?.getAttribute("aria-expanded")).toBe("false");
     } finally {
       await mounted.cleanup();
     }

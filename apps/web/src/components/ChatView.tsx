@@ -223,7 +223,10 @@ import {
   createThreadSelector,
 } from "../storeSelectors";
 import { buildThreadSubscribeInput } from "../threadDetailResumeCursors";
-import { retainThreadDetailSubscription } from "../threadDetailSubscriptionRetention";
+import {
+  retainPreShellThreadDetailSubscription,
+  retainThreadDetailSubscription,
+} from "../threadDetailSubscriptionRetention";
 import {
   canOfferForkSlashCommand,
   canOfferSideSlashCommand,
@@ -286,6 +289,11 @@ import {
 } from "../hooks/useComposerCommandMenuItems";
 import { useProviderModelCatalog } from "../hooks/useProviderModelCatalog";
 import { useThreadHandoff } from "../hooks/useThreadHandoff";
+import {
+  followHandoffPreparation,
+  preparationToDraft,
+  useCrossModeHandoff,
+} from "../hooks/useCrossModeHandoff";
 import { useThreadUnblock } from "../hooks/useThreadUnblock";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import BranchToolbar, { RuntimeUsageControls } from "./BranchToolbar";
@@ -307,9 +315,10 @@ import {
   ComposerSendArrowIcon,
   LayoutSidebarIcon,
   RefreshCwIcon,
-  TemporaryThreadIcon,
 } from "~/lib/icons";
 import { ComposerQueuedHeader } from "./chat/ComposerQueuedHeader";
+import { ComposerHandoffPacketRail } from "./chat/ComposerHandoffPacketRail";
+import { CrossModeHandoffDialog } from "./chat/CrossModeHandoffDialog";
 import { ComposerLiveChangesHeader } from "./chat/ComposerLiveChangesHeader";
 import { ComposerPickerMenuPopup } from "./chat/ComposerPickerMenuPopup";
 import { Button } from "./ui/button";
@@ -332,8 +341,8 @@ import {
 import { runProjectCommandInTerminal } from "~/projectTerminalRunner";
 import { newCommandId, newMessageId, newProjectId, newThreadId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
-import { promoteThreadCreate } from "~/lib/threadCreatePromotion";
-import { orchestratorQueryKeys } from "~/lib/orchestratorRoots";
+import { prehydratePromotedThreadDetail, promoteThreadCreate } from "~/lib/threadCreatePromotion";
+import { orchestratorQueryKeys, orchestratorRootQueryOptions } from "~/lib/orchestratorRoots";
 import { readFavoriteModelSlugs } from "~/lib/modelFavorites";
 import {
   getCustomBinaryPathForProvider,
@@ -362,7 +371,6 @@ import {
   useComposerThreadDraft,
   useEffectiveComposerModelState,
 } from "../composerDraftStore";
-import { useTemporaryThreadStore } from "../temporaryThreadStore";
 import { useComposerFocusRequestStore } from "../composerFocusRequestStore";
 import { useWorkflowRunUiStore, useWorkflowRunUiThreadState } from "../workflowRunUiStore";
 import { appendComposerPromptText } from "../lib/chatReferences";
@@ -543,9 +551,7 @@ import {
   type RateLimitStatus,
 } from "./chat/RateLimitBanner";
 import {
-  ACTIVE_TURN_LAYOUT_SETTLE_DELAY_MS,
   appendVoiceTranscriptToPrompt,
-  shouldStartActiveTurnLayoutGrace,
   buildExpiredTerminalContextToastCopy,
   buildLocalDraftThread,
   DISMISSED_PROVIDER_HEALTH_BANNERS_KEY,
@@ -555,6 +561,7 @@ import {
   failWorktreeSetupSnapshot,
   filterSidechatTranscriptMessages,
   hasServerAcknowledgedLocalDispatch,
+  hasTurnLifecycleAcknowledgedLocalDispatch,
   resolveNextLocalDispatchSnapshot,
   WORKTREE_SETUP_ERROR_HOLD_MS,
   worktreeSetupHasError,
@@ -1101,8 +1108,11 @@ interface ChatViewProps {
   onAdjacentRightDockOpenChange?: (open: boolean) => void;
   orchestratorRootDraft?: {
     readonly onSelectProject: (projectId: ProjectId) => void;
+    readonly onResetProject: () => void;
   };
   onOpenSessionProgressProcess?: () => void;
+  orchestratorMode?: boolean;
+  inspectOnly?: boolean;
 }
 
 function normalizeRestoredQueuedPrompt(value: string): string {
@@ -1165,6 +1175,8 @@ export default function ChatView({
   onAdjacentRightDockOpenChange,
   orchestratorRootDraft,
   onOpenSessionProgressProcess,
+  orchestratorMode: orchestratorModeProp,
+  inspectOnly = false,
 }: ChatViewProps) {
   // Prop defaults are resolved here instead of in the destructuring pattern: an
   // AssignmentPattern in the parameter list makes React Compiler bail out (silently —
@@ -1176,6 +1188,7 @@ export default function ChatView({
   const isFocusedPane = isFocusedPaneProp ?? true;
   const viewModeAction = viewModeActionProp ?? null;
   const adjacentRightDockOpen = adjacentRightDockOpenProp ?? false;
+  const orchestratorMode = orchestratorModeProp ?? false;
   const markThreadVisited = useStore((store) => store.markThreadVisited);
   const syncServerShellSnapshot = useStore((store) => store.syncServerShellSnapshot);
   const setStoreThreadError = useStore((store) => store.setError);
@@ -1330,11 +1343,6 @@ export default function ChatView({
   const draftThread = useComposerDraftStore(
     (store) => store.draftThreadsByThreadId[threadId] ?? null,
   );
-  const hasTemporaryThreadMarker = useTemporaryThreadStore((store) =>
-    threadId ? store.temporaryThreadIds[threadId] === true : false,
-  );
-  const markTemporaryThread = useTemporaryThreadStore((store) => store.markTemporaryThread);
-  const clearTemporaryThread = useTemporaryThreadStore((store) => store.clearTemporaryThread);
   const markWorkflowRunPaused = useWorkflowRunUiStore((store) => store.markPaused);
   const markWorkflowRunDismissed = useWorkflowRunUiStore((store) => store.markDismissed);
   const serverThread = useStore(useMemo(() => createThreadSelector(threadId), [threadId]));
@@ -1394,6 +1402,7 @@ export default function ChatView({
   const [isRevertingCheckpoint, setIsRevertingCheckpoint] = useState(false);
   const [pendingFileUndo, setPendingFileUndo] = useState<PendingFileUndo | null>(null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [messageNavigatorFocusRequest, setMessageNavigatorFocusRequest] = useState(0);
   const [respondingRequestKeys, setRespondingRequestKeys] = useState<string[]>([]);
   const [respondingUserInputRequestKeys, setRespondingUserInputRequestKeys] = useState<string[]>(
     [],
@@ -1829,8 +1838,16 @@ export default function ChatView({
     composerDraft.interactionMode ?? activeThread?.interactionMode ?? DEFAULT_INTERACTION_MODE;
   const isServerThread = serverThread !== undefined;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
-  const isOrchestratorRootDraft =
-    isLocalDraftThread && draftThread?.entryPoint === "orchestrator";
+  const isOrchestratorRootDraft = isLocalDraftThread && draftThread?.entryPoint === "orchestrator";
+  useLayoutEffect(() => {
+    if (!isOrchestratorRootDraft) return;
+    const releaseWarmDetail = retainThreadDetailSubscription(threadId);
+    const releasePreShellLease = retainPreShellThreadDetailSubscription(threadId);
+    return () => {
+      releasePreShellLease();
+      releaseWarmDetail();
+    };
+  }, [isOrchestratorRootDraft, threadId]);
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
   const diffOpen = rawSearch.panel === "diff";
   const browserOpen = rawSearch.panel === "browser";
@@ -1914,6 +1931,18 @@ export default function ChatView({
   const activeProject = useStore(
     useMemo(() => createProjectSelector(activeProjectId), [activeProjectId]),
   );
+  const sourceHandoffMode = orchestratorMode
+    ? activeThread?.parentThreadId
+      ? ("orchestrator_child" as const)
+      : ("orchestrator_root" as const)
+    : ("project" as const);
+  const hasComposerHandoffRail = composerDraft.handoffDraft !== null;
+  const startCrossModeHandoff = useCrossModeHandoff({
+    sourceThread: activeThread,
+    sourceProject: activeProject,
+    sourceMode: sourceHandoffMode,
+  });
+  const [crossModeHandoffOpen, setCrossModeHandoffOpen] = useState(false);
   const deletePlaceholderTerminalThread = useCallback(
     async (terminalThreadId: ThreadId) => {
       const api = readNativeApi();
@@ -2852,28 +2881,21 @@ export default function ChatView({
     latestTurnSettled &&
     hasActionableProposedPlan(activeProposedPlan);
   const activePendingApproval = pendingApprovals[0] ?? null;
-  const serverAcknowledgedLocalDispatch = useMemo(
-    () =>
-      hasServerAcknowledgedLocalDispatch({
-        localDispatch,
-        phase,
-        latestTurn: activeLatestTurn,
-        session: activeThread?.session ?? null,
-        messages: activeThread?.messages ?? EMPTY_MESSAGES,
-        hasPendingApproval: activePendingApproval !== null,
-        hasPendingUserInput: activePendingUserInput !== null,
-        threadError: activeThread?.error,
-      }),
-    [
-      activeLatestTurn,
-      activePendingApproval,
-      activePendingUserInput,
-      activeThread?.error,
-      activeThread?.messages,
-      activeThread?.session,
-      localDispatch,
-      phase,
-    ],
+  const localDispatchAcknowledgementInput = {
+    localDispatch,
+    phase,
+    latestTurn: activeLatestTurn,
+    session: activeThread?.session ?? null,
+    messages: activeThread?.messages ?? EMPTY_MESSAGES,
+    hasPendingApproval: activePendingApproval !== null,
+    hasPendingUserInput: activePendingUserInput !== null,
+    threadError: activeThread?.error,
+  };
+  const serverAcknowledgedLocalDispatch = hasServerAcknowledgedLocalDispatch(
+    localDispatchAcknowledgementInput,
+  );
+  const turnLifecycleAcknowledgedLocalDispatch = hasTurnLifecycleAcknowledgedLocalDispatch(
+    localDispatchAcknowledgementInput,
   );
   const isSendBusy = localDispatch !== null && !serverAcknowledgedLocalDispatch;
   const activeWorktreeSetup = localDispatch?.worktreeSetup ?? null;
@@ -2931,18 +2953,14 @@ export default function ChatView({
   const hasStreamingAssistantText =
     activeThread?.messages.some((message) => message.role === "assistant" && message.streaming) ??
     false;
-  const activeTurnLayoutLive = isWorking || !latestTurnSettled;
-  const [keepSettledActiveTurnLayout, setKeepSettledActiveTurnLayout] = useState(false);
-  const previousActiveTurnLayoutLiveRef = useRef(activeTurnLayoutLive);
-  const previousActiveTurnLayoutKeyRef = useRef<string | null>(null);
   const activeWorkStartedAt = hasLiveTurnTail
     ? (activeLatestTurn?.startedAt ?? null)
     : hasLiveTurn
       ? deriveActiveWorkStartedAt(activeLatestTurn, activeThread?.session ?? null, null)
       : null;
-  const activeTurnLayoutKey =
-    activeThreadId === null ? null : `${activeThreadId}:${activeLatestTurn?.turnId ?? "idle"}`;
-  const activeTurnInProgress = activeTurnLayoutLive || keepSettledActiveTurnLayout;
+  const latestTurnInProgress = Boolean(activeLatestTurn?.requestedAt) && !latestTurnSettled;
+  const activeTurnInProgress =
+    !activeThread?.error && (localDispatch !== null || hasLiveTurn || latestTurnInProgress);
   const isComposerApprovalState = activePendingApproval !== null;
   const isComposerEditorDisabled = isConnecting || isComposerApprovalState;
   const canCollapsePastedTextToDraft = shouldEnableComposerPastedTextCollapse({
@@ -2966,39 +2984,6 @@ export default function ChatView({
     requestId: string | null;
     questionId: string | null;
   } | null>(null);
-  useLayoutEffect(() => {
-    if (previousActiveTurnLayoutKeyRef.current !== activeTurnLayoutKey) {
-      previousActiveTurnLayoutKeyRef.current = activeTurnLayoutKey;
-      previousActiveTurnLayoutLiveRef.current = activeTurnLayoutLive;
-      setKeepSettledActiveTurnLayout(false);
-      return;
-    }
-
-    const shouldStartGrace = shouldStartActiveTurnLayoutGrace({
-      previousTurnLayoutLive: previousActiveTurnLayoutLiveRef.current,
-      currentTurnLayoutLive: activeTurnLayoutLive,
-      latestTurnStartedAt: activeLatestTurn?.startedAt ?? null,
-    });
-    previousActiveTurnLayoutLiveRef.current = activeTurnLayoutLive;
-
-    if (activeTurnLayoutLive) {
-      setKeepSettledActiveTurnLayout(false);
-      return;
-    }
-
-    if (!shouldStartGrace) {
-      return;
-    }
-
-    setKeepSettledActiveTurnLayout(true);
-    const timeoutId = window.setTimeout(() => {
-      setKeepSettledActiveTurnLayout(false);
-    }, ACTIVE_TURN_LAYOUT_SETTLE_DELAY_MS);
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [activeLatestTurn?.startedAt, activeTurnLayoutKey, activeTurnLayoutLive]);
-
   useEffect(() => {
     const nextCustomAnswer = activePendingProgress?.customAnswer;
     if (typeof nextCustomAnswer !== "string") {
@@ -3398,8 +3383,9 @@ export default function ChatView({
           summary.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[summary.turnId],
       })),
       messages: messagesForDiffAnchoring,
+      workLogEntries,
     });
-  }, [inferredCheckpointTurnCountByTurnId, turnDiffSummaries, timelineMessages]);
+  }, [inferredCheckpointTurnCountByTurnId, turnDiffSummaries, timelineMessages, workLogEntries]);
   const revertTurnCountByUserMessageId = useMemo(() => {
     const byUserMessageId = new Map<MessageId, number>();
     for (let index = 0; index < timelineEntries.length; index += 1) {
@@ -5701,7 +5687,7 @@ export default function ChatView({
 
   const localDispatchWorktreeSetupFailed = worktreeSetupHasError(activeWorktreeSetup);
   useEffect(() => {
-    if (!serverAcknowledgedLocalDispatch) {
+    if (!turnLifecycleAcknowledgedLocalDispatch) {
       return;
     }
     // A failed worktree setup would otherwise reset in the same commit that
@@ -5732,7 +5718,7 @@ export default function ChatView({
     localDispatch?.startedAt,
     localDispatchWorktreeSetupFailed,
     resetLocalDispatch,
-    serverAcknowledgedLocalDispatch,
+    turnLifecycleAcknowledgedLocalDispatch,
   ]);
 
   useEffect(() => {
@@ -6033,6 +6019,13 @@ export default function ChatView({
         event.preventDefault();
         event.stopPropagation();
         toggleComposerFocus();
+        return;
+      }
+
+      if (command === "chat.messageNavigator") {
+        event.preventDefault();
+        event.stopPropagation();
+        setMessageNavigatorFocusRequest((request) => request + 1);
         return;
       }
 
@@ -6675,7 +6668,7 @@ export default function ChatView({
             associatedWorktreeBranch: activeThreadAssociatedWorktree.associatedWorktreeBranch,
             associatedWorktreeRef: activeThreadAssociatedWorktree.associatedWorktreeRef,
             lastKnownPr: activeThread.lastKnownPr ?? null,
-            createdAt: activeThread.createdAt,
+            createdAt: new Date().toISOString(),
           },
           api,
           { force: true },
@@ -6982,6 +6975,37 @@ export default function ChatView({
       sendInFlightRef.current
     ) {
       return false;
+    }
+    if (queuedTurn === undefined) {
+      let stagedHandoff = useComposerDraftStore.getState().draftsByThreadId[threadId]?.handoffDraft;
+      while (stagedHandoff?.preparationState === "preparing" && stagedHandoff.attemptId) {
+        await new Promise((resolve) => window.setTimeout(resolve, 500));
+        const latest = await api.orchestration.getHandoffPreparation({
+          attemptId: stagedHandoff.attemptId,
+        });
+        useComposerDraftStore.getState().setHandoffDraft(threadId, {
+          ...stagedHandoff,
+          preparationState: latest.state,
+          preparationPhase: latest.phase,
+          preparationProgressPercent: latest.progressPercent,
+          packet: latest.packet,
+          error: latest.error,
+          updatedAt: latest.updatedAt,
+        });
+        stagedHandoff = useComposerDraftStore.getState().draftsByThreadId[threadId]?.handoffDraft;
+      }
+      if (
+        stagedHandoff &&
+        stagedHandoff.preparationState !== "ready" &&
+        !stagedHandoff.sourceLinkOnly
+      ) {
+        toastManager.add({
+          type: "warning",
+          title: "Handoff packet is not ready",
+          description: stagedHandoff.error ?? "Retry preparation or choose source-link-only.",
+        });
+        return false;
+      }
     }
     if (activePendingProgress) {
       const activeQuestion = activePendingProgress.activeQuestion;
@@ -7634,6 +7658,7 @@ export default function ChatView({
     const composerPastedTextsSnapshot = [...sendableComposerPastedTexts];
     const composerSkillsSnapshot = [...selectedComposerSkillsForSend];
     const composerMentionsSnapshot = [...selectedComposerMentionsForSend];
+    const composerHandoffDraftSnapshot = composerDraft.handoffDraft;
     // Trailing blocks are appended innermost-to-outermost: assistant selections,
     // terminal contexts, file comments, pasted text, then browser annotations
     // (outermost). The display
@@ -7828,21 +7853,27 @@ export default function ChatView({
           threadNotes,
           projectInstructions: inheritedProjectInstructions,
         });
+        const stagedCrossModeHandoff = composerHandoffDraftSnapshot;
         const orchestratorSourceThreadId = isOrchestratorRootDraft
           ? (draftThread?.orchestratorSourceThreadId ?? null)
           : null;
-        if (orchestratorSourceThreadId) {
+        const handoffSourceThreadId =
+          stagedCrossModeHandoff?.sourceThreadId ?? orchestratorSourceThreadId;
+        if (handoffSourceThreadId) {
           const importedMessages = draftThread?.orchestratorHandoffMessages ?? [];
-          if (importedMessages.length === 0) {
+          if (!stagedCrossModeHandoff && importedMessages.length === 0) {
             throw new Error(
               "The source thread has no completed user or assistant messages to hand off.",
             );
+          }
+          if (stagedCrossModeHandoff && stagedCrossModeHandoff.attemptId === null) {
+            throw new Error("Retry handoff preparation before sending this destination draft.");
           }
           await api.orchestration.dispatchCommand({
             type: "thread.handoff.create",
             commandId: newCommandId(),
             threadId: threadIdForSend,
-            sourceThreadId: orchestratorSourceThreadId,
+            sourceThreadId: handoffSourceThreadId,
             projectId: targetProjectIdForSend,
             title,
             modelSelection: threadCreateModelSelection,
@@ -7857,6 +7888,13 @@ export default function ChatView({
             associatedWorktreeRef: nextAssociatedWorktreeRef,
             createBranchFlowCompleted: false,
             importedMessages: [...importedMessages],
+            ...(stagedCrossModeHandoff?.attemptId
+              ? {
+                  handoffAttemptId: stagedCrossModeHandoff.attemptId,
+                  handoffDestinationMode: stagedCrossModeHandoff.destinationMode,
+                  handoffSourceLinkOnly: stagedCrossModeHandoff.sourceLinkOnly,
+                }
+              : {}),
             createdAt: activeThread.createdAt,
           });
           markPromotedDraftThreads(new Set([threadIdForSend]));
@@ -8005,7 +8043,11 @@ export default function ChatView({
       if (isOrchestratorRootDraft) {
         const shellSnapshot = await api.orchestration.getShellSnapshot();
         syncServerShellSnapshot(shellSnapshot);
+        await prehydratePromotedThreadDetail(threadIdForSend, api);
         await queryClient.invalidateQueries({ queryKey: orchestratorQueryKeys.all });
+        await queryClient
+          .fetchQuery(orchestratorRootQueryOptions(threadIdForSend))
+          .catch(() => undefined);
         await navigate({
           to: "/orchestrator/$rootThreadId",
           params: { rootThreadId: threadIdForSend },
@@ -8052,7 +8094,11 @@ export default function ChatView({
         );
         if (recovered) {
           turnStartSucceeded = true;
+          await prehydratePromotedThreadDetail(threadIdForSend, api);
           await queryClient.invalidateQueries({ queryKey: orchestratorQueryKeys.all });
+          await queryClient
+            .fetchQuery(orchestratorRootQueryOptions(threadIdForSend))
+            .catch(() => undefined);
           await navigate({
             to: "/orchestrator/$rootThreadId",
             params: { rootThreadId: threadIdForSend },
@@ -8160,6 +8206,11 @@ export default function ChatView({
         addComposerPastedTextsToDraft(composerPastedTextsSnapshot);
         updateSelectedComposerSkills(composerSkillsSnapshot);
         updateSelectedComposerMentions(composerMentionsSnapshot);
+        if (composerHandoffDraftSnapshot) {
+          useComposerDraftStore
+            .getState()
+            .setHandoffDraft(threadIdForSend, composerHandoffDraftSnapshot);
+        }
         setComposerTrigger(detectComposerTrigger(promptForSend, promptForSend.length));
       }
       setThreadError(
@@ -9243,6 +9294,10 @@ export default function ChatView({
 
   const handleResetWorkspaceToHome = useCallback(() => {
     if (isLocalDraftThread) {
+      if (isOrchestratorRootDraft && orchestratorRootDraft) {
+        orchestratorRootDraft.onResetProject();
+        return;
+      }
       if (!isHomeChatContainer) {
         return (async () => {
           if (!homeDir) {
@@ -9304,7 +9359,9 @@ export default function ChatView({
     homeDir,
     isHomeChatContainer,
     isLocalDraftThread,
+    isOrchestratorRootDraft,
     moveEmptyDraftToLocalProject,
+    orchestratorRootDraft,
     scheduleComposerFocus,
     setDraftThreadContext,
     setStoreThreadWorkspace,
@@ -10417,20 +10474,7 @@ export default function ChatView({
       ? { onCheckoutPullRequestRequest: openPullRequestDialog }
       : {}),
   };
-  const showEmptyLandingBranchToolbar =
-    isCenteredEmptyLanding && activeProject?.kind === "project" && !isHomeChatContainer;
-  // Temporary is chosen while starting a chat. Draft metadata covers local reloads;
-  // the in-memory marker keeps the badge + auto-delete alive through promotion.
-  const isThreadTemporary = draftThread?.isTemporary === true || hasTemporaryThreadMarker;
-  const toggleDraftTemporary = () => {
-    const next = !isThreadTemporary;
-    setDraftThreadContext(threadId, { isTemporary: next });
-    if (next) {
-      markTemporaryThread(threadId);
-    } else {
-      clearTemporaryThread(threadId);
-    }
-  };
+  const showEmptyLandingBranchToolbar = activeProject?.kind === "project" && !isHomeChatContainer;
   const showEmptyLandingProjectPicker =
     isCenteredEmptyLanding && isLocalDraftThread && activeProject?.kind === "project";
   const showContainerChatWorkspacePicker = isEmptyChatLanding && isHomeChatContainer;
@@ -10443,13 +10487,8 @@ export default function ChatView({
         <span className="min-w-0 truncate">{activeProjectDisplayName}</span>
       </span>
     ) : null;
-  const showEmptyLandingControls =
-    isCenteredEmptyLanding &&
-    (isEmptyChatLanding ||
-      showEmptyLandingProjectPicker ||
-      emptyLandingProjectChip !== null ||
-      showEmptyLandingBranchToolbar);
-  const emptyLandingControls = showEmptyLandingControls ? (
+  const showPersistentComposerContext = Boolean(activeThread && activeProject);
+  const composerContextControls = showPersistentComposerContext ? (
     <div
       className={cn(
         // Full-width tray under the composer that reads as UNITED but not fused: it carries extra
@@ -10508,40 +10547,23 @@ export default function ChatView({
           />
         ) : null}
       </div>
-      {showEmptyLandingBranchToolbar ? (
-        isOrchestratorRootDraft ? (
-          <span
-            title="Local Orchestrator Root draft saved automatically"
-            className="ml-auto inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2 text-[length:var(--app-font-size-ui-sm,11px)] font-normal text-[var(--color-text-foreground-secondary)] sm:px-2.5"
-          >
-            <TemporaryThreadIcon className="size-3.5" />
-            <span className="sr-only sm:not-sr-only">Temporary</span>
-          </span>
-        ) : (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            aria-pressed={isThreadTemporary}
-            onClick={toggleDraftTemporary}
-            title={
-              isThreadTemporary
-                ? "Temporary chat — deleted when you leave. Click to keep it."
-                : "Make this a temporary chat (deleted when you leave)"
-            }
-            aria-label="Temporary chat"
-            className={cn(
-              "ml-auto shrink-0 gap-1.5 whitespace-nowrap px-2 text-[length:var(--app-font-size-ui-sm,11px)] font-normal transition-colors sm:px-2.5",
-              isThreadTemporary
-                ? "text-[var(--color-text-accent)] hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-accent)]"
-                : "text-[var(--color-text-foreground-secondary)] hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)]",
-            )}
-          >
-            <TemporaryThreadIcon className="size-3.5" />
-            <span className="sr-only sm:not-sr-only">Temporary</span>
-          </Button>
-        )
-      ) : null}
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        disabled={!isServerThread}
+        onClick={() => setCrossModeHandoffOpen(true)}
+        title={
+          isServerThread
+            ? sourceHandoffMode === "project"
+              ? "Continue this thread in Orchestrator"
+              : "Continue this thread in Projects"
+            : "Send the first message before handing off this draft"
+        }
+        className="ml-auto shrink-0 whitespace-nowrap px-2 text-[length:var(--app-font-size-ui-sm,11px)] font-normal text-[var(--color-text-foreground-secondary)] hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)] sm:px-2.5"
+      >
+        Hand off
+      </Button>
     </div>
   ) : null;
 
@@ -10655,7 +10677,7 @@ export default function ChatView({
     ) : null;
 
   const composerSection =
-    secondaryChromeReady && shouldRenderChatPaneContent ? (
+    !inspectOnly && secondaryChromeReady && shouldRenderChatPaneContent ? (
       <div
         className={cn(isCenteredEmptyLanding ? "w-full overflow-visible" : "contents")}
         data-empty-landing-composer-block={isCenteredEmptyLanding ? "true" : undefined}
@@ -10714,6 +10736,63 @@ export default function ChatView({
                   }
                 />
               ) : null}
+              {composerDraft.handoffDraft ? (
+                <ComposerHandoffPacketRail
+                  handoff={composerDraft.handoffDraft}
+                  attachedToPrevious={
+                    showComposerLiveChangesHeader ||
+                    showComposerActiveTaskListCard ||
+                    showComposerWorkflowRunCard ||
+                    showComposerSubagentStrip
+                  }
+                  onDetach={() => {
+                    const handoff = composerDraft.handoffDraft;
+                    if (handoff?.attemptId && handoff.preparationState === "preparing") {
+                      void readNativeApi()?.orchestration.cancelHandoffPreparation({
+                        attemptId: handoff.attemptId,
+                      });
+                    }
+                    useComposerDraftStore.getState().detachHandoffDraft(threadId);
+                  }}
+                  onUseSourceLinkOnly={() => {
+                    const handoff = composerDraft.handoffDraft;
+                    if (!handoff) return;
+                    if (handoff.attemptId && handoff.preparationState === "preparing") {
+                      void readNativeApi()?.orchestration.cancelHandoffPreparation({
+                        attemptId: handoff.attemptId,
+                      });
+                    }
+                    useComposerDraftStore.getState().setHandoffDraft(threadId, {
+                      ...handoff,
+                      sourceLinkOnly: true,
+                      preparationState: "cancelled",
+                      preparationPhase: "Using sealed source link",
+                      preparationProgressPercent: 100,
+                      updatedAt: new Date().toISOString(),
+                    });
+                  }}
+                  onRetry={async () => {
+                    const handoff =
+                      useComposerDraftStore.getState().draftsByThreadId[threadId]?.handoffDraft;
+                    const api = readNativeApi();
+                    if (!handoff || !api) {
+                      throw new Error("Handoff preparation is unavailable.");
+                    }
+                    const next = await api.orchestration.startHandoffPreparation({
+                      sourceThreadId: handoff.sourceThreadId,
+                      destinationDraftThreadId: threadId,
+                      destinationMode: handoff.destinationMode,
+                      handoffPrompt: handoff.handoffPrompt,
+                      runtime: handoff.runtime,
+                      sealedCapsule: handoff.capsule,
+                    });
+                    useComposerDraftStore
+                      .getState()
+                      .setHandoffDraft(threadId, preparationToDraft(next, handoff.destinationMode));
+                    void followHandoffPreparation(threadId, handoff.destinationMode, next);
+                  }}
+                />
+              ) : null}
               <ComposerQueuedHeader
                 queuedTurns={queuedComposerTurns}
                 onSteer={onSteerQueuedComposerTurn}
@@ -10724,7 +10803,8 @@ export default function ChatView({
                   showComposerLiveChangesHeader ||
                   showComposerActiveTaskListCard ||
                   showComposerWorkflowRunCard ||
-                  showComposerSubagentStrip
+                  showComposerSubagentStrip ||
+                  hasComposerHandoffRail
                 }
               />
               {sessionProgress ? (
@@ -10735,6 +10815,7 @@ export default function ChatView({
                     showComposerActiveTaskListCard ||
                     showComposerWorkflowRunCard ||
                     showComposerSubagentStrip ||
+                    hasComposerHandoffRail ||
                     queuedComposerTurns.length > 0
                   }
                   onOpenTask={openSessionProgressTask}
@@ -11180,7 +11261,7 @@ export default function ChatView({
             </div>
           </ComposerColumnFrame>
         </form>
-        {emptyLandingControls}
+        {composerContextControls}
       </div>
     ) : (
       <div
@@ -11206,6 +11287,15 @@ export default function ChatView({
       onDragLeave={onComposerDragLeave}
       onDrop={onComposerDrop}
     >
+      <CrossModeHandoffDialog
+        open={crossModeHandoffOpen}
+        threadId={threadId}
+        destinationLabel={sourceHandoffMode === "project" ? "Orchestrator" : "Projects"}
+        onOpenChange={setCrossModeHandoffOpen}
+        onContinue={async (handoffPrompt, runtime) => {
+          await startCrossModeHandoff(handoffPrompt, runtime);
+        }}
+      />
       {/* Subtle accent tint over the whole pane while a file is dragged anywhere over it,
           signalling that dropping it will attach the file to the composer. */}
       <div
@@ -11244,7 +11334,8 @@ export default function ChatView({
             : {})}
           isSidechat={Boolean(activeThread.sidechatSourceThreadId)}
           hideSidebarControls={isEditorRail}
-          hideHandoffControls={terminalWorkspaceTerminalTabActive || isEditorRail}
+          hideHandoffControls={inspectOnly || terminalWorkspaceTerminalTabActive || isEditorRail}
+          inspectOnly={inspectOnly}
           isGitRepo={isGitRepo}
           openInTarget={threadWorkspaceCwd}
           activeProjectScripts={isEditorRail ? undefined : activeProjectScripts}
@@ -11262,8 +11353,8 @@ export default function ChatView({
           handoffBadgeTargetProvider={handoffBadgeTargetProvider}
           gitCwd={threadWorkspaceCwd}
           diffTotals={repoDiffTotals}
-          showGitActions={showGitActions && !isEditorRail}
-          showDiffToggle={!isEditorRail && !onAdjacentRightDockOpenChange}
+          showGitActions={!inspectOnly && showGitActions && !isEditorRail}
+          showDiffToggle={!inspectOnly && !isEditorRail && !onAdjacentRightDockOpenChange}
           diffOpen={resolvedDiffOpen}
           diffDisabledReason={diffDisabledReason}
           rightPanelToggle={
@@ -11274,17 +11365,17 @@ export default function ChatView({
                 }
               : null
           }
-          environment={isEditorRail ? null : environmentHeaderState}
+          environment={inspectOnly || isEditorRail ? null : environmentHeaderState}
           surfaceMode={surfaceMode}
           chatLayoutAction={
-            surfaceMode === "single" && onSplitSurface
+            !inspectOnly && surfaceMode === "single" && onSplitSurface
               ? {
                   kind: "split",
                   label: "Split chat",
                   shortcutLabel: chatSplitShortcutLabel,
                   onClick: onSplitSurface,
                 }
-              : surfaceMode === "split" && isFocusedPane && onMaximizeSurface
+              : !inspectOnly && surfaceMode === "split" && isFocusedPane && onMaximizeSurface
                 ? {
                     kind: "maximize",
                     label: "Expand this chat",
@@ -11309,7 +11400,7 @@ export default function ChatView({
               : null
           }
           changeThreadAction={
-            surfaceMode === "split" && isFocusedPane && onChangeThreadInSplitPane
+            !inspectOnly && surfaceMode === "split" && isFocusedPane && onChangeThreadInSplitPane
               ? {
                   label: "Change thread",
                   onClick: onChangeThreadInSplitPane,
@@ -11451,17 +11542,13 @@ export default function ChatView({
                     </h2>
                   </div>
                   {composerSection}
-                  {(isGitRepo && !environmentEnabled && !isCenteredEmptyLanding) ||
-                  relocateComposerLeadingControls ? (
+                  {relocateComposerLeadingControls ? (
                     <div className={COMPOSER_COLUMN_FRAME_CLASS_NAME}>
                       <div className="flex w-full items-center gap-1">
                         {relocateComposerLeadingControls ? (
                           <div className="flex shrink-0 items-center gap-1 pl-1">
                             {renderComposerLeadingControls({ iconOnly: true })}
                           </div>
-                        ) : null}
-                        {isGitRepo && !environmentEnabled && !isCenteredEmptyLanding ? (
-                          <BranchToolbar {...branchToolbarProps} className="min-w-0 flex-1" />
                         ) : null}
                       </div>
                     </div>
@@ -11475,10 +11562,11 @@ export default function ChatView({
                 <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
                   <ChatTranscriptPane
                     activeThreadId={activeThread.id}
+                    messageNavigatorFocusRequest={messageNavigatorFocusRequest}
                     activeTurnId={activeTurnIdForTranscript}
                     agentActivityDetail={openAgentActivityDetail}
                     hasMessages={timelineEntries.length > 0}
-                    isWorking={hasLiveTurn}
+                    isWorking={activeTurnInProgress}
                     worktreeSetup={activeWorktreeSetup}
                     activeTurnInProgress={activeTurnInProgress}
                     activeTurnStartedAt={activeWorkStartedAt}
@@ -11553,8 +11641,7 @@ export default function ChatView({
                 >
                   {composerSection}
                 </div>
-                {secondaryChromeReady &&
-                ((isGitRepo && !environmentEnabled) || relocateComposerLeadingControls) ? (
+                {secondaryChromeReady && relocateComposerLeadingControls ? (
                   <div className={CHAT_COLUMN_GUTTER_CLASS_NAME}>
                     <div className={COMPOSER_COLUMN_FRAME_CLASS_NAME}>
                       <div className="flex w-full items-center gap-1">
@@ -11562,9 +11649,6 @@ export default function ChatView({
                           <div className="flex shrink-0 items-center gap-1 pl-1">
                             {renderComposerLeadingControls({ iconOnly: true })}
                           </div>
-                        ) : null}
-                        {isGitRepo && !environmentEnabled ? (
-                          <BranchToolbar {...branchToolbarProps} className="min-w-0 flex-1" />
                         ) : null}
                       </div>
                     </div>

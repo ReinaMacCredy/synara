@@ -105,7 +105,7 @@ describe("Orchestrator surface view model", () => {
     expect(communicationLinksForSelection(ROOT, CHILD_B, links)).toEqual([links[0]]);
   });
 
-    it("exports every aggregate dock surface as a real component", () => {
+  it("exports every aggregate dock surface as a real component", () => {
     expect(
       [
         TeamPanel,
@@ -115,41 +115,41 @@ describe("Orchestrator surface view model", () => {
         CouncilRunView,
         FinalDecisionPacketView,
       ].every((component) => typeof component === "function"),
-      ).toBe(true);
-    });
+    ).toBe(true);
+  });
 
-    it("routes composer Process actions into the existing Orchestrator Process pane", () => {
-      const source = readFileSync(new URL("./OrchestratorSurface.tsx", import.meta.url), "utf8");
-      expect(source).toContain('setActivePane(rootThreadId, "orchestrator-process")');
-      expect(source).toContain("onOpenSessionProgressProcess={openProcessPane}");
-      expect(source).toContain("setDockOpen(rootThreadId, true)");
-    });
+  it("routes composer Process actions into the existing Orchestrator Process pane", () => {
+    const source = readFileSync(new URL("./OrchestratorSurface.tsx", import.meta.url), "utf8");
+    expect(source).toContain('setActivePane(dockScopeId, "orchestrator-process")');
+    expect(source).toContain("onOpenSessionProgressProcess={openProcessPane}");
+    expect(source).toContain("setDockOpen(dockScopeId, true)");
+  });
 
-    it("uses one chat-header affordance to show and hide the whole Orchestrator dock", () => {
-      const surfaceSource = readFileSync(
-        new URL("./OrchestratorSurface.tsx", import.meta.url),
-        "utf8",
-      );
-      const chatViewSource = readFileSync(new URL("../ChatView.tsx", import.meta.url), "utf8");
-      const chatHeaderSource = readFileSync(
-        new URL("../chat/ChatHeader.tsx", import.meta.url),
-        "utf8",
-      );
+  it("uses one chat-header affordance to show and hide the whole Orchestrator dock", () => {
+    const surfaceSource = readFileSync(
+      new URL("./OrchestratorSurface.tsx", import.meta.url),
+      "utf8",
+    );
+    const chatViewSource = readFileSync(new URL("../ChatView.tsx", import.meta.url), "utf8");
+    const chatHeaderSource = readFileSync(
+      new URL("../chat/ChatHeader.tsx", import.meta.url),
+      "utf8",
+    );
 
-      expect(surfaceSource).toContain("adjacentRightDockOpen={displayDockState.open}");
-      expect(surfaceSource).toContain(
-        "onAdjacentRightDockOpenChange={(open) => setDockOpen(rootThreadId, open)}",
-      );
-      expect(surfaceSource).toContain("collapsible={false}");
-      expect(chatViewSource).toContain("rightPanelToggle={");
-      expect(chatViewSource).toContain(
-        "showDiffToggle={!isEditorRail && !onAdjacentRightDockOpenChange}",
-      );
-      expect(chatHeaderSource).toContain('aria-label={');
-      expect(chatHeaderSource).toContain('"Hide orchestration panel"');
-      expect(chatHeaderSource).toContain('"Show orchestration panel"');
-      expect(chatHeaderSource).toContain("aria-expanded={rightPanelToggle.open}");
-    });
+    expect(surfaceSource).toContain("adjacentRightDockOpen={displayDockState.open}");
+    expect(surfaceSource).toContain(
+      "onAdjacentRightDockOpenChange={(open) => setDockOpen(dockScopeId, open)}",
+    );
+    expect(surfaceSource).toContain("collapsible={false}");
+    expect(chatViewSource).toContain("rightPanelToggle={");
+    expect(chatViewSource).toContain(
+      "showDiffToggle={!inspectOnly && !isEditorRail && !onAdjacentRightDockOpenChange}",
+    );
+    expect(chatHeaderSource).toContain("aria-label={");
+    expect(chatHeaderSource).toContain('"Hide orchestration panel"');
+    expect(chatHeaderSource).toContain('"Show orchestration panel"');
+    expect(chatHeaderSource).toContain("aria-expanded={rightPanelToggle.open}");
+  });
 
   it("matches a task-scoped sibling link for direct peer exchanges without an assignment", () => {
     const peerExchange = {
@@ -162,8 +162,8 @@ describe("Orchestrator surface view model", () => {
     };
     const markup = renderToStaticMarkup(
       <ExchangesPanel
-          exchanges={[peerExchange]}
-          links={[
+        exchanges={[peerExchange]}
+        links={[
           {
             id: "link-bc",
             sourceThreadId: CHILD_B,
@@ -172,13 +172,15 @@ describe("Orchestrator surface view model", () => {
             taskId: "task-1",
             runId: null,
             state: "granted",
-            } as never,
-          ]}
-          ownershipEdges={[edge(ROOT, CHILD_B), edge(ROOT, CHILD_C)]}
-          threadLabels={new Map([
-          [CHILD_B, "Child B"],
-          [CHILD_C, "Child C"],
-        ])}
+          } as never,
+        ]}
+        ownershipEdges={[edge(ROOT, CHILD_B), edge(ROOT, CHILD_C)]}
+        threadLabels={
+          new Map([
+            [CHILD_B, "Child B"],
+            [CHILD_C, "Child C"],
+          ])
+        }
         onOpenThread={vi.fn()}
         loading={false}
         error={null}
@@ -186,37 +188,39 @@ describe("Orchestrator surface view model", () => {
     );
 
     expect(markup).toContain("link granted");
-      expect(markup).not.toContain("link unavailable in snapshot");
-    });
+    expect(markup).not.toContain("link unavailable in snapshot");
+  });
 
-    it("shows direct ownership delivery for Root-child exchanges without a link", () => {
-      const directExchange = {
-        ...exchange({ id: "root-child-message", createdAt: "2026-08-01T00:00:00.000Z" }),
-        senderThreadId: ROOT,
-        targetThreadId: CHILD_B,
-        artifactRefs: [],
-        hopCount: 0,
-        replyToMessageId: null,
-      };
-      const markup = renderToStaticMarkup(
-        <ExchangesPanel
-          exchanges={[directExchange]}
-          links={[]}
-          ownershipEdges={[edge(ROOT, CHILD_B)]}
-          threadLabels={new Map([
+  it("shows direct ownership delivery for Root-child exchanges without a link", () => {
+    const directExchange = {
+      ...exchange({ id: "root-child-message", createdAt: "2026-08-01T00:00:00.000Z" }),
+      senderThreadId: ROOT,
+      targetThreadId: CHILD_B,
+      artifactRefs: [],
+      hopCount: 0,
+      replyToMessageId: null,
+    };
+    const markup = renderToStaticMarkup(
+      <ExchangesPanel
+        exchanges={[directExchange]}
+        links={[]}
+        ownershipEdges={[edge(ROOT, CHILD_B)]}
+        threadLabels={
+          new Map([
             [ROOT, "Root A"],
             [CHILD_B, "Child B"],
-          ])}
-          onOpenThread={vi.fn()}
-          loading={false}
-          error={null}
-        />,
-      );
+          ])
+        }
+        onOpenThread={vi.fn()}
+        loading={false}
+        error={null}
+      />,
+    );
 
-      expect(markup).toContain("ownership direct");
-      expect(markup).not.toContain("link unavailable in snapshot");
-    });
+    expect(markup).toContain("ownership direct");
+    expect(markup).not.toContain("link unavailable in snapshot");
   });
+});
 
 describe("Orchestrator thread transcript row", () => {
   it("renders thread identity and is explicitly excluded from live-output semantics", () => {

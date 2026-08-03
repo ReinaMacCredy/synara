@@ -50,6 +50,7 @@ import {
   shouldPrunePinnedThreads,
   shouldClearThreadSelectionOnMouseDown,
   sortProjectsForSidebar,
+  sortOrchestratorRootThreadsForSidebar,
   sortThreadsForSidebar,
 } from "./Sidebar.logic";
 import { ProjectId, ThreadId } from "@synara/contracts";
@@ -2111,6 +2112,27 @@ describe("sortThreadsForSidebar", () => {
       ThreadId.makeUnsafe("thread-running"),
       ThreadId.makeUnsafe("thread-newer"),
     ]);
+  });
+});
+
+describe("sortOrchestratorRootThreadsForSidebar", () => {
+  it("keeps pinned roots above newer unpinned roots", () => {
+    const pinnedRoot = makeThread({
+      id: ThreadId.makeUnsafe("root-pinned"),
+      createdAt: "2026-03-09T09:00:00.000Z",
+      updatedAt: "2026-03-09T09:00:00.000Z",
+    });
+    const newerRoot = makeThread({
+      id: ThreadId.makeUnsafe("root-newer"),
+      createdAt: "2026-03-09T11:00:00.000Z",
+      updatedAt: "2026-03-09T11:00:00.000Z",
+    });
+
+    expect(
+      sortOrchestratorRootThreadsForSidebar([newerRoot, pinnedRoot], "updated_at", [
+        pinnedRoot.id,
+      ]).map((thread) => thread.id),
+    ).toEqual([pinnedRoot.id, newerRoot.id]);
   });
 });
 

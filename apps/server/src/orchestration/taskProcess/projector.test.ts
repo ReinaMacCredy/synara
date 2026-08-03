@@ -75,6 +75,7 @@ describe("TaskProcess projector", () => {
             description: null,
             acceptanceCriteria: [],
             priority: "normal",
+            risk: "high",
             lifecycle: "planned",
             orderKey: "a",
             createdBy: { kind: "user", actorId: "owner" },

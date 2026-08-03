@@ -4,7 +4,12 @@
 // Exports: row derivation, structural sharing, copy/timer helpers
 
 import { type MessageId, type TurnId } from "@synara/contracts";
-import { type TimelineEntry, type WorkLogEntry, formatElapsed } from "../../session-logic";
+import {
+  hasTurnWorkspaceMutationEvidence,
+  type TimelineEntry,
+  type WorkLogEntry,
+  formatElapsed,
+} from "../../session-logic";
 import { normalizeCompactToolLabel as normalizeCompactToolLabelValue } from "../../lib/toolCallLabel";
 import {
   isSummarizableToolCallEntry,
@@ -47,6 +52,11 @@ export type CollapsedTurnChunk =
 export type WorkEntryChunk =
   | { kind: "item"; id: string; entry: WorkLogEntry }
   | { kind: "tool-group"; id: string; entries: WorkLogEntry[] };
+
+type WorkspaceMutationEvidenceEntry = Pick<
+  WorkLogEntry,
+  "changedFiles" | "itemType" | "requestKind" | "turnId"
+>;
 
 export function chunkCollapsedTurnItems(
   items: ReadonlyArray<CollapsedTurnItem>,
@@ -100,6 +110,7 @@ export interface WorkEntryRenderPlanChunk {
   id: string;
   entries: WorkLogEntry[];
   summary: ToolCallGroupSummary | null;
+  live: boolean;
 }
 
 // Plans a work group's entries block by block. Boundaries are the entries a
@@ -112,15 +123,19 @@ export function planWorkEntryRenderChunks(
   entries: ReadonlyArray<WorkLogEntry>,
   options: { tailIsLive: boolean },
 ): WorkEntryRenderPlanChunk[] {
-  const chunks = chunkWorkEntries(entries);
+  const hasToolActivity = entries.some(isSummarizableToolCallEntry);
+  const purposeEntries = hasToolActivity
+    ? entries.filter((entry) => entry.tone !== "thinking")
+    : entries;
+  const chunks = chunkWorkEntries(purposeEntries);
   return chunks.map((chunk, index) => {
     if (chunk.kind === "item") {
-      return { id: chunk.id, entries: [chunk.entry], summary: null };
+      return { id: chunk.id, entries: [chunk.entry], summary: null, live: false };
     }
     const summary = summarizeToolCallGroup(chunk.entries);
     const isLiveTail = options.tailIsLive && index === chunks.length - 1;
-    const collapsed = summary !== null && !summary.hasRunningEntry && !isLiveTail;
-    return { id: chunk.id, entries: chunk.entries, summary: collapsed ? summary : null };
+    const live = summary !== null && (summary.hasRunningEntry || isLiveTail);
+    return { id: chunk.id, entries: chunk.entries, summary, live };
   });
 }
 
@@ -144,7 +159,7 @@ export function capOpenWorkEntryRenderChunks(
 ): CappedWorkEntryRenderPlan {
   const shouldCapEntry = options.shouldCapEntry ?? (() => true);
   const openEntries = chunks.flatMap((chunk) =>
-    chunk.summary === null ? chunk.entries.filter(shouldCapEntry) : [],
+    chunk.summary === null || chunk.live ? chunk.entries.filter(shouldCapEntry) : [],
   );
   const maxVisibleEntries = Math.max(0, options.maxVisibleEntries);
   const hiddenEntryCount = Math.max(0, openEntries.length - maxVisibleEntries);
@@ -164,7 +179,7 @@ export function capOpenWorkEntryRenderChunks(
 
   return {
     chunks: chunks.map((chunk) => {
-      if (chunk.summary !== null) return chunk;
+      if (chunk.summary !== null && !chunk.live) return chunk;
       return {
         ...chunk,
         entries: chunk.entries.filter(
@@ -247,14 +262,18 @@ export type MessagesTimelineRow =
       createdAt: string;
       proposedPlan: ProposedPlan;
     }
-  | { kind: "working"; id: string; createdAt: string | null }
   | {
-      // Live-turn header that mirrors the settled "Worked for Xs" disclosure
-      // (label + full-width divider), but is non-collapsible and counts up while
-      // the turn is still running. Sits at the top of the active turn.
-      kind: "working-header";
+      // One stable row owns the turn's live and settled activity states. Its
+      // id is derived from the user-message boundary so provider start-time
+      // hydration and terminal folding update in place instead of inserting a
+      // second header into the transcript.
+      kind: "turn-activity";
       id: string;
-      createdAt: string;
+      createdAt: string | null;
+      state: "working" | "settled";
+      showThinking?: boolean;
+      collapsedTurnItems?: CollapsedTurnItem[];
+      collapsedWorkElapsed?: string | null;
     }
   | {
       // Transient "Preparing worktree..." step card shown during the New
@@ -355,9 +374,12 @@ export function resolveAssistantMessageDisplayText(
 // Builds the "Files changed" lookup keyed by the last assistant row in the
 // user-visible response segment. Provider mini-turns can emit diffs before the
 // final answer, so the card follows the segment tail instead of the raw turn.
+// When work evidence is available, a raw workspace snapshot alone cannot claim
+// ownership: the turn must also contain a mutation-capable tool entry.
 export function buildTurnDiffSummaryByAssistantMessageId(input: {
   turnDiffSummaries: ReadonlyArray<TurnDiffSummary>;
   messages: ReadonlyArray<TimelineDiffMessage>;
+  workLogEntries?: ReadonlyArray<WorkspaceMutationEvidenceEntry>;
 }): Map<MessageId, TurnDiffSummary> {
   const byMessageId = new Map<MessageId, TurnDiffSummary>();
   if (input.turnDiffSummaries.length === 0) return byMessageId;
@@ -375,6 +397,12 @@ export function buildTurnDiffSummaryByAssistantMessageId(input: {
   }
 
   for (const [turnId, summary] of summaryByTurnId) {
+    if (
+      input.workLogEntries !== undefined &&
+      !hasTurnWorkspaceMutationEvidence(input.workLogEntries, summary.turnId)
+    ) {
+      continue;
+    }
     const anchorIndex = messageIndexByTurnId.get(turnId);
     if (anchorIndex === undefined) continue;
     let terminalAssistantMessageId: MessageId | null = null;
@@ -629,46 +657,52 @@ export function deriveMessagesTimelineRows(input: {
     });
   }
 
-  // The generic Thinking shimmer remains the single live status. Provider work
-  // rows are transcript history and must never replace it.
-  if (input.isWorking && !(input.worktreeSetup && input.worktreeSetupOpen)) {
-    nextRows.push({
-      kind: "working",
-      id: "working-indicator-row",
-      createdAt: input.activeTurnStartedAt,
-    });
-  }
-
   collapseSettledTurns(nextRows, {
     terminalAssistantMessageIds,
     activeTurnInProgress: input.activeTurnInProgress ?? false,
     activeTurnId: input.activeTurnId ?? null,
   });
 
-  // The live turn wears a "Working for Xs" header + divider — the counting-up
-  // twin of a settled turn's "Worked for Xs" disclosure. It anchors to the top
-  // of the active turn (right after the user message that opened it) and needs a
-  // real start time to count from; the trailing "Thinking" shimmer covers the
-  // gap before one exists. Inserted after collapse so folding is untouched.
-  if (
-    input.isWorking &&
-    input.activeTurnStartedAt &&
-    !(input.worktreeSetup && input.worktreeSetupOpen)
-  ) {
-    nextRows.splice(findLiveTurnHeaderInsertIndex(nextRows), 0, {
-      kind: "working-header",
-      id: "working-header-row",
+  // T3-style live lifecycle: one row is present from optimistic Send onward.
+  // The provider start timestamp only updates its label; it never changes row
+  // topology or inserts a competing synthetic Thinking row.
+  if (input.isWorking && !(input.worktreeSetup && input.worktreeSetupOpen)) {
+    const insertIndex = findLiveTurnActivityInsertIndex(nextRows);
+    const boundaryRow = nextRows[insertIndex - 1];
+    const boundaryMessageId =
+      boundaryRow?.kind === "message" && boundaryRow.message.role === "user"
+        ? boundaryRow.message.id
+        : null;
+    nextRows.splice(insertIndex, 0, {
+      kind: "turn-activity",
+      id: turnActivityRowId(boundaryMessageId, input.activeTurnId ?? null),
       createdAt: input.activeTurnStartedAt,
+      state: "working",
+      showThinking: !rowsContainVisibleToolActivity(nextRows.slice(insertIndex)),
     });
   }
 
   return nextRows;
 }
 
+function rowsContainVisibleToolActivity(rows: ReadonlyArray<MessagesTimelineRow>): boolean {
+  return rows.some((row) => {
+    if (row.kind === "work") {
+      return row.groupedEntries.some(isSummarizableToolCallEntry);
+    }
+    if (row.kind !== "message" || row.message.role !== "assistant") {
+      return false;
+    }
+    return [...(row.leadingWorkEntries ?? []), ...(row.inlineWorkEntries ?? [])].some(
+      isSummarizableToolCallEntry,
+    );
+  });
+}
+
 // The live turn starts at the most recent user message, so its header slots in
 // right after it. Absent any user message (degenerate transcripts) the header
 // leads the transcript so the "Working for" copy is never lost.
-function findLiveTurnHeaderInsertIndex(rows: ReadonlyArray<MessagesTimelineRow>): number {
+function findLiveTurnActivityInsertIndex(rows: ReadonlyArray<MessagesTimelineRow>): number {
   for (let index = rows.length - 1; index >= 0; index -= 1) {
     const row = rows[index]!;
     if (row.kind === "message" && row.message.role === "user") {
@@ -676,6 +710,10 @@ function findLiveTurnHeaderInsertIndex(rows: ReadonlyArray<MessagesTimelineRow>)
     }
   }
   return 0;
+}
+
+function turnActivityRowId(boundaryMessageId: MessageId | null, turnId: TurnId | null): string {
+  return `turn-activity:${boundaryMessageId ?? turnId ?? "pending"}`;
 }
 
 // Returns the terminal assistant only when it is still the transcript tail.
@@ -729,8 +767,13 @@ function collapseSettledTurns(
     return bMs < aMs ? b : a;
   };
 
+  let newerUserBoundarySeen = false;
   for (let pass = rows.length - 1; pass >= 0; pass -= 1) {
     const row = rows[pass]!;
+    if (row.kind === "message" && row.message.role === "user") {
+      newerUserBoundarySeen = true;
+      continue;
+    }
     if (row.kind !== "message" || row.message.role !== "assistant") continue;
     const message = row.message;
     // Only the terminal message of a turn owns the collapsed group.
@@ -741,6 +784,7 @@ function collapseSettledTurns(
     const turnId = message.turnId ?? null;
     const turnIsActive =
       activeTurnInProgress &&
+      !newerUserBoundarySeen &&
       (activeTurnId != null
         ? (turnId != null && turnId === activeTurnId) ||
           message.id === lastTerminalAssistantMessageId
@@ -751,6 +795,7 @@ function collapseSettledTurns(
     // mini-turns can have distinct turnIds inside one assistant answer, so the
     // user message boundary is the stable UI grouping point.
     const foldIndices: number[] = [];
+    let boundaryMessageId: MessageId | null = null;
     for (let scan = pass - 1; scan >= 0; scan -= 1) {
       const prev = rows[scan]!;
       if (prev.kind === "work") {
@@ -765,6 +810,9 @@ function collapseSettledTurns(
         // The plan card stays visible, but it should not strand earlier
         // narration/work outside the final "Worked for..." disclosure.
         continue;
+      }
+      if (prev.kind === "message" && prev.message.role === "user") {
+        boundaryMessageId = prev.message.id;
       }
       break;
     }
@@ -801,20 +849,29 @@ function collapseSettledTurns(
     if (row.leadingWorkEntries) collectWorkItems(row.leadingWorkEntries, collapsedItems);
     if (row.inlineWorkEntries) collectWorkItems(row.inlineWorkEntries, collapsedItems);
 
+    const elapsed = formatElapsed(collapsedStart, message.completedAt);
     if (collapsedItems.length > 0) {
-      const elapsed = formatElapsed(collapsedStart, message.completedAt);
       row.collapsedTurnItems = collapsedItems;
       row.collapsedWorkElapsed = elapsed ?? null;
       delete row.leadingWorkEntries;
       delete row.leadingWorkGroupId;
       delete row.inlineWorkEntries;
       delete row.inlineWorkGroupId;
-
-      for (const index of foldIndices.toSorted((a, b) => b - a)) {
-        rows.splice(index, 1);
-      }
-      pass -= foldIndices.length;
     }
+
+    for (const index of foldIndices.toSorted((a, b) => b - a)) {
+      rows.splice(index, 1);
+    }
+    const terminalIndex = pass - foldIndices.length;
+    rows.splice(terminalIndex, 0, {
+      kind: "turn-activity",
+      id: turnActivityRowId(boundaryMessageId, turnId),
+      createdAt: collapsedStart,
+      state: "settled",
+      ...(collapsedItems.length > 0 ? { collapsedTurnItems: collapsedItems } : {}),
+      collapsedWorkElapsed: elapsed ?? null,
+    });
+    pass = terminalIndex;
   }
 }
 
@@ -1059,11 +1116,16 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
   if (a.kind !== b.kind || a.id !== b.id) return false;
 
   switch (a.kind) {
-    case "working":
-      return a.createdAt === (b as typeof a).createdAt;
-
-    case "working-header":
-      return a.createdAt === (b as typeof a).createdAt;
+    case "turn-activity": {
+      const ba = b as typeof a;
+      return (
+        a.createdAt === ba.createdAt &&
+        a.state === ba.state &&
+        a.showThinking === ba.showThinking &&
+        a.collapsedWorkElapsed === ba.collapsedWorkElapsed &&
+        collapsedTurnItemsEqual(a.collapsedTurnItems, ba.collapsedTurnItems)
+      );
+    }
 
     case "worktree-setup": {
       const bw = b as typeof a;

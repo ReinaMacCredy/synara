@@ -142,6 +142,7 @@ describe("TaskProcess decider", () => {
         description: null,
         acceptanceCriteria: ["Evidence"],
         priority: "normal",
+        risk: "high",
         orderKey,
       }));
     }
@@ -209,6 +210,7 @@ describe("TaskProcess decider", () => {
         description: null,
         acceptanceCriteria: [],
         priority: "normal",
+        risk: "low",
         orderKey: taskId,
       }));
     }

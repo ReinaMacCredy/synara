@@ -6,23 +6,23 @@
 // Depends on: DisclosureRegion/DisclosureChevron (shared disclosure motion)
 
 import { useEffect, useState, type ReactNode } from "react";
+import { Wrench } from "lucide-react";
 
 import { DisclosureChevron } from "../ui/DisclosureChevron";
 import { DisclosureRegion } from "../ui/DisclosureRegion";
 import { DISCLOSURE_CLEANUP_BUFFER_MS, DISCLOSURE_TRANSITION_MS } from "~/lib/disclosureMotion";
-import { extractWebFetchUrl } from "../../lib/toolCallLabel";
-import { LinkChipIcon } from "../LinkChipIcon";
 import type { ToolCallGroupSummary } from "./toolCallGroup.logic";
-import { renderWorkEntryIcon, workEntryLeftIcon } from "./TimelineWorkEntryRow";
+import { cn } from "~/lib/utils";
 
 export function ToolCallGroupSummaryRow(props: {
   summary: ToolCallGroupSummary;
   open: boolean;
   onToggle: (open: boolean) => void;
   fontSizePx: number;
+  live?: boolean;
   renderChildren: () => ReactNode;
 }) {
-  const { summary, open, onToggle, fontSizePx, renderChildren } = props;
+  const { summary, open, onToggle, fontSizePx, live = false, renderChildren } = props;
   const [keepChildrenMounted, setKeepChildrenMounted] = useState(open);
 
   useEffect(() => {
@@ -40,10 +40,6 @@ export function ToolCallGroupSummaryRow(props: {
 
   const shouldRenderChildren = open || keepChildrenMounted;
 
-  // The collapsed row wears its first entry's icon (favicon for web fetches),
-  // so folding a run of tool calls keeps the leading glyph of the row it hides.
-  const iconWebFetchUrl = extractWebFetchUrl(summary.iconEntry);
-
   return (
     <div>
       <button
@@ -53,14 +49,10 @@ export function ToolCallGroupSummaryRow(props: {
         style={{ fontSize: `${fontSizePx}px` }}
         onClick={() => onToggle(!open)}
       >
-        <span className="flex size-4 shrink-0 items-center justify-center" aria-hidden>
-          {iconWebFetchUrl ? (
-            <LinkChipIcon url={iconWebFetchUrl} className="size-3.5" />
-          ) : (
-            renderWorkEntryIcon(workEntryLeftIcon(summary.iconEntry), "size-3.5")
-          )}
+        <span className="flex size-5 shrink-0 items-center justify-center" aria-hidden>
+          <Wrench className="size-[18px]" strokeWidth={2} />
         </span>
-        <span>{summary.label}</span>
+        <span className={cn(live && "shimmer motion-reduce:animate-none")}>{summary.label}</span>
         <DisclosureChevron open={open} className="text-muted-foreground/55" />
       </button>
       <DisclosureRegion open={open}>

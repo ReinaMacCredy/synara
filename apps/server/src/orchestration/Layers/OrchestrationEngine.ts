@@ -72,6 +72,7 @@ import { decideOrchestrationCommand } from "../decider.ts";
 import { decideOrchestratorCommand } from "../orchestrator/decider.ts";
 import {
   createEmptyOrchestratorState,
+  projectOrchestratorEvent,
   replayOrchestratorEvents,
 } from "../orchestrator/projector.ts";
 import type { OrchestratorAggregateState } from "../orchestrator/projector.ts";
@@ -144,9 +145,9 @@ function commandToAggregateRef(command: OrchestrationCommand): {
     case "orchestrator.root.create":
     case "orchestrator.root.archive":
     case "orchestrator.root.restore":
-      case "orchestrator.root.active-process.set":
-      case "orchestrator.child.create":
-      case "orchestrator.child.attach":
+    case "orchestrator.root.active-process.set":
+    case "orchestrator.child.create":
+    case "orchestrator.child.attach":
     case "orchestrator.child.retire":
     case "orchestrator.child.reparent":
     case "orchestrator.link.request":
@@ -776,57 +777,57 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       const rootBootstrapDecision =
         command.type === "thread.turn.start" && command.orchestratorRoot !== undefined
           ? yield* Effect.gen(function* () {
-                const storedRootEvents = yield* eventStore
-                  .readAggregateEvents({
-                    aggregateKind: "orchestrator",
-                    aggregateId: command.threadId,
-                  })
-                  .pipe(
-                    Effect.mapError((error) =>
-                      makeCommandInternalError(
-                        command,
-                        `Failed to load Orchestrator aggregate: ${error.message}`,
-                      ),
+              const storedRootEvents = yield* eventStore
+                .readAggregateEvents({
+                  aggregateKind: "orchestrator",
+                  aggregateId: command.threadId,
+                })
+                .pipe(
+                  Effect.mapError((error) =>
+                    makeCommandInternalError(
+                      command,
+                      `Failed to load Orchestrator aggregate: ${error.message}`,
                     ),
-                  );
-                const orchestratorEvents = storedRootEvents.filter(
-                  Schema.is(OrchestratorDomainEvent),
+                  ),
                 );
-                if (orchestratorEvents.length !== storedRootEvents.length) {
-                  return yield* makeCommandInternalError(
-                    command,
-                    "Orchestrator stream contains an event with the wrong aggregate schema.",
-                  );
-                }
-                const state = replayOrchestratorEvents(orchestratorEvents);
-                const rootThread = deciderReadModel.threads.find(
-                  (thread) => thread.id === command.threadId && thread.deletedAt === null,
+              const orchestratorEvents = storedRootEvents.filter(
+                Schema.is(OrchestratorDomainEvent),
+              );
+              if (orchestratorEvents.length !== storedRootEvents.length) {
+                return yield* makeCommandInternalError(
+                  command,
+                  "Orchestrator stream contains an event with the wrong aggregate schema.",
                 );
-                if (!rootThread) {
-                  return yield* new OrchestrationCommandInvariantError({
-                    commandType: command.type,
-                    detail: "The Root draft thread must exist before its first turn starts.",
-                  });
-                }
-                const rootDecision = yield* decideOrchestratorCommand({
-                  command: {
-                    type: "orchestrator.root.create",
-                    commandId: command.commandId,
-                    rootThreadId: command.threadId,
-                    projectId: rootThread.projectId,
-                    actor: { kind: "user", actorId: "owner" },
-                    protocolVersion: command.orchestratorRoot.protocolVersion,
-                    expectedRevision: 0,
-                    createdAt: command.createdAt,
-                    modelTarget: command.orchestratorRoot.modelTarget,
-                    title: command.orchestratorRoot.title,
-                    activeProcessId: null,
-                  },
-                  state,
-                  readModel: deciderReadModel,
+              }
+              const state = replayOrchestratorEvents(orchestratorEvents);
+              const rootThread = deciderReadModel.threads.find(
+                (thread) => thread.id === command.threadId && thread.deletedAt === null,
+              );
+              if (!rootThread) {
+                return yield* new OrchestrationCommandInvariantError({
+                  commandType: command.type,
+                  detail: "The Root draft thread must exist before its first turn starts.",
                 });
-                return rootDecision;
-              })
+              }
+              const rootDecision = yield* decideOrchestratorCommand({
+                command: {
+                  type: "orchestrator.root.create",
+                  commandId: command.commandId,
+                  rootThreadId: command.threadId,
+                  projectId: rootThread.projectId,
+                  actor: { kind: "user", actorId: "owner" },
+                  protocolVersion: command.orchestratorRoot.protocolVersion,
+                  expectedRevision: 0,
+                  createdAt: command.createdAt,
+                  modelTarget: command.orchestratorRoot.modelTarget,
+                  title: command.orchestratorRoot.title,
+                  activeProcessId: null,
+                },
+                state,
+                readModel: deciderReadModel,
+              });
+              return rootDecision;
+            })
           : null;
       const commandEventBase = Schema.is(OrchestratorCommand)(command)
         ? yield* Effect.gen(function* () {
@@ -907,74 +908,121 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                 }
               }
             }
-              const orchestratorDecision =
-                command.type === "orchestrator.child.create"
-                  ? yield* Effect.gen(function* () {
-                      const threadDecision = yield* decideOrchestrationCommand({
-                        command: {
-                          type: "thread.create",
-                          commandId: command.commandId,
-                          threadId: command.childThreadId,
-                          projectId: command.projectId,
-                          title: command.title,
-                          modelSelection: {
-                            provider: command.modelTarget.provider as never,
-                            model: command.modelTarget.model,
-                            options: command.modelTarget.providerOptions ?? {},
-                          },
-                          runtimeMode: command.modelTarget.runtimeMode as never,
-                          interactionMode: "default",
-                          envMode: "local",
-                          branch: null,
-                          worktreePath: null,
-                          workingDirectory: command.modelTarget.workspaceRoot,
-                          parentThreadId: null,
-                          creationSource: "orchestrator_native" as never,
-                          sourceThreadId: command.parentThreadId,
-                          subagentAgentId: null,
-                          subagentNickname: null,
-                          subagentRole: null,
-                          lastKnownPr: null,
-                          createdAt: command.createdAt,
+            const orchestratorDecision =
+              command.type === "orchestrator.child.create"
+                ? yield* Effect.gen(function* () {
+                    const threadDecision = yield* decideOrchestrationCommand({
+                      command: {
+                        type: "thread.create",
+                        commandId: command.commandId,
+                        threadId: command.childThreadId,
+                        projectId: command.projectId,
+                        title: command.title,
+                        modelSelection: {
+                          provider: command.modelTarget.provider as never,
+                          model: command.modelTarget.model,
+                          options: command.modelTarget.providerOptions ?? {},
                         },
-                        readModel: deciderReadModel,
-                        workspacePaths: deciderWorkspacePaths,
-                      });
-                      const readModelWithChild = yield* projectEvent(deciderReadModel, {
-                        ...threadDecision,
-                        sequence: 0,
-                      });
-                      const attachDecision = yield* decideOrchestratorCommand({
-                        command: {
-                          type: "orchestrator.child.attach",
-                          commandId: command.commandId,
-                          rootThreadId: command.rootThreadId,
-                          projectId: command.projectId,
-                          actor: command.actor,
-                          protocolVersion: command.protocolVersion,
-                          expectedRevision: command.expectedRevision,
-                          createdAt: command.createdAt,
-                          parentThreadId: command.parentThreadId,
-                          childThreadId: command.childThreadId,
-                          role: command.role,
-                          capabilities: command.capabilities,
-                          continuity: command.continuity,
-                          modelTarget: command.modelTarget,
-                          decisionReason: command.decisionReason,
-                        },
-                        state,
-                        readModel: readModelWithChild,
-                      });
-                      return [
-                        threadDecision,
-                        ...(Array.isArray(attachDecision) ? attachDecision : [attachDecision]),
-                      ];
-                    })
-                  : yield* decideOrchestratorCommand({
-                      command,
-                      state,
+                        runtimeMode: command.modelTarget.runtimeMode as never,
+                        interactionMode: "default",
+                        envMode: "local",
+                        branch: null,
+                        worktreePath: null,
+                        workingDirectory: command.modelTarget.workspaceRoot,
+                        parentThreadId: null,
+                        creationSource: "orchestrator_native" as never,
+                        sourceThreadId: command.parentThreadId,
+                        subagentAgentId: null,
+                        subagentNickname: null,
+                        subagentRole: null,
+                        lastKnownPr: null,
+                        createdAt: command.createdAt,
+                      },
                       readModel: deciderReadModel,
+                      workspacePaths: deciderWorkspacePaths,
                     });
+                    const readModelWithChild = yield* projectEvent(deciderReadModel, {
+                      ...threadDecision,
+                      sequence: 0,
+                    });
+                    const attachDecision = yield* decideOrchestratorCommand({
+                      command: {
+                        type: "orchestrator.child.attach",
+                        commandId: command.commandId,
+                        rootThreadId: command.rootThreadId,
+                        projectId: command.projectId,
+                        actor: command.actor,
+                        protocolVersion: command.protocolVersion,
+                        expectedRevision: command.expectedRevision,
+                        createdAt: command.createdAt,
+                        parentThreadId: command.parentThreadId,
+                        childThreadId: command.childThreadId,
+                        role: command.role,
+                        capabilities: command.capabilities,
+                        continuity: command.continuity,
+                        modelTarget: command.modelTarget,
+                        decisionReason: command.decisionReason,
+                      },
+                      state,
+                      readModel: readModelWithChild,
+                    });
+                    const attachEvents = Array.isArray(attachDecision)
+                      ? attachDecision
+                      : [attachDecision];
+                    if (command.initialMessage === undefined) {
+                      return [threadDecision, ...attachEvents];
+                    }
+                    const stateWithChild = attachEvents.reduce(
+                      (current, event) =>
+                        projectOrchestratorEvent(current, {
+                          ...event,
+                          sequence: 0,
+                        } as OrchestratorDomainEvent),
+                      state,
+                    );
+                    const messageDecision = yield* decideOrchestratorCommand({
+                      command: {
+                        type: "orchestrator.message.enqueue",
+                        commandId: command.commandId,
+                        rootThreadId: command.rootThreadId,
+                        projectId: command.projectId,
+                        actor: command.actor,
+                        protocolVersion: command.protocolVersion,
+                        expectedRevision: stateWithChild.revision,
+                        createdAt: command.createdAt,
+                        message: {
+                          messageId: command.initialMessage.messageId,
+                          rootThreadId: command.rootThreadId,
+                          senderThreadId: command.parentThreadId,
+                          targetThreadId: command.childThreadId,
+                          assignmentId: null,
+                          runId: null,
+                          correlationId: null,
+                          replyToMessageId: null,
+                          hopCount: 0,
+                          expiresAt: command.initialMessage.expiresAt,
+                          body: command.initialMessage.body,
+                          artifactRefs: [],
+                          deliveryState: "queued",
+                          deliveryAttemptId: null,
+                          createdAt: command.createdAt,
+                          updatedAt: command.createdAt,
+                        },
+                      },
+                      state: stateWithChild,
+                      readModel: readModelWithChild,
+                    });
+                    return [
+                      threadDecision,
+                      ...attachEvents,
+                      ...(Array.isArray(messageDecision) ? messageDecision : [messageDecision]),
+                    ];
+                  })
+                : yield* decideOrchestratorCommand({
+                    command,
+                    state,
+                    readModel: deciderReadModel,
+                  });
             if (
               command.type === "orchestrator.root.archive" ||
               command.type === "orchestrator.root.restore"

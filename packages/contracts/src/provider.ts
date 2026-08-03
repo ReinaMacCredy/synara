@@ -31,6 +31,7 @@ import {
   OrchestratorRole,
 } from "./orchestrator";
 import { ProviderMentionReference, ProviderSkillReference } from "./providerDiscovery";
+import { AcceptedCrossModeHandoffV1 } from "./handoff";
 
 const ProviderSessionStatus = Schema.Literals([
   "connecting",
@@ -79,6 +80,7 @@ export const ProviderSessionStartInput = Schema.Struct({
   sandboxMode: Schema.optional(ProviderSandboxMode),
   providerOptions: Schema.optional(ProviderStartOptions),
   orchestratorContext: Schema.optional(Schema.NullOr(ProviderOrchestratorSessionContext)),
+  handoffContext: Schema.optional(Schema.NullOr(AcceptedCrossModeHandoffV1)),
   runtimeMode: RuntimeMode,
 });
 export type ProviderSessionStartInput = typeof ProviderSessionStartInput.Type;

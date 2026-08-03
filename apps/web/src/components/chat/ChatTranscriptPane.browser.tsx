@@ -258,7 +258,7 @@ describe("ChatTranscriptPane", () => {
     }
   });
 
-  it("keeps hidden message-trail ticks out of the tab order", async () => {
+  it("keeps the hidden conversation navigator out of the tab order", async () => {
     const host = document.createElement("div");
     host.style.cssText = "display:flex;width:600px;height:520px;";
     document.body.append(host);
@@ -343,17 +343,17 @@ describe("ChatTranscriptPane", () => {
     );
     try {
       await vi.waitFor(() => {
-        const trail = screen.container.querySelector('nav[aria-label="Message navigation"]');
+        const trail = screen.container.querySelector('nav[aria-label="Conversation navigation"]');
         expect(trail?.getAttribute("aria-hidden")).toBe("true");
       });
 
-      const ticks = Array.from(
-        screen.container.querySelectorAll<HTMLButtonElement>(
-          'nav[aria-label="Message navigation"] button',
+      const focusTargets = Array.from(
+        screen.container.querySelectorAll<HTMLElement>(
+          'nav[aria-label="Conversation navigation"] [tabindex]',
         ),
       );
-      expect(ticks).toHaveLength(2);
-      expect(ticks.every((tick) => tick.tabIndex === -1)).toBe(true);
+      expect(focusTargets.length).toBeGreaterThan(0);
+      expect(focusTargets.every((target) => target.tabIndex === -1)).toBe(true);
     } finally {
       await screen.unmount();
     }

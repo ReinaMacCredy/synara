@@ -1104,6 +1104,7 @@ const make = Effect.gen(function* () {
       settingsSnapshot.settings,
     );
     const desiredOrchestratorContext = yield* resolveOrchestratorSessionContext(threadId);
+    const desiredHandoffContext = thread.handoff?.crossMode ?? undefined;
     const effectiveCwd = yield* resolveProjectedThreadWorkspaceCwd(thread);
     const workspaceState = resolveThreadWorkspaceState({
       envMode: thread.envMode,
@@ -1124,6 +1125,7 @@ const make = Effect.gen(function* () {
       ...(desiredOrchestratorContext !== undefined
         ? { orchestratorContext: desiredOrchestratorContext }
         : {}),
+      ...(desiredHandoffContext !== undefined ? { handoffContext: desiredHandoffContext } : {}),
       runtimeMode: desiredRuntimeMode,
     };
 

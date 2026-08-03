@@ -1436,6 +1436,16 @@ export function sortThreadsForSidebar<T extends { id: Thread["id"] } & SidebarTh
   });
 }
 
+export function sortOrchestratorRootThreadsForSidebar<
+  T extends { id: Thread["id"] } & SidebarThreadSortInput,
+>(
+  threads: readonly T[],
+  sortOrder: SidebarThreadSortOrder,
+  pinnedThreadIds: readonly T["id"][],
+): T[] {
+  return orderPinnedItemsFirst(sortThreadsForSidebar(threads, sortOrder), pinnedThreadIds);
+}
+
 export function getFallbackThreadIdAfterDelete<
   T extends { id: Thread["id"]; projectId: Thread["projectId"] } & SidebarThreadSortInput,
 >(input: {

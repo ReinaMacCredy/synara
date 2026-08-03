@@ -17,6 +17,7 @@ const task = (index: number): ProjectTask => ({
   description: null,
   acceptanceCriteria: [],
   priority: "normal",
+  risk: "medium",
   lifecycle: "planned",
   orderKey: String(index),
   createdBy: { kind: "user", actorId: "owner" },

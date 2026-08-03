@@ -27,11 +27,21 @@ const retainedThreadEntries = new Map<ThreadId, RetainedThreadEntry>();
 const listeners = new Set<() => void>();
 const evictionListeners = new Set<(threadId: ThreadId) => void>();
 let cachedSnapshot: readonly ThreadId[] = [];
+const preShellThreadRefCounts = new Map<ThreadId, number>();
+const preShellListeners = new Set<() => void>();
+let cachedPreShellSnapshot: readonly ThreadId[] = [];
 let visibleThreadIds: ReadonlySet<ThreadId> = new Set();
 
 function emitChange(): void {
   cachedSnapshot = [...retainedThreadEntries.keys()];
   for (const listener of listeners) {
+    listener();
+  }
+}
+
+function emitPreShellChange(): void {
+  cachedPreShellSnapshot = [...preShellThreadRefCounts.keys()];
+  for (const listener of preShellListeners) {
     listener();
   }
 }
@@ -269,6 +279,23 @@ export function releaseThreadDetailSubscription(threadId: ThreadId): void {
   evictIdleEntriesToCapacity();
 }
 
+export function retainPreShellThreadDetailSubscription(threadId: ThreadId): () => void {
+  preShellThreadRefCounts.set(threadId, (preShellThreadRefCounts.get(threadId) ?? 0) + 1);
+  emitPreShellChange();
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const nextRefCount = Math.max(0, (preShellThreadRefCounts.get(threadId) ?? 0) - 1);
+    if (nextRefCount === 0) {
+      preShellThreadRefCounts.delete(threadId);
+    } else {
+      preShellThreadRefCounts.set(threadId, nextRefCount);
+    }
+    emitPreShellChange();
+  };
+}
+
 export function subscribeRetainedThreadDetailIds(listener: () => void): () => void {
   listeners.add(listener);
   return () => {
@@ -292,6 +319,10 @@ export function getRetainedThreadDetailIdsSnapshot(): readonly ThreadId[] {
   return cachedSnapshot;
 }
 
+export function getPreShellThreadDetailIdsSnapshot(): readonly ThreadId[] {
+  return cachedPreShellSnapshot;
+}
+
 /**
  * Whether retention still owns this thread's warm detail. Subscription owners
  * check this when a stream lease drops: detail that no retention entry owns and
@@ -304,6 +335,7 @@ export function isThreadDetailRetained(threadId: ThreadId): boolean {
 
 export function resolveThreadDetailSubscriptionLeaseIds(input: {
   readonly visibleThreadIds: readonly ThreadId[];
+  readonly preShellThreadIds?: readonly ThreadId[] | undefined;
   readonly retainedThreadIds: readonly ThreadId[];
   readonly serverThreadIds: ReadonlySet<ThreadId>;
 }): ThreadId[] {
@@ -314,6 +346,10 @@ export function resolveThreadDetailSubscriptionLeaseIds(input: {
     // provider events cannot outrun promotion into the server snapshot.
     threadIds.add(threadId);
   }
+  for (const threadId of input.preShellThreadIds ?? []) {
+    if (threadIds.size >= WS_STREAM_LIMITS.threadPerClient) break;
+    threadIds.add(threadId);
+  }
   for (const threadId of input.retainedThreadIds) {
     if (threadIds.size >= WS_STREAM_LIMITS.threadPerClient) break;
     if (input.serverThreadIds.has(threadId)) {
@@ -321,6 +357,17 @@ export function resolveThreadDetailSubscriptionLeaseIds(input: {
     }
   }
   return [...threadIds];
+}
+
+export function usePreShellThreadDetailIds(): readonly ThreadId[] {
+  return useSyncExternalStore(
+    (listener) => {
+      preShellListeners.add(listener);
+      return () => preShellListeners.delete(listener);
+    },
+    () => cachedPreShellSnapshot,
+    () => cachedPreShellSnapshot,
+  );
 }
 
 export function useRetainedThreadDetailIds(): readonly ThreadId[] {
@@ -336,6 +383,8 @@ export function resetRetainedThreadDetailSubscriptionsForTests(): void {
     clearEvictionTimeout(entry);
   }
   retainedThreadEntries.clear();
+  preShellThreadRefCounts.clear();
   visibleThreadIds = new Set();
   emitChange();
+  emitPreShellChange();
 }

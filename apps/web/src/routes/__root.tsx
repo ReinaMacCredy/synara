@@ -86,6 +86,7 @@ import {
   resolveThreadDetailSubscriptionLeaseIds,
   setVisibleThreadDetailIds,
   subscribeThreadDetailEvictions,
+  usePreShellThreadDetailIds,
   useRetainedThreadDetailIds,
 } from "../threadDetailSubscriptionRetention";
 import {
@@ -993,9 +994,11 @@ function EventRouter() {
     ...(activeSplitView ? { splitViewThreadIds: resolveSplitViewThreadIds(activeSplitView) } : {}),
   });
   const retainedThreadIds = useRetainedThreadDetailIds();
+  const preShellThreadIds = usePreShellThreadDetailIds();
   const serverThreadIds = new Set(serverThreads.map((thread) => thread.id));
   const subscribedThreadIds = resolveThreadDetailSubscriptionLeaseIds({
     visibleThreadIds,
+    preShellThreadIds,
     retainedThreadIds,
     serverThreadIds,
   });

@@ -15,8 +15,11 @@ export function buildOrchestratorHandoffMessages(thread: Thread) {
 }
 
 export function ensureOrchestratorDraft(input: EnsureOrchestratorDraftInput) {
-  if (input.project.kind !== "project" || input.project.cwd.trim().length === 0) {
-    throw new Error("An Orchestrator Root requires a real Project workspace.");
+  if (
+    (input.project.kind !== "project" && input.project.kind !== "chat") ||
+    input.project.cwd.trim().length === 0
+  ) {
+    throw new Error("An Orchestrator Root requires an active workspace container.");
   }
   if (input.sourceThread && input.sourceThread.projectId !== input.project.id) {
     throw new Error("A curated handoff must stay in the source thread's Project.");

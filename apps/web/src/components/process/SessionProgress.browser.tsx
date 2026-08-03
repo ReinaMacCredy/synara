@@ -25,6 +25,7 @@ function projection(): SessionProgressProjection {
       description: null,
       acceptanceCriteria: [],
       priority: "high" as const,
+      risk: "high" as const,
       lifecycle: "in_progress" as const,
       orderKey: "a",
       createdBy: { kind: "user" as const, actorId: "owner" },
@@ -91,9 +92,9 @@ describe("SessionProgress browser behavior", () => {
       );
     }
     const mounted = await render(<Harness />);
-      const header = page.getByRole("button", {
-        name: /Foundation persistence: Running step 1 of 2/,
-      });
+    const header = page.getByRole("button", {
+      name: /Foundation persistence: Running step 1 of 2/,
+    });
     await expect.element(header).toHaveAttribute("aria-expanded", "true");
     const runningRow = document.querySelector<HTMLElement>(
       "[aria-label='Foundation persistence: active']",

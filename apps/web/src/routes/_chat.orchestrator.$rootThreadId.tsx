@@ -4,10 +4,8 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 
 import { RouteInsetSurface } from "../components/RouteInsetSurface";
 import { PanelStateMessage } from "../components/chat/PanelStateMessage";
-import { CHAT_BACKGROUND_CLASS_NAME } from "../components/chat/composerPickerStyles";
 import { OrchestratorSurface } from "../components/orchestrator/OrchestratorSurface";
-import { orchestratorQueryKeys } from "../lib/orchestratorRoots";
-import { readNativeApi } from "../nativeApi";
+import { orchestratorRootQueryOptions } from "../lib/orchestratorRoots";
 import { resolveOrchestratorRootRouteState } from "./-orchestratorRootRouteState";
 
 export interface OrchestratorRootSearch {
@@ -20,26 +18,19 @@ function OrchestratorRootRouteView() {
     select: (params) => ThreadId.makeUnsafe(params.rootThreadId),
   });
   const search = Route.useSearch();
-  const rootQuery = useQuery({
-    queryKey: orchestratorQueryKeys.root(rootThreadId),
-    queryFn: async () => {
-      const api = readNativeApi();
-      if (!api) throw new Error("The Synara server is unavailable.");
-      return api.orchestration.getOrchestratorSnapshot({ rootThreadId });
-    },
-  });
+  const rootQuery = useQuery(orchestratorRootQueryOptions(rootThreadId));
   const routeState = resolveOrchestratorRootRouteState(rootQuery);
 
   if (routeState.kind === "loading") {
     return (
-      <RouteInsetSurface surfaceClassName={CHAT_BACKGROUND_CLASS_NAME}>
+      <RouteInsetSurface>
         <PanelStateMessage>Loading Orchestrator Root…</PanelStateMessage>
       </RouteInsetSurface>
     );
   }
   if (routeState.kind === "fatal") {
     return (
-      <RouteInsetSurface surfaceClassName={CHAT_BACKGROUND_CLASS_NAME}>
+      <RouteInsetSurface>
         <PanelStateMessage className="text-destructive">
           Unable to load this Orchestrator Root.
         </PanelStateMessage>

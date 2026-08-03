@@ -586,6 +586,46 @@ export const createComposerDraftStoreState =
         return { draftsByThreadId: nextDraftsByThreadId };
       });
     },
+    setHandoffDraft: (threadId, handoffDraft) => {
+      if (threadId.length === 0) return;
+      set((state) => {
+        const existing = state.draftsByThreadId[threadId];
+        if (Equal.equals(existing?.handoffDraft ?? null, handoffDraft)) return state;
+        const nextDraft = { ...(existing ?? createEmptyThreadDraft()), handoffDraft };
+        const draftsByThreadId = { ...state.draftsByThreadId };
+        if (shouldRemoveDraft(nextDraft)) delete draftsByThreadId[threadId];
+        else draftsByThreadId[threadId] = nextDraft;
+        return { draftsByThreadId };
+      });
+    },
+    detachHandoffDraft: (threadId) => {
+      if (threadId.length === 0) return;
+      set((state) => {
+        const existingDraft = state.draftsByThreadId[threadId];
+        const existingThread = state.draftThreadsByThreadId[threadId];
+        if (!existingDraft?.handoffDraft && !existingThread?.orchestratorSourceThreadId) {
+          return state;
+        }
+
+        const draftsByThreadId = { ...state.draftsByThreadId };
+        if (existingDraft) {
+          const nextDraft = { ...existingDraft, handoffDraft: null };
+          if (shouldRemoveDraft(nextDraft)) delete draftsByThreadId[threadId];
+          else draftsByThreadId[threadId] = nextDraft;
+        }
+
+        const draftThreadsByThreadId = { ...state.draftThreadsByThreadId };
+        if (existingThread) {
+          draftThreadsByThreadId[threadId] = {
+            ...existingThread,
+            orchestratorSourceThreadId: null,
+            orchestratorHandoffMessages: [],
+          };
+        }
+
+        return { draftsByThreadId, draftThreadsByThreadId };
+      });
+    },
     setPromptHistorySavedDraft: (threadId, savedDraft) => {
       if (threadId.length === 0) {
         return;

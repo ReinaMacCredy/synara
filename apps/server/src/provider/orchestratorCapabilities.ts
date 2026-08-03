@@ -1,7 +1,4 @@
-import type {
-  OrchestratorProviderCapability,
-  ProviderModelDescriptor,
-} from "@synara/contracts";
+import type { OrchestratorProviderCapability, ProviderModelDescriptor } from "@synara/contracts";
 
 export interface OrchestratorCapabilityFlags {
   readonly orchestratorCapable: boolean;

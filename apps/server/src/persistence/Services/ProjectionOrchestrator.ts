@@ -1,5 +1,6 @@
 import {
   AssignmentContract,
+  ChildResultEnvelope,
   OrchestratorCapacitySnapshot,
   OrchestratorCommunicationLink,
   OrchestratorMessageEnvelope,
@@ -37,6 +38,7 @@ export const ProjectionOrchestratorCore = Schema.Struct({
   ownershipEdges: Schema.Array(OrchestratorOwnershipEdge),
   communicationLinks: Schema.Array(OrchestratorCommunicationLink),
   assignments: Schema.Array(AssignmentContract),
+  childResults: Schema.Array(ChildResultEnvelope),
   runs: Schema.Array(OrchestratorRun),
   providerCapabilities: Schema.Array(OrchestratorProviderCapability),
   capacity: Schema.NullOr(OrchestratorCapacitySnapshot),
@@ -77,6 +79,9 @@ export interface ProjectionOrchestratorRepositoryShape {
   ) => Effect.Effect<void, ProjectionRepositoryError>;
   readonly upsertAssignmentVersion: (
     row: ProjectionAssignmentRecord,
+  ) => Effect.Effect<void, ProjectionRepositoryError>;
+  readonly upsertChildResult: (
+    result: ChildResultEnvelope,
   ) => Effect.Effect<void, ProjectionRepositoryError>;
   readonly upsertRun: (
     run: typeof OrchestratorRun.Type,

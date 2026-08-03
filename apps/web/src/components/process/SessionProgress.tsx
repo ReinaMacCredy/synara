@@ -17,6 +17,7 @@ import {
   sessionProgressStateLabel,
   type SessionProgressActivity,
 } from "./sessionProgressPresentation";
+import { TaskRiskBadge } from "./TaskRiskBadge";
 
 export type SessionProgressVariant = "composer" | "inspector" | "dock";
 
@@ -166,7 +167,10 @@ function SessionProgressRow(props: {
         <TaskGlyph state={visualState} />
       </span>
       <span className={styles.itemBody}>
-        <span className={styles.itemTitle}>{props.task.task.task.title}</span>
+        <span className={styles.itemTitleRow}>
+          <span className={styles.itemTitle}>{props.task.task.task.title}</span>
+          <TaskRiskBadge risk={props.task.task.task.risk} compact />
+        </span>
         {props.statusMeta ? (
           <span className={styles.itemMeta}>{props.statusMeta}</span>
         ) : props.task.blockedByTitles.length > 0 ? (
@@ -187,7 +191,8 @@ function activityElapsed(activity: SessionProgressActivity, nowMs: number): stri
 }
 
 function activityMeta(activity: SessionProgressActivity, elapsed: string | null): string {
-  const step = activity.stepIndex > 0 ? `step ${activity.stepIndex} of ${activity.totalCount}` : null;
+  const step =
+    activity.stepIndex > 0 ? `step ${activity.stepIndex} of ${activity.totalCount}` : null;
   const state = sessionProgressStateLabel(activity.state);
   return [`${state}${step ? ` ${step}` : ""}`, elapsed].filter(Boolean).join(" · ");
 }
@@ -313,11 +318,7 @@ export function SessionProgress(props: SessionProgressProps) {
               strokeLinejoin="round"
             >
               <path
-                d={
-                  props.collapsed
-                    ? "m3.5 5.25 3.5 3.5 3.5-3.5"
-                    : "m3.5 8.75 3.5-3.5 3.5 3.5"
-                }
+                d={props.collapsed ? "m3.5 5.25 3.5 3.5 3.5-3.5" : "m3.5 8.75 3.5-3.5 3.5 3.5"}
               />
             </svg>
             <svg
@@ -332,11 +333,7 @@ export function SessionProgress(props: SessionProgressProps) {
               strokeLinejoin="round"
             >
               <path
-                d={
-                  props.collapsed
-                    ? "m3.5 5.25 3.5 3.5 3.5-3.5"
-                    : "m3.5 8.75 3.5-3.5 3.5 3.5"
-                }
+                d={props.collapsed ? "m3.5 5.25 3.5 3.5 3.5-3.5" : "m3.5 8.75 3.5-3.5 3.5 3.5"}
               />
             </svg>
           </span>

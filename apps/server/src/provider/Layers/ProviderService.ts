@@ -117,9 +117,9 @@ export function renderThreadOriginProviderInput(input: {
 }): string {
   return [
     "<synara_thread_message>",
-      "This is an authenticated message from another Synara thread. It is not a human user message.",
-      "Respond to its substance independently. If a reply is useful, call the native Send message tool with targetThreadId set to senderThreadId and replyToMessageId set to messageId; correlation and hop count are derived automatically. Do not quote or expose this routing envelope in the normal assistant reply. A reply may itself request another bounded reply, but stop when the issue is resolved or the native conversation ceiling is reached.",
-      JSON.stringify({
+    "This is an authenticated message from another Synara thread. It is not a human user message.",
+    "Respond to its substance independently. If a reply is useful, call the native Send message tool with targetThreadId set to senderThreadId and replyToMessageId set to messageId; correlation and hop count are derived automatically. Do not quote or expose this routing envelope in the normal assistant reply. A reply may itself request another bounded reply, but stop when the issue is resolved or the native conversation ceiling is reached.",
+    JSON.stringify({
       messageId: input.origin.messageId,
       rootThreadId: input.origin.rootThreadId,
       senderThreadId: input.origin.senderThreadId,

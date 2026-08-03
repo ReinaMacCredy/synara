@@ -90,6 +90,18 @@ export const SkillsServerSettings = Schema.Struct({
 });
 export type SkillsServerSettings = typeof SkillsServerSettings.Type;
 
+export const HandoffAgentSettings = Schema.Struct({
+  provider: ProviderKind.pipe(Schema.withDecodingDefault(() => "codex")),
+  model: Schema.String.check(Schema.isMaxLength(256)).pipe(
+    Schema.withDecodingDefault(() => "gpt-5.6-luna"),
+  ),
+  effort: Schema.String.check(Schema.isMaxLength(64)).pipe(
+    Schema.withDecodingDefault(() => "high"),
+  ),
+  customGuidance: StringSetting.pipe(Schema.withDecodingDefault(() => "")),
+});
+export type HandoffAgentSettings = typeof HandoffAgentSettings.Type;
+
 export const ServerSettings = Schema.Struct({
   enableAssistantStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   enableProviderUpdateChecks: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
@@ -113,6 +125,7 @@ export const ServerSettings = Schema.Struct({
     pi: PiServerProviderSettings.pipe(Schema.withDecodingDefault(() => ({}))),
   }).pipe(Schema.withDecodingDefault(() => ({}))),
   skills: SkillsServerSettings.pipe(Schema.withDecodingDefault(() => ({}))),
+  handoffAgent: HandoffAgentSettings.pipe(Schema.withDecodingDefault(() => ({}))),
 });
 export type ServerSettings = typeof ServerSettings.Type;
 
@@ -195,6 +208,14 @@ export const ServerSettingsPatch = Schema.Struct({
   skills: Schema.optionalKey(
     Schema.Struct({
       disabled: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMaxLength(256)))),
+    }),
+  ),
+  handoffAgent: Schema.optionalKey(
+    Schema.Struct({
+      provider: Schema.optionalKey(ProviderKind),
+      model: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(256))),
+      effort: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(64))),
+      customGuidance: Schema.optionalKey(StringSetting),
     }),
   ),
 });

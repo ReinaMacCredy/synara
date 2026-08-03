@@ -10,6 +10,7 @@ import { Cause, Duration, Effect, Layer, Option, Semaphore, Stream } from "effec
 
 import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
 import { ProjectionOrchestratorRepository } from "../../persistence/Services/ProjectionOrchestrator.ts";
+import { QueuedTurnPromotionRepository } from "../../persistence/Services/QueuedTurnPromotions.ts";
 import {
   OrchestratorMonitor,
   type OrchestratorMonitorReconcileResult,
@@ -122,6 +123,7 @@ export const makeOrchestratorMonitor = (options?: OrchestratorMonitorLiveOptions
     const engine = yield* OrchestrationEngineService;
     const repository = yield* ProjectionOrchestratorRepository;
     const receipts = yield* OrchestrationCommandReceiptRepository;
+    const queuedTurns = yield* QueuedTurnPromotionRepository;
     const lock = yield* Semaphore.make(1);
     const now = options?.now ?? (() => new Date().toISOString());
 
@@ -137,6 +139,36 @@ export const makeOrchestratorMonitor = (options?: OrchestratorMonitorLiveOptions
         (thread) => thread.id === monitor.ownerThreadId && thread.deletedAt === null,
       );
       if (owner === undefined) return "failed" as const;
+      if (
+        monitor.targetThreadId !== null &&
+        (monitor.kind === "notify" || monitor.kind === "wait")
+      ) {
+        const inboundMessages = (yield* repository.listMailboxMessages({
+          rootThreadId: monitor.rootThreadId,
+          limit:
+            ORCHESTRATOR_RESOURCE_POLICY_V1.maxMailboxDepthPerThread *
+            ORCHESTRATOR_RESOURCE_POLICY_V1.maxActiveSessions,
+        })).filter(
+          (message) =>
+            message.senderThreadId === monitor.targetThreadId &&
+            message.targetThreadId === monitor.ownerThreadId &&
+            message.deliveryState !== "failed" &&
+            message.deliveryState !== "expired",
+        );
+        const wakeClaims = yield* Effect.forEach(
+          inboundMessages,
+          (message) =>
+            owner.latestTurn?.state === "running" &&
+            owner.latestTurn.requestedAt === message.createdAt
+              ? Effect.succeed(true)
+              : queuedTurns.hasPendingMessage({
+                  threadId: monitor.ownerThreadId,
+                  messageId: message.messageId,
+                }),
+          { concurrency: 1 },
+        );
+        if (wakeClaims.some(Boolean)) return "settled" as const;
+      }
       const result = yield* Effect.exit(
         engine.dispatch({
           type: "thread.turn.start",

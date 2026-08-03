@@ -21,6 +21,7 @@ const prerequisite: ProjectTask = {
   description: null,
   acceptanceCriteria: [],
   priority: "normal",
+  risk: "medium",
   lifecycle: "in_progress",
   orderKey: "a",
   createdBy: { kind: "user", actorId: "owner" },

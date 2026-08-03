@@ -63,6 +63,9 @@ export interface SidebarSearchThread {
   provider: ProviderKind;
   createdAt: string;
   updatedAt?: string | undefined;
+  rootBreadcrumb?: string | undefined;
+  lifecycle?: string | undefined;
+  model?: string | undefined;
   messages: readonly {
     text: string;
   }[];
@@ -353,6 +356,9 @@ export function matchSidebarSearchThreads(
       const projectName = normalizeText(thread.projectName);
       const projectRemoteName = normalizeText(thread.projectRemoteName);
       const spaceName = normalizeText(thread.spaceName);
+      const rootBreadcrumb = normalizeText(thread.rootBreadcrumb ?? "");
+      const lifecycle = normalizeText(thread.lifecycle ?? "");
+      const model = normalizeText(thread.model ?? "");
       const messageMatch = scoreMessage(thread.messages, normalizedQuery, queryTokens);
       let score: number | null = null;
       let matchKind: SidebarSearchThreadMatch["matchKind"] = "title";
@@ -385,6 +391,13 @@ export function matchSidebarSearchThreads(
         matchKind = "project";
       } else if (spaceName.includes(normalizedQuery)) {
         score = 55;
+        matchKind = "project";
+      } else if (
+        rootBreadcrumb.includes(normalizedQuery) ||
+        lifecycle.includes(normalizedQuery) ||
+        model.includes(normalizedQuery)
+      ) {
+        score = 52;
         matchKind = "project";
       }
 

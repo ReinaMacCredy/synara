@@ -39,6 +39,7 @@ import { ProfileStatsArchiveLive } from "./profileStatsArchive";
 import { ServerLifecycleEventsLive } from "./serverLifecycleEvents";
 import { ServerRuntimeStartupLive } from "./serverRuntimeStartup";
 import { ServerSettingsLive } from "./serverSettings";
+import { HandoffPreparationServiceLive } from "./handoff/Services/HandoffPreparationService";
 import { WorkspaceLayerLive } from "./workspace/runtimeLayer";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver";
 import { ExternalMcpRepositoryLive } from "./externalMcp/Layers/ExternalMcpRepository";
@@ -53,6 +54,7 @@ import { ProviderRuntimeEventRepositoryLive } from "./persistence/Layers/Provide
 import { OrchestratorArtifactRepositoryLive } from "./persistence/Layers/OrchestratorArtifacts";
 import { ProjectionOrchestratorRepositoryLive } from "./persistence/Layers/ProjectionOrchestrator";
 import { ProjectionTaskProcessRepositoryLive } from "./persistence/Layers/ProjectionTaskProcess";
+import { QueuedTurnPromotionRepositoryLive } from "./persistence/Layers/QueuedTurnPromotions";
 import { ThreadDiagnosticsQueryLive } from "./diagnostics/Layers/ThreadDiagnosticsQuery";
 import { ManagedAttachmentCleanupLive } from "./managedAttachmentCleanup";
 import { PullRequestServiceLive } from "./pullRequests/Layers/PullRequestService";
@@ -108,6 +110,7 @@ export function makeServerRuntimeServicesLayer(
   const orchestratorMonitorLayer = OrchestratorMonitorLive.pipe(
     Layer.provideMerge(runtimeServicesLayer),
     Layer.provideMerge(ProjectionOrchestratorRepositoryLive),
+    Layer.provideMerge(QueuedTurnPromotionRepositoryLive),
   );
   const profileStatsArchiveLayer = ProfileStatsArchiveLive.pipe(
     Layer.provideMerge(checkpointStoreLayer),
@@ -123,6 +126,11 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(runtimeServicesLayer),
     Layer.provideMerge(ProjectionOrchestratorRepositoryLive),
     Layer.provideMerge(ProjectionTaskProcessRepositoryLive),
+  );
+  const handoffPreparationLayer = HandoffPreparationServiceLive.pipe(
+    Layer.provideMerge(OrchestrationLayerLive),
+    Layer.provideMerge(ProjectionOrchestratorRepositoryLive),
+    Layer.provideMerge(ServerSettingsLive),
   );
   const threadDeletionReactorLayer = ThreadDeletionReactorLive.pipe(
     Layer.provideMerge(profileStatsArchiveLayer),
@@ -224,6 +232,7 @@ export function makeServerRuntimeServicesLayer(
     orchestratorMailboxLayer,
     orchestratorMonitorLayer,
     taskProcessQueryLayer,
+    handoffPreparationLayer,
     providerCommandReactorLayer,
     threadDeletionReactorLayer,
     devServerManagerLayer,

@@ -26,6 +26,10 @@ describe("ORCHESTRATOR_PROTOCOL_V1", () => {
     const root = orchestratorInstructionForRole("root");
     expect(root).toContain("user alone controls this Root's lifecycle");
     expect(root).toContain("native notify, heartbeat, schedule, or event waits");
+    expect(root).toContain("does not create a TaskProcess or Assignment");
+    expect(root).toContain("mailbox reply is already a native Root wake");
+    expect(root).toContain("do not also register Wait for event for that first reply");
+    expect(root).toContain("Never inspect Codex skills, memory, config, or the filesystem");
     expect(root).toContain("worktree only as a last-resort");
   });
 

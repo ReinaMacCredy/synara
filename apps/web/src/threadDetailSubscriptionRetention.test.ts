@@ -3,8 +3,10 @@ import { ThreadId, TurnId, WS_STREAM_LIMITS } from "@synara/contracts";
 import { useStore } from "./store";
 import {
   MAX_CACHED_THREAD_DETAIL_SUBSCRIPTIONS,
+  getPreShellThreadDetailIdsSnapshot,
   getRetainedThreadDetailIdsSnapshot,
   isThreadDetailRetained,
+  retainPreShellThreadDetailSubscription,
   resetRetainedThreadDetailSubscriptionsForTests,
   resolveThreadDetailSubscriptionLeaseIds,
   retainThreadDetailSubscription,
@@ -316,6 +318,26 @@ describe("threadDetailSubscriptionRetention", () => {
       ...visible,
       ...retained.slice(0, WS_STREAM_LIMITS.threadPerClient - visible.length),
     ]);
+  });
+
+  it("admits a mounted draft before its shell projection exists", () => {
+    const draftThreadId = ThreadId.makeUnsafe("orchestrator-draft");
+    const release = retainPreShellThreadDetailSubscription(draftThreadId);
+
+    expect(getPreShellThreadDetailIdsSnapshot()).toEqual([draftThreadId]);
+
+    expect(
+      resolveThreadDetailSubscriptionLeaseIds({
+        visibleThreadIds: [],
+        preShellThreadIds: [draftThreadId],
+        retainedThreadIds: [],
+        serverThreadIds: new Set(),
+      }),
+    ).toEqual([draftThreadId]);
+
+    release();
+    release();
+    expect(getPreShellThreadDetailIdsSnapshot()).toEqual([]);
   });
 
   it("notifies eviction subscribers so lease owners can refresh wiped detail", () => {

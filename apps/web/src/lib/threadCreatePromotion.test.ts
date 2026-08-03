@@ -10,7 +10,12 @@ import {
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useStore } from "../store";
 import { getThreadFromState } from "../threadDerivation";
-import { isDuplicateThreadCreateError, promoteThreadCreate } from "./threadCreatePromotion";
+import { makeReadModelThread } from "../storeTestFixtures";
+import {
+  isDuplicateThreadCreateError,
+  prehydratePromotedThreadDetail,
+  promoteThreadCreate,
+} from "./threadCreatePromotion";
 
 const initialStoreState = useStore.getState();
 const initialComposerDraftState = useComposerDraftStore.getState();
@@ -53,6 +58,43 @@ function makeThreadCreateCommand(threadId = "thread-promote") {
 }
 
 describe("threadCreatePromotion", () => {
+  it("hydrates canonical detail before a promoted route can mount", async () => {
+    const threadId = ThreadId.makeUnsafe("thread-promoted-detail");
+    const thread = makeReadModelThread({
+      id: threadId,
+      messages: [
+        {
+          id: "message-promoted-detail" as never,
+          role: "user",
+          text: "first Orchestrator message",
+          createdAt: "2026-05-06T20:00:01.000Z",
+          updatedAt: "2026-05-06T20:00:01.000Z",
+          streaming: false,
+          source: "native",
+        },
+      ],
+    });
+    const api = makeApi({ dispatchCommand: vi.fn() });
+    api.orchestration.getThreadDetailSnapshot = vi.fn(() =>
+      Promise.resolve({ snapshotSequence: 2, thread }),
+    );
+
+    await expect(prehydratePromotedThreadDetail(threadId, api)).resolves.toBe(true);
+    expect(useStore.getState().threadDetailSyncById?.[threadId]).toBe("synced");
+    expect(getThreadFromState(useStore.getState(), threadId)?.messages[0]?.text).toBe(
+      "first Orchestrator message",
+    );
+  });
+
+  it("leaves existing client detail untouched when the promoted snapshot is unavailable", async () => {
+    const threadId = ThreadId.makeUnsafe("thread-promoted-detail-missing");
+    const api = makeApi({ dispatchCommand: vi.fn() });
+    api.orchestration.getThreadDetailSnapshot = vi.fn(() => Promise.resolve(null));
+
+    await expect(prehydratePromotedThreadDetail(threadId, api)).resolves.toBe(false);
+    expect(useStore.getState().threadDetailSyncById?.[threadId]).toBeUndefined();
+  });
+
   it("recognizes duplicate thread.create invariant errors", () => {
     expect(
       isDuplicateThreadCreateError(

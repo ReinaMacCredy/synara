@@ -37,6 +37,10 @@ import {
 } from "~/components/settings/DesktopSettingsPanels";
 import { ModelsSettingsPanel } from "~/components/settings/ModelsSettingsPanel";
 import {
+  HandoffAccessSettingsPanel,
+  HandoffAgentSettingsPanel,
+} from "~/components/settings/HandoffSettingsPanels";
+import {
   isProviderInstallSettingsDirty,
   ProvidersSettingsPanel,
 } from "~/components/settings/ProvidersSettingsPanel";
@@ -1091,6 +1095,8 @@ function SettingsRouteView() {
                   updateSettings={updateSettings}
                   resetEpoch={resetEpoch}
                 />
+                <HandoffAgentSettingsPanel active={activeSection === "handoff-agent"} />
+                <HandoffAccessSettingsPanel active={activeSection === "handoff-access"} />
                 <ProvidersSettingsPanel
                   active={activeSection === "providers"}
                   settings={settings}

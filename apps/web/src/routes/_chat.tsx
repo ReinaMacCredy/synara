@@ -281,8 +281,7 @@ function ChatRouteGlobalShortcuts() {
     () => handleNewChat({ fresh: true }),
     [handleNewChat],
   );
-  const isOrchestratorMode =
-    pathname === "/orchestrator" || pathname.startsWith("/orchestrator/");
+  const isOrchestratorMode = pathname === "/orchestrator" || pathname.startsWith("/orchestrator/");
 
   useEffect(() => {
     if (!currentProjectId) {

@@ -38,6 +38,7 @@ describe("Sidebar.uiState", () => {
     expect(readSidebarUiState()).toEqual({
       chatSectionExpanded: false,
       orchestratorRootsSectionExpanded: true,
+      orchestratorExpandedRootIds: [],
       chatThreadListExtraPages: 0,
       projectThreadListExtraPagesByCwd: {},
       dismissedThreadStatusKeyByThreadId: {},
@@ -50,6 +51,7 @@ describe("Sidebar.uiState", () => {
     persistSidebarUiState({
       chatSectionExpanded: true,
       orchestratorRootsSectionExpanded: false,
+      orchestratorExpandedRootIds: [],
       chatThreadListExtraPages: 2,
       projectThreadListExtraPagesByCwd: {
         "/Users/tester/Code/demo": 1,
@@ -69,6 +71,7 @@ describe("Sidebar.uiState", () => {
     expect(readSidebarUiState()).toEqual({
       chatSectionExpanded: true,
       orchestratorRootsSectionExpanded: false,
+      orchestratorExpandedRootIds: [],
       chatThreadListExtraPages: 2,
       projectThreadListExtraPagesByCwd: {
         // Duplicate cwds that normalize to the same key keep the deepest paging.
@@ -114,6 +117,7 @@ describe("Sidebar.uiState", () => {
     expect(readSidebarUiState()).toEqual({
       chatSectionExpanded: true,
       orchestratorRootsSectionExpanded: true,
+      orchestratorExpandedRootIds: [],
       chatThreadListExtraPages: 0,
       projectThreadListExtraPagesByCwd: {
         [normalizeSidebarProjectThreadListCwd("/Users/tester/Code/demo")]: 2,
@@ -161,6 +165,7 @@ describe("Sidebar.uiState", () => {
     expect(readSidebarUiState()).toEqual({
       chatSectionExpanded: false,
       orchestratorRootsSectionExpanded: true,
+      orchestratorExpandedRootIds: [],
       chatThreadListExtraPages: 0,
       projectThreadListExtraPagesByCwd: {},
       dismissedThreadStatusKeyByThreadId: {},

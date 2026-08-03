@@ -1,8 +1,10 @@
 import {
   AssignmentId,
+  ChildResultId,
   MonitorId,
   OrchestratorLinkId,
   ProjectId,
+  ProjectTaskId,
   ThreadId,
   WriterClaimId,
 } from "@synara/contracts";
@@ -142,12 +144,48 @@ layer("ProjectionOrchestratorRepository", (it) => {
         expiresAt: "2026-08-02T00:00:00.000Z",
         releasedAt: null,
       });
+      const resultAssignmentId = AssignmentId.makeUnsafe("assignment-result-a");
+      const resultTaskId = ProjectTaskId.makeUnsafe("task-result-a");
+      yield* repository.upsertChildResult({
+        resultId: ChildResultId.makeUnsafe("child-result-a"),
+        rootThreadId: ThreadId.makeUnsafe("root-a"),
+        childThreadId: ThreadId.makeUnsafe("child-b"),
+        assignmentId: resultAssignmentId,
+        taskId: resultTaskId,
+        finalMessage: "Ready for Root review",
+        artifactRefs: [],
+        diffSummary: { changedPaths: ["src/a.ts"], diffRef: "diff:a" },
+        contentHash: "sha256:a",
+        revision: 1,
+        reviewState: "pending",
+        submittedAt: now,
+        reviewedAt: null,
+        reviewedByThreadId: null,
+        feedback: null,
+        evidence: {
+          assignmentId: resultAssignmentId,
+          taskId: resultTaskId,
+          summary: "Ready for Root review",
+          changedPaths: ["src/a.ts"],
+          diffRef: "diff:a",
+          checks: [],
+          consumerEvidenceRefs: [],
+          artifactRefs: [],
+          risks: [],
+          deviations: [],
+          reportedAt: now,
+        },
+      });
 
       const core = yield* repository.getCore(ThreadId.makeUnsafe("root-a"));
       assert.ok(Option.isSome(core));
       if (Option.isNone(core)) return;
       assert.strictEqual(core.value.ownershipEdges.length, 2);
       assert.strictEqual(core.value.communicationLinks.length, 1);
+      assert.deepStrictEqual(
+        core.value.childResults.map((result) => result.resultId),
+        ["child-result-a"],
+      );
       assert.strictEqual(core.value.root.highWaterCursor, "cursor-2");
       const monitors = yield* repository.listMonitors({
         rootThreadId: ThreadId.makeUnsafe("root-a"),

@@ -45,6 +45,9 @@ describe("SurfaceTabChip selection", () => {
 
     const selectButton = document.querySelector<HTMLButtonElement>('button[aria-pressed="true"]');
     expect(selectButton).not.toBeNull();
+    expect(selectButton?.matches("[data-surface-tab-chip]")).toBe(true);
+    expect(selectButton?.textContent).toContain("PR");
+    expect(selectButton?.textContent).toContain("PR #42");
     selectButton?.click();
     expect(onSelect).toHaveBeenCalledOnce();
   });

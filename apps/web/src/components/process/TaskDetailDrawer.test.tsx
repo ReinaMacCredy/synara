@@ -21,6 +21,7 @@ function graph(owner: "user" | "orchestrator"): TaskProcessGraphProjection {
       description: "Build the seam",
       acceptanceCriteria: [],
       priority: "high" as const,
+      risk: "low" as const,
       lifecycle: "in_progress" as const,
       orderKey: "a",
       createdBy: { kind: "user" as const, actorId: "owner" },
@@ -92,6 +93,9 @@ describe("TaskDetailDrawer", () => {
     );
 
     expect(projectMarkup).toContain("Save task");
+    expect(projectMarkup).toContain("Task risk");
+    expect(projectMarkup).toContain('data-task-risk="low"');
+    expect(projectMarkup).toContain("Low risk");
     expect(projectMarkup).toContain("Select thread");
     expect(projectMarkup).toContain("Complete with evidence");
     expect(rootMarkup).not.toContain("Save task");

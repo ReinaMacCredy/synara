@@ -25,6 +25,16 @@ import {
 } from "./automation";
 import { OpenInEditorInput } from "./editor";
 import {
+  CancelHandoffPreparationInput,
+  GetHandoffPreparationInput,
+  HandoffPreparationSnapshot,
+  ListHandoffGrantsInput,
+  ListHandoffGrantsResult,
+  RevokeHandoffGrantInput,
+  RevokeHandoffGrantResult,
+  StartHandoffPreparationInput,
+} from "./handoff";
+import {
   ExternalMcpCreateIntegrationInput,
   ExternalMcpCreateIntegrationResult,
   ExternalMcpIntegration,
@@ -462,6 +472,30 @@ export const WsOrchestrationDispatchTaskProcessCommandRpc = Rpc.make(
     success: DispatchTaskProcessCommandResult,
     error: WsRpcError,
   },
+);
+export const WsOrchestrationStartHandoffPreparationRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.startHandoffPreparation,
+  { payload: StartHandoffPreparationInput, success: HandoffPreparationSnapshot, error: WsRpcError },
+);
+export const WsOrchestrationGetHandoffPreparationRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.getHandoffPreparation,
+  { payload: GetHandoffPreparationInput, success: HandoffPreparationSnapshot, error: WsRpcError },
+);
+export const WsOrchestrationCancelHandoffPreparationRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.cancelHandoffPreparation,
+  {
+    payload: CancelHandoffPreparationInput,
+    success: HandoffPreparationSnapshot,
+    error: WsRpcError,
+  },
+);
+export const WsOrchestrationListHandoffGrantsRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.listHandoffGrants,
+  { payload: ListHandoffGrantsInput, success: ListHandoffGrantsResult, error: WsRpcError },
+);
+export const WsOrchestrationRevokeHandoffGrantRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.revokeHandoffGrant,
+  { payload: RevokeHandoffGrantInput, success: RevokeHandoffGrantResult, error: WsRpcError },
 );
 
 export const WsProjectsListDirectoriesRpc = Rpc.make(WS_METHODS.projectsListDirectories, {
@@ -1133,6 +1167,11 @@ const WsOrchestrationFeatureRpcGroup = RpcGroup.make(
   WsOrchestrationGetTaskProcessGraphRpc,
   WsOrchestrationGetSessionProgressRpc,
   WsOrchestrationDispatchTaskProcessCommandRpc,
+  WsOrchestrationStartHandoffPreparationRpc,
+  WsOrchestrationGetHandoffPreparationRpc,
+  WsOrchestrationCancelHandoffPreparationRpc,
+  WsOrchestrationListHandoffGrantsRpc,
+  WsOrchestrationRevokeHandoffGrantRpc,
 );
 
 const WsProjectFeatureRpcGroup = RpcGroup.make(

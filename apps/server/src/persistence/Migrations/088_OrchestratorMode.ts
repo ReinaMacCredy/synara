@@ -419,6 +419,7 @@ export default Effect.gen(function* () {
           description TEXT CHECK (description IS NULL OR length(description) <= 32768),
           acceptance_criteria_json TEXT NOT NULL CHECK (json_valid(acceptance_criteria_json)),
           priority TEXT NOT NULL CHECK (priority IN ('low', 'normal', 'high', 'critical')),
+          risk TEXT NOT NULL CHECK (risk IN ('low', 'medium', 'high')),
           lifecycle TEXT NOT NULL CHECK (
             lifecycle IN ('planned', 'in_progress', 'review', 'done', 'paused', 'failed', 'cancelled')
           ),

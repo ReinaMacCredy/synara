@@ -1,6 +1,6 @@
 // FILE: toolCallGroup.logic.ts
 // Purpose: Summarizes a settled run of tool-call work entries into one compact
-//          label ("Ran 2 commands, Edited 2 files, Searched 3 files") for the
+//          label ("Loaded tools, read files") for the
 //          collapsed tool-group disclosure in the transcript.
 // Layer: Web chat presentation helpers
 // Exports: MIN_COLLAPSIBLE_TOOL_GROUP_SIZE, ToolCallSummaryCategory,
@@ -11,7 +11,8 @@ import { pluralize } from "@synara/shared/text";
 import { isFileChangeWorkLogEntry, type WorkLogEntry } from "../../session-logic";
 import { deriveReadableCommandDisplay } from "../../lib/toolCallLabel";
 
-// A single tool row collapses into nothing useful; only runs of 2+ fold.
+// A single invocation is already the most concise truthful presentation. Only
+// a real run of related calls earns a purpose disclosure.
 export const MIN_COLLAPSIBLE_TOOL_GROUP_SIZE = 2;
 
 export type ToolCallSummaryCategory =
@@ -19,6 +20,8 @@ export type ToolCallSummaryCategory =
   | "edit"
   | "read"
   | "search"
+  | "web"
+  | "image"
   | "agent"
   | "tool"
   | "other";
@@ -35,9 +38,6 @@ export interface ToolCallGroupSummary {
   entryCount: number;
   // A group with in-flight work must never present itself as settled.
   hasRunningEntry: boolean;
-  // First summarized entry: the collapsed row borrows its icon so the summary
-  // keeps the same leading glyph as the first tool row it folds away.
-  iconEntry: WorkLogEntry;
 }
 
 // Rich rows (subagent strips, automation cards, thread-creation recaps) and
@@ -70,7 +70,10 @@ export function classifyToolCallSummaryCategory(entry: WorkLogEntry): ToolCallSu
     return "read";
   }
   if (entry.itemType === "web_search") {
-    return "search";
+    return "web";
+  }
+  if (entry.itemType === "image_view" || entry.itemType === "image_generation") {
+    return "image";
   }
   const command = entry.command ?? entry.rawCommand;
   if (entry.itemType === "command_execution" || entry.requestKind === "command" || command) {
@@ -117,16 +120,6 @@ function entryFileKeys(entry: WorkLogEntry): ReadonlyArray<string> {
   return [];
 }
 
-const CATEGORY_ORDER: ReadonlyArray<ToolCallSummaryCategory> = [
-  "command",
-  "edit",
-  "read",
-  "search",
-  "agent",
-  "tool",
-  "other",
-];
-
 function summaryPartLabel(
   category: ToolCallSummaryCategory,
   count: number,
@@ -134,22 +127,39 @@ function summaryPartLabel(
 ): string {
   switch (category) {
     case "command":
-      return `Ran ${count} ${pluralize(count, "command")}`;
+      return count === 1 ? "Ran a command" : `Ran ${pluralize(count, "command")}`;
     case "edit":
-      return `Edited ${count} ${pluralize(count, "file")}`;
+      return count === 1 ? "Edited a file" : `Edited ${count} files`;
     case "read":
-      return `Read ${count} ${pluralize(count, "file")}`;
+      return count === 1 ? "Read a file" : `Read ${pluralize(count, "file")}`;
     case "search":
-      return `Searched ${count} ${pluralize(count, "file")}`;
+      return count === 1 ? "Searched once" : `${count} searches`;
+    case "web":
+      return count === 1 ? "Searched the web" : `Searched the web ${count} times`;
+    case "image":
+      return count === 1 ? "Viewed an image" : `Viewed ${count} images`;
     case "agent":
-      return `Ran ${count} agent ${pluralize(count, "task")}`;
+      return count === 1 ? "Ran an agent task" : `Ran ${count} agent tasks`;
     case "tool":
-      return `Used ${count} ${pluralize(count, "tool")}`;
+      return count === 1 ? "Loaded a tool" : "Loaded tools";
     case "other":
       return isSolePart
-        ? `Ran ${count} tool ${pluralize(count, "call")}`
-        : `${count} other tool ${pluralize(count, "call")}`;
+        ? count === 1
+          ? "Ran a tool"
+          : `Ran ${count} tools`
+        : count === 1
+          ? "Ran another tool"
+          : `Ran ${count} other tools`;
   }
+}
+
+function sentenceJoin(parts: ReadonlyArray<ToolCallGroupSummaryPart>): string {
+  return parts
+    .map((part, index) => {
+      if (index === 0) return part.label;
+      return `${part.label.charAt(0).toLowerCase()}${part.label.slice(1)}`;
+    })
+    .join(", ");
 }
 
 export function summarizeToolCallGroup(
@@ -162,6 +172,7 @@ export function summarizeToolCallGroup(
 
   const countByCategory = new Map<ToolCallSummaryCategory, number>();
   const distinctFilesByCategory = new Map<ToolCallSummaryCategory, Set<string>>();
+  const categoryOrder: ToolCallSummaryCategory[] = [];
   let hasRunningEntry = false;
 
   for (const entry of summarizable) {
@@ -169,6 +180,9 @@ export function summarizeToolCallGroup(
       hasRunningEntry = true;
     }
     const category = classifyToolCallSummaryCategory(entry);
+    if (!categoryOrder.includes(category)) {
+      categoryOrder.push(category);
+    }
     if (category === "edit" || category === "read") {
       const fileKeys = entryFileKeys(entry);
       if (fileKeys.length === 0) {
@@ -190,7 +204,7 @@ export function summarizeToolCallGroup(
     countByCategory.set(category, (countByCategory.get(category) ?? 0) + distinctFiles.size);
   }
 
-  const populated = CATEGORY_ORDER.filter((category) => (countByCategory.get(category) ?? 0) > 0);
+  const populated = categoryOrder.filter((category) => (countByCategory.get(category) ?? 0) > 0);
   const parts = populated.map((category) => {
     const count = countByCategory.get(category)!;
     return {
@@ -201,10 +215,9 @@ export function summarizeToolCallGroup(
   });
 
   return {
-    label: parts.map((part) => part.label).join(", "),
+    label: sentenceJoin(parts),
     parts,
     entryCount: summarizable.length,
     hasRunningEntry,
-    iconEntry: summarizable[0]!,
   };
 }

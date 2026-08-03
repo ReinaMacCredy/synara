@@ -12,15 +12,20 @@ import { OrchestrationLayerLive } from "../runtimeLayer.ts";
 import { OrchestratorArtifactRepositoryLive } from "../../persistence/Layers/OrchestratorArtifacts.ts";
 import { ProjectionOrchestratorRepositoryLive } from "../../persistence/Layers/ProjectionOrchestrator.ts";
 import { ProjectionTaskProcessRepositoryLive } from "../../persistence/Layers/ProjectionTaskProcess.ts";
+import { makeHandoffDestinationTools } from "../../handoff/handoffDestinationToolRegistry.ts";
 
 const makeOrchestratorToolRuntime = Effect.gen(function* () {
-  const entries = makeOrchestratorTools({
-    orchestratorRepository: yield* ProjectionOrchestratorRepository,
-    taskProcessRepository: yield* ProjectionTaskProcessRepository,
-    artifactRepository: yield* OrchestratorArtifactRepository,
-    orchestrationEngine: yield* OrchestrationEngineService,
-    snapshotQuery: yield* ProjectionSnapshotQuery,
-  });
+  const snapshotQuery = yield* ProjectionSnapshotQuery;
+  const entries = [
+    ...makeOrchestratorTools({
+      orchestratorRepository: yield* ProjectionOrchestratorRepository,
+      taskProcessRepository: yield* ProjectionTaskProcessRepository,
+      artifactRepository: yield* OrchestratorArtifactRepository,
+      orchestrationEngine: yield* OrchestrationEngineService,
+      snapshotQuery,
+    }),
+    ...makeHandoffDestinationTools({ snapshotQuery }),
+  ];
   const byName = new Map(entries.map((entry) => [entry.definition.name, entry]));
 
   return OrchestratorToolRuntime.of({
@@ -41,20 +46,22 @@ const makeOrchestratorToolRuntime = Effect.gen(function* () {
           ),
         );
       }
-      return entry.isVisible(context).pipe(
-        Effect.flatMap((visible) =>
-          visible
-            ? entry.execute(args, context)
-            : Effect.succeed(
-                orchestratorToolFailure(
-                  new OrchestratorToolError(
-                    "orchestrator_capability_denied",
-                    `This thread cannot call ${entry.definition.displayName}.`,
+      return entry
+        .isVisible(context)
+        .pipe(
+          Effect.flatMap((visible) =>
+            visible
+              ? entry.execute(args, context)
+              : Effect.succeed(
+                  orchestratorToolFailure(
+                    new OrchestratorToolError(
+                      "orchestrator_capability_denied",
+                      `This thread cannot call ${entry.definition.displayName}.`,
+                    ),
                   ),
                 ),
-              ),
-        ),
-      );
+          ),
+        );
     },
   });
 });

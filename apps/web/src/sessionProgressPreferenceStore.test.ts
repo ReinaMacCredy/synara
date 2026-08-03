@@ -39,11 +39,11 @@ describe("sessionProgressPreferenceStore", () => {
     const store = useSessionProgressPreferenceStore.getState();
     expect(store.isFailureDismissed(threadA, "cursor-a")).toBe(false);
     store.dismissFailure(threadA, "cursor-a");
-    expect(useSessionProgressPreferenceStore.getState().isFailureDismissed(threadA, "cursor-a")).toBe(
-      true,
-    );
-    expect(useSessionProgressPreferenceStore.getState().isFailureDismissed(threadA, "cursor-b")).toBe(
-      false,
-    );
+    expect(
+      useSessionProgressPreferenceStore.getState().isFailureDismissed(threadA, "cursor-a"),
+    ).toBe(true);
+    expect(
+      useSessionProgressPreferenceStore.getState().isFailureDismissed(threadA, "cursor-b"),
+    ).toBe(false);
   });
 });

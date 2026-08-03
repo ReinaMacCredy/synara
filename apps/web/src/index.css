@@ -229,6 +229,72 @@
     transform: scale(0.7);
     will-change: opacity, transform;
   }
+
+  .handoff-magic-border {
+    --handoff-magic-border-accent: color-mix(in srgb, var(--success) 72%, var(--foreground));
+    isolation: isolate;
+  }
+
+  .handoff-magic-border::before,
+  .handoff-magic-border::after {
+    position: absolute;
+    z-index: 2;
+    inset: 0;
+    padding: 1px;
+    border-radius: inherit;
+    corner-shape: inherit;
+    -electron-corner-smoothing: inherit;
+    animation: handoff-magic-border-hunt 7s linear infinite;
+    background: conic-gradient(
+      from var(--handoff-magic-border-angle),
+      transparent 0 83%,
+      color-mix(in srgb, var(--handoff-magic-border-accent) 2%, transparent) 83%,
+      color-mix(in srgb, var(--handoff-magic-border-accent) 24%, transparent) 91%,
+      color-mix(in srgb, var(--handoff-magic-border-accent) 92%, transparent) 97.5%,
+      var(--foreground) 99%,
+      transparent 100%
+    );
+    content: "";
+    pointer-events: none;
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+  }
+
+  .handoff-magic-border::after {
+    z-index: 1;
+    padding: 2px;
+    opacity: 0.72;
+    filter: blur(4px);
+  }
+}
+
+@property --handoff-magic-border-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0turn;
+}
+
+@keyframes handoff-magic-border-hunt {
+  to {
+    --handoff-magic-border-angle: 1turn;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .handoff-magic-border::before {
+    animation: none;
+    background: color-mix(in srgb, var(--handoff-magic-border-accent) 42%, transparent);
+  }
+
+  .handoff-magic-border::after {
+    display: none;
+  }
 }
 
 @keyframes terminal-running-indicator-pulse {
@@ -280,6 +346,55 @@
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes thread-activity-grid-step {
+  0%,
+  100% {
+    opacity: 0.2;
+  }
+  16.66% {
+    opacity: 1;
+  }
+  33.33% {
+    opacity: 0.55;
+  }
+}
+
+.thread-activity-grid-dot {
+  animation: thread-activity-grid-step 950ms steps(1, end) infinite;
+  animation-delay: var(--thread-activity-clock-offset, 0ms);
+}
+
+.thread-activity-grid-dot:nth-child(2) {
+  animation-delay: calc(var(--thread-activity-clock-offset, 0ms) - 792ms);
+}
+
+.thread-activity-grid-dot:nth-child(3) {
+  animation-delay: calc(var(--thread-activity-clock-offset, 0ms) - 634ms);
+}
+
+.thread-activity-grid-dot:nth-child(4) {
+  animation-delay: calc(var(--thread-activity-clock-offset, 0ms) - 476ms);
+}
+
+.thread-activity-grid-dot:nth-child(5) {
+  animation-delay: calc(var(--thread-activity-clock-offset, 0ms) - 318ms);
+}
+
+.thread-activity-grid-dot:nth-child(6) {
+  animation-delay: calc(var(--thread-activity-clock-offset, 0ms) - 159ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thread-activity-grid-dot {
+    animation: none;
+    opacity: 0.28;
+  }
+
+  .thread-activity-grid-dot:nth-child(1) {
+    opacity: 0.9;
   }
 }
 

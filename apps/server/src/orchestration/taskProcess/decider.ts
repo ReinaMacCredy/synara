@@ -143,8 +143,14 @@ export const decideTaskProcessCommand = Effect.fn("decideTaskProcessCommand")(fu
     const project = readModel.projects.find(
       (candidate) => candidate.id === command.projectId && candidate.deletedAt === null,
     );
-    if (project?.kind !== "project") {
-      return yield* reject(command.type, "TaskProcess requires an active real project.");
+    const hasSupportedWorkspace =
+      project?.kind === "project" ||
+      (project?.kind === "chat" && command.owner.kind === "orchestrator");
+    if (!hasSupportedWorkspace) {
+      return yield* reject(
+        command.type,
+        "TaskProcess requires a real Project unless it is owned by an Orchestrator Root.",
+      );
     }
     if (
       (command.owner.kind === "user" && command.actor.kind !== "user") ||
@@ -337,6 +343,7 @@ export const decideTaskProcessCommand = Effect.fn("decideTaskProcessCommand")(fu
         description: command.description,
         acceptanceCriteria: command.acceptanceCriteria,
         priority: command.priority,
+        risk: command.risk,
         lifecycle: "planned",
         orderKey: command.orderKey,
         createdBy: command.actor,
@@ -369,6 +376,7 @@ export const decideTaskProcessCommand = Effect.fn("decideTaskProcessCommand")(fu
           ? { acceptanceCriteria: command.acceptanceCriteria }
           : {}),
         ...(command.priority !== undefined ? { priority: command.priority } : {}),
+        ...(command.risk !== undefined ? { risk: command.risk } : {}),
         updatedAt: command.createdAt,
       };
       return finish(

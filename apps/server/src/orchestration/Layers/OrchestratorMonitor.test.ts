@@ -22,6 +22,10 @@ import {
   type ProjectionOrchestratorRootRecord,
 } from "../../persistence/Services/ProjectionOrchestrator.ts";
 import {
+  QueuedTurnPromotionRepository,
+  type QueuedTurnPromotionRepositoryShape,
+} from "../../persistence/Services/QueuedTurnPromotions.ts";
+import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
 } from "../Services/OrchestrationEngine.ts";
@@ -112,6 +116,7 @@ const makeHarness = (input: {
     monitor: OrchestratorMonitorRecord,
   ) => Effect.Effect<void, unknown>;
   readonly pendingPermission?: boolean;
+  readonly mailboxReplyAlreadyWakesRoot?: boolean;
   readonly runs?: ReadonlyArray<{ readonly id: string; readonly state: string }>;
 }) => {
   let currentMonitor = input.initialMonitor;
@@ -133,13 +138,28 @@ const makeHarness = (input: {
     },
     highWaterCursor: String(revision),
   });
+  const mailboxReplyCreatedAt = "2026-08-01T00:00:09.000Z";
   const repository = {
     getRoot: () => Effect.succeed(Option.some(rootRecord())),
     listRoots: () => Effect.succeed([rootRecord()]),
     findRootForThread: () => Effect.succeed(Option.some(rootThreadId)),
     listMonitors: () => Effect.succeed([currentMonitor]),
     listActiveWriterClaims: () => Effect.succeed([]),
-    listMailboxMessages: () => Effect.succeed([]),
+    listMailboxMessages: () =>
+      Effect.succeed(
+        input.mailboxReplyAlreadyWakesRoot
+          ? [
+              {
+                messageId: "message:child-reply",
+                rootThreadId,
+                senderThreadId: childThreadId,
+                targetThreadId: rootThreadId,
+                deliveryState: "processing",
+                createdAt: mailboxReplyCreatedAt,
+              },
+            ]
+          : [],
+      ),
     upsertCapacity: (value: { readonly capacity: unknown }) =>
       Effect.sync(() => {
         capacity = value.capacity;
@@ -177,9 +197,28 @@ const makeHarness = (input: {
       );
     },
   } as unknown as OrchestrationCommandReceiptRepositoryShape;
+  const rootThread = makeThread(rootThreadId, input.pendingPermission);
   const readModel = {
-    threads: [makeThread(rootThreadId, input.pendingPermission), makeThread(childThreadId)],
+    threads: [
+      input.mailboxReplyAlreadyWakesRoot
+        ? {
+            ...rootThread,
+            latestTurn: {
+              turnId: "turn-mailbox-reply",
+              state: "running",
+              requestedAt: mailboxReplyCreatedAt,
+              startedAt: mailboxReplyCreatedAt,
+              completedAt: null,
+              assistantMessageId: null,
+            },
+          }
+        : rootThread,
+      makeThread(childThreadId),
+    ],
   } as unknown as OrchestrationReadModel;
+  const queuedTurnPromotions = {
+    hasPendingMessage: () => Effect.succeed(false),
+  } as unknown as QueuedTurnPromotionRepositoryShape;
   const engine = {
     getReadModel: () => Effect.succeed(readModel),
     streamDomainEvents: Stream.empty,
@@ -216,6 +255,7 @@ const makeHarness = (input: {
     Layer.succeed(OrchestrationEngineService, engine),
     Layer.succeed(ProjectionOrchestratorRepository, repository),
     Layer.succeed(OrchestrationCommandReceiptRepository, commandReceipts),
+    Layer.succeed(QueuedTurnPromotionRepository, queuedTurnPromotions),
   );
   return {
     dispatched,
@@ -343,5 +383,43 @@ describe("OrchestratorMonitor", () => {
     expect(
       harness.dispatched.filter((command) => command.type === "thread.turn.start"),
     ).toHaveLength(1);
+  });
+
+  it("does not queue a monitor wake while the matching mailbox reply turn is running", async () => {
+    const harness = makeHarness({
+      initialMonitor: monitor({
+        kind: "wait",
+        cadenceMs: null,
+        nextWakeAt: null,
+        maxRuns: 1,
+      }),
+      mailboxReplyAlreadyWakesRoot: true,
+    });
+    const service = await Effect.runPromise(harness.effect);
+    const event = {
+      aggregateKind: "thread",
+      aggregateId: childThreadId,
+      type: "thread.session-set",
+      payload: {
+        threadId: childThreadId,
+        session: {
+          threadId: childThreadId,
+          status: "ready",
+          providerName: "codex",
+          runtimeMode: "full-access",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: now,
+        },
+      },
+    } as unknown as OrchestrationEvent;
+
+    const result = await Effect.runPromise(service.reconcileEvent(event));
+
+    expect(result.monitorsFired).toBe(1);
+    expect(result.wakesDispatched).toBe(0);
+    expect(harness.dispatched.map((command) => command.type)).toEqual([
+      "orchestrator.monitor.fire",
+    ]);
   });
 });

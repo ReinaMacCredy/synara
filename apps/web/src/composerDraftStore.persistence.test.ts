@@ -136,6 +136,70 @@ describe("composerDraftStore persisted-state hydration", () => {
     });
   });
 
+  it("keeps a staged handoff across reload and marks in-flight preparation interrupted", () => {
+    const threadId = ThreadId.makeUnsafe("handoff-destination-draft");
+    const sourceThreadId = ThreadId.makeUnsafe("handoff-source-thread");
+    const projectId = ProjectId.makeUnsafe("handoff-project");
+    const createdAt = "2026-08-02T00:00:00.000Z";
+    const hydrated = normalizeCurrentPersistedComposerDraftStoreState({
+      draftsByThreadId: {
+        [threadId]: {
+          prompt: "Continue from the packet",
+          attachments: [],
+          handoffDraft: {
+            schemaVersion: 1,
+            handoffId: "handoff-1",
+            sourceThreadId,
+            sourceTitle: "Source",
+            sourceMode: "project",
+            destinationMode: "orchestrator_root",
+            sourceProvider: "codex",
+            sourceCursor: 7,
+            sourceDigest: "source-digest",
+            capsule: {
+              schemaVersion: 1,
+              sourceThreadId,
+              sourceTitle: "Source",
+              sourceMode: "project",
+              sourceProvider: "codex",
+              projectId,
+              projectTitle: "Project",
+              workspaceRoot: "/workspace/project",
+              environment: { mode: "local", branch: null, worktreePath: null },
+              sourceCursor: 7,
+              sourceDigest: "source-digest",
+              items: [{ ref: "message:1", role: "user", text: "Continue", createdAt }],
+              omissions: [],
+              sealedAt: createdAt,
+              capsuleHash: "capsule-hash",
+            },
+            handoffPrompt: "Preserve dissent",
+            attemptId: "handoff-attempt-1",
+            preparationState: "preparing",
+            preparationPhase: "Reading sealed source context",
+            runtime: { provider: "codex", model: "gpt-5.6-luna", effort: "high" },
+            settingsRevision: 1,
+            packet: null,
+            error: null,
+            sourceLinkOnly: false,
+            stagedAt: createdAt,
+            updatedAt: createdAt,
+          },
+        },
+      },
+      draftThreadsByThreadId: {},
+      projectDraftThreadIdByProjectId: {},
+    });
+
+    expect(hydrated.draftsByThreadId[threadId]?.prompt).toBe("Continue from the packet");
+    expect(hydrated.draftsByThreadId[threadId]?.handoffDraft).toMatchObject({
+      sourceThreadId,
+      preparationState: "interrupted",
+      preparationPhase: "Preparation interrupted by reload",
+      attemptId: null,
+    });
+  });
+
   it("preserves AI-reviewed auto mode during hydration", () => {
     const projectId = ProjectId.makeUnsafe("project-auto-mode");
     const threadId = ThreadId.makeUnsafe("thread-auto-mode");

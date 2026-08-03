@@ -1,11 +1,12 @@
 import type { OrchestratorSnapshot, ProjectTaskId, ThreadId } from "@synara/contracts";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 
 import { RouteInsetSurface } from "~/components/RouteInsetSurface";
 import {
   DeferredChatView,
+  LazyDiffPanel,
   noopChatSurfaceAction,
 } from "~/components/chat/ChatThreadSurfacePrimitives";
 import { PanelStateMessage } from "~/components/chat/PanelStateMessage";
@@ -21,27 +22,20 @@ import {
   orchestratorAuditQueryOptions,
   orchestratorExchangesQueryOptions,
 } from "~/lib/serverReactQuery";
-import { ensureNativeApi } from "~/nativeApi";
 import { selectRightDockState, useRightDockStore } from "~/rightDockStore";
-import { ensurePanesInState, type OpenPaneInput, type RightDockPane } from "~/rightDockStore.logic";
+import { ensurePanesInState, type RightDockPane } from "~/rightDockStore.logic";
 import { useStore } from "~/store";
 import { createAllThreadsSelector } from "~/storeSelectors";
 import { cn } from "~/lib/utils";
-import { orchestratorQueryKeys } from "~/lib/orchestratorRoots";
 import { useTaskProcessStore } from "~/taskProcessStore";
+import { useComposerDraftStore } from "~/composerDraftStore";
+import { ArrowLeftIcon, CopyIcon, MessageCircleIcon } from "~/lib/icons";
 
-import { ExchangesPanel } from "./ExchangesPanel";
 import { OrchestratorTranscriptProvider } from "./OrchestratorThreadMessageRow";
 import { RunsPanel } from "./RunsPanel";
 import { TeamPanel } from "./TeamPanel";
 import { RightDockProcessPanel } from "./RightDockProcessPanel";
-
-const ORCHESTRATOR_DOCK_PANES = [
-  { paneId: "orchestrator-team", kind: "orchestratorTeam" },
-  { paneId: "orchestrator-process", kind: "orchestratorProcess" },
-  { paneId: "orchestrator-exchanges", kind: "orchestratorExchanges" },
-  { paneId: "orchestrator-runs", kind: "orchestratorRuns" },
-] as const satisfies readonly OpenPaneInput[];
+import { ORCHESTRATOR_DOCK_PANES, orchestratorDockScopeId } from "./orchestratorDock";
 
 const ORCHESTRATOR_PANEL_STATE: SplitViewPanePanelState = {
   panel: null,
@@ -62,17 +56,17 @@ export function OrchestratorSurface(props: {
   readonly onSelectThread: (threadId: ThreadId) => void;
 }) {
   const rootThreadId = props.snapshot.root.rootThreadId;
+  const dockScopeId = orchestratorDockScopeId(props.snapshot.root.projectId);
   const navigate = useNavigate();
   const selectProcessTask = useTaskProcessStore((state) => state.selectTask);
-  const queryClient = useQueryClient();
   const threads = useStore(useMemo(() => createAllThreadsSelector(), []));
   const dockState = useRightDockStore(
-    useMemo(() => selectRightDockState(rootThreadId), [rootThreadId]),
+    useMemo(() => selectRightDockState(dockScopeId), [dockScopeId]),
   );
   const ensurePanes = useRightDockStore((store) => store.ensurePanes);
   const setActivePane = useRightDockStore((store) => store.setActivePane);
   const setDockOpen = useRightDockStore((store) => store.setDockOpen);
-  const [detachPendingThreadId, setDetachPendingThreadId] = useState<ThreadId | null>(null);
+  const updatePane = useRightDockStore((store) => store.updatePane);
   const exchangesQuery = useQuery(orchestratorExchangesQueryOptions(rootThreadId));
   const artifactsQuery = useQuery(orchestratorArtifactsQueryOptions(rootThreadId));
   const auditQuery = useQuery(orchestratorAuditQueryOptions(rootThreadId));
@@ -106,36 +100,63 @@ export function OrchestratorSurface(props: {
     [exchangesByMessageId, props.onSelectThread, threadLabels],
   );
   const selectedThreadExists = threads.some((thread) => thread.id === props.selectedThreadId);
+  const selectedChild =
+    props.selectedThreadId === rootThreadId
+      ? null
+      : (threads.find((thread) => thread.id === props.selectedThreadId) ?? null);
+
+  const askRootAboutChild = useCallback(() => {
+    if (!selectedChild) return;
+    const store = useComposerDraftStore.getState();
+    const existing = store.draftsByThreadId[rootThreadId]?.prompt.trim() ?? "";
+    const reference = `@child[${selectedChild.title || selectedChild.id}](${selectedChild.id})`;
+    store.setPrompt(rootThreadId, existing ? `${existing}\n${reference} ` : `${reference} `);
+    props.onSelectThread(rootThreadId);
+  }, [props, rootThreadId, selectedChild]);
+
+  const copyChildReference = useCallback(() => {
+    if (!selectedChild) return;
+    void navigator.clipboard.writeText(
+      `@child[${selectedChild.title || selectedChild.id}](${selectedChild.id})`,
+    );
+  }, [selectedChild]);
 
   useEffect(() => {
-    ensurePanes(rootThreadId, ORCHESTRATOR_DOCK_PANES, "orchestrator-team");
-  }, [ensurePanes, rootThreadId]);
+    ensurePanes(dockScopeId, ORCHESTRATOR_DOCK_PANES, "orchestrator-team");
+  }, [dockScopeId, ensurePanes]);
+
+  const openDiffPane = useCallback(() => {
+    setActivePane(dockScopeId, "orchestrator-diff");
+    setDockOpen(dockScopeId, true);
+  }, [dockScopeId, setActivePane, setDockOpen]);
 
   const openProcessPane = useCallback(() => {
-    setActivePane(rootThreadId, "orchestrator-process");
-    setDockOpen(rootThreadId, true);
-  }, [rootThreadId, setActivePane, setDockOpen]);
-
-  const detachChild = async (childThreadId: ThreadId) => {
-    if (detachPendingThreadId) return;
-    setDetachPendingThreadId(childThreadId);
-    try {
-      const api = ensureNativeApi();
-      await api.orchestration.detachOrchestratorChild({
-        rootThreadId,
-        childThreadId,
-        expectedRevision: props.snapshot.root.revision,
-        reason: "Detached by the user from Orchestrator Team",
-      });
-      if (props.selectedThreadId === childThreadId) props.onSelectThread(rootThreadId);
-      await queryClient.invalidateQueries({ queryKey: orchestratorQueryKeys.root(rootThreadId) });
-    } finally {
-      setDetachPendingThreadId(null);
-    }
-  };
+    setActivePane(dockScopeId, "orchestrator-process");
+    setDockOpen(dockScopeId, true);
+  }, [dockScopeId, setActivePane, setDockOpen]);
 
   const renderPane = (pane: RightDockPane) => {
     switch (pane.kind) {
+      case "diff":
+        return (
+          <LazyDiffPanel
+            mode="sidebar"
+            threadId={props.selectedThreadId}
+            hideHeader
+            liveRefreshEnabled
+            panelState={{
+              panel: "diff",
+              diffTurnId: pane.diffTurnId,
+              diffFilePath: pane.diffFilePath,
+            }}
+            onUpdatePanelState={(patch) =>
+              updatePane(dockScopeId, pane.id, {
+                ...(patch.diffTurnId !== undefined ? { diffTurnId: patch.diffTurnId } : {}),
+                ...(patch.diffFilePath !== undefined ? { diffFilePath: patch.diffFilePath } : {}),
+              })
+            }
+          />
+        );
       case "orchestratorTeam":
         return (
           <TeamPanel
@@ -144,8 +165,9 @@ export function OrchestratorSurface(props: {
             selectedThreadId={props.selectedThreadId}
             threadLabels={threadLabels}
             onSelectThread={props.onSelectThread}
-            onDetachChild={detachChild}
-            detachPendingThreadId={detachPendingThreadId}
+            exchanges={exchanges}
+            exchangesLoading={exchangesQuery.isPending}
+            exchangesError={errorMessage(exchangesQuery.error)}
           />
         );
       case "orchestratorProcess":
@@ -168,18 +190,6 @@ export function OrchestratorSurface(props: {
                 params: { rootThreadId, processId },
               })
             }
-          />
-        );
-      case "orchestratorExchanges":
-        return (
-          <ExchangesPanel
-              exchanges={exchanges}
-              links={props.snapshot.communicationLinks}
-              ownershipEdges={props.snapshot.ownershipEdges}
-              threadLabels={threadLabels}
-            onOpenThread={props.onSelectThread}
-            loading={exchangesQuery.isPending}
-            error={errorMessage(exchangesQuery.error)}
           />
         );
       case "orchestratorRuns":
@@ -219,6 +229,34 @@ export function OrchestratorSurface(props: {
         ) : null}
         <OrchestratorTranscriptProvider value={transcriptContext}>
           <RouteInsetSurface surfaceClassName={CHAT_BACKGROUND_CLASS_NAME}>
+            {selectedChild ? (
+              <div className="flex h-11 shrink-0 items-center gap-2 border-b px-3 text-xs text-muted-foreground">
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 hover:bg-muted hover:text-foreground"
+                  onClick={() => props.onSelectThread(rootThreadId)}
+                >
+                  <ArrowLeftIcon className="size-4" />
+                  Back to Root
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 hover:bg-muted hover:text-foreground"
+                  onClick={askRootAboutChild}
+                >
+                  <MessageCircleIcon className="size-4" />
+                  Ask Root
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 hover:bg-muted hover:text-foreground"
+                  onClick={copyChildReference}
+                >
+                  <CopyIcon className="size-4" />
+                  Copy reference
+                </button>
+              </div>
+            ) : null}
             {selectedThreadExists ? (
               <DeferredChatView
                 threadId={props.selectedThreadId}
@@ -227,13 +265,15 @@ export function OrchestratorSurface(props: {
                 surfaceMode="single"
                 isFocusedPane
                 panelState={ORCHESTRATOR_PANEL_STATE}
-                onToggleDiff={noopChatSurfaceAction}
+                onToggleDiff={openDiffPane}
                 onToggleBrowser={noopChatSurfaceAction}
                 onOpenBrowserUrl={noopChatSurfaceAction}
                 onOpenTurnDiff={noopChatSurfaceAction}
                 adjacentRightDockOpen={displayDockState.open}
-                onAdjacentRightDockOpenChange={(open) => setDockOpen(rootThreadId, open)}
+                onAdjacentRightDockOpenChange={(open) => setDockOpen(dockScopeId, open)}
                 onOpenSessionProgressProcess={openProcessPane}
+                orchestratorMode
+                inspectOnly={selectedChild !== null}
               />
             ) : (
               <PanelStateMessage>
@@ -249,13 +289,13 @@ export function OrchestratorSurface(props: {
         defaultWidth="max(22rem, 42vw)"
         shouldAcceptWidth={({ nextWidth }) => nextWidth >= 320}
         addMenuKinds={[]}
-        motionKey={rootThreadId}
+        motionKey={dockScopeId}
         paneClosable={false}
         collapsible={false}
-        onSelectPane={(paneId) => setActivePane(rootThreadId, paneId)}
+        onSelectPane={(paneId) => setActivePane(dockScopeId, paneId)}
         onClosePane={noopChatSurfaceAction}
-        onCollapse={() => setDockOpen(rootThreadId, false)}
-        onOpenChange={(open) => setDockOpen(rootThreadId, open)}
+        onCollapse={() => setDockOpen(dockScopeId, false)}
+        onOpenChange={(open) => setDockOpen(dockScopeId, open)}
         onAddPane={noopChatSurfaceAction}
         renderPane={renderPane}
       />

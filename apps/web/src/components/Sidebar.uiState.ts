@@ -11,6 +11,7 @@ const SIDEBAR_UI_STATE_STORAGE_KEY = "synara:sidebar-ui:v1";
 export type SidebarUiState = {
   chatSectionExpanded: boolean;
   orchestratorRootsSectionExpanded: boolean;
+  orchestratorExpandedRootIds: string[];
   chatThreadListExtraPages: number;
   projectThreadListExtraPagesByCwd: Record<string, number>;
   dismissedThreadStatusKeyByThreadId: Record<string, string>;
@@ -22,6 +23,7 @@ export type SidebarUiState = {
 const DEFAULT_SIDEBAR_UI_STATE: SidebarUiState = {
   chatSectionExpanded: false,
   orchestratorRootsSectionExpanded: true,
+  orchestratorExpandedRootIds: [],
   chatThreadListExtraPages: 0,
   projectThreadListExtraPagesByCwd: {},
   dismissedThreadStatusKeyByThreadId: {},
@@ -77,6 +79,7 @@ export function readSidebarUiState(): SidebarUiState {
     const parsed = JSON.parse(raw) as {
       chatSectionExpanded?: boolean;
       orchestratorRootsSectionExpanded?: boolean;
+      orchestratorExpandedRootIds?: unknown;
       chatThreadListExtraPages?: number;
       projectThreadListExtraPagesByCwd?: Record<string, unknown>;
       /** Legacy (pre-paging) all-or-nothing "Show more" flags, migrated to one extra page. */
@@ -121,6 +124,11 @@ export function readSidebarUiState(): SidebarUiState {
     return {
       chatSectionExpanded: parsed.chatSectionExpanded === true,
       orchestratorRootsSectionExpanded: parsed.orchestratorRootsSectionExpanded !== false,
+      orchestratorExpandedRootIds: Array.isArray(parsed.orchestratorExpandedRootIds)
+        ? parsed.orchestratorExpandedRootIds.filter(
+            (value): value is string => typeof value === "string" && value.length > 0,
+          )
+        : [],
       chatThreadListExtraPages:
         parsed.chatThreadListExtraPages === undefined && parsed.chatThreadListExpanded === true
           ? 1
@@ -172,6 +180,7 @@ export function persistSidebarUiState(input: SidebarUiState): void {
       JSON.stringify({
         chatSectionExpanded: input.chatSectionExpanded,
         orchestratorRootsSectionExpanded: input.orchestratorRootsSectionExpanded,
+        orchestratorExpandedRootIds: [...new Set(input.orchestratorExpandedRootIds)],
         chatThreadListExtraPages: sanitizeThreadListExtraPages(input.chatThreadListExtraPages),
         projectThreadListExtraPagesByCwd: sanitizeProjectThreadListExtraPagesByCwd(
           input.projectThreadListExtraPagesByCwd,

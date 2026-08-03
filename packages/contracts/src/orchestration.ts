@@ -10,6 +10,7 @@ import {
   PiModelOptions,
 } from "./model";
 import { ProviderMentionReference, ProviderSkillReference } from "./providerDiscovery";
+import { AcceptedCrossModeHandoffV1, HandoffAttemptId, HandoffConversationMode } from "./handoff";
 import { ProjectKind } from "./project";
 import {
   OrchestratorCommand,
@@ -75,6 +76,11 @@ export const ORCHESTRATION_WS_METHODS = {
   getTaskProcessGraph: "orchestration.getTaskProcessGraph",
   getSessionProgress: "orchestration.getSessionProgress",
   dispatchTaskProcessCommand: "orchestration.dispatchTaskProcessCommand",
+  startHandoffPreparation: "orchestration.startHandoffPreparation",
+  getHandoffPreparation: "orchestration.getHandoffPreparation",
+  cancelHandoffPreparation: "orchestration.cancelHandoffPreparation",
+  listHandoffGrants: "orchestration.listHandoffGrants",
+  revokeHandoffGrant: "orchestration.revokeHandoffGrant",
 } as const;
 
 export const ORCHESTRATION_WS_CHANNELS = {
@@ -546,6 +552,9 @@ export const ThreadHandoff = Schema.Struct({
   sourceProvider: ProviderKind,
   importedAt: IsoDateTime,
   bootstrapStatus: ThreadHandoffBootstrapStatus,
+  crossMode: Schema.optional(Schema.NullOr(AcceptedCrossModeHandoffV1)).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
 });
 export type ThreadHandoff = typeof ThreadHandoff.Type;
 
@@ -1153,6 +1162,10 @@ const ThreadHandoffCreateCommand = Schema.Struct({
     Schema.withDecodingDefault(() => false),
   ),
   importedMessages: Schema.Array(ThreadHandoffImportedMessage),
+  crossModeHandoff: Schema.optional(AcceptedCrossModeHandoffV1),
+  handoffAttemptId: Schema.optional(HandoffAttemptId),
+  handoffDestinationMode: Schema.optional(HandoffConversationMode),
+  handoffSourceLinkOnly: Schema.optional(Schema.Boolean),
   createdAt: IsoDateTime,
 });
 

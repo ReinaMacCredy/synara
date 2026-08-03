@@ -39,6 +39,7 @@ import {
 } from "../lib/subagentPresentation";
 import {
   hasLiveTurnTailWork,
+  hasTurnWorkspaceMutationEvidence,
   isProviderFileEditWorkLogEntry,
   type WorkLogEntry,
 } from "../session-logic";
@@ -589,8 +590,8 @@ export function resolveGitRepoUiState(input: { queriedIsRepo: boolean | undefine
 // `thread.turn-diff-completed` event) so it can show real per-file +/- stats.
 // Before that lands, it falls back to mid-turn file-edit work-log activity so
 // the strip can appear while the turn is running, but without a reviewable
-// turn id. Once a turn diff exists, its empty file list is authoritative and
-// must not be overwritten by tool metadata.
+// turn id. A diff snapshot is only trusted when the same turn has mutation-capable
+// tool activity; this prevents unrelated workspace edits from appearing on text-only turns.
 export function resolveActiveTurnLiveDiffState(input: {
   latestTurnId: TurnDiffSummary["turnId"] | null | undefined;
   turnDiffSummaries: ReadonlyArray<TurnDiffSummary>;
@@ -607,7 +608,11 @@ export function resolveActiveTurnLiveDiffState(input: {
   const summary = input.latestTurnId
     ? (input.turnDiffSummaries.find((entry) => entry.turnId === input.latestTurnId) ?? null)
     : null;
-  const files = summary?.files ?? [];
+  const summaryHasMutationEvidence =
+    summary !== null &&
+    (input.workLogEntries === undefined ||
+      hasTurnWorkspaceMutationEvidence(input.workLogEntries, summary.turnId));
+  const files = summaryHasMutationEvidence ? summary.files : [];
   if (summary && files.length > 0) {
     return {
       turnId: summary.turnId,
@@ -1059,7 +1064,7 @@ export function resolveNextLocalDispatchSnapshot(input: {
       };
 }
 
-export function hasServerAcknowledgedLocalDispatch(input: {
+type LocalDispatchAcknowledgementInput = {
   localDispatch: LocalDispatchSnapshot | null;
   phase: SessionPhase;
   latestTurn: Thread["latestTurn"] | null;
@@ -1068,7 +1073,11 @@ export function hasServerAcknowledgedLocalDispatch(input: {
   hasPendingApproval: boolean;
   hasPendingUserInput: boolean;
   threadError: string | null | undefined;
-}): boolean {
+};
+
+export function hasTurnLifecycleAcknowledgedLocalDispatch(
+  input: LocalDispatchAcknowledgementInput,
+): boolean {
   if (!input.localDispatch) {
     return false;
   }
@@ -1080,16 +1089,6 @@ export function hasServerAcknowledgedLocalDispatch(input: {
   ) {
     return true;
   }
-  if (
-    input.localDispatch.expectedUserMessageId !== null &&
-    input.messages.some(
-      (message) =>
-        message.role === "user" && message.id === input.localDispatch?.expectedUserMessageId,
-    )
-  ) {
-    return true;
-  }
-
   const latestTurn = input.latestTurn ?? null;
   const session = input.session ?? null;
   const nextSessionOrchestrationStatus = session?.orchestrationStatus ?? null;
@@ -1114,6 +1113,21 @@ export function hasServerAcknowledgedLocalDispatch(input: {
   }
 
   return false;
+}
+
+export function hasServerAcknowledgedLocalDispatch(
+  input: LocalDispatchAcknowledgementInput,
+): boolean {
+  if (hasTurnLifecycleAcknowledgedLocalDispatch(input)) {
+    return true;
+  }
+  const expectedUserMessageId = input.localDispatch?.expectedUserMessageId ?? null;
+  return (
+    expectedUserMessageId !== null &&
+    input.messages.some(
+      (message) => message.role === "user" && message.id === expectedUserMessageId,
+    )
+  );
 }
 
 /**
@@ -1191,20 +1205,6 @@ export function resolveQueuedSteerGateTransition(input: {
     },
     expiresInMs,
   };
-}
-
-export const ACTIVE_TURN_LAYOUT_SETTLE_DELAY_MS = 180;
-
-export function shouldStartActiveTurnLayoutGrace(options: {
-  previousTurnLayoutLive: boolean;
-  currentTurnLayoutLive: boolean;
-  latestTurnStartedAt: string | null;
-}): boolean {
-  return (
-    options.previousTurnLayoutLive &&
-    !options.currentTurnLayoutLive &&
-    options.latestTurnStartedAt !== null
-  );
 }
 
 export function buildSuggestedWorktreeName(input: {

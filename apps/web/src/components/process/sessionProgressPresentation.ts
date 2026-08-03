@@ -52,10 +52,7 @@ export function deriveSessionProgressActivity(
   const taskId = task?.task.id ?? null;
   const latestProgress = taskId ? latestProgressForTask(projection, taskId) : null;
   const stepIndex = taskId
-    ? Math.max(
-        1,
-        projection.visibleTasks.findIndex((item) => item.task.task.id === taskId) + 1,
-      )
+    ? Math.max(1, projection.visibleTasks.findIndex((item) => item.task.task.id === taskId) + 1)
     : 0;
   const base = {
     title: task?.task.title ?? "Process activity",

@@ -5,6 +5,7 @@ import {
   ContextBundleId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   MessageId,
+  OrchestratorMessageId,
   ProjectId,
   ProjectTaskId,
   TaskProcessId,
@@ -231,6 +232,147 @@ describe("OrchestrationEngine", () => {
     await system.dispose();
   });
 
+  it("atomically creates, attaches, and starts a direct child conversation", async () => {
+    const system = await createOrchestrationSystem();
+    const createdAt = "2026-08-01T00:00:00.000Z";
+    const projectId = asProjectId("project-direct-child-conversation");
+    const rootThreadId = ThreadId.makeUnsafe("thread-direct-child-root");
+    const childThreadId = ThreadId.makeUnsafe("orchestrator-child:direct-conversation");
+
+    await system.run(
+      system.engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.makeUnsafe("cmd-direct-child-project"),
+        projectId,
+        title: "Direct child conversation",
+        workspaceRoot: "/tmp/project-direct-child-conversation",
+        defaultModelSelection: { provider: "codex", model: "gpt-5-codex" },
+        createdAt,
+      }),
+    );
+    await system.run(
+      system.engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.makeUnsafe("cmd-direct-child-root-thread"),
+        threadId: rootThreadId,
+        projectId,
+        title: "Root",
+        modelSelection: { provider: "codex", model: "gpt-5-codex" },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        branch: null,
+        worktreePath: null,
+        createdAt,
+      }),
+    );
+    await system.run(
+      system.engine.dispatch({
+        type: "orchestrator.root.create",
+        commandId: CommandId.makeUnsafe("cmd-direct-child-root"),
+        rootThreadId,
+        projectId,
+        actor: { kind: "user", actorId: "owner" },
+        protocolVersion: 1,
+        expectedRevision: 0,
+        createdAt,
+        modelTarget: {
+          provider: "codex",
+          model: "gpt-5-codex",
+          runtimeMode: "approval-required",
+          workspaceRoot: "/tmp/project-direct-child-conversation",
+        },
+        title: "Root",
+        activeProcessId: null,
+      }),
+    );
+
+    const commandId = CommandId.makeUnsafe("cmd-direct-child-start");
+    await system.run(
+      system.engine.dispatch({
+        type: "orchestrator.child.create",
+        commandId,
+        rootThreadId,
+        projectId,
+        actor: { kind: "thread", threadId: rootThreadId },
+        protocolVersion: 1,
+        expectedRevision: 1,
+        createdAt,
+        parentThreadId: rootThreadId,
+        childThreadId,
+        title: "Independent peer",
+        role: "participant",
+        capabilities: ["state.read", "message.send"],
+        continuity: {
+          kind: "clean",
+          contextBundle: {
+            id: ContextBundleId.makeUnsafe("context-direct-child"),
+            version: 1,
+            assignmentId: null,
+            originalBrief: "Independent peer",
+            immutableUserConstraints: [],
+            acceptedDecisions: [],
+            rejectedAlternatives: [],
+            ownershipClaims: [],
+            dependencyRefs: [],
+            sourceRefs: [],
+            threadMessageRefs: [],
+            artifactRefs: [],
+            capabilityCeiling: ["state.read", "message.send"],
+            createdBy: { kind: "thread", threadId: rootThreadId },
+            createdAt,
+            contentHash: "sha256:direct-child-context",
+          },
+        },
+        modelTarget: {
+          provider: "codex",
+          model: "gpt-5-codex",
+          runtimeMode: "approval-required",
+          workspaceRoot: "/tmp/project-direct-child-conversation",
+        },
+        decisionReason: {
+          summary: "Independent framing",
+          taskFit: ["analysis"],
+          contextHealth: "healthy",
+          cacheEconomics: "unknown",
+          selectedAt: createdAt,
+        },
+        initialMessage: {
+          messageId: OrchestratorMessageId.makeUnsafe("message-direct-child"),
+          body: "Reply with CHILD_READY.",
+          expiresAt: "2026-08-01T00:10:00.000Z",
+        },
+      }),
+    );
+
+    const commandEvents = Array.from(
+      await system.run(Stream.runCollect(system.engine.readEvents(0))),
+    ).filter((event) => event.commandId === commandId);
+    expect(commandEvents.map((event) => event.type)).toEqual([
+      "thread.created",
+      "orchestrator.child.attached",
+      "orchestrator.message.enqueued",
+    ]);
+    expect(commandEvents[2]).toMatchObject({
+      aggregateKind: "orchestrator",
+      aggregateId: rootThreadId,
+      payload: {
+        message: {
+          senderThreadId: rootThreadId,
+          targetThreadId: childThreadId,
+          assignmentId: null,
+          body: "Reply with CHILD_READY.",
+        },
+      },
+    });
+    const readModel = await system.run(system.engine.getReadModel());
+    expect(readModel.threads.find((thread) => thread.id === childThreadId)).toMatchObject({
+      parentThreadId: null,
+      sourceThreadId: rootThreadId,
+      creationSource: "orchestrator_native",
+    });
+    await system.dispose();
+  });
+
   it("atomically bootstraps a Root on first send and keeps root-thread archive state aligned", async () => {
     const system = await createOrchestrationSystem();
     const createdAt = "2026-08-01T00:00:00.000Z";
@@ -343,6 +485,115 @@ describe("OrchestrationEngine", () => {
     await system.dispose();
   });
 
+  it("bootstraps a Root and Root-owned process in a managed no-Project workspace", async () => {
+    const system = await createOrchestrationSystem();
+    const createdAt = "2026-08-02T00:00:00.000Z";
+    const projectId = asProjectId("managed-chat-root-workspace");
+    const rootThreadId = ThreadId.makeUnsafe("managed-chat-root-thread");
+    const rootProcessId = TaskProcessId.makeUnsafe("managed-chat-root-process");
+    await system.run(
+      system.engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.makeUnsafe("cmd-managed-chat-project"),
+        projectId,
+        kind: "chat",
+        title: "Managed Orchestrator workspace",
+        workspaceRoot: "/tmp/managed-chat-root-workspace",
+        defaultModelSelection: { provider: "codex", model: "gpt-5.6-luna" },
+        createdAt,
+      }),
+    );
+    await system.run(
+      system.engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.makeUnsafe("cmd-managed-chat-root-thread"),
+        threadId: rootThreadId,
+        projectId,
+        title: "No-Project Root",
+        modelSelection: { provider: "codex", model: "gpt-5.6-luna" },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "full-access",
+        branch: null,
+        worktreePath: null,
+        createdAt,
+      }),
+    );
+
+    const firstSendCommandId = CommandId.makeUnsafe("cmd-managed-chat-root-first-send");
+    await system.run(
+      system.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: firstSendCommandId,
+        threadId: rootThreadId,
+        message: {
+          messageId: asMessageId("message-managed-chat-root-first-send"),
+          role: "user",
+          text: "Coordinate without a user Project",
+          attachments: [],
+        },
+        modelSelection: { provider: "codex", model: "gpt-5.6-luna" },
+        runtimeMode: "full-access",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        orchestratorRoot: {
+          protocolVersion: 1,
+          modelTarget: {
+            provider: "codex",
+            model: "gpt-5.6-luna",
+            runtimeMode: "full-access",
+            workspaceRoot: "/tmp/managed-chat-root-workspace",
+          },
+          title: "No-Project Root",
+        },
+        createdAt,
+      }),
+    );
+
+    await expect(
+      system.run(
+        system.engine.dispatch({
+          type: "task-process.create",
+          commandId: CommandId.makeUnsafe("cmd-managed-chat-user-process"),
+          processId: TaskProcessId.makeUnsafe("managed-chat-user-process"),
+          projectId,
+          actor: { kind: "user", actorId: "owner" },
+          expectedRevision: 0,
+          createdAt,
+          title: "User process",
+          owner: { kind: "user" },
+        }),
+      ),
+    ).rejects.toMatchObject({ _tag: "OrchestrationCommandInvariantError" });
+
+    await system.run(
+      system.engine.dispatch({
+        type: "task-process.create",
+        commandId: CommandId.makeUnsafe("cmd-managed-chat-root-process"),
+        processId: rootProcessId,
+        projectId,
+        actor: { kind: "thread", threadId: rootThreadId },
+        expectedRevision: 0,
+        rootExpectedRevision: 1,
+        createdAt,
+        title: "Root process",
+        owner: { kind: "orchestrator", rootThreadId },
+      }),
+    );
+
+    const events = Array.from(await system.run(Stream.runCollect(system.engine.readEvents(0))));
+    expect(
+      events.filter((event) => event.commandId === firstSendCommandId).map((event) => event.type),
+    ).toEqual(["orchestrator.root.created", "thread.message-sent", "thread.turn-start-requested"]);
+    expect(
+      events.some(
+        (event) =>
+          event.aggregateKind === "task_process" &&
+          event.aggregateId === rootProcessId &&
+          event.type === "task-process.created",
+      ),
+    ).toBe(true);
+    await system.dispose();
+  });
+
   it("serializes TaskProcess graph mutations and rejects stale revisions", async () => {
     const system = await createOrchestrationSystem();
     const createdAt = "2026-08-01T00:00:00.000Z";
@@ -388,6 +639,7 @@ describe("OrchestrationEngine", () => {
           description: null,
           acceptanceCriteria: [],
           priority: "normal",
+          risk: "medium",
           orderKey: "a",
         }),
       ),
@@ -407,6 +659,7 @@ describe("OrchestrationEngine", () => {
         description: null,
         acceptanceCriteria: [],
         priority: "normal",
+        risk: "medium",
         orderKey: "a",
       }),
     );
@@ -623,6 +876,7 @@ describe("OrchestrationEngine", () => {
         description: null,
         acceptanceCriteria: ["Evidence"],
         priority: "normal",
+        risk: "medium",
         orderKey: "a",
       }),
     );

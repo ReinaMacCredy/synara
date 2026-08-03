@@ -21,6 +21,10 @@ export interface OrchestratorToolInvocationContext {
   readonly callerSessionKey: string;
   readonly callerProvider: ProviderKind;
   readonly callerTurnId: string | null;
+  readonly listOrchestratorCapabilities: () => Effect.Effect<
+    ReadonlyArray<OrchestratorProviderCapability>,
+    OrchestratorToolError
+  >;
   readonly resolveOrchestratorCapability: (input: {
     readonly provider: ProviderKind;
     readonly model: string;
@@ -41,7 +45,11 @@ export type OrchestratorToolExecutionResult =
   | { readonly ok: true; readonly value: unknown }
   | {
       readonly ok: false;
-      readonly error: { readonly code: string; readonly message: string; readonly details?: unknown };
+      readonly error: {
+        readonly code: string;
+        readonly message: string;
+        readonly details?: unknown;
+      };
     };
 
 export class OrchestratorToolError extends Error {

@@ -617,6 +617,9 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           contract: event.payload.assignment,
         });
       }
+      if (event.payload.childResult !== undefined) {
+        yield* projectionOrchestratorRepository.upsertChildResult(event.payload.childResult);
+      }
       if (event.payload.message !== undefined) {
         yield* projectionOrchestratorRepository.upsertMessage(event.payload.message);
       }
@@ -733,7 +736,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
         }
 
         case "thread.meta-updated": {
-          return yield* updateThreadProjection(event.payload.threadId, (thread) => {
+          yield* updateThreadProjection(event.payload.threadId, (thread) => {
             const nextCreateBranchFlowCompleted =
               event.payload.createBranchFlowCompleted !== undefined
                 ? event.payload.createBranchFlowCompleted
@@ -796,6 +799,26 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               updatedAt: event.payload.updatedAt,
             };
           });
+          if (event.payload.isPinned !== undefined) {
+            const rootThreadId = yield* projectionOrchestratorRepository.findRootForThread(
+              event.payload.threadId,
+            );
+            if (Option.isSome(rootThreadId) && rootThreadId.value === event.payload.threadId) {
+              const rootRecord = yield* projectionOrchestratorRepository.getRoot(
+                rootThreadId.value,
+              );
+              if (Option.isSome(rootRecord)) {
+                yield* projectionOrchestratorRepository.upsertRoot({
+                  ...rootRecord.value,
+                  root: {
+                    ...rootRecord.value.root,
+                    pinnedAt: event.payload.isPinned ? event.payload.updatedAt : null,
+                  },
+                });
+              }
+            }
+          }
+          return;
         }
 
         case "thread.pinned-message-added":
@@ -969,11 +992,41 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           if (!shouldApplyDeferredThreadShellSummary(event)) {
             return;
           }
-          return yield* updateThreadProjection(event.payload.threadId, (thread) => ({
+          yield* updateThreadProjection(event.payload.threadId, (thread) => ({
             ...thread,
             latestUserMessageAt: maxIso(thread.latestUserMessageAt, event.payload.createdAt),
             updatedAt: event.occurredAt,
           }));
+          if (
+            !event.payload.streaming &&
+            (event.payload.role === "user" || event.payload.role === "assistant")
+          ) {
+            const rootThreadId = yield* projectionOrchestratorRepository.findRootForThread(
+              event.payload.threadId,
+            );
+            if (Option.isSome(rootThreadId)) {
+              const rootRecord = yield* projectionOrchestratorRepository.getRoot(
+                rootThreadId.value,
+              );
+              if (Option.isSome(rootRecord)) {
+                yield* projectionOrchestratorRepository.upsertRoot({
+                  ...rootRecord.value,
+                  root: {
+                    ...rootRecord.value.root,
+                    lastMeaningfulActivityAt: maxIso(
+                      rootRecord.value.root.lastMeaningfulActivityAt,
+                      event.payload.createdAt,
+                    ),
+                    latestActivityRevision: Math.max(
+                      rootRecord.value.root.latestActivityRevision ?? 0,
+                      event.sequence,
+                    ),
+                  },
+                });
+              }
+            }
+          }
+          return;
         }
 
         case "thread.proposed-plan-upserted": {

@@ -53,6 +53,7 @@ const STATIC_KEYBINDING_COMMANDS = [
   "chat.newCodex",
   "chat.newCursor",
   "chat.split",
+  "chat.messageNavigator",
   "view.recent.next",
   "view.recent.previous",
   "thread.jump.1",

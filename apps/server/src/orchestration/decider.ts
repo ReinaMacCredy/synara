@@ -881,7 +881,11 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           detail: `Source thread '${command.sourceThreadId}' belongs to a different project.`,
         });
       }
-      if (sourceThread.handoff !== null && !hasNativeHandoffMessages(sourceThread)) {
+      if (
+        command.crossModeHandoff === undefined &&
+        sourceThread.handoff !== null &&
+        !hasNativeHandoffMessages(sourceThread)
+      ) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
           detail: `Source thread '${command.sourceThreadId}' must contain at least one native chat message after handoff before it can be handed off again.`,
@@ -916,6 +920,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             sourceProvider: sourceThread.modelSelection.provider,
             importedAt: command.createdAt,
             bootstrapStatus: "pending",
+            crossMode: command.crossModeHandoff ?? null,
           },
           createdAt: command.createdAt,
           updatedAt: command.createdAt,

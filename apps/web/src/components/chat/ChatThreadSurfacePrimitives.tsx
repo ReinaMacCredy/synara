@@ -123,8 +123,11 @@ export function DeferredChatView(props: {
   onMounted?: () => void;
   orchestratorRootDraft?: {
     readonly onSelectProject: (projectId: ProjectId) => void;
+    readonly onResetProject: () => void;
   };
   onOpenSessionProgressProcess?: () => void;
+  orchestratorMode?: boolean;
+  inspectOnly?: boolean;
 }) {
   const onMounted = props.onMounted ?? noopChatSurfaceAction;
   const mountKey = `${props.paneScopeId}:${props.threadId}`;
@@ -191,6 +194,8 @@ export function DeferredChatView(props: {
       {...(props.onOpenSessionProgressProcess
         ? { onOpenSessionProgressProcess: props.onOpenSessionProgressProcess }
         : {})}
+      orchestratorMode={props.orchestratorMode ?? false}
+      inspectOnly={props.inspectOnly ?? false}
     />
   );
 }
