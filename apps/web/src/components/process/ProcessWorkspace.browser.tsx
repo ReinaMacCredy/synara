@@ -15,6 +15,7 @@ import { render } from "vitest-browser-react";
 
 import { ProcessBoard } from "./ProcessBoard";
 import { ProcessGraph } from "./ProcessGraph";
+import { TaskDetailTransitionShell } from "./ProcessWorkspace";
 import { TaskDetailDrawer } from "./TaskDetailDrawer";
 
 const processId = TaskProcessId.makeUnsafe("process-browser");
@@ -31,6 +32,7 @@ function graph(): TaskProcessGraphProjection {
       description: null,
       acceptanceCriteria: [],
       priority: "normal" as const,
+      risk: "medium" as const,
       lifecycle: "planned" as const,
       orderKey,
       createdBy: { kind: "user" as const, actorId: "owner" },
@@ -140,5 +142,37 @@ describe("Process workspace interaction", () => {
     await page.getByRole("button", { name: "Graph", exact: true }).click();
     expect(document.querySelector("[data-process-view='graph']")).not.toBeNull();
     expect(document.querySelector("[data-layout='dependency-only']")).not.toBeNull();
+  });
+
+  it("reuses the shared disclosure width motion for task detail open and close", async () => {
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <div className="flex h-80 w-[70rem]">
+          <button type="button" onClick={() => setOpen((value) => !value)}>
+            Toggle details
+          </button>
+          <TaskDetailTransitionShell open={open}>
+            <div className="h-full w-full" data-transition-content />
+          </TaskDetailTransitionShell>
+        </div>
+      );
+    }
+
+    await render(<Harness />);
+    const shell = document.querySelector<HTMLElement>("[data-task-detail-shell]");
+    expect(shell).not.toBeNull();
+    expect(shell?.className).toContain("transition-[width]");
+    expect(shell?.className).toContain("duration-220");
+    expect(shell?.className).toContain("w-0");
+    expect(shell?.getAttribute("aria-hidden")).toBe("true");
+
+    await page.getByRole("button", { name: "Toggle details" }).click();
+    expect(shell?.className).toContain("w-[min(28rem,42vw)]");
+    expect(shell?.getAttribute("aria-hidden")).toBe("false");
+
+    await page.getByRole("button", { name: "Toggle details" }).click();
+    expect(shell?.className).toContain("w-0");
+    expect(shell?.getAttribute("aria-hidden")).toBe("true");
   });
 });

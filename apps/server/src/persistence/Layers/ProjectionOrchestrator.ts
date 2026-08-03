@@ -1,5 +1,6 @@
 import {
   AssignmentContract,
+  ChildResultEnvelope,
   OrchestratorCapacitySnapshot,
   OrchestratorCommunicationLink,
   OrchestratorMessageEnvelope,
@@ -33,6 +34,13 @@ type RootDbRow = {
   readonly highWaterCursor: string;
   readonly createdAt: string;
   readonly archivedAt: string | null;
+  readonly lastMeaningfulActivityAt: string | null;
+  readonly pinnedAt: string | null;
+  readonly latestActivityRevision: number | null;
+};
+
+type ChildResultDbRow = {
+  readonly envelopeJson: string;
 };
 
 type OwnershipDbRow = {
@@ -143,6 +151,9 @@ const toRoot = (row: RootDbRow): ProjectionOrchestratorRootRecord => ({
     revision: row.revision,
     createdAt: row.createdAt,
     archivedAt: row.archivedAt,
+    lastMeaningfulActivityAt: row.lastMeaningfulActivityAt ?? row.createdAt,
+    pinnedAt: row.pinnedAt,
+    latestActivityRevision: row.latestActivityRevision ?? row.revision,
   }),
   highWaterCursor: row.highWaterCursor,
 });
@@ -253,6 +264,9 @@ const rootSelect = `
   resource_policy_version AS "resourcePolicyVersion", revision,
   high_water_cursor AS "highWaterCursor", created_at AS "createdAt",
   archived_at AS "archivedAt"
+  , last_meaningful_activity_at AS "lastMeaningfulActivityAt"
+  , pinned_at AS "pinnedAt"
+  , latest_activity_revision AS "latestActivityRevision"
 `;
 
 const makeProjectionOrchestratorRepository = Effect.gen(function* () {
@@ -264,18 +278,21 @@ const makeProjectionOrchestratorRepository = Effect.gen(function* () {
         INSERT INTO projection_orchestrator_roots (
           root_thread_id, project_id, protocol_version, state, active_process_id,
           resource_policy_version, revision, high_water_cursor, created_at, archived_at
+          , last_meaningful_activity_at, pinned_at, latest_activity_revision
         )
         SELECT
           ${row.root.rootThreadId}, ${row.root.projectId}, ${row.root.protocolVersion},
           ${row.root.state}, ${row.root.activeProcessId}, ${row.root.resourcePolicyVersion},
           ${row.root.revision}, ${row.highWaterCursor}, ${row.root.createdAt}, ${row.root.archivedAt}
+          , ${row.root.lastMeaningfulActivityAt ?? row.root.createdAt}, ${row.root.pinnedAt ?? null},
+          ${row.root.latestActivityRevision ?? row.root.revision}
         FROM projection_projects AS project
         JOIN projection_threads AS root_thread
           ON root_thread.thread_id = ${row.root.rootThreadId}
          AND root_thread.project_id = project.project_id
          AND root_thread.deleted_at IS NULL
         WHERE project.project_id = ${row.root.projectId}
-          AND project.kind = 'project'
+          AND project.kind IN ('project', 'chat')
           AND project.deleted_at IS NULL
         ON CONFLICT (root_thread_id) DO UPDATE SET
           protocol_version = excluded.protocol_version,
@@ -284,7 +301,10 @@ const makeProjectionOrchestratorRepository = Effect.gen(function* () {
           resource_policy_version = excluded.resource_policy_version,
           revision = excluded.revision,
           high_water_cursor = excluded.high_water_cursor,
-          archived_at = excluded.archived_at
+          archived_at = excluded.archived_at,
+          last_meaningful_activity_at = excluded.last_meaningful_activity_at,
+          pinned_at = excluded.pinned_at,
+          latest_activity_revision = excluded.latest_activity_revision
         WHERE projection_orchestrator_roots.project_id = excluded.project_id
       `;
       const persisted = yield* sql<{ readonly projectId: string }>`
@@ -295,7 +315,7 @@ const makeProjectionOrchestratorRepository = Effect.gen(function* () {
       if (persisted[0]?.projectId !== row.root.projectId) {
         return yield* new PersistenceSqlError({
           operation: "ProjectionOrchestratorRepository.upsertRoot:scope",
-          detail: "Root thread and project scope do not resolve to an active real project",
+          detail: "Root thread and project scope do not resolve to an active workspace container",
         });
       }
     }).pipe(
@@ -538,6 +558,35 @@ const makeProjectionOrchestratorRepository = Effect.gen(function* () {
           toPersistenceSqlError("ProjectionOrchestratorRepository.upsertAssignmentVersion:query"),
         ),
       );
+
+  const upsertChildResult: ProjectionOrchestratorRepositoryShape["upsertChildResult"] = (result) =>
+    sql`
+      INSERT INTO projection_orchestrator_child_results (
+        result_id, root_thread_id, child_thread_id, assignment_id, task_id,
+        envelope_json, content_hash, revision, review_state, submitted_at, reviewed_at
+      ) VALUES (
+        ${result.resultId}, ${result.rootThreadId}, ${result.childThreadId},
+        ${result.assignmentId}, ${result.taskId}, ${JSON.stringify(result)},
+        ${result.contentHash}, ${result.revision}, ${result.reviewState},
+        ${result.submittedAt}, ${result.reviewedAt}
+      )
+      ON CONFLICT (result_id) DO UPDATE SET
+        envelope_json = excluded.envelope_json,
+        revision = excluded.revision,
+        review_state = excluded.review_state,
+        reviewed_at = excluded.reviewed_at
+      WHERE projection_orchestrator_child_results.root_thread_id = excluded.root_thread_id
+        AND projection_orchestrator_child_results.child_thread_id = excluded.child_thread_id
+        AND projection_orchestrator_child_results.assignment_id = excluded.assignment_id
+        AND projection_orchestrator_child_results.task_id = excluded.task_id
+        AND projection_orchestrator_child_results.content_hash = excluded.content_hash
+        AND projection_orchestrator_child_results.revision < excluded.revision
+    `.pipe(
+      Effect.asVoid,
+      Effect.mapError(
+        toPersistenceSqlError("ProjectionOrchestratorRepository.upsertChildResult:query"),
+      ),
+    );
 
   const upsertRun: ProjectionOrchestratorRepositoryShape["upsertRun"] = (run) =>
     sql`
@@ -846,6 +895,13 @@ const makeProjectionOrchestratorRepository = Effect.gen(function* () {
           ORDER BY assignment.updated_at, assignment.assignment_id
           LIMIT 512
         `;
+          const childResultRows = yield* sql<ChildResultDbRow>`
+          SELECT envelope_json AS "envelopeJson"
+          FROM projection_orchestrator_child_results
+          WHERE root_thread_id = ${rootThreadId}
+          ORDER BY submitted_at, result_id
+          LIMIT 1024
+        `;
           const runRows = yield* sql<RunDbRow>`
           SELECT
             run_id AS "runId", root_thread_id AS "rootThreadId", mode, state,
@@ -875,6 +931,9 @@ const makeProjectionOrchestratorRepository = Effect.gen(function* () {
             assignments: assignmentRows.map((row) =>
               decode(AssignmentContract, json(row.contractJson)),
             ),
+            childResults: childResultRows.map((row) =>
+              decode(ChildResultEnvelope, json(row.envelopeJson)),
+            ),
             runs: runRows.map(toRun),
             providerCapabilities: capabilityRows.map((row) =>
               decode(OrchestratorProviderCapability, json(row.capabilityJson)),
@@ -900,6 +959,7 @@ const makeProjectionOrchestratorRepository = Effect.gen(function* () {
     retireActiveOwnershipForChild,
     upsertCommunicationLink,
     upsertAssignmentVersion,
+    upsertChildResult,
     upsertRun,
     upsertMessage,
     upsertMonitor,

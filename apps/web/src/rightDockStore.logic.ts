@@ -20,7 +20,6 @@ export const RIGHT_DOCK_PANE_KINDS = [
   "pullRequest",
   "orchestratorTeam",
   "orchestratorProcess",
-  "orchestratorExchanges",
   "orchestratorRuns",
 ] as const;
 

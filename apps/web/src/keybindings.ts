@@ -84,6 +84,11 @@ const whenCreationAllowed = whenOr(whenNotTerminalFocus, whenIdentifier("isMac")
 
 export const DEFAULT_SHORTCUT_FALLBACKS: ResolvedKeybindingsConfig = [
   {
+    command: "sidebar.activity",
+    shortcut: commandShortcut("u", { altKey: true }),
+    whenAst: whenCreationAllowed,
+  },
+  {
     command: "sidebar.addProject",
     shortcut: commandShortcut("o", { shiftKey: true }),
     whenAst: whenNotTerminalFocus,
@@ -171,6 +176,11 @@ export const DEFAULT_SHORTCUT_FALLBACKS: ResolvedKeybindingsConfig = [
   {
     command: "composer.focus.toggle",
     shortcut: commandShortcut("l", { metaKey: true, modKey: false }),
+    whenAst: whenNotTerminalFocus,
+  },
+  {
+    command: "chat.messageNavigator",
+    shortcut: commandShortcut("y", { shiftKey: true }),
     whenAst: whenNotTerminalFocus,
   },
   {

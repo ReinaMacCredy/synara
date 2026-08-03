@@ -1,0 +1,53 @@
+.root {
+  container-type: inline-size;
+}
+
+.layout {
+  display: grid;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.queue,
+.canvas,
+.evidence {
+  min-width: 0;
+}
+
+.canvas,
+.evidence {
+  border-top: 1px solid var(--border);
+}
+
+@container (min-width: 46rem) {
+  .layout {
+    grid-template-columns: minmax(12rem, 0.7fr) minmax(20rem, 1.3fr);
+  }
+
+  .queue {
+    border-right: 1px solid var(--border);
+  }
+
+  .canvas {
+    border-top: 0;
+  }
+
+  .evidence {
+    grid-column: 1 / -1;
+  }
+}
+
+@container (min-width: 72rem) {
+  .layout {
+    grid-template-columns: minmax(13rem, 0.62fr) minmax(24rem, 1.38fr) minmax(15rem, 0.72fr);
+  }
+
+  .canvas {
+    border-right: 1px solid var(--border);
+  }
+
+  .evidence {
+    grid-column: auto;
+    border-top: 0;
+  }
+}

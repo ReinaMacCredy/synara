@@ -10,6 +10,7 @@ export const MAX_KEYBINDINGS_COUNT = 256;
 const STATIC_KEYBINDING_COMMANDS = [
   "sidebar.toggle",
   "sidebar.search",
+  "sidebar.activity",
   "sidebar.addProject",
   "sidebar.importThread",
   "space.previous",
@@ -52,6 +53,7 @@ const STATIC_KEYBINDING_COMMANDS = [
   "chat.newCodex",
   "chat.newCursor",
   "chat.split",
+  "chat.messageNavigator",
   "view.recent.next",
   "view.recent.previous",
   "thread.jump.1",

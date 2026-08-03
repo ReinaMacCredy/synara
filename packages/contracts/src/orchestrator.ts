@@ -46,6 +46,8 @@ export const WriterClaimId = makeOrchestratorId("WriterClaimId");
 export type WriterClaimId = typeof WriterClaimId.Type;
 export const ContextBundleId = makeOrchestratorId("ContextBundleId");
 export type ContextBundleId = typeof ContextBundleId.Type;
+export const ChildResultId = makeOrchestratorId("ChildResultId");
+export type ChildResultId = typeof ChildResultId.Type;
 
 export const OrchestratorProtocolVersion = PROTOCOL_VERSION;
 export type OrchestratorProtocolVersion = typeof OrchestratorProtocolVersion.Type;
@@ -178,6 +180,9 @@ export const OrchestratorRoot = Schema.Struct({
   resourcePolicyVersion: PositiveInt,
   createdAt: IsoDateTime,
   archivedAt: Schema.NullOr(IsoDateTime),
+  lastMeaningfulActivityAt: Schema.optional(IsoDateTime),
+  pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+  latestActivityRevision: Schema.optional(NonNegativeInt),
   revision: NonNegativeInt,
 });
 export type OrchestratorRoot = typeof OrchestratorRoot.Type;
@@ -281,6 +286,12 @@ export const AssignmentCompletionEvidence = Schema.Struct({
   summary: BoundedText,
   changedPaths: StringRefs,
   diffRef: Schema.NullOr(TrimmedNonEmptyString),
+  diffSummary: Schema.optional(
+    Schema.Struct({
+      additions: NonNegativeInt,
+      deletions: NonNegativeInt,
+    }),
+  ),
   checks: Schema.Array(
     Schema.Struct({
       command: BoundedText,
@@ -295,6 +306,65 @@ export const AssignmentCompletionEvidence = Schema.Struct({
   reportedAt: IsoDateTime,
 });
 export type AssignmentCompletionEvidence = typeof AssignmentCompletionEvidence.Type;
+
+export const ChildResultReviewState = Schema.Literals(["pending", "accepted", "changes_requested"]);
+export type ChildResultReviewState = typeof ChildResultReviewState.Type;
+
+export const ChildResultEnvelope = Schema.Struct({
+  resultId: ChildResultId,
+  rootThreadId: ThreadId,
+  childThreadId: ThreadId,
+  assignmentId: AssignmentId,
+  taskId: ProjectTaskId,
+  finalMessage: BoundedText,
+  artifactRefs: Schema.Array(ArtifactId).check(Schema.isMaxLength(128)),
+  diffSummary: Schema.Struct({
+    changedPaths: StringRefs,
+    diffRef: Schema.NullOr(TrimmedNonEmptyString),
+    additions: Schema.optional(NonNegativeInt),
+    deletions: Schema.optional(NonNegativeInt),
+  }),
+  contentHash: TrimmedNonEmptyString,
+  revision: PositiveInt,
+  reviewState: ChildResultReviewState,
+  submittedAt: IsoDateTime,
+  reviewedAt: Schema.NullOr(IsoDateTime),
+  reviewedByThreadId: Schema.NullOr(ThreadId),
+  feedback: Schema.NullOr(BoundedText),
+  evidence: AssignmentCompletionEvidence,
+});
+export type ChildResultEnvelope = typeof ChildResultEnvelope.Type;
+
+export const OrchestratorChildState = Schema.Literals([
+  "ready",
+  "working",
+  "waiting",
+  "blocked",
+  "failed",
+  "available",
+]);
+export type OrchestratorChildState = typeof OrchestratorChildState.Type;
+
+export const OrchestratorChildProjection = Schema.Struct({
+  rootThreadId: ThreadId,
+  threadId: ThreadId,
+  parentThreadId: ThreadId,
+  ownershipPath: Schema.Array(ThreadId).check(Schema.isMaxLength(64)),
+  orchestrationState: OrchestratorChildState,
+  pendingResultId: Schema.NullOr(ChildResultId),
+  resultReviewState: Schema.NullOr(ChildResultReviewState),
+  activeAssignmentId: Schema.NullOr(AssignmentId),
+  diffSummary: Schema.NullOr(
+    Schema.Struct({
+      changedPaths: StringRefs,
+      diffRef: Schema.NullOr(TrimmedNonEmptyString),
+      additions: Schema.optional(NonNegativeInt),
+      deletions: Schema.optional(NonNegativeInt),
+    }),
+  ),
+  lifecycleAt: IsoDateTime,
+});
+export type OrchestratorChildProjection = typeof OrchestratorChildProjection.Type;
 
 export const OrchestratorMessageDeliveryState = Schema.Literals([
   "queued",
@@ -618,6 +688,13 @@ export const OrchestratorChildCreateCommand = Schema.Struct({
   continuity: ChildContinuity,
   modelTarget: OrchestratorModelTarget,
   decisionReason: OrchestratorDecisionReason,
+  initialMessage: Schema.optional(
+    Schema.Struct({
+      messageId: OrchestratorMessageId,
+      body: BoundedText,
+      expiresAt: IsoDateTime,
+    }),
+  ),
 });
 export const OrchestratorChildRetireCommand = Schema.Struct({
   ...OrchestratorCommandBase,
@@ -698,6 +775,14 @@ export const OrchestratorAssignmentReopenCommand = Schema.Struct({
   assignmentId: AssignmentId,
   taskId: ProjectTaskId,
   reason: BoundedText,
+});
+export const OrchestratorChildResultResolveCommand = Schema.Struct({
+  ...OrchestratorCommandBase,
+  type: Schema.Literal("orchestrator.child-result.resolve"),
+  resultId: ChildResultId,
+  expectedResultRevision: PositiveInt,
+  decision: Schema.Literals(["accept", "request_changes"]),
+  feedback: Schema.NullOr(BoundedText),
 });
 export const OrchestratorMessageEnqueueCommand = Schema.Struct({
   ...OrchestratorCommandBase,
@@ -784,9 +869,9 @@ export const OrchestratorUserCommand = Schema.Union([
 export type OrchestratorUserCommand = typeof OrchestratorUserCommand.Type;
 export const OrchestratorCommand = Schema.Union([
   OrchestratorUserCommand,
-    OrchestratorRootActiveProcessSetCommand,
-    OrchestratorChildCreateCommand,
-    OrchestratorChildAttachCommand,
+  OrchestratorRootActiveProcessSetCommand,
+  OrchestratorChildCreateCommand,
+  OrchestratorChildAttachCommand,
   OrchestratorChildRetireCommand,
   OrchestratorChildReparentCommand,
   OrchestratorLinkRequestCommand,
@@ -797,6 +882,7 @@ export const OrchestratorCommand = Schema.Union([
   OrchestratorAssignmentVerifyCommand,
   OrchestratorAssignmentAcceptCommand,
   OrchestratorAssignmentReopenCommand,
+  OrchestratorChildResultResolveCommand,
   OrchestratorMessageEnqueueCommand,
   OrchestratorMessageDeliveryMarkCommand,
   OrchestratorMessageResponseMarkCommand,
@@ -829,6 +915,7 @@ export const OrchestratorEventType = Schema.Literals([
   "orchestrator.assignment.verified",
   "orchestrator.assignment.accepted",
   "orchestrator.assignment.reopened",
+  "orchestrator.child-result.resolved",
   "orchestrator.message.enqueued",
   "orchestrator.message.delivery-marked",
   "orchestrator.message.response-marked",
@@ -856,6 +943,7 @@ export const OrchestratorEventPayload = Schema.Struct({
   link: Schema.optional(OrchestratorCommunicationLink),
   assignment: Schema.optional(AssignmentContract),
   evidence: Schema.optional(AssignmentCompletionEvidence),
+  childResult: Schema.optional(ChildResultEnvelope),
   message: Schema.optional(OrchestratorMessageEnvelope),
   artifact: Schema.optional(OrchestratorArtifact),
   run: Schema.optional(OrchestratorRun),
@@ -890,6 +978,8 @@ export const OrchestratorSnapshot = Schema.Struct({
   ownershipEdges: Schema.Array(OrchestratorOwnershipEdge),
   communicationLinks: Schema.Array(OrchestratorCommunicationLink),
   assignments: Schema.Array(AssignmentContract),
+  childResults: Schema.optional(Schema.Array(ChildResultEnvelope)),
+  childProjections: Schema.optional(Schema.Array(OrchestratorChildProjection)),
   runs: Schema.Array(OrchestratorRun),
   activeProcess: Schema.NullOr(TaskProcessSummaryProjection),
   providerCapabilities: Schema.Array(OrchestratorProviderCapability),
@@ -985,6 +1075,7 @@ export const OrchestratorCommandResult = Schema.Struct({
 export type OrchestratorCommandResult = typeof OrchestratorCommandResult.Type;
 
 export const OrchestratorToolName = Schema.Literals([
+  "list_provider_capabilities",
   "create_task_process",
   "read_task_process",
   "create_task",
@@ -994,6 +1085,7 @@ export const OrchestratorToolName = Schema.Literals([
   "read_orchestrator_state",
   "assign_task",
   "create_child_thread",
+  "start_child_conversation",
   "send_message",
   "create_communication_link",
   "set_communication_link",
@@ -1003,9 +1095,13 @@ export const OrchestratorToolName = Schema.Literals([
   "read_last_message",
   "read_transcript",
   "report_status",
+  "resolve_child_result",
   "request_change",
   "wait_for_event",
   "retire_child_thread",
+  "list_handoff_sources",
+  "read_handoff_source",
+  "search_handoff_source",
 ]);
 export type OrchestratorToolName = typeof OrchestratorToolName.Type;
 
@@ -1087,6 +1183,13 @@ export const OrchestratorReportStatusInput = Schema.Struct({
   summary: BoundedText,
   evidence: Schema.NullOr(AssignmentCompletionEvidence),
 });
+export const OrchestratorResolveChildResultInput = Schema.Struct({
+  expectedRevision: NonNegativeInt,
+  resultId: ChildResultId,
+  expectedResultRevision: PositiveInt,
+  decision: Schema.Literals(["accept", "request_changes"]),
+  feedback: Schema.NullOr(BoundedText),
+});
 export const OrchestratorChangeRequestKind = Schema.Literals([
   "contract",
   "scope",
@@ -1111,8 +1214,8 @@ export const OrchestratorRequestChangeInput = Schema.Struct({
   expiresAt: IsoDateTime,
 });
 export const OrchestratorWaitInput = Schema.Struct({
-  expectedRevision: NonNegativeInt,
-  monitorId: MonitorId,
+  expectedRevision: Schema.optional(NonNegativeInt),
+  monitorId: Schema.optional(MonitorId),
   targetThreadId: Schema.NullOr(ThreadId),
   condition: BoundedText,
   timeoutMs: PositiveInt.check(Schema.isLessThanOrEqualTo(3_600_000)),

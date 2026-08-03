@@ -19,6 +19,7 @@ const task = {
   description: "Work",
   acceptanceCriteria: [],
   priority: "normal",
+  risk: "medium",
   lifecycle: "in_progress",
   orderKey: "a",
   createdBy: { kind: "user", actorId: "owner" },

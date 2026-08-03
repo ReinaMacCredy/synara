@@ -1146,7 +1146,7 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("h-px flex-1 bg-border");
   });
 
-  it("does not reserve a timestamp footer between live status updates and Thinking", async () => {
+  it("does not reserve a timestamp footer between live status updates and the work header", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const activeTurnId = TurnId.makeUnsafe("turn-live-status");
     const assistantCreatedAt = "2026-03-17T19:12:29.000Z";
@@ -1188,7 +1188,8 @@ describe("MessagesTimeline", () => {
     );
 
     expect(markup).toContain("Tasks updated");
-    expect(markup).toContain("Thinking");
+    expect(markup).toContain("Working for");
+    expect(markup).toContain(">Thinking<");
     expect(markup).not.toContain(formatShortTimestamp(assistantCreatedAt, "locale"));
     expect(markup).toMatch(/class="[^"]*\bpb-1\b[^"]*" data-timeline-row-kind="message"/);
   });
@@ -1638,13 +1639,13 @@ describe("MessagesTimeline", () => {
 
     // The assistant's text block already follows the run, so it compacts
     // behind the summary row even while the turn is still live.
-    expect(markup).toContain("Ran 6 tool calls");
+    expect(markup).toContain("Ran 6 tools");
     expect(markup).not.toContain("Tool 1");
     expect(markup).not.toContain("Tool 6");
     expect(markup).not.toContain("+2 more tool calls");
   });
 
-  it("renders reasoning activity as iconless tool text while Thinking remains live", async () => {
+  it("renders reasoning activity as iconless tool text without synthetic Thinking", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const activeTurnId = TurnId.makeUnsafe("turn-reasoning-live");
     const markup = renderToStaticMarkup(
@@ -1731,12 +1732,11 @@ describe("MessagesTimeline", () => {
 
     expect(markup.match(/data-codex-status-row="true"/g) ?? []).toHaveLength(3);
     expect(markup.match(/data-work-entry-icon="true"/g) ?? []).toHaveLength(1);
-    expect(markup).toContain(">Thinking<");
     expect(markup).toContain("Inspecting apps/web/src/store.ts");
     expect(markup).not.toContain("Reasoning trace Inspecting");
   });
 
-  it("keeps Thinking when a new local send has no server turn id yet", async () => {
+  it("keeps a stable working header when a new local send has no server turn id yet", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const previousTurnId = TurnId.makeUnsafe("turn-previous");
     const markup = renderToStaticMarkup(
@@ -1814,6 +1814,7 @@ describe("MessagesTimeline", () => {
       />,
     );
 
+    expect(markup).toContain("Working...");
     expect(markup).toContain(">Thinking<");
   });
 
@@ -2479,7 +2480,8 @@ describe("MessagesTimeline", () => {
 
     expect(markup).toContain("Searched the web");
     expect(markup).toContain("48 files found");
-    expect(markup).toContain("/central-icons-reversed/globe.svg");
+    expect(markup).toContain("lucide-globe");
+    expect(markup).not.toContain("/central-icons-reversed/globe.svg");
     expect(markup).not.toContain("tabler-icon-world");
   });
 

@@ -1,6 +1,7 @@
 import {
   ArtifactId,
   AssignmentId,
+  ChildResultId,
   CommandId,
   ContextBundleId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
@@ -317,9 +318,7 @@ describe("Orchestrator decider", () => {
     const attachBEvents = (Array.isArray(attachB) ? attachB : [attachB]) as ReadonlyArray<
       Omit<OrchestratorDomainEvent, "sequence">
     >;
-    expect(attachBEvents.map((event) => event.type)).toEqual([
-      "orchestrator.child.attached",
-    ]);
+    expect(attachBEvents.map((event) => event.type)).toEqual(["orchestrator.child.attached"]);
     state = persist(state, attachBEvents);
 
     const attachC = await Effect.runPromise(
@@ -355,6 +354,153 @@ describe("Orchestrator decider", () => {
       }).pipe(Effect.exit),
     );
     expect(Exit.isFailure(cycle)).toBe(true);
+  });
+
+  it("lets only Root resolve a revision-checked child result", async () => {
+    let state = await createRoot();
+    const attached = await Effect.runPromise(
+      decideOrchestratorCommand({
+        command: attachCommand(state, childB, rootThreadId),
+        state,
+        readModel,
+      }),
+    );
+    state = persist(
+      state,
+      (Array.isArray(attached) ? attached : [attached]) as ReadonlyArray<
+        Omit<OrchestratorDomainEvent, "sequence">
+      >,
+    );
+    const assignmentId = AssignmentId.makeUnsafe("assignment-result-review");
+    const taskId = ProjectTaskId.makeUnsafe("task-result-review");
+    const evidence = {
+      assignmentId,
+      taskId,
+      summary: "Child result",
+      changedPaths: ["src/result.ts"],
+      diffRef: "diff:result",
+      checks: [],
+      consumerEvidenceRefs: [],
+      artifactRefs: [],
+      risks: [],
+      deviations: [],
+      reportedAt: now,
+    } as const;
+    state = {
+      ...state,
+      assignments: [
+        {
+          assignmentId,
+          version: 1,
+          taskId,
+          ownerThreadId: rootThreadId,
+          assigneeThreadId: childB,
+          goal: "Return a result",
+          acceptanceCriteria: [],
+          immutableUserConstraints: [],
+          workingAssumptions: [],
+          contextBundleId: ContextBundleId.makeUnsafe("context-result-review"),
+          continuity: {
+            kind: "reuse",
+            threadId: childB,
+          },
+          modelTarget: {
+            provider: "codex",
+            model: "gpt-5.6-luna",
+            runtimeMode: "full-access",
+            workspaceRoot: "/workspace/a",
+          },
+          decisionReason: {
+            summary: "Review result",
+            taskFit: [],
+            contextHealth: "healthy",
+            cacheEconomics: "reuse",
+            selectedAt: now,
+          },
+          pathOwnershipClaims: [],
+          dependencyRefs: [],
+          expectedApis: [],
+          allowedCapabilities: ["assignment.report"],
+          evidenceRequirements: [],
+          verifierClass: "root",
+          state: "reported_complete",
+          supersedesVersion: null,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ],
+      childResults: [
+        {
+          resultId: ChildResultId.makeUnsafe("child-result-review"),
+          rootThreadId,
+          childThreadId: childB,
+          assignmentId,
+          taskId,
+          finalMessage: "Child result",
+          artifactRefs: [],
+          diffSummary: { changedPaths: ["src/result.ts"], diffRef: "diff:result" },
+          contentHash: "sha256:result",
+          revision: 1,
+          reviewState: "pending",
+          submittedAt: now,
+          reviewedAt: null,
+          reviewedByThreadId: null,
+          feedback: null,
+          evidence,
+        },
+      ],
+    };
+
+    const accepted = await Effect.runPromise(
+      decideOrchestratorCommand({
+        state,
+        readModel,
+        command: {
+          type: "orchestrator.child-result.resolve",
+          commandId: CommandId.makeUnsafe("resolve-result"),
+          rootThreadId,
+          projectId,
+          actor: { kind: "thread", threadId: rootThreadId },
+          protocolVersion: 1,
+          expectedRevision: state.revision,
+          createdAt: now,
+          resultId: ChildResultId.makeUnsafe("child-result-review"),
+          expectedResultRevision: 1,
+          decision: "accept",
+          feedback: null,
+        },
+      }),
+    );
+    const acceptedEvent = Array.isArray(accepted) ? accepted[0]! : accepted;
+    expect(acceptedEvent).toMatchObject({
+      type: "orchestrator.child-result.resolved",
+      payload: {
+        assignment: { state: "accepted" },
+        childResult: { revision: 2, reviewState: "accepted" },
+      },
+    });
+    const acceptedState = persist(state, [acceptedEvent]);
+    const stale = await Effect.runPromise(
+      decideOrchestratorCommand({
+        state: acceptedState,
+        readModel,
+        command: {
+          type: "orchestrator.child-result.resolve",
+          commandId: CommandId.makeUnsafe("resolve-result-stale"),
+          rootThreadId,
+          projectId,
+          actor: { kind: "thread", threadId: rootThreadId },
+          protocolVersion: 1,
+          expectedRevision: acceptedState.revision,
+          createdAt: now,
+          resultId: ChildResultId.makeUnsafe("child-result-review"),
+          expectedResultRevision: 1,
+          decision: "request_changes",
+          feedback: "Please revise",
+        },
+      }).pipe(Effect.exit),
+    );
+    expect(Exit.isFailure(stale)).toBe(true);
   });
 
   it("rejects role-capability escalation and provider-native subagents", async () => {

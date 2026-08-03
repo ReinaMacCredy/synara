@@ -37,17 +37,20 @@ import {
   resolveTaskNavigationSignal,
   resolveSidebarThreadListPaging,
   resolveProjectEmptyState,
-  resolvePendingSidebarViewSelection,
   resolveSettingsBackTarget,
   resolveProjectStatusIndicator,
   resolveSidebarNewThreadEnvMode,
   resolveThreadHoverCardMetadata,
   resolveThreadRowClassName,
   resolveThreadStatusPill,
+  resolveThreadStatusTrailingIndicator,
+  isUrgentThreadStatusPill,
+  type ThreadStatusPill,
   shouldShowDebugFeatureFlagsMenu,
   shouldPrunePinnedThreads,
   shouldClearThreadSelectionOnMouseDown,
   sortProjectsForSidebar,
+  sortOrchestratorRootThreadsForSidebar,
   sortThreadsForSidebar,
 } from "./Sidebar.logic";
 import { ProjectId, ThreadId } from "@synara/contracts";
@@ -72,16 +75,6 @@ function makeLatestTurn(overrides?: {
     completedAt: overrides?.completedAt ?? "2026-03-09T10:05:00.000Z",
   };
 }
-
-describe("resolvePendingSidebarViewSelection", () => {
-  it("optimistically follows a destination segment", () => {
-    expect(resolvePendingSidebarViewSelection("threads", "orchestrator")).toBe("orchestrator");
-  });
-
-  it("clears the optimistic segment when the user returns to the active view", () => {
-    expect(resolvePendingSidebarViewSelection("threads", "threads")).toBeNull();
-  });
-});
 
 describe("isProjectsSidebarSurface", () => {
   it("enables Space shortcuts only where the Space switcher is visible", () => {
@@ -245,6 +238,7 @@ describe("resolveThreadHoverCardMetadata", () => {
         associatedWorktreeBranch: "codex/synara-mobile",
       }),
       project: {
+        kind: "project",
         name: "synara-mobile",
         folderName: "Remodex",
         cwd: "/Users/me/Developer/Remodex",
@@ -266,6 +260,7 @@ describe("resolveThreadHoverCardMetadata", () => {
         branch: "main",
       }),
       project: {
+        kind: "project",
         name: "synara",
         folderName: "synara",
         cwd: "/Users/me/Developer/synara",
@@ -279,6 +274,20 @@ describe("resolveThreadHoverCardMetadata", () => {
       branch: "main",
       worktreeName: null,
     });
+  });
+
+  it("labels project-less chat containers as Synara instead of the slug folder", () => {
+    const metadata = resolveThreadHoverCardMetadata({
+      thread: makeSidebarThreadSummary({ branch: null }),
+      project: {
+        kind: "chat",
+        name: "open-the-browser-search-house-music",
+        folderName: "open-the-browser-search-house-music",
+        cwd: "/Users/me/Documents/Synara/2026-08-01/open-the-browser-search-house-music",
+      },
+    });
+
+    expect(metadata.projectName).toBe("Synara");
   });
 });
 
@@ -804,6 +813,51 @@ describe("pin helpers", () => {
         threadsHydrated: false,
       }),
     ).toBeNull();
+  });
+});
+
+function statusPill(label: ThreadStatusPill["label"]): ThreadStatusPill {
+  return { label, colorClass: "", dotClass: "", pulse: false };
+}
+
+describe("isUrgentThreadStatusPill", () => {
+  it("treats every status but a finished turn as urgent", () => {
+    expect(isUrgentThreadStatusPill(statusPill("Pending Approval"))).toBe(true);
+    expect(isUrgentThreadStatusPill(statusPill("Awaiting Input"))).toBe(true);
+    expect(isUrgentThreadStatusPill(statusPill("Plan Ready"))).toBe(true);
+    expect(isUrgentThreadStatusPill(statusPill("Working"))).toBe(true);
+    expect(isUrgentThreadStatusPill(statusPill("Connecting"))).toBe(true);
+    expect(isUrgentThreadStatusPill(statusPill("Completed"))).toBe(false);
+  });
+});
+
+describe("resolveThreadStatusTrailingIndicator", () => {
+  it("shows nothing when there is no status", () => {
+    expect(resolveThreadStatusTrailingIndicator({ status: null })).toBeNull();
+  });
+
+  it("yields the slot when another affordance owns it", () => {
+    expect(
+      resolveThreadStatusTrailingIndicator({
+        status: statusPill("Working"),
+        slotOccupied: true,
+      }),
+    ).toBeNull();
+  });
+
+  it("hides an unread completion on the open thread but keeps it elsewhere", () => {
+    const completed = statusPill("Completed");
+    expect(resolveThreadStatusTrailingIndicator({ status: completed, isActive: true })).toBeNull();
+    expect(resolveThreadStatusTrailingIndicator({ status: completed, isActive: false })).toBe(
+      completed,
+    );
+  });
+
+  it("keeps live and actionable statuses on the open row", () => {
+    for (const label of ["Working", "Connecting", "Pending Approval", "Awaiting Input"] as const) {
+      const pill = statusPill(label);
+      expect(resolveThreadStatusTrailingIndicator({ status: pill, isActive: true })).toBe(pill);
+    }
   });
 });
 
@@ -2058,6 +2112,27 @@ describe("sortThreadsForSidebar", () => {
       ThreadId.makeUnsafe("thread-running"),
       ThreadId.makeUnsafe("thread-newer"),
     ]);
+  });
+});
+
+describe("sortOrchestratorRootThreadsForSidebar", () => {
+  it("keeps pinned roots above newer unpinned roots", () => {
+    const pinnedRoot = makeThread({
+      id: ThreadId.makeUnsafe("root-pinned"),
+      createdAt: "2026-03-09T09:00:00.000Z",
+      updatedAt: "2026-03-09T09:00:00.000Z",
+    });
+    const newerRoot = makeThread({
+      id: ThreadId.makeUnsafe("root-newer"),
+      createdAt: "2026-03-09T11:00:00.000Z",
+      updatedAt: "2026-03-09T11:00:00.000Z",
+    });
+
+    expect(
+      sortOrchestratorRootThreadsForSidebar([newerRoot, pinnedRoot], "updated_at", [
+        pinnedRoot.id,
+      ]).map((thread) => thread.id),
+    ).toEqual([pinnedRoot.id, newerRoot.id]);
   });
 });
 

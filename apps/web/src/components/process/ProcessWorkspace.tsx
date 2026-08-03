@@ -4,12 +4,13 @@ import {
   TaskProcessId,
   TaskThreadBindingId,
   type ProjectTaskLifecycle,
+  type ProjectTaskRisk,
   type TaskProcessCommand,
   type TaskProcessGraphProjection,
 } from "@synara/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 
 import { RouteInsetSurface } from "~/components/RouteInsetSurface";
 import { Button } from "~/components/ui/button";
@@ -28,9 +29,14 @@ import { ensureNativeApi } from "~/nativeApi";
 import { useStore } from "~/store";
 import { createAllThreadsSelector } from "~/storeSelectors";
 import { resolveTaskProcessNavigationTarget } from "~/lib/taskProcessNavigation";
+import {
+  DISCLOSURE_CLEANUP_BUFFER_MS,
+  DISCLOSURE_TRANSITION_MS,
+  disclosureWidthClassName,
+} from "~/lib/disclosureMotion";
 import { useTaskProcessStore, type TaskProcessFilter } from "~/taskProcessStore";
 
-import { ProcessBoard } from "./ProcessBoard";
+import { deriveProcessBoardLane, ProcessBoard } from "./ProcessBoard";
 import { ProcessGraph } from "./ProcessGraph";
 import { TaskDetailDrawer } from "./TaskDetailDrawer";
 
@@ -60,6 +66,26 @@ export function resolveProcessAuthority(
 function taskOrder(graph: TaskProcessGraphProjection) {
   return graph.tasks.toSorted((left, right) =>
     left.task.orderKey.localeCompare(right.task.orderKey),
+  );
+}
+
+export function TaskDetailTransitionShell(props: {
+  readonly open: boolean;
+  readonly children: ReactNode;
+}) {
+  return (
+    <div
+      className={disclosureWidthClassName(
+        props.open,
+        "w-[min(28rem,42vw)] max-lg:w-[min(28rem,100%)]",
+        "relative shrink-0 max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:z-20 max-lg:shadow-xl",
+      )}
+      aria-hidden={!props.open}
+      inert={!props.open}
+      data-task-detail-shell
+    >
+      {props.children}
+    </div>
   );
 }
 
@@ -93,9 +119,11 @@ export function ProcessWorkspace(props: { readonly processId: TaskProcessId }) {
   const setFilter = useTaskProcessStore((state) => state.setFilter);
   const selectTask = useTaskProcessStore((state) => state.selectTask);
   const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [newTaskRisk, setNewTaskRisk] = useState<ProjectTaskRisk | null>(null);
   const [pending, setPending] = useState(false);
   const selectedTaskProjection =
     graph?.tasks.find((task) => task.task.id === selectedTaskId) ?? null;
+  const [retainedTaskId, setRetainedTaskId] = useState<ProjectTaskId | null>(selectedTaskId);
   const firstBoundThreadId =
     graph?.bindings.find(
       (binding) =>
@@ -116,6 +144,17 @@ export function ProcessWorkspace(props: { readonly processId: TaskProcessId }) {
       selectTask(props.processId, null);
     }
   }, [graph, props.processId, selectTask, selectedTaskId]);
+  useEffect(() => {
+    if (selectedTaskId) {
+      setRetainedTaskId(selectedTaskId);
+      return;
+    }
+    const cleanup = window.setTimeout(
+      () => setRetainedTaskId(null),
+      DISCLOSURE_TRANSITION_MS + DISCLOSURE_CLEANUP_BUFFER_MS,
+    );
+    return () => window.clearTimeout(cleanup);
+  }, [selectedTaskId]);
 
   if (graphQuery.isPending) return null;
   if (graphQuery.isError || !graph) {
@@ -127,6 +166,21 @@ export function ProcessWorkspace(props: { readonly processId: TaskProcessId }) {
   }
 
   const authority = resolveProcessAuthority(graph);
+  const completedTaskCount = graph.tasks.filter((task) => task.task.lifecycle === "done").length;
+  const activeTaskCount = graph.tasks.filter(
+    (task) => deriveProcessBoardLane(task) === "in_progress",
+  ).length;
+  const reviewTaskCount = graph.tasks.filter(
+    (task) => deriveProcessBoardLane(task) === "review",
+  ).length;
+  const blockedTaskCount = graph.tasks.filter(
+    (task) => deriveProcessBoardLane(task) === "blocked",
+  ).length;
+  const readyTaskCount = graph.tasks.filter(
+    (task) => deriveProcessBoardLane(task) === "ready",
+  ).length;
+  const completionPercent =
+    graph.tasks.length === 0 ? 0 : Math.round((completedTaskCount / graph.tasks.length) * 100);
   const visibleProcesses = (processListQuery.data?.items ?? [graph.process]).filter((process) =>
     graph.process.owner.kind === "user"
       ? process.owner.kind === "user"
@@ -145,6 +199,9 @@ export function ProcessWorkspace(props: { readonly processId: TaskProcessId }) {
     void navigate({ to: "/tasks/$processId", params: { processId: target.processId } });
   };
   const selectedTask = selectedTaskProjection;
+  const drawerTask =
+    selectedTask ?? graph.tasks.find((task) => task.task.id === retainedTaskId) ?? null;
+  const drawerOpen = selectedTask !== null;
   const refresh = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: taskProcessQueryKeys.graph(props.processId) }),
@@ -180,7 +237,7 @@ export function ProcessWorkspace(props: { readonly processId: TaskProcessId }) {
   };
   const createTask = async () => {
     const title = newTaskTitle.trim();
-    if (!title || !authority.canEditGraph) return;
+    if (!title || !newTaskRisk || !authority.canEditGraph) return;
     const taskId = ProjectTaskId.makeUnsafe(crypto.randomUUID());
     await dispatch({
       ...commandBase(),
@@ -191,9 +248,11 @@ export function ProcessWorkspace(props: { readonly processId: TaskProcessId }) {
       description: null,
       acceptanceCriteria: [],
       priority: "normal",
+      risk: newTaskRisk,
       orderKey: `user:${Date.now().toString(36)}:${taskId}`,
     });
     setNewTaskTitle("");
+    setNewTaskRisk(null);
     selectTask(props.processId, taskId);
   };
   const reorderTask = async (taskId: ProjectTaskId, direction: "up" | "down") => {
@@ -259,7 +318,10 @@ export function ProcessWorkspace(props: { readonly processId: TaskProcessId }) {
 
   return (
     <RouteInsetSurface surfaceClassName="bg-background">
-      <div className="flex h-full min-h-0 min-w-0" data-process-workspace={props.processId}>
+      <div
+        className="relative flex h-full min-h-0 min-w-0"
+        data-process-workspace={props.processId}
+      >
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <header className="flex min-h-14 items-center gap-3 border-b border-border px-4">
             <div className="min-w-0 flex-1">
@@ -303,14 +365,14 @@ export function ProcessWorkspace(props: { readonly processId: TaskProcessId }) {
                 variant={view === "board" ? "secondary" : "ghost"}
                 onClick={() => setView(props.processId, "board")}
               >
-                Board
+                Overview
               </Button>
               <Button
                 size="xs"
                 variant={view === "graph" ? "secondary" : "ghost"}
                 onClick={() => setView(props.processId, "graph")}
               >
-                Graph
+                Dependencies
               </Button>
             </div>
             <Select
@@ -363,6 +425,28 @@ export function ProcessWorkspace(props: { readonly processId: TaskProcessId }) {
               </Button>
             ) : null}
           </header>
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-border px-4 py-2">
+            <div className="min-w-44 flex-1">
+              <div className="flex items-center justify-between gap-3 text-[10px] text-muted-foreground">
+                <span>
+                  {completedTaskCount} of {graph.tasks.length} complete
+                </span>
+                <span>{completionPercent}%</span>
+              </div>
+              <div className="mt-1 h-1 overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full bg-emerald-500 transition-[width] duration-200 ease-out motion-reduce:transition-none"
+                  style={{ width: `${completionPercent}%` }}
+                />
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-muted-foreground">
+              <span>{activeTaskCount} active</span>
+              <span>{reviewTaskCount} review</span>
+              <span>{blockedTaskCount} blocked</span>
+              <span>{readyTaskCount} ready</span>
+            </div>
+          </div>
           {authority.canEditGraph ? (
             <div className="flex gap-2 border-b border-border px-4 py-2">
               <Input
@@ -374,9 +458,22 @@ export function ProcessWorkspace(props: { readonly processId: TaskProcessId }) {
                 placeholder="Add a durable ProjectTask"
                 aria-label="New task title"
               />
+              <Select
+                value={newTaskRisk ?? undefined}
+                onValueChange={(value) => setNewTaskRisk(value as ProjectTaskRisk)}
+              >
+                <SelectTrigger className="w-36 shrink-0" aria-label="New task risk">
+                  <SelectValue placeholder="Select risk" />
+                </SelectTrigger>
+                <ComposerPickerSelectPopup align="end">
+                  <SelectItem value="high">High risk</SelectItem>
+                  <SelectItem value="medium">Medium risk</SelectItem>
+                  <SelectItem value="low">Low risk</SelectItem>
+                </ComposerPickerSelectPopup>
+              </Select>
               <Button
                 size="sm"
-                disabled={pending || !newTaskTitle.trim()}
+                disabled={pending || !newTaskTitle.trim() || !newTaskRisk}
                 onClick={() => void createTask()}
               >
                 Add task
@@ -406,79 +503,84 @@ export function ProcessWorkspace(props: { readonly processId: TaskProcessId }) {
           </div>
         </main>
 
-        {selectedTask ? (
-          <TaskDetailDrawer
-            key={selectedTask.task.id}
-            task={selectedTask}
-            graph={graph}
-            progress={progressQuery.data?.progress?.latestProgress ?? []}
-            threadOptions={threadOptions}
-            canEditGraph={authority.canEditGraph}
-            pending={pending}
-            onClose={() => selectTask(props.processId, null)}
-            onUpdateTask={({ title, description }) =>
-              void dispatch({
-                ...commandBase(),
-                type: "project-task.meta.update",
-                taskId: selectedTask.task.id,
-                title,
-                description,
-              })
-            }
-            onSetDependencies={(prerequisiteTaskIds) =>
-              void dispatch({
-                ...commandBase(),
-                type: "project-task.dependencies.set",
-                taskId: selectedTask.task.id,
-                prerequisiteTaskIds: [...prerequisiteTaskIds],
-              })
-            }
-            onBindThread={(threadId) =>
-              void dispatch({
-                ...commandBase(),
-                type: "project-task.thread.bind",
-                bindingId: TaskThreadBindingId.makeUnsafe(crypto.randomUUID()),
-                taskId: selectedTask.task.id,
-                threadId,
-                assignmentId: null,
-                role: "contributor",
-              })
-            }
-            onTransition={(lifecycle: ProjectTaskLifecycle) =>
-              void dispatch({
-                ...commandBase(),
-                type: "project-task.transition",
-                taskId: selectedTask.task.id,
-                lifecycle,
-                reason: "Changed by the user",
-              })
-            }
-            onComplete={(evidenceRefs) =>
-              void dispatch({
-                ...commandBase(),
-                type: "project-task.complete",
-                taskId: selectedTask.task.id,
-                assignmentIds: graph.bindings
-                  .filter(
-                    (binding) =>
-                      binding.binding.taskId === selectedTask.task.id &&
-                      binding.binding.assignmentId !== null,
-                  )
-                  .map((binding) => binding.binding.assignmentId!),
-                evidenceRefs: [...evidenceRefs],
-              })
-            }
-            onReopen={() =>
-              void dispatch({
-                ...commandBase(),
-                type: "project-task.reopen",
-                taskId: selectedTask.task.id,
-                reason: "Reopened by the user",
-              })
-            }
-            onOpenThread={(threadId) => void navigate({ to: "/$threadId", params: { threadId } })}
-          />
-        ) : null}
+          <TaskDetailTransitionShell open={drawerOpen}>
+            {drawerTask ? (
+              <TaskDetailDrawer
+                key={drawerTask.task.id}
+                task={drawerTask}
+                graph={graph}
+                progress={progressQuery.data?.progress?.latestProgress ?? []}
+                threadOptions={threadOptions}
+                canEditGraph={authority.canEditGraph}
+                pending={pending}
+                onClose={() => selectTask(props.processId, null)}
+                onUpdateTask={({ title, description, risk }) =>
+                  void dispatch({
+                    ...commandBase(),
+                    type: "project-task.meta.update",
+                    taskId: drawerTask.task.id,
+                    title,
+                    description,
+                    risk,
+                  })
+                }
+                onSetDependencies={(prerequisiteTaskIds) =>
+                  void dispatch({
+                    ...commandBase(),
+                    type: "project-task.dependencies.set",
+                    taskId: drawerTask.task.id,
+                    prerequisiteTaskIds: [...prerequisiteTaskIds],
+                  })
+                }
+                onBindThread={(threadId) =>
+                  void dispatch({
+                    ...commandBase(),
+                    type: "project-task.thread.bind",
+                    bindingId: TaskThreadBindingId.makeUnsafe(crypto.randomUUID()),
+                    taskId: drawerTask.task.id,
+                    threadId,
+                    assignmentId: null,
+                    role: "contributor",
+                  })
+                }
+                onTransition={(lifecycle: ProjectTaskLifecycle) =>
+                  void dispatch({
+                    ...commandBase(),
+                    type: "project-task.transition",
+                    taskId: drawerTask.task.id,
+                    lifecycle,
+                    reason: "Changed by the user",
+                  })
+                }
+                onComplete={(evidenceRefs) =>
+                  void dispatch({
+                    ...commandBase(),
+                    type: "project-task.complete",
+                    taskId: drawerTask.task.id,
+                    assignmentIds: graph.bindings
+                      .filter(
+                        (binding) =>
+                          binding.binding.taskId === drawerTask.task.id &&
+                          binding.binding.assignmentId !== null,
+                      )
+                      .map((binding) => binding.binding.assignmentId!),
+                    evidenceRefs: [...evidenceRefs],
+                  })
+                }
+                onReopen={() =>
+                  void dispatch({
+                    ...commandBase(),
+                    type: "project-task.reopen",
+                    taskId: drawerTask.task.id,
+                    reason: "Reopened by the user",
+                  })
+                }
+                onOpenThread={(threadId) =>
+                  void navigate({ to: "/$threadId", params: { threadId } })
+                }
+              />
+            ) : null}
+          </TaskDetailTransitionShell>
       </div>
     </RouteInsetSurface>
   );

@@ -137,7 +137,7 @@ const ASSIGNMENT_TRANSITIONS: Readonly<Record<AssignmentState, ReadonlySet<Assig
   waiting_on_user: new Set(["running", "blocked", "failed", "cancelled"]),
   needs_permission: new Set(["running", "blocked", "failed", "cancelled"]),
   blocked: new Set(["running", "failed", "cancelled"]),
-  reported_complete: new Set(["verified", "reopened", "failed"]),
+  reported_complete: new Set(["verified", "accepted", "reopened", "failed"]),
   verified: new Set(["accepted", "reopened", "failed"]),
   accepted: new Set(["reopened"]),
   reopened: new Set(["running", "cancelled", "failed"]),

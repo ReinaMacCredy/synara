@@ -481,6 +481,23 @@ describe("deriveTerminalAssistantMessageIds", () => {
 });
 
 describe("buildTurnDiffSummaryByAssistantMessageId", () => {
+  it("does not attach unrelated workspace changes to a text-only turn", () => {
+    const assistantMessageId = MessageId.makeUnsafe("a-greeting");
+    const turnId = TurnId.makeUnsafe("turn-greeting");
+    const input = {
+      turnDiffSummaries: [makeSummary({ turnId })],
+      messages: [{ id: assistantMessageId, role: "assistant" as const, turnId }],
+    };
+
+    expect(buildTurnDiffSummaryByAssistantMessageId({ ...input, workLogEntries: [] }).size).toBe(0);
+    expect(
+      buildTurnDiffSummaryByAssistantMessageId({
+        ...input,
+        workLogEntries: [{ turnId, itemType: "file_change", changedFiles: ["src/app.ts"] }],
+      }).get(assistantMessageId)?.files,
+    ).toHaveLength(1);
+  });
+
   it("attaches each summary to the terminal assistant message of its response segment", () => {
     const result = buildTurnDiffSummaryByAssistantMessageId({
       turnDiffSummaries: [makeSummary({ turnId: "turn-1" }), makeSummary({ turnId: "turn-2" })],
@@ -1064,6 +1081,7 @@ describe("deriveMessagesTimelineRows", () => {
       isWorking: true,
       activeTurnInProgress: true,
       activeTurnId: TurnId.makeUnsafe("t1"),
+      activeTurnStartedAt: "2026-01-01T00:00:00Z",
       timelineEntries: [
         userEntry("u1", "2026-01-01T00:00:00Z"),
         assistantEntry("a1", "2026-01-01T00:00:01Z", {
@@ -1084,6 +1102,90 @@ describe("deriveMessagesTimelineRows", () => {
     const terminal = messageRow(rows, "a3");
     expect(terminal).toBeDefined();
     expect(terminal!.collapsedTurnItems).toBeUndefined();
+    expect(rows.find((row) => row.kind === "turn-activity")).toMatchObject({
+      id: "turn-activity:u1",
+      state: "working",
+      createdAt: "2026-01-01T00:00:00Z",
+      showThinking: false,
+    });
+  });
+
+  it("keeps one activity-row identity from optimistic send through provider start and settle", () => {
+    const pending = deriveMessagesTimelineRows({
+      ...baseInput,
+      isWorking: true,
+      activeTurnInProgress: true,
+      activeTurnId: TurnId.makeUnsafe("t1"),
+      activeTurnStartedAt: null,
+      timelineEntries: [userEntry("u1", "2026-01-01T00:00:00Z")],
+    });
+    const started = deriveMessagesTimelineRows({
+      ...baseInput,
+      isWorking: true,
+      activeTurnInProgress: true,
+      activeTurnId: TurnId.makeUnsafe("t1"),
+      activeTurnStartedAt: "2026-01-01T00:00:01Z",
+      timelineEntries: [
+        userEntry("u1", "2026-01-01T00:00:00Z"),
+        workEntry("w1", "2026-01-01T00:00:02Z", "read files"),
+      ],
+    });
+    const settled = deriveMessagesTimelineRows({
+      ...baseInput,
+      activeTurnId: TurnId.makeUnsafe("t1"),
+      timelineEntries: [
+        userEntry("u1", "2026-01-01T00:00:00Z"),
+        workEntry("w1", "2026-01-01T00:00:02Z", "read files"),
+        assistantEntry("a1", "2026-01-01T00:00:03Z", {
+          turnId: "t1",
+          text: "Done",
+          completedAt: "2026-01-01T00:00:03Z",
+        }),
+      ],
+    });
+
+    expect(pending.find((row) => row.kind === "turn-activity")).toMatchObject({
+      id: "turn-activity:u1",
+      state: "working",
+      createdAt: null,
+      showThinking: true,
+    });
+    expect(started.find((row) => row.kind === "turn-activity")).toMatchObject({
+      id: "turn-activity:u1",
+      state: "working",
+      createdAt: "2026-01-01T00:00:01Z",
+      showThinking: false,
+    });
+    expect(settled.find((row) => row.kind === "turn-activity")).toMatchObject({
+      id: "turn-activity:u1",
+      state: "settled",
+    });
+    expect(settled.at(-1)).toMatchObject({ kind: "message", message: { id: "a1", text: "Done" } });
+  });
+
+  it("keeps the settled activity row when a turn completes without tool details", () => {
+    const rows = deriveMessagesTimelineRows({
+      ...baseInput,
+      activeTurnId: TurnId.makeUnsafe("t1"),
+      timelineEntries: [
+        userEntry("u1", "2026-01-01T00:00:00Z"),
+        assistantEntry("a1", "2026-01-01T00:00:03Z", {
+          turnId: "t1",
+          text: "No tools were needed.",
+          completedAt: "2026-01-01T00:00:03Z",
+        }),
+      ],
+    });
+
+    expect(rows.map((row) => row.kind)).toEqual(["message", "turn-activity", "message"]);
+    expect(rows.find((row) => row.kind === "turn-activity")).toMatchObject({
+      id: "turn-activity:u1",
+      state: "settled",
+      collapsedWorkElapsed: "3.0s",
+    });
+    expect(rows.find((row) => row.kind === "turn-activity")).not.toHaveProperty(
+      "collapsedTurnItems",
+    );
   });
 
   it("keeps pre-existing tool work above the new live narration text", () => {
@@ -1141,11 +1243,12 @@ describe("deriveMessagesTimelineRows", () => {
     expect(rows.some((row) => row.kind === "work")).toBe(false);
   });
 
-  it("collapses an older settled turn when a follow-up user message is waiting for output", () => {
+  it("keeps the settled header while a stale turn id waits for follow-up output", () => {
     const rows = deriveMessagesTimelineRows({
       ...baseInput,
       isWorking: true,
       activeTurnInProgress: true,
+      activeTurnId: TurnId.makeUnsafe("t1"),
       activeTurnStartedAt: "2026-01-01T00:00:05Z",
       timelineEntries: [
         userEntry("u1", "2026-01-01T00:00:00Z"),
@@ -1165,6 +1268,17 @@ describe("deriveMessagesTimelineRows", () => {
     expect(previousAssistant!.inlineWorkEntries).toBeUndefined();
     expect(messageRow(rows, "u2")).toBeDefined();
     expect(rows.some((row) => row.kind === "work")).toBe(false);
+    expect(rows.filter((row) => row.kind === "turn-activity")).toMatchObject([
+      {
+        id: "turn-activity:u1",
+        state: "settled",
+      },
+      {
+        id: "turn-activity:u2",
+        state: "working",
+        createdAt: "2026-01-01T00:00:05Z",
+      },
+    ]);
   });
 
   it("collapses adjacent provider mini-turns into the same user-visible response", () => {
@@ -1332,7 +1446,7 @@ describe("deriveMessagesTimelineRows", () => {
       timelineEntries: [userEntry("u1", "2026-01-01T00:00:00Z")],
     });
 
-    expect(rows.map((row) => row.kind)).toEqual(["message", "worktree-setup", "working"]);
+    expect(rows.map((row) => row.kind)).toEqual(["message", "turn-activity", "worktree-setup"]);
     expect(rows.find((row) => row.kind === "worktree-setup")).toMatchObject({ open: false });
   });
 
@@ -1343,7 +1457,29 @@ describe("deriveMessagesTimelineRows", () => {
       timelineEntries: [userEntry("u1", "2026-01-01T00:00:00Z")],
     });
 
-    expect(rows.map((row) => row.kind)).toEqual(["message", "working"]);
+    expect(rows.map((row) => row.kind)).toEqual(["message", "turn-activity"]);
+    expect(rows.find((row) => row.kind === "turn-activity")).toMatchObject({
+      showThinking: true,
+    });
+  });
+
+  it("suppresses generic Thinking while canonical tool activity is visible", () => {
+    const rows = deriveMessagesTimelineRows({
+      ...baseInput,
+      isWorking: true,
+      activeTurnInProgress: true,
+      activeTurnId: TurnId.makeUnsafe("t1"),
+      timelineEntries: [
+        userEntry("u1", "2026-01-01T00:00:00Z"),
+        workEntry("w1", "2026-01-01T00:00:01Z", "read files"),
+      ],
+    });
+
+    expect(rows.some((row) => row.kind === "work")).toBe(true);
+    expect(rows.some((row) => row.kind === "working")).toBe(false);
+    expect(rows.find((row) => row.kind === "turn-activity")).toMatchObject({
+      showThinking: false,
+    });
   });
 });
 
@@ -1395,7 +1531,7 @@ describe("chunkCollapsedTurnItems", () => {
     ).toEqual(["group:w1:w1+w2", "item:narration:a1", "group:w3:w3+w4+w5"]);
   });
 
-  it("keeps singleton runs as individual items", () => {
+  it("keeps singleton purposes as direct semantic rows", () => {
     expect(chunkSignature([toolItem("w1"), narrationItem("a1"), toolItem("w2")])).toEqual([
       "item:work:w1",
       "item:narration:a1",
@@ -1442,11 +1578,12 @@ const planSignature = (
 ): string[] =>
   planWorkEntryRenderChunks(entries, options).map((chunk) => {
     const ids = chunk.entries.map((entry) => entry.id).join("+");
-    return chunk.summary === null ? `open:${ids}` : `collapsed:${ids}`;
+    if (chunk.summary === null) return `open:${ids}`;
+    return chunk.live ? `live:${ids}` : `collapsed:${ids}`;
   });
 
 describe("planWorkEntryRenderChunks", () => {
-  it("collapses the earlier run across a thinking boundary while the live tail stays open", () => {
+  it("keeps generic thinking out of the purpose boundary while the live group streams", () => {
     expect(
       planSignature(
         [
@@ -1458,16 +1595,16 @@ describe("planWorkEntryRenderChunks", () => {
         ],
         { tailIsLive: true },
       ),
-    ).toEqual(["collapsed:w1+w2", "open:think", "open:w3+w4"]);
+    ).toEqual(["live:w1+w2+w3+w4"]);
   });
 
-  it("collapses every run when narration is the trailing block", () => {
+  it("collapses the purpose group when only generic thinking trails it", () => {
     expect(
       planSignature(
         [toolItem("w1").entry, toolItem("w2").entry, toolItem("think", { tone: "thinking" }).entry],
         { tailIsLive: true },
       ),
-    ).toEqual(["collapsed:w1+w2", "open:think"]);
+    ).toEqual(["live:w1+w2"]);
   });
 
   it("collapses the trailing run once the tail is no longer live", () => {
@@ -1476,7 +1613,7 @@ describe("planWorkEntryRenderChunks", () => {
     ).toEqual(["collapsed:w1+w2"]);
   });
 
-  it("never collapses a run that still has running work", () => {
+  it("keeps one live purpose group when work is still running", () => {
     expect(
       planSignature(
         [
@@ -1488,16 +1625,16 @@ describe("planWorkEntryRenderChunks", () => {
         ],
         { tailIsLive: false },
       ),
-    ).toEqual(["open:w1+w2", "open:think", "collapsed:w3+w4"]);
+    ).toEqual(["live:w1+w2+w3+w4"]);
   });
 
-  it("keeps singleton runs open: nothing to summarize", () => {
+  it("summarizes singleton purpose groups", () => {
     expect(
       planSignature(
         [toolItem("w1").entry, toolItem("think", { tone: "thinking" }).entry, toolItem("w2").entry],
         { tailIsLive: false },
       ),
-    ).toEqual(["open:w1", "open:think", "open:w2"]);
+    ).toEqual(["collapsed:w1+w2"]);
   });
 });
 
@@ -1528,13 +1665,9 @@ describe("capOpenWorkEntryRenderChunks", () => {
         ids: chunk.entries.map((entry) => entry.id),
         collapsed: chunk.summary !== null,
       })),
-    ).toEqual([
-      { ids: ["w1", "w2"], collapsed: true },
-      { ids: [], collapsed: false },
-      { ids: ["w5", "w6", "w7"], collapsed: false },
-    ]);
+    ).toEqual([{ ids: ["w5", "w6", "w7"], collapsed: true }]);
     expect(result.hasOverflow).toBe(true);
-    expect(result.hiddenEntryCount).toBe(3);
+    expect(result.hiddenEntryCount).toBe(4);
   });
 
   it("does not count separately rendered status boundaries against the tool cap", () => {
@@ -1559,10 +1692,8 @@ describe("capOpenWorkEntryRenderChunks", () => {
 
     expect(result.chunks.map((chunk) => chunk.entries.map((entry) => entry.id))).toEqual([
       ["w1", "w2"],
-      ["think"],
-      ["w3", "w4"],
     ]);
-    expect(result.hiddenEntryCount).toBe(1);
+    expect(result.hiddenEntryCount).toBe(3);
   });
 
   it("restores every open entry when expanded while retaining overflow state", () => {
@@ -1616,9 +1747,10 @@ const messageRowOf = (
 });
 
 const workingRow: MessagesTimelineRow = {
-  kind: "working",
-  id: "working-indicator-row",
+  kind: "turn-activity",
+  id: "turn-activity:u1",
   createdAt: null,
+  state: "working",
 };
 
 describe("findLastLiveWorkGroupId", () => {

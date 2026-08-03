@@ -173,6 +173,28 @@ export function isProviderFileEditWorkLogEntry(
   return workEntry.requestKind === "file-change" && (workEntry.changedFiles?.length ?? 0) > 0;
 }
 
+const WORKSPACE_MUTATION_ITEM_TYPES = new Set<ToolLifecycleItemType>([
+  "command_execution",
+  "file_change",
+  "mcp_tool_call",
+  "dynamic_tool_call",
+  "collab_agent_tool_call",
+]);
+
+export function hasTurnWorkspaceMutationEvidence(
+  entries: ReadonlyArray<
+    Pick<WorkLogEntry, "changedFiles" | "itemType" | "requestKind" | "turnId">
+  >,
+  turnId: TurnId,
+): boolean {
+  return entries.some(
+    (entry) =>
+      entry.turnId === turnId &&
+      ((entry.itemType !== undefined && WORKSPACE_MUTATION_ITEM_TYPES.has(entry.itemType)) ||
+        (entry.requestKind === "file-change" && (entry.changedFiles?.length ?? 0) > 0)),
+  );
+}
+
 export type TimelineEntry =
   | {
       id: string;

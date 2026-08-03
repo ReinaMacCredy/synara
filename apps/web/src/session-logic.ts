@@ -28,6 +28,7 @@ export {
 export {
   deriveTimelineEntries,
   deriveWorkLogEntries,
+  hasTurnWorkspaceMutationEvidence,
   isFileChangeWorkLogEntry,
   isProviderFileEditWorkLogEntry,
   isRoutedSubagentWorkEntry,

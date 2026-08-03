@@ -22,9 +22,7 @@ describe("Orchestrator contracts", () => {
       "wait_for_event",
     ]);
     assert.equal(tools.includes("assign_task"), true);
-    assert.throws(() =>
-      Schema.decodeUnknownSync(OrchestratorToolName)("detach_child_thread"),
-    );
+    assert.throws(() => Schema.decodeUnknownSync(OrchestratorToolName)("detach_child_thread"));
   });
 
   it("keeps continuity strategy explicit", () => {

@@ -42,6 +42,7 @@ type TaskDbRow = {
   readonly description: string | null;
   readonly acceptanceCriteriaJson: string;
   readonly priority: "low" | "normal" | "high" | "critical";
+  readonly risk: "low" | "medium" | "high";
   readonly lifecycle:
     | "planned"
     | "in_progress"
@@ -144,6 +145,7 @@ const toTask = (row: TaskDbRow): typeof ProjectTask.Type => ({
   description: row.description,
   acceptanceCriteria: decodeJson(Schema.Array(Schema.String), row.acceptanceCriteriaJson),
   priority: row.priority,
+  risk: row.risk,
   lifecycle: row.lifecycle,
   orderKey: row.orderKey,
   createdBy: decodeJson(ActorIdentity, row.createdByJson),
@@ -217,7 +219,10 @@ const makeProjectionTaskProcessRepository = Effect.gen(function* () {
           ${row.process.createdAt}, ${row.process.updatedAt}
         FROM projection_projects
         WHERE project_id = ${row.process.projectId}
-          AND kind = 'project'
+          AND (
+            kind = 'project'
+            OR (kind = 'chat' AND ${row.process.owner.kind} = 'orchestrator')
+          )
           AND deleted_at IS NULL
         ON CONFLICT (process_id) DO UPDATE SET
           title = excluded.title,
@@ -353,11 +358,11 @@ const makeProjectionTaskProcessRepository = Effect.gen(function* () {
     return sql`
       INSERT INTO projection_project_tasks (
         task_id, process_id, parent_task_id, title, description,
-        acceptance_criteria_json, priority, lifecycle, order_key, created_by_json,
+        acceptance_criteria_json, priority, risk, lifecycle, order_key, created_by_json,
         readiness, execution_health, evidence_state, created_at, updated_at
       ) VALUES (
         ${task.id}, ${row.processId}, ${task.parentTaskId}, ${task.title}, ${task.description},
-        ${JSON.stringify(task.acceptanceCriteria)}, ${task.priority}, ${task.lifecycle},
+        ${JSON.stringify(task.acceptanceCriteria)}, ${task.priority}, ${task.risk}, ${task.lifecycle},
         ${task.orderKey}, ${JSON.stringify(task.createdBy)}, ${row.task.readiness},
         ${row.task.executionHealth}, ${row.task.evidenceState}, ${task.createdAt}, ${task.updatedAt}
       )
@@ -367,6 +372,7 @@ const makeProjectionTaskProcessRepository = Effect.gen(function* () {
         description = excluded.description,
         acceptance_criteria_json = excluded.acceptance_criteria_json,
         priority = excluded.priority,
+        risk = excluded.risk,
         lifecycle = excluded.lifecycle,
         order_key = excluded.order_key,
         readiness = excluded.readiness,
@@ -527,7 +533,7 @@ const makeProjectionTaskProcessRepository = Effect.gen(function* () {
           SELECT
             task_id AS "taskId", process_id AS "processId", parent_task_id AS "parentTaskId",
             title, description, acceptance_criteria_json AS "acceptanceCriteriaJson",
-            priority, lifecycle, order_key AS "orderKey", created_by_json AS "createdByJson",
+            priority, risk, lifecycle, order_key AS "orderKey", created_by_json AS "createdByJson",
             readiness, execution_health AS "executionHealth", evidence_state AS "evidenceState",
             created_at AS "createdAt", updated_at AS "updatedAt"
           FROM projection_project_tasks

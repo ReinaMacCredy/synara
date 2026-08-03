@@ -1,5 +1,6 @@
 import {
   type ArtifactId,
+  type GetOrchestratorSnapshotResult,
   ThreadId,
   type ListOrchestratorRootsInput,
   type ListOrchestratorRootsResult,
@@ -33,6 +34,17 @@ export function orchestratorRootsQueryOptions(input: ListOrchestratorRootsInput 
       return api.orchestration.listOrchestratorRoots(normalized);
     },
     staleTime: 10_000,
+  };
+}
+
+export function orchestratorRootQueryOptions(rootThreadId: ThreadId) {
+  return {
+    queryKey: orchestratorQueryKeys.root(rootThreadId),
+    queryFn: async (): Promise<GetOrchestratorSnapshotResult> => {
+      const api = readNativeApi();
+      if (!api) throw new Error("The Synara server is unavailable.");
+      return api.orchestration.getOrchestratorSnapshot({ rootThreadId });
+    },
   };
 }
 

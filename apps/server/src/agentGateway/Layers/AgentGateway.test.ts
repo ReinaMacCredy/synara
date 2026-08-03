@@ -1614,6 +1614,7 @@ describe("AgentGateway", () => {
       ],
       communicationLinks: [],
       assignments: [],
+      childResults: [],
       runs: [],
       providerCapabilities: [],
       capacity: null,
@@ -1639,13 +1640,13 @@ describe("AgentGateway", () => {
         authorizationHeader: "Bearer token-parent",
         body: { jsonrpc: "2.0", id: 1, method: "tools/list" },
       });
-        assert.deepEqual(orchestrationNames(root.body), []);
+      assert.deepEqual(orchestrationNames(root.body), []);
 
       const participant = yield* harness.postRaw({
         authorizationHeader: "Bearer token-participant",
         body: { jsonrpc: "2.0", id: 2, method: "tools/list" },
       });
-        assert.deepEqual(orchestrationNames(participant.body), []);
+      assert.deepEqual(orchestrationNames(participant.body), []);
     }).pipe(Effect.provide(gatewayLayer));
   });
 

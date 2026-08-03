@@ -136,11 +136,7 @@ import {
 import { DisclosureChevron } from "../ui/DisclosureChevron";
 import { DisclosureRegion } from "../ui/DisclosureRegion";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
-import {
-  DISCLOSURE_CLEANUP_BUFFER_MS,
-  DISCLOSURE_TRANSITION_MS,
-  disclosureContentClassName,
-} from "~/lib/disclosureMotion";
+import { DISCLOSURE_CLEANUP_BUFFER_MS, DISCLOSURE_TRANSITION_MS } from "~/lib/disclosureMotion";
 import { getAppTypographyScale } from "../../lib/appTypography";
 import {
   USER_MESSAGE_COLLAPSED_FADE_LINES,
@@ -630,7 +626,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }
     return null;
   }, [rows]);
-  const settledTurnCollapseTransitions = useSettledTurnCollapseTransitions(rows);
   const enteringMessageRowIds = useMessageSendEnterAnimations(rows, enteringUserMessageIds);
   const timelineExtraData = useMemo(
     () => ({
@@ -646,7 +641,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       highlightedMessageId,
       lastLiveWorkGroupId,
       pinnedMessageIds,
-      settledTurnCollapseTransitions,
       submittingEditedUserMessageId,
       threadMarkersByMessageId,
       toolGroupSummaryOverrides,
@@ -664,7 +658,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       highlightedMessageId,
       lastLiveWorkGroupId,
       pinnedMessageIds,
-      settledTurnCollapseTransitions,
       submittingEditedUserMessageId,
       threadMarkersByMessageId,
       toolGroupSummaryOverrides,
@@ -964,13 +957,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       className={cn(
         CHAT_COLUMN_FRAME_CLASS_NAME,
         "px-1 transition-colors duration-500",
-        row.kind === "working" ||
+        (row.kind === "turn-activity" && row.state === "working") ||
           (row.kind === "message" &&
             row.message.role === "assistant" &&
             row.assistantTurnInProgress)
           ? "pb-1"
           : row.kind === "work" ||
-              row.kind === "working-header" ||
+              row.kind === "turn-activity" ||
               (row.kind === "message" && row.message.role === "assistant")
             ? "pb-2"
             : "pb-4",
@@ -1034,9 +1027,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                       <ToolCallGroupSummaryRow
                         key={`tool-summary:${summaryKey}`}
                         summary={summary}
-                        open={toolGroupSummaryOverrides[summaryKey] ?? false}
+                        open={chunk.live || (toolGroupSummaryOverrides[summaryKey] ?? false)}
                         onToggle={(open) => setToolGroupSummaryOpen(summaryKey, open)}
                         fontSizePx={normalizedChatFontSizePx}
+                        live={chunk.live}
                         renderChildren={() => (
                           <div className="space-y-0.5 pt-0.5">
                             {chunk.entries.map(renderEntryRow)}
@@ -1354,7 +1348,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           const buildWorkDisplay = (workEntries: WorkLogEntry[], workGroupId: string | null) => {
             const displayEntries = workEntries.filter((entry) => !entry.synaraThreadCreation);
             const toolEntries = displayEntries.filter((entry) => entry.tone === "tool");
-            const statusEntries = displayEntries.filter((entry) => entry.tone !== "tool");
+            const statusEntries = displayEntries.filter(
+              (entry) =>
+                entry.tone !== "tool" && !(toolEntries.length > 0 && entry.tone === "thinking"),
+            );
             const toolGroupId = toolEntries.length > 0 ? workGroupId : null;
             const toolExpanded =
               toolGroupId !== null ? (expandedWorkGroupsState[toolGroupId] ?? false) : false;
@@ -1379,8 +1376,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               statusEntries,
               toolGroupId,
               toolExpanded,
-              // Ordered (tool + narration interleaved) so chunking sees the
-              // thinking/info boundaries that split tool runs mid-turn.
+              // Generic provider thinking is presentation noise while a
+              // canonical tool purpose is visible. The planner removes it so
+              // one purpose remains one disclosure; meaningful info/error rows
+              // remain available as explicit status rows below.
               orderedRenderableEntries: displayEntries.filter(isRenderableToolEntry),
               renderableToolEntries: toolEntries.filter(isRenderableToolEntry),
               visibleRenderableToolEntries: visibleToolEntries.filter(isRenderableToolEntry),
@@ -1455,16 +1454,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               ),
             ).values(),
           ];
-          const collapsedTurnItems = row.collapsedTurnItems?.filter(
-            (item) => item.kind !== "work" || !item.entry.synaraThreadCreation,
-          );
-          const hasCollapsedWork = Boolean(collapsedTurnItems && collapsedTurnItems.length > 0);
-          const isCollapsedWorkExpanded = hasCollapsedWork
-            ? (expandedCollapsedWork[row.message.id] ?? false)
-            : false;
-          const settledCollapseTransition = isCollapsedWorkExpanded
-            ? undefined
-            : settledTurnCollapseTransitions[row.message.id];
           const isTailContentRow = row.id === tailContentRowId;
           const renderWorkDisplay = (
             display: typeof leadingWorkDisplay,
@@ -1500,7 +1489,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               },
             );
             const cappedRenderPlan = capOpenWorkEntryRenderChunks(plannedRenderChunks, {
-              expanded: display.toolExpanded,
+              // An active purpose is already explicitly open: every child row must remain
+              // visible while tools stream, matching the Codex timeline instead of hiding
+              // older live calls behind a second "show more" control.
+              expanded: display.toolExpanded || isLiveGroup,
               maxVisibleEntries: MAX_VISIBLE_INLINE_TOOL_ENTRIES,
               keep: activeTurnInProgress ? "last" : "first",
               shouldCapEntry: (workEntry) => workEntry.tone === "tool",
@@ -1509,39 +1501,62 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             const collapseAsSummary = renderChunks.some((chunk) => chunk.summary !== null);
             return (
               <>
-                {!hasCollapsedWork &&
-                  collapseAsSummary &&
-                  display.renderableToolEntries.length > 0 && (
-                    <div className={placement === "leading" ? "mb-1.5" : "mt-1.5"}>
-                      <div className="space-y-px">
-                        {renderChunks.map((chunk) => {
-                          if (!chunk.summary) {
-                            // Narration-tone entries render in the status block
-                            // below; here they only serve as run boundaries.
-                            return chunk.entries
-                              .filter((workEntry) => workEntry.tone === "tool")
-                              .map(renderInlineToolRow);
-                          }
-                          const summary = chunk.summary;
-                          // Message ids stay stable while a live group's first-entry id can drift.
-                          const summaryOverrideKey = `${placement}:${row.message.id}:${chunk.id}`;
-                          return (
-                            <ToolCallGroupSummaryRow
-                              key={`inline-tool-summary:${summaryOverrideKey}`}
-                              summary={summary}
-                              open={toolGroupSummaryOverrides[summaryOverrideKey] ?? false}
-                              onToggle={(open) => setToolGroupSummaryOpen(summaryOverrideKey, open)}
-                              fontSizePx={normalizedChatFontSizePx}
-                              renderChildren={() => (
-                                <div className="space-y-px pt-0.5">
-                                  {chunk.entries.map(renderInlineToolRow)}
-                                </div>
-                              )}
-                            />
-                          );
-                        })}
+                {collapseAsSummary && display.renderableToolEntries.length > 0 && (
+                  <div className={placement === "leading" ? "mb-1.5" : "mt-1.5"}>
+                    <div className="space-y-px">
+                      {renderChunks.map((chunk) => {
+                        if (!chunk.summary) {
+                          // Narration-tone entries render in the status block
+                          // below; here they only serve as run boundaries.
+                          return chunk.entries
+                            .filter((workEntry) => workEntry.tone === "tool")
+                            .map(renderInlineToolRow);
+                        }
+                        const summary = chunk.summary;
+                        // Message ids stay stable while a live group's first-entry id can drift.
+                        const summaryOverrideKey = `${placement}:${row.message.id}:${chunk.id}`;
+                        return (
+                          <ToolCallGroupSummaryRow
+                            key={`inline-tool-summary:${summaryOverrideKey}`}
+                            summary={summary}
+                            open={
+                              chunk.live || (toolGroupSummaryOverrides[summaryOverrideKey] ?? false)
+                            }
+                            onToggle={(open) => setToolGroupSummaryOpen(summaryOverrideKey, open)}
+                            fontSizePx={normalizedChatFontSizePx}
+                            live={chunk.live}
+                            renderChildren={() => (
+                              <div className="space-y-px pt-0.5">
+                                {chunk.entries.map(renderInlineToolRow)}
+                              </div>
+                            )}
+                          />
+                        );
+                      })}
+                    </div>
+                    {display.toolGroupId && cappedRenderPlan.hasOverflow && (
+                      <div className="py-0.5">
+                        <button
+                          type="button"
+                          className="text-muted-foreground/50 transition-colors duration-150 hover:text-foreground/72"
+                          style={{ fontSize: `${normalizedChatFontSizePx}px` }}
+                          onClick={() => handleToggleWorkGroup(display.toolGroupId!)}
+                        >
+                          {display.toolExpanded
+                            ? "Show less"
+                            : `+${cappedRenderPlan.hiddenEntryCount} more tool calls`}
+                        </button>
                       </div>
-                      {display.toolGroupId && cappedRenderPlan.hasOverflow && (
+                    )}
+                  </div>
+                )}
+                {!collapseAsSummary && display.visibleRenderableToolEntries.length > 0 && (
+                  <div className={placement === "leading" ? "mb-1.5" : "mt-1.5"}>
+                    <div className="space-y-px">
+                      {display.visibleRenderableToolEntries.map(renderInlineToolRow)}
+                    </div>
+                    {display.toolGroupId &&
+                      display.toolEntries.length > MAX_VISIBLE_INLINE_TOOL_ENTRIES && (
                         <div className="py-0.5">
                           <button
                             type="button"
@@ -1551,37 +1566,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                           >
                             {display.toolExpanded
                               ? "Show less"
-                              : `+${cappedRenderPlan.hiddenEntryCount} more tool calls`}
+                              : `+${display.hiddenToolCount} more tool calls`}
                           </button>
                         </div>
                       )}
-                    </div>
-                  )}
-                {!hasCollapsedWork &&
-                  !collapseAsSummary &&
-                  display.visibleRenderableToolEntries.length > 0 && (
-                    <div className={placement === "leading" ? "mb-1.5" : "mt-1.5"}>
-                      <div className="space-y-px">
-                        {display.visibleRenderableToolEntries.map(renderInlineToolRow)}
-                      </div>
-                      {display.toolGroupId &&
-                        display.toolEntries.length > MAX_VISIBLE_INLINE_TOOL_ENTRIES && (
-                          <div className="py-0.5">
-                            <button
-                              type="button"
-                              className="text-muted-foreground/50 transition-colors duration-150 hover:text-foreground/72"
-                              style={{ fontSize: `${normalizedChatFontSizePx}px` }}
-                              onClick={() => handleToggleWorkGroup(display.toolGroupId!)}
-                            >
-                              {display.toolExpanded
-                                ? "Show less"
-                                : `+${display.hiddenToolCount} more tool calls`}
-                            </button>
-                          </div>
-                        )}
-                    </div>
-                  )}
-                {!hasCollapsedWork && display.statusEntries.length > 0 && (
+                  </div>
+                )}
+                {display.statusEntries.length > 0 && (
                   <div
                     className={cn(
                       "space-y-0.5",
@@ -1611,127 +1602,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               </>
             );
           };
-          const renderCollapsedTurnItem = (item: CollapsedTurnItem, keyPrefix: string) =>
-            item.kind === "work" ? (
-              <TimelineWorkEntryRow
-                key={`${keyPrefix}:work:${row.message.id}:${item.id}`}
-                workEntry={item.entry}
-                chatMetaFontSizePx={appTypographyScale.chatMetaPx}
-                textFontSizePx={normalizedChatFontSizePx}
-                density={prefersCompactWorkEntryRow(item.entry) ? "compact" : "default"}
-                markdownCwd={markdownCwd}
-                onImageExpand={onImageExpand}
-                timestampFormat={timestampFormat}
-                {...(onOpenAgentActivity ? { onOpenAgentActivity } : {})}
-                {...(onOpenAutomation ? { onOpenAutomation } : {})}
-              />
-            ) : (
-              <div
-                key={`${keyPrefix}:narration:${row.message.id}:${item.id}`}
-                className="text-muted-foreground/80"
-              >
-                <ChatMarkdown
-                  text={item.message.text}
-                  cwd={markdownCwd}
-                  isStreaming={false}
-                  style={chatTypographyStyle}
-                  onImageExpand={onImageExpand}
-                />
-              </div>
-            );
-          const renderCollapsedTurnChunk = (chunk: CollapsedTurnChunk, keyPrefix: string) => {
-            if (chunk.kind === "item") {
-              return renderCollapsedTurnItem(chunk.item, keyPrefix);
-            }
-            const summary = summarizeToolCallGroup(chunk.entries);
-            if (!summary) {
-              return chunk.entries.map((entry) =>
-                renderCollapsedTurnItem({ kind: "work", id: entry.id, entry }, keyPrefix),
-              );
-            }
-            const summaryOverrideKey = `turn:${row.message.id}:${chunk.id}`;
-            return (
-              <ToolCallGroupSummaryRow
-                key={`${keyPrefix}:tool-group:${row.message.id}:${chunk.id}`}
-                summary={summary}
-                open={toolGroupSummaryOverrides[summaryOverrideKey] ?? false}
-                onToggle={(open) => setToolGroupSummaryOpen(summaryOverrideKey, open)}
-                fontSizePx={normalizedChatFontSizePx}
-                renderChildren={() => (
-                  <div className="space-y-0.5 pt-0.5">
-                    {chunk.entries.map((entry) =>
-                      renderCollapsedTurnItem({ kind: "work", id: entry.id, entry }, keyPrefix),
-                    )}
-                  </div>
-                )}
-              />
-            );
-          };
           return (
             <>
-              {settledCollapseTransition && (
-                <div
-                  aria-hidden="true"
-                  inert
-                  // The clone is visual-only for the entire close transition; keep it inert
-                  // even while the inner DisclosureRegion starts open for its first frame.
-                  className="pointer-events-none mb-3 select-none"
-                  data-settled-turn-collapse-transition="true"
-                >
-                  <DisclosureRegion
-                    open={settledCollapseTransition.open}
-                    contentClassName="space-y-1.5 pb-2.5"
-                  >
-                    {chunkCollapsedTurnItems(settledCollapseTransition.items).map((chunk) =>
-                      renderCollapsedTurnChunk(chunk, "settling-turn-close"),
-                    )}
-                  </DisclosureRegion>
-                </div>
-              )}
-              {hasCollapsedWork && (
-                <div className="mb-3">
-                  <Collapsible
-                    className="group/collapsed-work"
-                    open={isCollapsedWorkExpanded}
-                    onOpenChange={(open) => {
-                      setCollapsedWorkExpanded(row.message.id, open);
-                    }}
-                  >
-                    <CollapsibleTrigger
-                      // ChatView's click anchor preserves this trigger's screen position
-                      // while the disclosure height animates, so opening it should not tail-scroll.
-                      // -ml-0.5 optically aligns the leading "W" with the reply
-                      // text below: the box is already flush, but the W glyph
-                      // carries a left side-bearing that reads as an inset.
-                      className="-ml-0.5 inline-flex items-center gap-1 pb-2 text-left text-muted-foreground/70 transition-colors duration-200 hover:text-muted-foreground/90"
-                      style={{ fontSize: chatTypographyStyle.fontSize }}
-                    >
-                      <span>
-                        {row.collapsedWorkElapsed
-                          ? `Worked for ${row.collapsedWorkElapsed}`
-                          : "Details"}
-                      </span>
-                      <DisclosureChevron
-                        open={isCollapsedWorkExpanded}
-                        className="text-muted-foreground/55"
-                      />
-                    </CollapsibleTrigger>
-                    <CollapsiblePanel>
-                      <div
-                        className={disclosureContentClassName(
-                          isCollapsedWorkExpanded,
-                          "mb-2.5 space-y-1.5",
-                        )}
-                      >
-                        {chunkCollapsedTurnItems(collapsedTurnItems!).map((chunk) =>
-                          renderCollapsedTurnChunk(chunk, "collapsed-panel"),
-                        )}
-                      </div>
-                    </CollapsiblePanel>
-                  </Collapsible>
-                  <div className="h-px w-full bg-border" />
-                </div>
-              )}
               <div className="group min-w-0 py-0.5">
                 {renderWorkDisplay(leadingWorkDisplay, "leading")}
                 {messageText !== null ? (
@@ -2020,34 +1892,93 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         </div>
       )}
 
-      {row.kind === "working-header" && (
-        <div>
-          {/* Non-collapsible twin of the settled "Worked for" header: same label
-              tone, size, and full-width divider, but counting up live. -ml-0.5
-              optically aligns the leading "W" with the reply text below. */}
-          <div
-            className="-ml-0.5 pb-2 text-muted-foreground/70"
-            style={{ fontSize: chatTypographyStyle.fontSize }}
-          >
-            Working for{" "}
-            {nowIso ? (
-              (formatClockElapsed(row.createdAt, nowIso) ?? "0s")
+      {row.kind === "turn-activity" &&
+        (() => {
+          const detailItems = (row.collapsedTurnItems ?? []).filter(
+            (item) => item.kind !== "work" || !item.entry.synaraThreadCreation,
+          );
+          const expanded =
+            row.state === "settled" && detailItems.length > 0
+              ? (expandedCollapsedWork[row.id] ?? false)
+              : false;
+          const renderItem = (item: CollapsedTurnItem, keyPrefix: string) =>
+            item.kind === "work" ? (
+              <TimelineWorkEntryRow
+                key={`${keyPrefix}:work:${row.id}:${item.id}`}
+                workEntry={item.entry}
+                chatMetaFontSizePx={appTypographyScale.chatMetaPx}
+                textFontSizePx={normalizedChatFontSizePx}
+                density={prefersCompactWorkEntryRow(item.entry) ? "compact" : "default"}
+                markdownCwd={markdownCwd}
+                onImageExpand={onImageExpand}
+                timestampFormat={timestampFormat}
+                {...(onOpenAgentActivity ? { onOpenAgentActivity } : {})}
+                {...(onOpenAutomation ? { onOpenAutomation } : {})}
+              />
             ) : (
-              <WorkingTimer createdAt={row.createdAt} />
-            )}
-          </div>
-          <div className="h-px w-full bg-border" />
-        </div>
-      )}
+              <div
+                key={`${keyPrefix}:narration:${row.id}:${item.id}`}
+                className="text-muted-foreground/80"
+              >
+                <ChatMarkdown
+                  text={item.message.text}
+                  cwd={markdownCwd}
+                  isStreaming={false}
+                  style={chatTypographyStyle}
+                  onImageExpand={onImageExpand}
+                />
+              </div>
+            );
+          const renderChunk = (chunk: CollapsedTurnChunk) => {
+            if (chunk.kind === "item") {
+              return renderItem(chunk.item, "turn-activity");
+            }
+            const summary = summarizeToolCallGroup(chunk.entries);
+            if (!summary) {
+              return chunk.entries.map((entry) =>
+                renderItem({ kind: "work", id: entry.id, entry }, "turn-activity"),
+              );
+            }
+            const summaryKey = `turn:${row.id}:${chunk.id}`;
+            return (
+              <ToolCallGroupSummaryRow
+                key={`turn-activity:tool-group:${row.id}:${chunk.id}`}
+                summary={summary}
+                open={toolGroupSummaryOverrides[summaryKey] ?? false}
+                onToggle={(open) => setToolGroupSummaryOpen(summaryKey, open)}
+                fontSizePx={normalizedChatFontSizePx}
+                live={false}
+                renderChildren={() => (
+                  <div className="space-y-0.5 pt-0.5">
+                    {chunk.entries.map((entry) =>
+                      renderItem({ kind: "work", id: entry.id, entry }, "turn-activity"),
+                    )}
+                  </div>
+                )}
+              />
+            );
+          };
 
-      {row.kind === "working" && (
-        <div
-          className="shimmer pt-0.5 text-muted-foreground/70 font-system-ui"
-          style={{ fontSize: `${appTypographyScale.chatPx}px` }}
-        >
-          Thinking
-        </div>
-      )}
+          return (
+            <TurnActivityRegion
+              activityId={row.id}
+              state={row.state}
+              startedAt={row.createdAt}
+              showThinking={row.showThinking ?? false}
+              settledElapsed={row.collapsedWorkElapsed ?? null}
+              nowIso={nowIso}
+              open={expanded}
+              hasDetails={detailItems.length > 0}
+              fontSize={chatTypographyStyle.fontSize}
+              onToggle={(open) => setCollapsedWorkExpanded(row.id, open)}
+              renderChildren={() => (
+                <div className="mb-2.5 space-y-1.5">
+                  {chunkCollapsedTurnItems(detailItems).map(renderChunk)}
+                </div>
+              )}
+            />
+          );
+        })()}
 
       {row.kind === "worktree-setup" && (
         <DisclosureRegion open={row.open}>
@@ -2087,9 +2018,16 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         // has to be surfaced through extraData.
         extraData={timelineExtraData}
         initialScrollAtEnd
-        maintainScrollAtEnd={followLiveOutput}
+        maintainScrollAtEnd={
+          followLiveOutput
+            ? {
+                animated: false,
+                on: { dataChange: true, itemLayout: true, layout: true },
+              }
+            : false
+        }
         maintainScrollAtEndThreshold={0.1}
-        {...(!followLiveOutput ? { maintainVisibleContentPosition: true } : {})}
+        maintainVisibleContentPosition={{ data: true, size: false }}
         onClickCapture={onMessagesClickCapture}
         onMouseUp={onMessagesMouseUp}
         onPointerCancel={onMessagesPointerCancel}
@@ -2124,15 +2062,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 });
 
 type TimelineMessage = Extract<MessagesTimelineRow, { kind: "message" }>["message"];
-type SettledTurnCollapseTransition = {
-  open: boolean;
-  items: readonly CollapsedTurnItem[];
-};
-type SettledTurnCollapseTimer = {
-  closeFrame: number | null;
-  cleanupTimeout: number | null;
-};
-
 // Reuse stable row references so streaming updates only force React work for
 // rows whose visible content actually changed.
 function useStableRows(rows: MessagesTimelineRow[]): MessagesTimelineRow[] {
@@ -2327,180 +2256,117 @@ function reconcileWorktreeSetupPresentation(params: {
   });
 }
 
-// Keeps newly folded turn details mounted for one shared-disclosure close
-// animation, so settled turns do not disappear in one height recalculation.
-function useSettledTurnCollapseTransitions(
-  rows: readonly MessagesTimelineRow[],
-): Readonly<Record<string, SettledTurnCollapseTransition>> {
-  const [transitions, setTransitions] = useState<Record<string, SettledTurnCollapseTransition>>({});
-  const previousAssistantMessageIdsRef = useRef<ReadonlySet<string>>(new Set());
-  const previousCollapsedSignaturesRef = useRef<ReadonlyMap<string, string>>(new Map());
-  const timersRef = useRef(new Map<string, SettledTurnCollapseTimer>());
+function TurnActivityRegion(props: {
+  activityId: string;
+  state: "working" | "settled";
+  startedAt: string | null;
+  showThinking: boolean;
+  settledElapsed: string | null;
+  nowIso?: string;
+  open: boolean;
+  hasDetails: boolean;
+  fontSize: CSSProperties["fontSize"];
+  onToggle: (open: boolean) => void;
+  renderChildren: () => ReactNode;
+}) {
+  const live = props.state === "working";
+  const [keepChildrenMounted, setKeepChildrenMounted] = useState(props.open);
 
-  const clearTransitionTimer = useCallback((messageId: string) => {
-    const timer = timersRef.current.get(messageId);
-    if (!timer) {
+  useEffect(() => {
+    if (props.open) {
+      setKeepChildrenMounted(true);
       return;
     }
-    if (timer.closeFrame !== null) {
-      window.cancelAnimationFrame(timer.closeFrame);
-    }
-    if (timer.cleanupTimeout !== null) {
-      window.clearTimeout(timer.cleanupTimeout);
-    }
-    timersRef.current.delete(messageId);
-  }, []);
+    if (!keepChildrenMounted) return;
+    const cleanup = window.setTimeout(
+      () => setKeepChildrenMounted(false),
+      DISCLOSURE_TRANSITION_MS + DISCLOSURE_CLEANUP_BUFFER_MS,
+    );
+    return () => window.clearTimeout(cleanup);
+  }, [keepChildrenMounted, props.open]);
 
-  const scheduleTransitionClose = useCallback(
-    (messageId: string) => {
-      clearTransitionTimer(messageId);
-      const closeFrame = window.requestAnimationFrame(() => {
-        const timer = timersRef.current.get(messageId);
-        if (!timer) {
-          return;
-        }
-        timersRef.current.set(messageId, { ...timer, closeFrame: null });
-        setTransitions((current) => {
-          const transition = current[messageId];
-          if (!transition || !transition.open) {
-            return current;
-          }
-          return {
-            ...current,
-            [messageId]: { ...transition, open: false },
-          };
-        });
-
-        const cleanupTimeout = window.setTimeout(() => {
-          timersRef.current.delete(messageId);
-          setTransitions((current) => {
-            if (!current[messageId]) {
-              return current;
-            }
-            const next = { ...current };
-            delete next[messageId];
-            return next;
-          });
-        }, DISCLOSURE_TRANSITION_MS + DISCLOSURE_CLEANUP_BUFFER_MS);
-        timersRef.current.set(messageId, { closeFrame: null, cleanupTimeout });
-      });
-      timersRef.current.set(messageId, { closeFrame, cleanupTimeout: null });
-    },
-    [clearTransitionTimer],
+  return (
+    <div className="mb-3" data-turn-work-region={props.activityId}>
+      <Collapsible
+        className="group/collapsed-work"
+        open={!live && props.open}
+        onOpenChange={(open) => {
+          if (live || !props.hasDetails) return;
+          props.onToggle(open);
+        }}
+      >
+        <CollapsibleTrigger
+          disabled={live || !props.hasDetails}
+          className="-ml-0.5 inline-flex items-center gap-1 pb-2 text-left text-muted-foreground/70 transition-colors duration-200 hover:text-muted-foreground/90 disabled:pointer-events-none"
+          style={{ fontSize: props.fontSize }}
+        >
+          <TurnWorkRegionLabel
+            state={props.state}
+            startedAt={props.startedAt}
+            settledElapsed={props.settledElapsed}
+            nowIso={props.nowIso}
+          />
+          {!live && props.hasDetails ? (
+            <DisclosureChevron open={props.open} className="text-muted-foreground/55" />
+          ) : null}
+        </CollapsibleTrigger>
+        <CollapsiblePanel>
+          {props.open || keepChildrenMounted ? props.renderChildren() : null}
+        </CollapsiblePanel>
+      </Collapsible>
+      <div className="h-px w-full bg-border" />
+      <DisclosureRegion open={live && props.showThinking}>
+        <div
+          data-turn-thinking="true"
+          className="shimmer pt-3 text-muted-foreground/70 motion-reduce:animate-none"
+          style={{ fontSize: props.fontSize }}
+        >
+          Thinking
+        </div>
+      </DisclosureRegion>
+    </div>
   );
-
-  useLayoutEffect(() => {
-    applySettledTurnCollapseTransitions({
-      rows,
-      previousAssistantMessageIdsRef,
-      previousCollapsedSignaturesRef,
-      clearTransitionTimer,
-      scheduleTransitionClose,
-      setTransitions,
-    });
-  }, [clearTransitionTimer, rows, scheduleTransitionClose]);
-
-  useEffect(
-    () => () => {
-      for (const messageId of Array.from(timersRef.current.keys())) {
-        clearTransitionTimer(messageId);
-      }
-    },
-    [clearTransitionTimer],
-  );
-
-  return transitions;
 }
 
-// Detects turns that just folded and drives their close animation. Kept in a module
-// helper (not compiled) so the synchronous open setState stays out of the hook while
-// its ordering against scheduleTransitionClose — which needs the open state committed
-// before it schedules the closing rAF — is preserved exactly.
-function applySettledTurnCollapseTransitions(params: {
-  rows: readonly MessagesTimelineRow[];
-  previousAssistantMessageIdsRef: RefObject<ReadonlySet<string>>;
-  previousCollapsedSignaturesRef: RefObject<ReadonlyMap<string, string>>;
-  clearTransitionTimer: (messageId: string) => void;
-  scheduleTransitionClose: (messageId: string) => void;
-  setTransitions: Dispatch<SetStateAction<Record<string, SettledTurnCollapseTransition>>>;
-}): void {
-  const {
-    rows,
-    previousAssistantMessageIdsRef,
-    previousCollapsedSignaturesRef,
-    clearTransitionTimer,
-    scheduleTransitionClose,
-    setTransitions,
-  } = params;
-  const currentAssistantMessageIds = new Set<string>();
-  const currentCollapsed = new Map<
-    string,
-    { signature: string; items: readonly CollapsedTurnItem[] }
-  >();
-
-  for (const row of rows) {
-    if (row.kind !== "message" || row.message.role !== "assistant") {
-      continue;
-    }
-    const messageId = row.message.id;
-    currentAssistantMessageIds.add(messageId);
-    if (row.collapsedTurnItems && row.collapsedTurnItems.length > 0) {
-      currentCollapsed.set(messageId, {
-        signature: collapsedTurnItemsSignature(row.collapsedTurnItems),
-        items: row.collapsedTurnItems,
-      });
-    }
-  }
-
-  const previousAssistantMessageIds = previousAssistantMessageIdsRef.current;
-  const previousCollapsedSignatures = previousCollapsedSignaturesRef.current;
-  const startedTransitions: Array<{
-    messageId: string;
-    items: readonly CollapsedTurnItem[];
-  }> = [];
-
-  for (const [messageId, collapsed] of currentCollapsed) {
-    if (previousAssistantMessageIds.has(messageId) && !previousCollapsedSignatures.has(messageId)) {
-      startedTransitions.push({ messageId, items: collapsed.items });
-    }
-  }
-
-  previousAssistantMessageIdsRef.current = currentAssistantMessageIds;
-  previousCollapsedSignaturesRef.current = new Map(
-    Array.from(currentCollapsed, ([messageId, collapsed]) => [messageId, collapsed.signature]),
+function TurnWorkRegionLabel(props: {
+  state: "working" | "settled";
+  startedAt: string | null;
+  settledElapsed: string | null;
+  nowIso?: string;
+}) {
+  const live = props.state === "working";
+  const elapsed =
+    live && props.startedAt ? (
+      props.nowIso ? (
+        (formatClockElapsed(props.startedAt, props.nowIso) ?? "0s")
+      ) : (
+        <WorkingTimer createdAt={props.startedAt} />
+      )
+    ) : (
+      (props.settledElapsed ?? "0s")
+    );
+  return (
+    <span className="inline-grid" aria-live="polite">
+      <span
+        className={cn(
+          "[grid-area:1/1] transition-opacity duration-160 ease-out motion-reduce:transition-none",
+          live ? "opacity-100" : "opacity-0",
+        )}
+        aria-hidden={!live}
+      >
+        {props.startedAt ? <>Working for {elapsed}</> : "Working..."}
+      </span>
+      <span
+        className={cn(
+          "[grid-area:1/1] transition-opacity duration-160 ease-out motion-reduce:transition-none",
+          live ? "opacity-0" : "opacity-100",
+        )}
+        aria-hidden={live}
+      >
+        Worked for {props.settledElapsed ?? "0s"}
+      </span>
+    </span>
   );
-
-  setTransitions((current) => {
-    let next: Record<string, SettledTurnCollapseTransition> | null = null;
-    const ensureNext = () => {
-      next ??= { ...current };
-      return next;
-    };
-
-    for (const messageId of Object.keys(current)) {
-      if (!currentCollapsed.has(messageId)) {
-        clearTransitionTimer(messageId);
-        delete ensureNext()[messageId];
-      }
-    }
-
-    for (const transition of startedTransitions) {
-      ensureNext()[transition.messageId] = {
-        open: true,
-        items: transition.items,
-      };
-    }
-
-    return next ?? current;
-  });
-
-  for (const transition of startedTransitions) {
-    scheduleTransitionClose(transition.messageId);
-  }
-}
-
-function collapsedTurnItemsSignature(items: readonly CollapsedTurnItem[]): string {
-  return items.map((item) => `${item.kind}:${item.id}`).join("|");
 }
 
 // Keep the live clock scoped to tiny leaf components so active Claude turns do

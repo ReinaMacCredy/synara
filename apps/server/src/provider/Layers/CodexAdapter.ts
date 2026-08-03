@@ -866,9 +866,7 @@ function mapItemLifecycle(
     canonicalItemType === "dynamic_tool_call"
       ? firstStringValue(source, ["tool", "toolName", "name"])
       : undefined;
-  const nativeToolTitle = nativeToolName
-    ? orchestratorToolDisplayName(nativeToolName)
-    : null;
+  const nativeToolTitle = nativeToolName ? orchestratorToolDisplayName(nativeToolName) : null;
 
   return {
     ...(generatedImageReference
@@ -1882,6 +1880,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
         ...(input.orchestratorContext !== undefined
           ? { orchestratorContext: input.orchestratorContext }
           : {}),
+        ...(input.handoffContext !== undefined ? { handoffContext: input.handoffContext } : {}),
         runtimeMode: input.runtimeMode,
         ...codexModelSelectionOverrides(input.modelSelection),
       };

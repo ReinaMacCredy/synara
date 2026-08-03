@@ -33,6 +33,7 @@ import type { AgentActivityDetail } from "./agentActivity.logic";
 
 interface ChatTranscriptPaneProps {
   activeThreadId: string;
+  messageNavigatorFocusRequest?: number;
   activeTurnId?: TurnId | null;
   activeTurnInProgress: boolean;
   activeTurnStartedAt: string | null;
@@ -91,6 +92,7 @@ interface ChatTranscriptPaneProps {
 
 export function ChatTranscriptPane({
   activeThreadId,
+  messageNavigatorFocusRequest,
   activeTurnId,
   activeTurnInProgress,
   activeTurnStartedAt,
@@ -283,6 +285,7 @@ export function ChatTranscriptPane({
             items={trailItems}
             activeStore={activeTrailStore}
             onSelect={handleTrailSelect}
+            focusRequest={messageNavigatorFocusRequest}
           />
         ) : null}
       </div>

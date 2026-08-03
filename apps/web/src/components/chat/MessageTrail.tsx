@@ -1,10 +1,10 @@
 // FILE: MessageTrail.tsx
 // Purpose: Left-gutter message rail with macOS-Dock-style magnification. The tick
 //   nearest the pointer grows longest (Gaussian falloff on its neighbours) and a
-//   side tooltip shows that one focused message. Built on Synara's existing scroll
-//   engine: `activeStore` carries the current + visible viewport highlights and
-//   `onSelect` jumps (shadcn's scrollToMessage). The hot path writes tick width /
-//   opacity straight to the DOM inside one coalesced rAF — no React state per move
+//   side navigator shows every prompt in the conversation. Built on Synara's
+//   existing scroll engine: `activeStore` carries the current + visible viewport
+//   highlights and `onSelect` jumps (shadcn's scrollToMessage). The hot path writes
+//   tick transform / opacity straight to the DOM inside one coalesced rAF — no React state per move
 //   — so it stays smooth and never re-renders the heavy timeline.
 // Layer: Chat transcript shell (presentation)
 // Depends on: pure magnification math in messageTrail.logic.ts (unit-tested).
@@ -21,12 +21,10 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { disclosureContentClassName } from "~/lib/disclosureMotion";
 import { cn } from "~/lib/utils";
-import { DISCLOSURE_CONTENT_MOTION_CLASS } from "~/lib/disclosureMotion";
 import { APP_TOOLTIP_SURFACE_CLASS_NAME } from "./composerPickerStyles";
 import {
-  clampNumber,
-  clampTooltipTop,
   computeFocusedIndex,
   computeGaussianWeights,
   computeRestStyles,
@@ -44,6 +42,8 @@ interface MessageTrailProps {
   /** Stable holder for current + visible highlights; only this component re-renders on change. */
   activeStore: ActiveTrailStore;
   onSelect: (messageId: MessageId) => void;
+  /** Monotonic request counter used by the configurable conversation-navigator shortcut. */
+  focusRequest?: number;
 }
 
 // Rail only renders once the centered transcript column (max 46rem) leaves a left
@@ -75,21 +75,27 @@ const TICK_ANCHOR_OPACITY = 0.9;
 // Only the single tick directly under the pointer/keyboard focus goes full black —
 // its neighbours just grow in size, they don't darken (no opacity falloff).
 const TICK_FOCUS_OPACITY = 1;
-const TOOLTIP_ESTIMATED_H_PX = 56;
-const TOOLTIP_OFFSET_X_PX = 8;
+const NAVIGATOR_GAP_PX = 8;
+const NAVIGATOR_CLOSE_DELAY_MS = 220;
 
-export function MessageTrail({ items, activeStore, onSelect }: MessageTrailProps) {
+export function MessageTrail({
+  items,
+  activeStore,
+  onSelect,
+  focusRequest = 0,
+}: MessageTrailProps) {
   const rootRef = useRef<HTMLElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
-  const tooltipRef = useRef<HTMLDivElement | null>(null);
-  const tooltipMessageRef = useRef<HTMLDivElement | null>(null);
-  const tooltipResponseRef = useRef<HTMLDivElement | null>(null);
-  const tickRefs = useRef<(HTMLButtonElement | null)[]>([]);
-  const tooltipId = useId();
+  const listboxRef = useRef<HTMLDivElement | null>(null);
+  const tickRefs = useRef<(HTMLSpanElement | null)[]>([]);
+  const optionRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const listboxId = useId();
+  const optionIdPrefix = useId();
 
   const [hasGutter, setHasGutter] = useState(false);
-  const [rovingIndex, setRovingIndex] = useState(0);
+  const [navigatorHoverOpen, setNavigatorHoverOpen] = useState(false);
+  const [navigatorFocusOpen, setNavigatorFocusOpen] = useState(false);
 
   // Reading-position highlights — fed by the timeline via a stable store so only
   // this rail re-renders when they change.
@@ -109,6 +115,7 @@ export function MessageTrail({ items, activeStore, onSelect }: MessageTrailProps
   const visibleIndexSet = new Set(visibleIndexes);
 
   const visible = hasGutter && items.length > 1;
+  const navigatorOpen = visible && (navigatorHoverOpen || navigatorFocusOpen);
 
   // Tick layout depends only on the message count (fixed spacing, natural content
   // height) — never on the measured viewport — so the capped/scrolling viewport
@@ -117,13 +124,17 @@ export function MessageTrail({ items, activeStore, onSelect }: MessageTrailProps
 
   // --- Hot-path refs (read inside rAF; never trigger renders) ---------------
   const rafIdRef = useRef<number | null>(null);
+  const navigatorCloseTimeoutRef = useRef<number | null>(null);
   // Raw viewport-relative pointer Y at the last move; content Y is derived per
   // frame by adding the live scrollTop, so magnification follows rail scrolling.
   const latestPointerClientYRef = useRef<number | null>(null);
   const focusOverrideIndexRef = useRef<number | null>(null);
   const geometryRef = useRef<TrailGeometry | null>(geometry);
   const viewportTopRef = useRef(0);
-  const tooltipIndexRef = useRef(-1);
+  const navigatorIndexRef = useRef(-1);
+  const navigatorHoverOpenRef = useRef(navigatorHoverOpen);
+  const navigatorFocusOpenRef = useRef(navigatorFocusOpen);
+  const previousFocusRequestRef = useRef(focusRequest);
   const reducedMotionRef = useRef(false);
   // Mirror render values into refs so the rAF/handlers stay stable and current.
   // Mirrored in an effect (not during render) so the component stays eligible
@@ -140,13 +151,27 @@ export function MessageTrail({ items, activeStore, onSelect }: MessageTrailProps
     visibleIndexesRef.current = visibleIndexes;
     onSelectRef.current = onSelect;
     visibleRef.current = visible;
+    navigatorHoverOpenRef.current = navigatorHoverOpen;
+    navigatorFocusOpenRef.current = navigatorFocusOpen;
     // Keep the tick-ref array sized to the message count. Truncate only —
     // growth happens via the JSX ref callbacks, which run before this effect,
     // and a full refill here would wipe the elements they just attached.
     if (tickRefs.current.length > items.length) {
       tickRefs.current.length = items.length;
     }
-  }, [geometry, items, anchorIndex, visibleIndexes, onSelect, visible]);
+    if (optionRefs.current.length > items.length) {
+      optionRefs.current.length = items.length;
+    }
+  }, [
+    geometry,
+    items,
+    anchorIndex,
+    visibleIndexes,
+    onSelect,
+    visible,
+    navigatorHoverOpen,
+    navigatorFocusOpen,
+  ]);
 
   // --- Imperative writers ----------------------------------------------------
   const writeStyles = (styles: readonly TickStyle[]) => {
@@ -156,49 +181,43 @@ export function MessageTrail({ items, activeStore, onSelect }: MessageTrailProps
       if (!el) {
         continue;
       }
-      el.style.width = `${styles[i]!.width}px`;
-      el.style.opacity = `${styles[i]!.opacity}`;
+        el.style.transform = `scaleX(${styles[i]!.width / TICK_BASE_W})`;
+        el.style.opacity = `${styles[i]!.opacity}`;
     }
   };
 
-  const hideTooltip = () => {
-    tooltipIndexRef.current = -1;
-    const tip = tooltipRef.current;
-    if (tip) {
-      tip.style.visibility = "hidden";
-    }
-  };
+  const optionId = (index: number) => `${optionIdPrefix}-message-${index}`;
 
-  const showTooltip = (index: number, geometry: TrailGeometry) => {
-    const tip = tooltipRef.current;
-    const item = itemsRef.current[index];
-    if (!tip || !item) {
-      return;
-    }
-    if (tooltipIndexRef.current !== index) {
-      tooltipIndexRef.current = index;
-      const messageEl = tooltipMessageRef.current;
-      const responseEl = tooltipResponseRef.current;
-      if (messageEl) {
-        messageEl.textContent = item.preview;
+  const setNavigatorIndex = (index: number, scrollIntoView = false) => {
+    const normalizedIndex = index >= 0 && index < itemsRef.current.length ? index : -1;
+    const previousIndex = navigatorIndexRef.current;
+    if (previousIndex !== normalizedIndex) {
+      const previousOption = optionRefs.current[previousIndex];
+      if (previousOption) {
+        previousOption.dataset.active = "false";
+        previousOption.setAttribute("aria-selected", "false");
       }
-      if (responseEl) {
-        responseEl.textContent = item.responsePreview;
-        // Collapse the gray reply line entirely when the turn has no reply yet.
-        responseEl.style.display = item.responsePreview ? "" : "none";
+      navigatorIndexRef.current = normalizedIndex;
+    }
+
+    const nextOption = optionRefs.current[normalizedIndex];
+    if (nextOption) {
+      nextOption.dataset.active = "true";
+      nextOption.setAttribute("aria-selected", "true");
+      if (scrollIntoView) {
+        nextOption.scrollIntoView?.({ block: "nearest" });
       }
     }
-    // Ticks live in scrolling content space; the tooltip is a non-scrolling sibling,
-    // so map the tick's centre into the viewport (minus scrollTop) and offset by where
-    // the centred viewport sits inside the full-height rail (viewport.offsetTop).
-    const viewport = viewportRef.current;
-    const viewportHeight = viewport?.clientHeight ?? 0;
-    const tooltipHeight = tip.offsetHeight || TOOLTIP_ESTIMATED_H_PX;
-    const centerY = geometry.centerYs[index] ?? viewportHeight / 2;
-    const visibleY = centerY - (viewport?.scrollTop ?? 0);
-    const offsetTop = viewport?.offsetTop ?? 0;
-    tip.style.top = `${offsetTop + clampTooltipTop(visibleY, tooltipHeight, viewportHeight)}px`;
-    tip.style.visibility = "visible";
+
+    const listbox = listboxRef.current;
+    if (listbox) {
+      if (normalizedIndex >= 0) {
+        listbox.setAttribute("aria-activedescendant", optionId(normalizedIndex));
+      } else {
+        listbox.removeAttribute("aria-activedescendant");
+      }
+    }
+    focusOverrideIndexRef.current = normalizedIndex >= 0 ? normalizedIndex : null;
   };
 
   const applyHighlightFloors = (styles: TickStyle[]) => {
@@ -226,7 +245,6 @@ export function MessageTrail({ items, activeStore, onSelect }: MessageTrailProps
     );
     applyHighlightFloors(styles);
     writeStyles(styles);
-    hideTooltip();
   };
 
   // Position the ticks vertically in content space and reset to rest when idle.
@@ -314,7 +332,7 @@ export function MessageTrail({ items, activeStore, onSelect }: MessageTrailProps
       focusedStyle.opacity = TICK_FOCUS_OPACITY;
     }
     writeStyles(styles);
-    showTooltip(focusedIndex, geometry);
+    setNavigatorIndex(focusedIndex);
   };
 
   const scheduleFrame = () => {
@@ -380,19 +398,76 @@ export function MessageTrail({ items, activeStore, onSelect }: MessageTrailProps
         : false;
   }, []);
 
+  // Keep one active option while the navigator is open. The active row is written
+  // imperatively so rail pointer movement never re-renders the full list.
+  useEffect(() => {
+    if (!navigatorOpen) {
+      setNavigatorIndex(-1);
+      return;
+    }
+    const currentIndex = navigatorIndexRef.current;
+    const nextIndex = currentIndex >= 0 && currentIndex < items.length
+      ? currentIndex
+      : anchorIndex >= 0
+        ? anchorIndex
+        : items.length > 0
+          ? 0
+          : -1;
+    setNavigatorIndex(nextIndex, true);
+    if (nextIndex >= 0) {
+      scheduleFrame();
+    }
+  }, [anchorIndex, items.length, navigatorOpen, scheduleFrame, setNavigatorIndex]);
+
+  // The shortcut is dispatched by the focused ChatView instance, so split panes
+  // open only their own navigator instead of racing global listeners.
+  useEffect(() => {
+    if (focusRequest === previousFocusRequestRef.current) {
+      return;
+    }
+    if (!visible) {
+      return;
+    }
+    previousFocusRequestRef.current = focusRequest;
+    setNavigatorFocusOpen(true);
+    setNavigatorIndex(anchorIndex >= 0 ? anchorIndex : 0, true);
+  }, [anchorIndex, focusRequest, setNavigatorIndex, visible]);
+
+  useEffect(() => {
+    if (navigatorOpen && navigatorFocusOpen) {
+      listboxRef.current?.focus({ preventScroll: true });
+    }
+  }, [navigatorFocusOpen, navigatorOpen]);
+
   // Going inert (narrow pane / N<=1): stop the loop and clear transient state.
   useEffect(() => {
     if (!visible) {
+      if (navigatorCloseTimeoutRef.current !== null) {
+        window.clearTimeout(navigatorCloseTimeoutRef.current);
+        navigatorCloseTimeoutRef.current = null;
+      }
       cancelFrame();
       latestPointerClientYRef.current = null;
       focusOverrideIndexRef.current = null;
-      hideTooltip();
+      setNavigatorHoverOpen(false);
+      setNavigatorFocusOpen(false);
+      setNavigatorIndex(-1);
     }
-  }, [visible, cancelFrame, hideTooltip]);
+  }, [visible, cancelFrame, setNavigatorIndex]);
 
   // Unmount: MessageTrail outlives thread switches (the timeline is keyed), so a
   // stray in-flight frame must be cancelled.
-  useEffect(() => cancelFrame, [cancelFrame]);
+  useEffect(
+    () => () => {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+      }
+      if (navigatorCloseTimeoutRef.current !== null) {
+        window.clearTimeout(navigatorCloseTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   // --- Pointer handlers (mouse / pen only; touch must not hijack scroll) -----
   const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -430,7 +505,7 @@ export function MessageTrail({ items, activeStore, onSelect }: MessageTrailProps
   };
 
   // Rail scrolling under a stationary pointer changes which tick is focused, so
-  // keep the magnification + tooltip in sync while the pointer/keyboard is engaged.
+  // keep the magnification + active list row in sync while the pointer/keyboard is engaged.
   const handleScroll = () => {
     if (latestPointerClientYRef.current !== null || focusOverrideIndexRef.current !== null) {
       scheduleFrame();
@@ -448,89 +523,135 @@ export function MessageTrail({ items, activeStore, onSelect }: MessageTrailProps
     const index = computeFocusedIndex(contentY, geometryValue);
     const item = itemsRef.current[index];
     if (item) {
+      setNavigatorIndex(index, true);
       onSelectRef.current(item.id);
     }
   };
 
-  // --- Keyboard: one tab stop (roving), arrows move, Enter jumps -------------
-  const focusTick = (index: number) => {
-    setRovingIndex(index);
-    tickRefs.current[index]?.focus();
-  };
-
-  const handleKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
-    const count = itemsRef.current.length;
-    if (count === 0) {
+  const selectNavigatorIndex = (index: number) => {
+    const item = itemsRef.current[index];
+    if (!item) {
       return;
     }
-    const current = clampNumber(rovingIndex, 0, count - 1);
-    switch (event.key) {
-      case "ArrowDown":
-        event.preventDefault();
-        focusTick(Math.min(count - 1, current + 1));
-        break;
-      case "ArrowUp":
-        event.preventDefault();
-        focusTick(Math.max(0, current - 1));
-        break;
-      case "Home":
-        event.preventDefault();
-        focusTick(0);
-        break;
-      case "End":
-        event.preventDefault();
-        focusTick(count - 1);
-        break;
-      case "Enter":
-      case " ": {
-        event.preventDefault();
-        const item = itemsRef.current[current];
-        if (item) {
-          onSelectRef.current(item.id);
-        }
-        break;
-      }
-      case "Escape":
-        tickRefs.current[current]?.blur();
-        break;
-      default:
-        break;
+    setNavigatorIndex(index, true);
+    onSelectRef.current(item.id);
+  };
+
+  const handleOptionPointer = (index: number) => {
+    const railPointerWasActive = latestPointerClientYRef.current !== null;
+    latestPointerClientYRef.current = null;
+    if (railPointerWasActive || navigatorIndexRef.current !== index) {
+      setNavigatorIndex(index);
+      scheduleFrame();
     }
   };
 
-  const handleTickFocus = (index: number) => {
-    focusOverrideIndexRef.current = index;
-    const geometry = geometryRef.current;
-    if (geometry) {
-      showTooltip(index, geometry); // synchronous for screen readers
+  const handleTriggerFocus = () => {
+    setNavigatorFocusOpen(true);
+    setNavigatorIndex(anchorIndexRef.current >= 0 ? anchorIndexRef.current : 0, true);
+  };
+
+  const handleListboxKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    let nextIndex: number | null = null;
+    switch (event.key) {
+      case "ArrowDown":
+        nextIndex =
+          navigatorIndexRef.current < 0
+            ? 0
+            : Math.min(navigatorIndexRef.current + 1, itemsRef.current.length - 1);
+        break;
+      case "ArrowUp":
+        nextIndex =
+          navigatorIndexRef.current < 0
+            ? itemsRef.current.length - 1
+            : Math.max(navigatorIndexRef.current - 1, 0);
+        break;
+      case "Home":
+        nextIndex = 0;
+        break;
+      case "End":
+        nextIndex = itemsRef.current.length - 1;
+        break;
+      case "Enter":
+        event.preventDefault();
+        if (navigatorIndexRef.current >= 0) {
+          selectNavigatorIndex(navigatorIndexRef.current);
+        }
+        return;
+      case "Escape":
+        event.preventDefault();
+        setNavigatorHoverOpen(false);
+        setNavigatorFocusOpen(false);
+        listboxRef.current?.blur();
+        return;
+      default:
+        return;
     }
-    scheduleFrame();
+    event.preventDefault();
+    setNavigatorIndex(nextIndex ?? -1, true);
+    if (nextIndex !== null && nextIndex >= 0) {
+      scheduleFrame();
+    }
   };
 
   const handleRailBlur = (event: ReactFocusEvent<HTMLElement>) => {
     const root = rootRef.current;
     if (root && event.relatedTarget instanceof Node && root.contains(event.relatedTarget)) {
-      return; // focus moved between ticks — still inside the rail
+      return;
     }
-    focusOverrideIndexRef.current = null;
-    if (latestPointerClientYRef.current === null) {
+    setNavigatorFocusOpen(false);
+    if (!navigatorHoverOpenRef.current) {
+      focusOverrideIndexRef.current = null;
+      setNavigatorIndex(-1);
       applyRest();
     }
   };
 
-  const tabStop = clampNumber(rovingIndex, 0, Math.max(0, items.length - 1));
+  const handleRootPointerEnter = (event: ReactPointerEvent<HTMLElement>) => {
+    if (event.pointerType === "touch" || !visibleRef.current) {
+      return;
+    }
+    if (navigatorCloseTimeoutRef.current !== null) {
+      window.clearTimeout(navigatorCloseTimeoutRef.current);
+      navigatorCloseTimeoutRef.current = null;
+    }
+    setNavigatorHoverOpen(true);
+    if (navigatorIndexRef.current < 0) {
+      setNavigatorIndex(anchorIndexRef.current >= 0 ? anchorIndexRef.current : 0, true);
+    }
+  };
+
+  const handleRootPointerLeave = (event: ReactPointerEvent<HTMLElement>) => {
+    if (event.pointerType === "touch") {
+      return;
+    }
+    latestPointerClientYRef.current = null;
+    if (navigatorCloseTimeoutRef.current !== null) {
+      window.clearTimeout(navigatorCloseTimeoutRef.current);
+    }
+    navigatorCloseTimeoutRef.current = window.setTimeout(() => {
+      navigatorCloseTimeoutRef.current = null;
+      setNavigatorHoverOpen(false);
+      if (!navigatorFocusOpenRef.current) {
+        cancelFrame();
+        focusOverrideIndexRef.current = null;
+        setNavigatorIndex(-1);
+        applyRest();
+      }
+    }, NAVIGATOR_CLOSE_DELAY_MS);
+  };
 
   return (
     <nav
       ref={rootRef}
-      aria-label="Message navigation"
+      aria-label="Conversation navigation"
       aria-hidden={!visible}
-      onKeyDown={handleKeyDown}
       onBlur={handleRailBlur}
+      onPointerEnter={handleRootPointerEnter}
+      onPointerLeave={handleRootPointerLeave}
       className={cn(
         "absolute inset-y-0 left-0 z-20 hidden flex-col justify-center sm:flex",
-        DISCLOSURE_CONTENT_MOTION_CLASS,
-        visible ? "opacity-100" : "pointer-events-none opacity-0",
+        disclosureContentClassName(visible),
       )}
       style={{ width: RAIL_WIDTH_PX }}
     >
@@ -538,31 +659,33 @@ export function MessageTrail({ items, activeStore, onSelect }: MessageTrailProps
           edges only while there is overflow to scroll (auto-off when it all fits). */}
       <div
         ref={viewportRef}
+        role="button"
+        tabIndex={visible && !navigatorOpen ? 0 : -1}
+        aria-label="Open conversation navigator"
+        aria-expanded={navigatorOpen}
+        aria-controls={listboxId}
+        onFocus={handleTriggerFocus}
         onPointerEnter={handlePointerEnter}
         onPointerMove={handlePointerMove}
         onPointerLeave={handlePointerLeave}
+        onMouseDown={(event) => event.preventDefault()}
         onScroll={handleScroll}
         onClick={handleClick}
         className={cn(
-          "scroll-fade-y relative w-full overflow-y-auto overscroll-contain [contain:layout] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+          "scroll-fade-y relative w-full overflow-y-auto overscroll-contain bg-transparent text-left outline-none [contain:layout] [scrollbar-width:none] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--color-border)] [&::-webkit-scrollbar]:hidden",
           visible ? "pointer-events-auto" : "pointer-events-none",
         )}
         style={{ maxHeight: `${RAIL_MAX_HEIGHT_RATIO * 100}%` }}
       >
         <div ref={trackRef} className="relative w-full" style={{ height: geometry?.contentHeight }}>
           {items.map((item, index) => (
-            <button
+            <span
               key={item.id}
               ref={(el) => {
                 tickRefs.current[index] = el;
               }}
-              type="button"
-              tabIndex={visible && index === tabStop ? 0 : -1}
-              aria-label={`Message ${item.ordinal}: ${item.preview.slice(0, 60)}`}
-              aria-describedby={tooltipId}
-              aria-current={index === anchorIndex ? "location" : undefined}
-              onFocus={() => handleTickFocus(index)}
-              className="absolute rounded-full transition-[width,opacity] duration-[90ms] ease-out outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-border)] motion-reduce:transition-none"
+              aria-hidden="true"
+                className="absolute origin-left rounded-full transition-[transform,opacity] duration-[90ms] ease-out motion-reduce:transition-none"
               style={{
                 left: TICK_LEFT_PAD_PX,
                 height: TICK_HEIGHT_PX,
@@ -574,32 +697,71 @@ export function MessageTrail({ items, activeStore, onSelect }: MessageTrailProps
                       ? TICK_VISIBLE_OPACITY
                       : TICK_REST_OPACITY,
                 backgroundColor: "var(--color-text-foreground)",
-                willChange: "width, opacity",
+                  willChange: "transform, opacity",
               }}
             />
           ))}
         </div>
       </div>
       <div
-        ref={tooltipRef}
-        role="tooltip"
-        id={tooltipId}
+        aria-hidden={!navigatorOpen}
+        inert={!navigatorOpen}
         className={cn(
-          APP_TOOLTIP_SURFACE_CLASS_NAME,
-          "pointer-events-none invisible absolute z-30 w-64 -translate-y-1/2 rounded-xl p-2",
+          "absolute top-1/2 w-[min(28rem,calc(100vw-5rem))] -translate-y-1/2",
+          navigatorOpen ? "pointer-events-auto" : "pointer-events-none",
         )}
-        style={{ left: RAIL_WIDTH_PX + TOOLTIP_OFFSET_X_PX, top: 0 }}
+        style={{ left: RAIL_WIDTH_PX, paddingLeft: NAVIGATOR_GAP_PX }}
       >
-        {/* The sent message: dark, max two lines (matches the projects/threads card title). */}
         <div
-          ref={tooltipMessageRef}
-          className="line-clamp-2 text-xs leading-snug font-medium text-foreground"
-        />
-        {/* The turn's first reply: muted gray, max three lines. */}
-        <div
-          ref={tooltipResponseRef}
-          className="mt-1 line-clamp-3 text-xs leading-snug text-muted-foreground"
-        />
+          className={disclosureContentClassName(
+            navigatorOpen,
+            cn(
+              APP_TOOLTIP_SURFACE_CLASS_NAME,
+              "max-h-[min(72dvh,36rem)] overflow-hidden rounded-[1.375rem]! p-2",
+            ),
+          )}
+        >
+          <div
+            ref={listboxRef}
+            id={listboxId}
+            role="listbox"
+            tabIndex={navigatorOpen ? 0 : -1}
+            aria-label="Conversation messages"
+            onFocus={() => setNavigatorFocusOpen(true)}
+            onKeyDown={handleListboxKeyDown}
+            className="scroll-fade-y max-h-[min(72dvh,36rem)] overflow-y-auto overscroll-contain outline-none [scrollbar-width:thin]"
+          >
+            {items.map((item, index) => (
+              <button
+                key={item.id}
+                ref={(element) => {
+                  optionRefs.current[index] = element;
+                  if (element) {
+                    const active = navigatorIndexRef.current === index;
+                    element.dataset.active = String(active);
+                    element.setAttribute("aria-selected", String(active));
+                  }
+                }}
+                id={optionId(index)}
+                type="button"
+                role="option"
+                tabIndex={-1}
+                aria-selected={navigatorIndexRef.current === index}
+                aria-current={index === anchorIndex ? "location" : undefined}
+                data-active={navigatorIndexRef.current === index}
+                onPointerEnter={() => handleOptionPointer(index)}
+                onPointerMove={() => handleOptionPointer(index)}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => selectNavigatorIndex(index)}
+                  className="flex w-full min-w-0 items-center rounded-xl px-4 py-2.5 text-left text-[15px] leading-5 text-foreground/84 outline-none hover:bg-[var(--color-background-button-secondary-hover)] data-[active=true]:bg-[var(--color-background-button-secondary-hover)]"
+                title={item.preview}
+              >
+                <span className="min-w-0 flex-1 truncate">{item.preview}</span>
+                <span className="sr-only">Jump to message {item.ordinal}</span>
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
     </nav>
   );

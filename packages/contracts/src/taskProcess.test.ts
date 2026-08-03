@@ -5,6 +5,8 @@ import { Effect, Schema } from "effect";
 import {
   DispatchTaskProcessCommandInput,
   GetSessionProgressInput,
+  ProjectTask,
+  ProjectTaskCreateCommand,
   ProjectTaskCompleteCommand,
   ProjectTaskId,
   TaskGraphConflict,
@@ -53,6 +55,49 @@ describe("TaskProcess contracts", () => {
       );
     }),
   );
+
+  it("requires explicit valid risk for every task record and create command", () => {
+    const command = {
+      type: "project-task.create",
+      commandId: "command-risk",
+      processId: "process-1",
+      projectId: "project-1",
+      actor: { kind: "user", actorId: "owner" },
+      expectedRevision: 1,
+      createdAt: "2026-08-02T00:00:00.000Z",
+      taskId: "task-risk",
+      parentTaskId: null,
+      title: "Assess deployment",
+      description: null,
+      acceptanceCriteria: [],
+      priority: "normal",
+      orderKey: "a",
+    };
+    assert.throws(() => Schema.decodeUnknownSync(ProjectTaskCreateCommand)(command));
+    assert.throws(() =>
+      Schema.decodeUnknownSync(ProjectTaskCreateCommand)({ ...command, risk: "urgent" }),
+    );
+    assert.equal(
+      Schema.decodeUnknownSync(ProjectTaskCreateCommand)({ ...command, risk: "high" }).risk,
+      "high",
+    );
+    assert.throws(() =>
+      Schema.decodeUnknownSync(ProjectTask)({
+        id: "task-legacy",
+        processId: "process-1",
+        parentTaskId: null,
+        title: "Legacy task",
+        description: null,
+        acceptanceCriteria: [],
+        priority: "normal",
+        lifecycle: "planned",
+        orderKey: "a",
+        createdBy: { kind: "user", actorId: "owner" },
+        createdAt: "2026-08-01T00:00:00.000Z",
+        updatedAt: "2026-08-01T00:00:00.000Z",
+      }),
+    );
+  });
 
   it.effect("rejects unknown generic graph patch commands", () =>
     Effect.gen(function* () {

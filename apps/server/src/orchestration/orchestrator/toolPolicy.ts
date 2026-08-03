@@ -16,6 +16,7 @@ export interface OrchestratorCallerAuthority {
 }
 
 const TOOL_CAPABILITY = {
+  list_provider_capabilities: "state.read",
   create_task_process: "task.manage",
   read_task_process: "state.read",
   create_task: "task.manage",
@@ -25,6 +26,7 @@ const TOOL_CAPABILITY = {
   read_orchestrator_state: "state.read",
   assign_task: "child.assign",
   create_child_thread: "child.assign",
+  start_child_conversation: "child.assign",
   send_message: "message.send",
   create_communication_link: "link.request",
   set_communication_link: "link.manage",
@@ -34,10 +36,11 @@ const TOOL_CAPABILITY = {
   read_last_message: "state.read",
   read_transcript: "state.read",
   report_status: "assignment.report",
+  resolve_child_result: "assignment.accept",
   request_change: "assignment.report",
   wait_for_event: "state.read",
   retire_child_thread: "child.retire",
-} as const satisfies Readonly<Record<OrchestratorToolName, OrchestratorCapability>>;
+} as const satisfies Readonly<Partial<Record<OrchestratorToolName, OrchestratorCapability>>>;
 
 export const resolveOrchestratorCallerAuthority = (input: {
   readonly core: ProjectionOrchestratorCore;
@@ -73,7 +76,10 @@ export const resolveOrchestratorCallerAuthority = (input: {
 export const isOrchestratorToolVisible = (
   authority: OrchestratorCallerAuthority,
   toolName: OrchestratorToolName,
-): boolean => authority.capabilities.has(TOOL_CAPABILITY[toolName]);
+): boolean => {
+  const capability = TOOL_CAPABILITY[toolName as keyof typeof TOOL_CAPABILITY];
+  return capability !== undefined && authority.capabilities.has(capability);
+};
 
 export const visibleOrchestratorToolNames = (
   authority: OrchestratorCallerAuthority,
@@ -150,6 +156,9 @@ export const filterOrchestratorCoreForCaller = (
       (assignment) =>
         relevantThreads.has(assignment.ownerThreadId) ||
         relevantThreads.has(assignment.assigneeThreadId),
+    ),
+    childResults: (authority.core.childResults ?? []).filter((result) =>
+      relevantThreads.has(result.childThreadId),
     ),
     runs: authority.core.runs.filter((run) =>
       run.participants.some((participant) => relevantThreads.has(participant.threadId)),

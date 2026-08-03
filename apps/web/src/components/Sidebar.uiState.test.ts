@@ -38,10 +38,12 @@ describe("Sidebar.uiState", () => {
     expect(readSidebarUiState()).toEqual({
       chatSectionExpanded: false,
       orchestratorRootsSectionExpanded: true,
+      orchestratorExpandedRootIds: [],
       chatThreadListExtraPages: 0,
       projectThreadListExtraPagesByCwd: {},
       dismissedThreadStatusKeyByThreadId: {},
       lastThreadRoute: null,
+      activityViewEnabled: false,
     });
   });
 
@@ -49,6 +51,7 @@ describe("Sidebar.uiState", () => {
     persistSidebarUiState({
       chatSectionExpanded: true,
       orchestratorRootsSectionExpanded: false,
+      orchestratorExpandedRootIds: [],
       chatThreadListExtraPages: 2,
       projectThreadListExtraPagesByCwd: {
         "/Users/tester/Code/demo": 1,
@@ -62,11 +65,13 @@ describe("Sidebar.uiState", () => {
         threadId: "thread-123",
         splitViewId: "split-456",
       },
+      activityViewEnabled: true,
     });
 
     expect(readSidebarUiState()).toEqual({
       chatSectionExpanded: true,
       orchestratorRootsSectionExpanded: false,
+      orchestratorExpandedRootIds: [],
       chatThreadListExtraPages: 2,
       projectThreadListExtraPagesByCwd: {
         // Duplicate cwds that normalize to the same key keep the deepest paging.
@@ -80,6 +85,7 @@ describe("Sidebar.uiState", () => {
         threadId: "thread-123",
         splitViewId: "split-456",
       },
+      activityViewEnabled: true,
     });
   });
 
@@ -111,6 +117,7 @@ describe("Sidebar.uiState", () => {
     expect(readSidebarUiState()).toEqual({
       chatSectionExpanded: true,
       orchestratorRootsSectionExpanded: true,
+      orchestratorExpandedRootIds: [],
       chatThreadListExtraPages: 0,
       projectThreadListExtraPagesByCwd: {
         [normalizeSidebarProjectThreadListCwd("/Users/tester/Code/demo")]: 2,
@@ -121,6 +128,7 @@ describe("Sidebar.uiState", () => {
       lastThreadRoute: {
         threadId: "thread-123",
       },
+      activityViewEnabled: false,
     });
   });
 
@@ -157,10 +165,12 @@ describe("Sidebar.uiState", () => {
     expect(readSidebarUiState()).toEqual({
       chatSectionExpanded: false,
       orchestratorRootsSectionExpanded: true,
+      orchestratorExpandedRootIds: [],
       chatThreadListExtraPages: 0,
       projectThreadListExtraPagesByCwd: {},
       dismissedThreadStatusKeyByThreadId: {},
       lastThreadRoute: null,
+      activityViewEnabled: false,
     });
   });
 });

@@ -19,7 +19,13 @@ import { ChevronDownIcon, FastModeIcon, SettingsIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { type ProviderModelOption } from "../../providerModelOptions";
 import { Button } from "../ui/button";
-import { Menu, MenuSeparator, MenuSub, MenuSubTrigger, MenuTrigger } from "../ui/menu";
+import {
+  Menu,
+  MenuSeparator,
+  MenuSub,
+  MenuSubTrigger,
+  MenuTrigger,
+} from "../ui/menu";
 import { ShortcutKbd } from "../ui/shortcut-kbd";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { PROVIDER_ICON_COMPONENT_BY_PROVIDER } from "../ProviderIcon";
@@ -35,7 +41,7 @@ import {
   ProviderModelMenuItems,
   resolveProviderModelLabel,
 } from "./ProviderModelPicker";
-import { TraitsMenuContent } from "./TraitsPicker";
+import { TraitRadioSection, type TraitRadioOption, TraitsMenuContent } from "./TraitsPicker";
 
 type ComposerModelEffortPickerProps = {
   // Model picker data.
@@ -55,6 +61,11 @@ type ComposerModelEffortPickerProps = {
   disabled?: boolean;
   onProviderModelChange: (provider: ProviderKind, model: ModelSlug) => void;
   onSelectionCommitted?: () => void;
+  controlledEffort?: {
+    readonly value: string;
+    readonly options?: ReadonlyArray<TraitRadioOption>;
+    readonly onValueChange: (value: string) => void;
+  };
 
   // Traits/effort/speed data.
   threadId: ThreadId;
@@ -106,6 +117,7 @@ export function ComposerModelEffortPicker(props: ComposerModelEffortPickerProps)
 
   const {
     caps,
+    defaultEffort,
     effort,
     effortLevels,
     thinkingEnabled,
@@ -115,11 +127,23 @@ export function ComposerModelEffortPicker(props: ComposerModelEffortPickerProps)
   } = traitSelection;
 
   const supportsFastModeControl = fastModeDescriptor !== null || caps.supportsFastMode;
-  const hasTraitsTopSection = hasVisibleComposerTraitControls(traitSelection);
+  const controlledEffortOptions =
+    props.controlledEffort?.options ??
+    effortLevels.map((option) => ({
+      ...option,
+      isDefault: option.value === defaultEffort,
+    }));
+  const hasTraitsTopSection = props.controlledEffort
+    ? controlledEffortOptions.length > 0
+    : hasVisibleComposerTraitControls(traitSelection);
 
-  const effortLabel = effort
-    ? (effortLevels.find((level) => level.value === effort)?.label ?? effort)
-    : null;
+  const effortLabel = props.controlledEffort
+    ? (controlledEffortOptions.find(
+        (option) => option.value === props.controlledEffort?.value,
+      )?.label ?? props.controlledEffort.value)
+    : effort
+      ? (effortLevels.find((level) => level.value === effort)?.label ?? effort)
+      : null;
   const triggerStatusLabel = ultrathinkPromptControlled
     ? "Ultrathink"
     : effortLabel
@@ -232,7 +256,15 @@ export function ComposerModelEffortPicker(props: ComposerModelEffortPickerProps)
         <MenuTrigger render={triggerButton}>{triggerContent}</MenuTrigger>
       )}
       <ComposerPickerMenuPopup align="end" side="top" fixedWidth>
-        {hasTraitsTopSection ? (
+        {props.controlledEffort && controlledEffortOptions.length > 0 ? (
+          <TraitRadioSection
+            label="Effort"
+            value={props.controlledEffort.value}
+            options={controlledEffortOptions}
+            onValueChange={(value) => props.controlledEffort?.onValueChange(value)}
+            onSelectionComplete={handleAfterTraitsSelection}
+          />
+        ) : !props.controlledEffort && hasTraitsTopSection ? (
           <TraitsMenuContent
             provider={props.provider}
             threadId={props.threadId}

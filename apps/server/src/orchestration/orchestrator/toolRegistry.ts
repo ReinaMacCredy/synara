@@ -13,6 +13,7 @@ import {
   OrchestratorArtifact,
   OrchestratorPublishArtifactInput,
   OrchestratorReportStatusInput,
+  OrchestratorResolveChildResultInput,
   OrchestratorLinkId,
   OrchestratorMessageId,
   OrchestratorDecisionReason,
@@ -31,6 +32,7 @@ import {
   type OrchestratorRole,
   type OrchestratorToolName,
   type ProjectTaskPriority,
+  type ProjectTaskRisk,
   type TaskProcessGraphProjection,
   type TaskThreadRole,
 } from "@synara/contracts";
@@ -191,7 +193,8 @@ const modelTargetInputSchema = objectSchema(
     provider: {
       type: "string",
       enum: ["codex"],
-      description: "Provider for this independent child. Strict native tools currently require Codex.",
+      description:
+        "Provider for this independent child. Strict native tools currently require Codex.",
     },
     model: {
       type: "string",
@@ -318,7 +321,7 @@ const asToolError = (error: unknown): OrchestratorToolExecutionResult =>
       ? error
       : error instanceof ToolInputError
         ? new OrchestratorToolError("orchestrator_tool_input_invalid", error.message)
-      : new OrchestratorToolError("orchestrator_tool_failed", errorText(error)),
+        : new OrchestratorToolError("orchestrator_tool_failed", errorText(error)),
   );
 
 const actorFor = (authority: OrchestratorCallerAuthority) => ({
@@ -396,6 +399,7 @@ const renderAssignmentPrompt = (input: {
       : []),
     "",
     "Work independently. You may reframe, propose alternatives, ask for clarification, or report a blocker through ORCHESTRATOR_PROTOCOL_V1.",
+    "Before reporting completion evidence, publish at least one durable evidence artifact. Use the returned artifact ID in both progressEvidenceRefs and evidence.artifactRefs, and preserve the exact assignmentId and taskId in the outer report and nested evidence.",
   ].join("\n");
 
 const rootCommandBase = (authority: OrchestratorCallerAuthority, expectedRevision: number) => ({
@@ -521,6 +525,17 @@ export function makeOrchestratorTools(
       .dispatch(decode(OrchestrationCommand, command, "Orchestrator command"))
       .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
 
+  const currentRootRevision = (rootThreadId: ThreadId) =>
+    input.orchestratorRepository.getCore(rootThreadId).pipe(
+      Effect.mapError((error) => new ToolInputError(errorText(error))),
+      Effect.flatMap(
+        Option.match({
+          onNone: () => Effect.fail(new ToolInputError("The durable Root state is unavailable.")),
+          onSome: (core) => Effect.succeed(core.root.root.revision),
+        }),
+      ),
+    );
+
   const requireIndependentNativeModel = (
     modelTarget: typeof OrchestratorModelTarget.Type,
     context: ToolContext,
@@ -565,6 +580,7 @@ export function makeOrchestratorTools(
     readonly description: string;
     readonly inputSchema: JsonSchema;
     readonly readOnly?: boolean;
+    readonly visibleWhen?: (authority: OrchestratorCallerAuthority) => boolean;
     readonly handle: (
       args: Record<string, unknown>,
       context: ToolContext,
@@ -573,7 +589,11 @@ export function makeOrchestratorTools(
   }): OrchestratorToolEntry => ({
     isVisible: (context) =>
       loadAuthority(context).pipe(
-        Effect.map((authority) => isOrchestratorToolVisible(authority, definition.name)),
+        Effect.map(
+          (authority) =>
+            isOrchestratorToolVisible(authority, definition.name) &&
+            (definition.visibleWhen?.(authority) ?? true),
+        ),
         Effect.orElseSucceed(() => false),
       ),
     definition: {
@@ -587,7 +607,10 @@ export function makeOrchestratorTools(
     execute: (args, context) =>
       Effect.gen(function* () {
         const authority = yield* loadAuthority(context);
-        if (!isOrchestratorToolVisible(authority, definition.name)) {
+        if (
+          !isOrchestratorToolVisible(authority, definition.name) ||
+          !(definition.visibleWhen?.(authority) ?? true)
+        ) {
           return yield* Effect.fail(
             new OrchestratorToolError(
               "orchestrator_capability_denied",
@@ -605,6 +628,56 @@ export function makeOrchestratorTools(
   const entries: OrchestratorToolEntry[] = [];
 
   entries.push(
+    makeEntry({
+      name: "list_provider_capabilities",
+      readOnly: true,
+      description:
+        "List live provider-native Orchestrator models and exact child modelTarget values for this Root workspace.",
+      inputSchema: objectSchema({}),
+      visibleWhen: (authority) => authority.role === "root" || authority.role === "child_owner",
+      handle: (_args, context, authority) =>
+        Effect.gen(function* () {
+          const [capabilities, project, rootThread] = yield* Effect.all([
+            context.listOrchestratorCapabilities(),
+            input.snapshotQuery
+              .getProjectShellById(authority.core.root.root.projectId)
+              .pipe(Effect.mapError((error) => new ToolInputError(errorText(error)))),
+            input.snapshotQuery
+              .getThreadShellById(authority.rootThreadId)
+              .pipe(Effect.mapError((error) => new ToolInputError(errorText(error)))),
+          ]);
+          if (Option.isNone(project) || Option.isNone(rootThread)) {
+            return yield* Effect.fail(
+              new ToolInputError("The Root workspace or runtime projection is unavailable."),
+            );
+          }
+          yield* Effect.forEach(
+            capabilities,
+            (capability) =>
+              input.orchestratorRepository
+                .upsertProviderCapability(capability)
+                .pipe(Effect.mapError((error) => new ToolInputError(errorText(error)))),
+            { concurrency: 1 },
+          );
+          return orchestratorToolSuccess({
+            capabilities,
+            modelTargets: capabilities
+              .filter(
+                (capability) =>
+                  capability.orchestratorCapable &&
+                  capability.authoritativeRoleInstruction &&
+                  capability.nativeTools &&
+                  capability.independentSession,
+              )
+              .map((capability) => ({
+                provider: capability.provider,
+                model: capability.model,
+                runtimeMode: rootThread.value.runtimeMode,
+                workspaceRoot: project.value.workspaceRoot,
+              })),
+          });
+        }),
+    }),
     makeEntry({
       name: "create_task_process",
       description:
@@ -712,7 +785,7 @@ export function makeOrchestratorTools(
 
   entries.push(
     makeEntry({
-        name: "create_task",
+      name: "create_task",
       description:
         "Create one ProjectTask in the Root's active process at an exact graph revision.",
       inputSchema: objectSchema(
@@ -724,9 +797,18 @@ export function makeOrchestratorTools(
           description: { type: ["string", "null"], maxLength: 32_768 },
           acceptanceCriteria: stringArray(),
           priority: { type: "string", enum: ["low", "normal", "high", "critical"] },
+          risk: { type: "string", enum: ["low", "medium", "high"] },
           orderKey: { type: "string" },
         },
-        ["expectedRevision", "taskId", "title", "acceptanceCriteria", "priority", "orderKey"],
+        [
+          "expectedRevision",
+          "taskId",
+          "title",
+          "acceptanceCriteria",
+          "priority",
+          "risk",
+          "orderKey",
+        ],
       ),
       handle: (args, _context, authority) =>
         Effect.gen(function* () {
@@ -746,6 +828,7 @@ export function makeOrchestratorTools(
               args.description === null ? null : (readStringArg(args, "description") ?? null),
             acceptanceCriteria: readStrings(args, "acceptanceCriteria", { required: true })!,
             priority: readStringArg(args, "priority", { required: true })! as ProjectTaskPriority,
+            risk: readStringArg(args, "risk", { required: true })! as ProjectTaskRisk,
             orderKey: readStringArg(args, "orderKey", { required: true })!,
           });
           const graph = yield* getGraph(authority);
@@ -756,9 +839,9 @@ export function makeOrchestratorTools(
         }),
     }),
     makeEntry({
-        name: "update_task",
+      name: "update_task",
       description:
-        "Update task metadata/hierarchy/priority or stable ordering. Readiness and execution health cannot be supplied.",
+        "Update task metadata, hierarchy, priority, risk, or stable ordering. Readiness and execution health cannot be supplied.",
       inputSchema: objectSchema(
         {
           ...expectedRevisionSchema,
@@ -769,6 +852,7 @@ export function makeOrchestratorTools(
           description: { type: ["string", "null"] },
           acceptanceCriteria: stringArray(),
           priority: { type: "string", enum: ["low", "normal", "high", "critical"] },
+          risk: { type: "string", enum: ["low", "medium", "high"] },
           orderKey: { type: "string" },
         },
         ["expectedRevision", "taskId", "operation"],
@@ -820,6 +904,9 @@ export function makeOrchestratorTools(
                   ...(readStringArg(args, "priority")
                     ? { priority: readStringArg(args, "priority")! as ProjectTaskPriority }
                     : {}),
+                  ...(readStringArg(args, "risk")
+                    ? { risk: readStringArg(args, "risk")! as ProjectTaskRisk }
+                    : {}),
                 };
           const result = yield* dispatch(command);
           const graph = yield* getGraph(authority);
@@ -830,7 +917,7 @@ export function makeOrchestratorTools(
         }),
     }),
     makeEntry({
-        name: "set_task_dependencies",
+      name: "set_task_dependencies",
       description:
         "Atomically replace prerequisites or waive one edge with a reason, exact graph revision, scope validation, and cycle rejection.",
       inputSchema: objectSchema(
@@ -878,7 +965,7 @@ export function makeOrchestratorTools(
         }),
     }),
     makeEntry({
-        name: "transition_task",
+      name: "transition_task",
       description:
         "Perform one explicit lifecycle transition, evidence-bearing completion, or reopen. Assignment acceptance never completes a task implicitly.",
       inputSchema: objectSchema(
@@ -943,144 +1030,156 @@ export function makeOrchestratorTools(
     }),
   );
 
-    entries.push(
-      makeEntry({
-        name: "create_child_thread",
-        description:
-          "Create a blank independent child thread inside this Root and attach ownership in the same durable transaction. No TaskProcess, assignment, or initial prompt is required.",
-        inputSchema: objectSchema(
-          {
-            ...expectedRevisionSchema,
-            title: { type: "string", maxLength: 512 },
-            role: {
-              type: "string",
-              enum: ["child_owner", "participant", "compiler", "arbiter", "verifier"],
-            },
-            allowedCapabilities: allowedCapabilitiesInputSchema,
-            modelTarget: modelTargetInputSchema,
-            decisionReason: decisionReasonInputSchema,
+  entries.push(
+    makeEntry({
+      name: "create_child_thread",
+      description:
+        "Create a blank independent child thread inside this Root and attach ownership in the same durable transaction. No TaskProcess, assignment, or initial prompt is required.",
+      inputSchema: objectSchema(
+        {
+          ...expectedRevisionSchema,
+          title: { type: "string", maxLength: 512 },
+          role: {
+            type: "string",
+            enum: ["child_owner", "participant", "compiler", "arbiter", "verifier"],
           },
-          [
-            "expectedRevision",
-            "title",
-            "role",
-            "allowedCapabilities",
-            "modelTarget",
-            "decisionReason",
-          ],
-        ),
-        handle: (args, context, authority) =>
-          Effect.gen(function* () {
-            const modelTarget = decode(OrchestratorModelTarget, args.modelTarget, "modelTarget");
-            if (modelTarget.provider !== "codex") {
-              return yield* Effect.fail(
-                new OrchestratorToolError(
-                  "provider_native_tools_unsupported",
-                  "This provider cannot host strict native Orchestrator tools yet.",
-                ),
-              );
-            }
-            const decisionReason = decode(
-              OrchestratorDecisionReason,
-              args.decisionReason,
-              "decisionReason",
+          allowedCapabilities: allowedCapabilitiesInputSchema,
+          modelTarget: modelTargetInputSchema,
+          decisionReason: decisionReasonInputSchema,
+          initialMessage: { type: "string", maxLength: 64_000 },
+        },
+        ["title", "role", "allowedCapabilities", "modelTarget", "decisionReason"],
+      ),
+      handle: (args, context, authority) =>
+        Effect.gen(function* () {
+          const modelTarget = decode(OrchestratorModelTarget, args.modelTarget, "modelTarget");
+          if (modelTarget.provider !== "codex") {
+            return yield* Effect.fail(
+              new OrchestratorToolError(
+                "provider_native_tools_unsupported",
+                "This provider cannot host strict native Orchestrator tools yet.",
+              ),
             );
-            const runtimeMode = decode(RuntimeMode, modelTarget.runtimeMode, "modelTarget.runtimeMode");
-            const project = yield* input.snapshotQuery
-              .getProjectShellById(authority.core.root.root.projectId)
-              .pipe(
-                Effect.mapError((error) => new ToolInputError(errorText(error))),
-                Effect.flatMap(
-                  Option.match({
-                    onNone: () => Effect.fail(new ToolInputError("The Root project does not exist.")),
-                    onSome: Effect.succeed,
-                  }),
-                ),
-              );
-            if (project.workspaceRoot !== modelTarget.workspaceRoot) {
-              return yield* Effect.fail(
-                new OrchestratorToolError(
-                  "child_workspace_mismatch",
-                  "The child workspace must exactly match the current Root workspace.",
-                ),
-              );
-            }
-            const rootThread = yield* input.snapshotQuery
-              .getThreadShellById(authority.rootThreadId)
-              .pipe(
-                Effect.mapError((error) => new ToolInputError(errorText(error))),
-                Effect.flatMap(
-                  Option.match({
-                    onNone: () => Effect.fail(new ToolInputError("The Root thread does not exist.")),
-                    onSome: Effect.succeed,
-                  }),
-                ),
-              );
-            if (runtimeModeEscalatesPrivilege(rootThread.runtimeMode, runtimeMode)) {
-              return yield* Effect.fail(
-                new OrchestratorToolError(
-                  "child_runtime_escalation",
-                  "A child cannot exceed its Root runtime permissions.",
-                ),
-              );
-            }
-            yield* requireIndependentNativeModel(modelTarget, context);
-            const childThreadId = ThreadId.makeUnsafe(`orchestrator-child:${randomUUID()}`);
-            const timestamp = now();
-            const allowedCapabilities = readStrings(args, "allowedCapabilities", {
-              required: true,
-              max: 32,
-            })! as never;
-            const continuity = {
-              kind: "clean" as const,
-              contextBundle: sealContextBundle({
-                id: ContextBundleId.makeUnsafe(`child-context:${randomUUID()}`),
-                version: 1,
-                assignmentId: null,
-                originalBrief: readStringArg(args, "title", { required: true })!,
-                immutableUserConstraints: [],
-                acceptedDecisions: [],
-                rejectedAlternatives: [],
-                ownershipClaims: [],
-                dependencyRefs: [],
-                sourceRefs: [],
-                threadMessageRefs: [],
-                artifactRefs: [],
-                capabilityCeiling: allowedCapabilities,
-                createdBy: actorFor(authority),
-                createdAt: timestamp,
-              }),
-            };
-            yield* context.assertCallerTurnActive();
-            const result = yield* dispatch({
-              type: "orchestrator.child.create",
-              commandId: CommandId.makeUnsafe(`orchestrator-native:${randomUUID()}`),
-              rootThreadId: authority.rootThreadId,
-              projectId: authority.core.root.root.projectId,
-              actor: actorFor(authority),
-              protocolVersion: authority.core.root.root.protocolVersion,
-              expectedRevision: readInteger(args, "expectedRevision", { required: true })!,
+          }
+          const decisionReason = decode(
+            OrchestratorDecisionReason,
+            args.decisionReason,
+            "decisionReason",
+          );
+          const runtimeMode = decode(
+            RuntimeMode,
+            modelTarget.runtimeMode,
+            "modelTarget.runtimeMode",
+          );
+          const project = yield* input.snapshotQuery
+            .getProjectShellById(authority.core.root.root.projectId)
+            .pipe(
+              Effect.mapError((error) => new ToolInputError(errorText(error))),
+              Effect.flatMap(
+                Option.match({
+                  onNone: () => Effect.fail(new ToolInputError("The Root project does not exist.")),
+                  onSome: Effect.succeed,
+                }),
+              ),
+            );
+          if (project.workspaceRoot !== modelTarget.workspaceRoot) {
+            return yield* Effect.fail(
+              new OrchestratorToolError(
+                "child_workspace_mismatch",
+                "The child workspace must exactly match the current Root workspace.",
+              ),
+            );
+          }
+          const rootThread = yield* input.snapshotQuery
+            .getThreadShellById(authority.rootThreadId)
+            .pipe(
+              Effect.mapError((error) => new ToolInputError(errorText(error))),
+              Effect.flatMap(
+                Option.match({
+                  onNone: () => Effect.fail(new ToolInputError("The Root thread does not exist.")),
+                  onSome: Effect.succeed,
+                }),
+              ),
+            );
+          if (runtimeModeEscalatesPrivilege(rootThread.runtimeMode, runtimeMode)) {
+            return yield* Effect.fail(
+              new OrchestratorToolError(
+                "child_runtime_escalation",
+                "A child cannot exceed its Root runtime permissions.",
+              ),
+            );
+          }
+          yield* requireIndependentNativeModel(modelTarget, context);
+          const childThreadId = ThreadId.makeUnsafe(`orchestrator-child:${randomUUID()}`);
+          const timestamp = now();
+          const initialMessageBody = readStringArg(args, "initialMessage");
+          const allowedCapabilities = readStrings(args, "allowedCapabilities", {
+            required: true,
+            max: 32,
+          })! as never;
+          const continuity = {
+            kind: "clean" as const,
+            contextBundle: sealContextBundle({
+              id: ContextBundleId.makeUnsafe(`child-context:${randomUUID()}`),
+              version: 1,
+              assignmentId: null,
+              originalBrief: readStringArg(args, "title", { required: true })!,
+              immutableUserConstraints: [],
+              acceptedDecisions: [],
+              rejectedAlternatives: [],
+              ownershipClaims: [],
+              dependencyRefs: [],
+              sourceRefs: [],
+              threadMessageRefs: [],
+              artifactRefs: [],
+              capabilityCeiling: allowedCapabilities,
+              createdBy: actorFor(authority),
               createdAt: timestamp,
-              parentThreadId: authority.callerThreadId,
-              childThreadId,
-              title: readStringArg(args, "title", { required: true })!,
-              role: readStringArg(args, "role", { required: true })! as never,
-              capabilities: allowedCapabilities,
-              continuity,
-              modelTarget,
-              decisionReason,
-            });
-            return orchestratorToolSuccess({
-              sequence: result.sequence,
-              childId: orchestratorChildAlias(childThreadId),
-              title: readStringArg(args, "title", { required: true })!,
-              provider: modelTarget.provider,
-              model: modelTarget.model,
-            });
-          }),
-      }),
-      makeEntry({
-        name: "assign_task",
+            }),
+          };
+          yield* context.assertCallerTurnActive();
+          const result = yield* dispatch({
+            type: "orchestrator.child.create",
+            commandId: CommandId.makeUnsafe(`orchestrator-native:${randomUUID()}`),
+            rootThreadId: authority.rootThreadId,
+            projectId: authority.core.root.root.projectId,
+            actor: actorFor(authority),
+            protocolVersion: authority.core.root.root.protocolVersion,
+            expectedRevision:
+              readInteger(args, "expectedRevision") ?? authority.core.root.root.revision,
+            createdAt: timestamp,
+            parentThreadId: authority.callerThreadId,
+            childThreadId,
+            title: readStringArg(args, "title", { required: true })!,
+            role: readStringArg(args, "role", { required: true })! as never,
+            capabilities: allowedCapabilities,
+            continuity,
+            modelTarget,
+            decisionReason,
+            ...(initialMessageBody
+              ? {
+                  initialMessage: {
+                    messageId: OrchestratorMessageId.makeUnsafe(`message:${randomUUID()}`),
+                    body: initialMessageBody,
+                    expiresAt: new Date(Date.parse(timestamp) + 10 * 60 * 1_000).toISOString(),
+                  },
+                }
+              : {}),
+          });
+          const rootRevision = yield* currentRootRevision(authority.rootThreadId);
+          return orchestratorToolSuccess({
+            sequence: result.sequence,
+            childId: orchestratorChildAlias(childThreadId),
+            title: readStringArg(args, "title", { required: true })!,
+            provider: modelTarget.provider,
+            model: modelTarget.model,
+            rootRevision,
+            initialMessageQueued: initialMessageBody !== undefined,
+          });
+        }),
+    }),
+    makeEntry({
+      name: "assign_task",
       description:
         "Assign an existing task by reusing, rotating, or cleanly creating a standalone child, then atomically persist the Assignment plus TaskThreadBinding. Root supplies continuity, provider/model/runtime, reason, and whether to start a turn; Synara never substitutes them.",
       inputSchema: objectSchema(
@@ -1573,13 +1672,13 @@ export function makeOrchestratorTools(
         }),
     }),
     makeEntry({
-        name: "send_message",
+      name: "send_message",
       description:
         "Persist a correlated thread-originated mailbox message or reply on an authorized communication path.",
-        inputSchema: objectSchema(
-          {
-            ...expectedRevisionSchema,
-            messageId: { type: "string" },
+      inputSchema: objectSchema(
+        {
+          ...expectedRevisionSchema,
+          messageId: { type: "string" },
           targetThreadId: { type: "string" },
           assignmentId: { type: ["string", "null"] },
           runId: { type: ["string", "null"] },
@@ -1588,95 +1687,97 @@ export function makeOrchestratorTools(
           hopCount: { type: "integer", minimum: 0, maximum: 32 },
           expiresAt: { type: "string" },
           body: { type: "string", maxLength: 64_000 },
-            artifactRefs: stringArray(64),
-          },
-          ["targetThreadId", "body"],
-        ),
-        handle: (args, _context, authority) =>
-          Effect.gen(function* () {
-            const createdAt = now();
-            const messages = yield* input.orchestratorRepository
-              .listMessages(authority.rootThreadId)
-              .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
-            const replyToRaw = readStringArg(args, "replyToMessageId");
-            const replyTo = replyToRaw
-              ? (messages.find((message) => message.messageId === replyToRaw) ?? null)
-              : null;
-            if (replyToRaw && !replyTo) {
-              return yield* Effect.fail(
-                new OrchestratorToolError(
-                  "reply_message_missing",
-                  "The reply target does not exist in this Root conversation history.",
-                ),
-              );
-            }
-            const messageId = OrchestratorMessageId.makeUnsafe(
-              readStringArg(args, "messageId") ?? `message:${randomUUID()}`,
-            );
-            const explicitCorrelation = readStringArg(args, "correlationId");
-            const correlationId = replyTo
-              ? OrchestratorMessageId.makeUnsafe(
-                  explicitCorrelation ?? replyTo.correlationId ?? replyTo.messageId,
-                )
-              : null;
-            const hopCount =
-              readInteger(args, "hopCount", { max: 32 }) ?? (replyTo ? replyTo.hopCount + 1 : 0);
-            const expiresAt =
-              readStringArg(args, "expiresAt") ??
-              new Date(Date.parse(createdAt) + 10 * 60 * 1_000).toISOString();
-            const result = yield* dispatch({
-              type: "orchestrator.message.enqueue",
-              ...rootCommandBase(
-                authority,
-                readInteger(args, "expectedRevision") ?? authority.core.root.root.revision,
+          artifactRefs: stringArray(64),
+        },
+        ["targetThreadId", "body"],
+      ),
+      handle: (args, _context, authority) =>
+        Effect.gen(function* () {
+          const createdAt = now();
+          const messages = yield* input.orchestratorRepository
+            .listMessages(authority.rootThreadId)
+            .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
+          const replyToRaw = readStringArg(args, "replyToMessageId");
+          const replyTo = replyToRaw
+            ? (messages.find((message) => message.messageId === replyToRaw) ?? null)
+            : null;
+          if (replyToRaw && !replyTo) {
+            return yield* Effect.fail(
+              new OrchestratorToolError(
+                "reply_message_missing",
+                "The reply target does not exist in this Root conversation history.",
               ),
-              message: {
-                messageId,
-                rootThreadId: authority.rootThreadId,
-                senderThreadId: authority.callerThreadId,
-                targetThreadId: resolveThreadReference(
-                  authority,
-                  readStringArg(args, "targetThreadId", { required: true })!,
-                ),
-                assignmentId:
-                  args.assignmentId === null
-                    ? null
-                    : readStringArg(args, "assignmentId")
-                      ? AssignmentId.makeUnsafe(readStringArg(args, "assignmentId")!)
-                      : null,
-                runId:
-                  args.runId === null
-                    ? null
-                    : readStringArg(args, "runId")
-                      ? OrchestratorRunId.makeUnsafe(readStringArg(args, "runId")!)
-                      : null,
-                correlationId,
-                replyToMessageId: replyTo ? replyTo.messageId : null,
-                hopCount,
-                expiresAt,
-                body: readStringArg(args, "body", { required: true })!,
-                artifactRefs: (readStrings(args, "artifactRefs", { max: 64 }) ?? []).map(
-                  (artifactId) => ArtifactId.makeUnsafe(artifactId),
-                ),
-                deliveryState: "queued",
-                deliveryAttemptId: null,
-                createdAt,
-                updatedAt: createdAt,
-              },
-            });
-            return orchestratorToolSuccess({
-              sequence: result.sequence,
-              conversationId: correlationId ?? messageId,
-              replyToMessageId: replyTo?.messageId ?? null,
+            );
+          }
+          const messageId = OrchestratorMessageId.makeUnsafe(
+            readStringArg(args, "messageId") ?? `message:${randomUUID()}`,
+          );
+          const explicitCorrelation = readStringArg(args, "correlationId");
+          const correlationId = replyTo
+            ? OrchestratorMessageId.makeUnsafe(
+                explicitCorrelation ?? replyTo.correlationId ?? replyTo.messageId,
+              )
+            : null;
+          const hopCount =
+            readInteger(args, "hopCount", { max: 32 }) ?? (replyTo ? replyTo.hopCount + 1 : 0);
+          const expiresAt =
+            readStringArg(args, "expiresAt") ??
+            new Date(Date.parse(createdAt) + 10 * 60 * 1_000).toISOString();
+          const result = yield* dispatch({
+            type: "orchestrator.message.enqueue",
+            ...rootCommandBase(
+              authority,
+              readInteger(args, "expectedRevision") ?? authority.core.root.root.revision,
+            ),
+            message: {
+              messageId,
+              rootThreadId: authority.rootThreadId,
+              senderThreadId: authority.callerThreadId,
+              targetThreadId: resolveThreadReference(
+                authority,
+                readStringArg(args, "targetThreadId", { required: true })!,
+              ),
+              assignmentId:
+                args.assignmentId === null
+                  ? null
+                  : readStringArg(args, "assignmentId")
+                    ? AssignmentId.makeUnsafe(readStringArg(args, "assignmentId")!)
+                    : null,
+              runId:
+                args.runId === null
+                  ? null
+                  : readStringArg(args, "runId")
+                    ? OrchestratorRunId.makeUnsafe(readStringArg(args, "runId")!)
+                    : null,
+              correlationId,
+              replyToMessageId: replyTo ? replyTo.messageId : null,
               hopCount,
-              state: "queued",
-            });
-          }),
+              expiresAt,
+              body: readStringArg(args, "body", { required: true })!,
+              artifactRefs: (readStrings(args, "artifactRefs", { max: 64 }) ?? []).map(
+                (artifactId) => ArtifactId.makeUnsafe(artifactId),
+              ),
+              deliveryState: "queued",
+              deliveryAttemptId: null,
+              createdAt,
+              updatedAt: createdAt,
+            },
+          });
+          const rootRevision = yield* currentRootRevision(authority.rootThreadId);
+          return orchestratorToolSuccess({
+            sequence: result.sequence,
+            conversationId: correlationId ?? messageId,
+            replyToMessageId: replyTo?.messageId ?? null,
+            hopCount,
+            state: "queued",
+            rootRevision,
+          });
+        }),
     }),
     makeEntry({
-        name: "create_communication_link",
-        description:
-          "Create a scoped sibling or cross-branch communication link. Root sets sourceThreadId and targetThreadId to the two child IDs and grants it atomically; a child omits sourceThreadId and leaves a durable request for Root review.",
+      name: "create_communication_link",
+      description:
+        "Create a scoped sibling or cross-branch communication link. Root sets sourceThreadId and targetThreadId to the two child IDs and grants it atomically; a child omits sourceThreadId and leaves a durable request for Root review.",
       inputSchema: objectSchema(
         {
           ...expectedRevisionSchema,
@@ -1707,87 +1808,85 @@ export function makeOrchestratorTools(
           "expiresAt",
         ],
       ),
-        handle: (args, _context, authority) =>
-          Effect.gen(function* () {
-            const expectedRevision = readInteger(args, "expectedRevision", { required: true })!;
-            const requestedSourceThreadId = readStringArg(args, "sourceThreadId");
-            const sourceThreadId = requestedSourceThreadId
-              ? resolveThreadReference(authority, requestedSourceThreadId)
-              : authority.callerThreadId;
-            if (authority.role !== "root" && sourceThreadId !== authority.callerThreadId) {
-              return yield* Effect.fail(
-                new OrchestratorToolError(
-                  "link_source_outside_authority",
-                  "Only Root may create a communication link on behalf of another thread.",
-                ),
-              );
-            }
-            const targetThreadId = resolveThreadReference(
-              authority,
-              readStringArg(args, "targetThreadId", { required: true })!,
+      handle: (args, _context, authority) =>
+        Effect.gen(function* () {
+          const expectedRevision = readInteger(args, "expectedRevision", { required: true })!;
+          const requestedSourceThreadId = readStringArg(args, "sourceThreadId");
+          const sourceThreadId = requestedSourceThreadId
+            ? resolveThreadReference(authority, requestedSourceThreadId)
+            : authority.callerThreadId;
+          if (authority.role !== "root" && sourceThreadId !== authority.callerThreadId) {
+            return yield* Effect.fail(
+              new OrchestratorToolError(
+                "link_source_outside_authority",
+                "Only Root may create a communication link on behalf of another thread.",
+              ),
             );
-            const isDirectOwnershipPath = authority.core.ownershipEdges.some(
-              (edge) =>
-                edge.retiredAt === null &&
-                ((edge.parentThreadId === sourceThreadId &&
-                  edge.childThreadId === targetThreadId) ||
-                  (edge.parentThreadId === targetThreadId &&
-                    edge.childThreadId === sourceThreadId)),
+          }
+          const targetThreadId = resolveThreadReference(
+            authority,
+            readStringArg(args, "targetThreadId", { required: true })!,
+          );
+          const isDirectOwnershipPath = authority.core.ownershipEdges.some(
+            (edge) =>
+              edge.retiredAt === null &&
+              ((edge.parentThreadId === sourceThreadId && edge.childThreadId === targetThreadId) ||
+                (edge.parentThreadId === targetThreadId && edge.childThreadId === sourceThreadId)),
+          );
+          if (isDirectOwnershipPath) {
+            return yield* Effect.fail(
+              new OrchestratorToolError(
+                "direct_ownership_path",
+                "Direct parent-child messaging is already authorized and must not create a communication link.",
+              ),
             );
-            if (isDirectOwnershipPath) {
-              return yield* Effect.fail(
-                new OrchestratorToolError(
-                  "direct_ownership_path",
-                  "Direct parent-child messaging is already authorized and must not create a communication link.",
-                ),
-              );
-            }
-            const linkId = OrchestratorLinkId.makeUnsafe(
-              readStringArg(args, "linkId", { required: true })!,
-            );
-            const requested = yield* dispatch({
-              type: "orchestrator.link.request",
-              ...rootCommandBase(authority, expectedRevision),
-              linkId,
-              sourceThreadId,
-              targetThreadId,
-              direction: readStringArg(args, "direction", {
-                required: true,
-              })! as OrchestratorCommunicationLink["direction"],
-              taskId:
-                args.taskId === null
-                  ? null
-                  : readStringArg(args, "taskId")
-                    ? ProjectTaskId.makeUnsafe(readStringArg(args, "taskId")!)
-                    : null,
-              runId:
-                args.runId === null
-                  ? null
-                  : readStringArg(args, "runId")
-                    ? OrchestratorRunId.makeUnsafe(readStringArg(args, "runId")!)
-                    : null,
-              capabilities: readStrings(args, "capabilities", {
-                required: true,
-                max: 32,
-              })! as never,
-              reason: readStringArg(args, "reason", { required: true })!,
-              expiresAt: readStringArg(args, "expiresAt", { required: true })!,
-            });
-            if (!authority.capabilities.has("link.manage")) {
-              return orchestratorToolSuccess({ sequence: requested.sequence, state: "requested" });
-            }
-            const granted = yield* dispatch({
-              type: "orchestrator.link.set",
-              ...rootCommandBase(authority, expectedRevision + 1),
-              linkId,
-              state: "granted",
-              reason: readStringArg(args, "reason", { required: true })!,
-            });
-            return orchestratorToolSuccess({ sequence: granted.sequence, state: "granted" });
-          }),
+          }
+          const linkId = OrchestratorLinkId.makeUnsafe(
+            readStringArg(args, "linkId", { required: true })!,
+          );
+          const requested = yield* dispatch({
+            type: "orchestrator.link.request",
+            ...rootCommandBase(authority, expectedRevision),
+            linkId,
+            sourceThreadId,
+            targetThreadId,
+            direction: readStringArg(args, "direction", {
+              required: true,
+            })! as OrchestratorCommunicationLink["direction"],
+            taskId:
+              args.taskId === null
+                ? null
+                : readStringArg(args, "taskId")
+                  ? ProjectTaskId.makeUnsafe(readStringArg(args, "taskId")!)
+                  : null,
+            runId:
+              args.runId === null
+                ? null
+                : readStringArg(args, "runId")
+                  ? OrchestratorRunId.makeUnsafe(readStringArg(args, "runId")!)
+                  : null,
+            capabilities: readStrings(args, "capabilities", {
+              required: true,
+              max: 32,
+            })! as never,
+            reason: readStringArg(args, "reason", { required: true })!,
+            expiresAt: readStringArg(args, "expiresAt", { required: true })!,
+          });
+          if (!authority.capabilities.has("link.manage")) {
+            return orchestratorToolSuccess({ sequence: requested.sequence, state: "requested" });
+          }
+          const granted = yield* dispatch({
+            type: "orchestrator.link.set",
+            ...rootCommandBase(authority, expectedRevision + 1),
+            linkId,
+            state: "granted",
+            reason: readStringArg(args, "reason", { required: true })!,
+          });
+          return orchestratorToolSuccess({ sequence: granted.sequence, state: "granted" });
+        }),
     }),
     makeEntry({
-        name: "set_communication_link",
+      name: "set_communication_link",
       description:
         "Grant, reject, revoke, or expire an existing link under durable link-manage authority.",
       inputSchema: objectSchema(
@@ -1839,7 +1938,7 @@ export function makeOrchestratorTools(
       },
     }),
     makeEntry({
-        name: "update_run",
+      name: "update_run",
       description: "Create, advance, or set the honest disposition of a Collaboration/Council run.",
       inputSchema: objectSchema(
         {
@@ -1898,13 +1997,13 @@ export function makeOrchestratorTools(
       },
     }),
     makeEntry({
-        name: "read_thread",
+      name: "read_thread",
       readOnly: true,
       description:
         "Read one authorized descendant view with explicit bounds; provider parentThreadId is not used as Orchestrator ownership.",
       inputSchema: objectSchema(
         {
-            threadId: { type: "string" },
+          threadId: { type: "string" },
           view: {
             type: "string",
             enum: [
@@ -1921,14 +2020,14 @@ export function makeOrchestratorTools(
           cursor: { type: "string" },
           limit: { type: "integer", minimum: 1, maximum: MAX_CHILD_READ_ROWS },
         },
-          ["threadId", "view"],
+        ["threadId", "view"],
       ),
       handle: (args, _context, authority) =>
         Effect.gen(function* () {
-            const childThreadId = resolveThreadReference(
-              authority,
-              readStringArg(args, "threadId", { required: true })!,
-            );
+          const childThreadId = resolveThreadReference(
+            authority,
+            readStringArg(args, "threadId", { required: true })!,
+          );
           if (!canReadOrchestratorThread(authority, childThreadId)) {
             return yield* Effect.fail(
               new OrchestratorToolError(
@@ -1944,7 +2043,7 @@ export function makeOrchestratorTools(
               .list({ rootThreadId: authority.rootThreadId, limit: Math.min(limit, 100) })
               .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
             return orchestratorToolSuccess({
-                childId: orchestratorChildAlias(childThreadId),
+              childId: orchestratorChildAlias(childThreadId),
               view,
               artifacts: artifacts.filter(
                 (artifact) =>
@@ -1965,7 +2064,7 @@ export function makeOrchestratorTools(
           );
           if (view === "status") {
             return orchestratorToolSuccess({
-                childId: orchestratorChildAlias(childThreadId),
+              childId: orchestratorChildAlias(childThreadId),
               view,
               latestTurn: detail.latestTurn,
               session: detail.session,
@@ -1977,14 +2076,14 @@ export function makeOrchestratorTools(
           }
           if (view === "last_message") {
             return orchestratorToolSuccess({
-                childId: orchestratorChildAlias(childThreadId),
+              childId: orchestratorChildAlias(childThreadId),
               view,
               message: detail.messages.at(-1) ?? null,
             });
           }
           if (view === "activity" || view === "tool_calls" || view === "pending_interactions") {
             return orchestratorToolSuccess({
-                childId: orchestratorChildAlias(childThreadId),
+              childId: orchestratorChildAlias(childThreadId),
               view,
               activities:
                 view === "tool_calls"
@@ -2021,6 +2120,10 @@ export function makeOrchestratorTools(
       description:
         "Record structured assignment status and evidence. Completion evidence must reference durable artifacts published first. This cannot assert task readiness or semantic completion.",
       inputSchema: projectSchema(OrchestratorReportStatusInput),
+      visibleWhen: (authority) =>
+        authority.core.assignments.some(
+          (assignment) => assignment.assigneeThreadId === authority.callerThreadId,
+        ),
       handle: (args, _context, authority) => {
         const processId = authority.core.root.root.activeProcessId;
         if (processId === null) {
@@ -2044,7 +2147,33 @@ export function makeOrchestratorTools(
       },
     }),
     makeEntry({
-        name: "request_change",
+      name: "resolve_child_result",
+      description:
+        "Accept a pending structured child result or request changes. Root-only, revision-checked, and never completes the Project task.",
+      inputSchema: projectSchema(OrchestratorResolveChildResultInput),
+      visibleWhen: (authority) => authority.role === "root",
+      handle: (args, _context, authority) => {
+        const input = decode(OrchestratorResolveChildResultInput, args, "resolve_child_result");
+        return dispatch({
+          type: "orchestrator.child-result.resolve",
+          ...rootCommandBase(authority, input.expectedRevision),
+          resultId: input.resultId,
+          expectedResultRevision: input.expectedResultRevision,
+          decision: input.decision,
+          feedback: input.feedback,
+        }).pipe(
+          Effect.map((result) =>
+            orchestratorToolSuccess({
+              ...result,
+              resultId: input.resultId,
+              decision: input.decision,
+            }),
+          ),
+        );
+      },
+    }),
+    makeEntry({
+      name: "request_change",
       description:
         "Send a typed assignment change request to its owner without changing scope, model, dependency, or authority directly.",
       inputSchema: objectSchema(
@@ -2084,6 +2213,10 @@ export function makeOrchestratorTools(
           "expiresAt",
         ],
       ),
+      visibleWhen: (authority) =>
+        authority.core.assignments.some(
+          (assignment) => assignment.assigneeThreadId === authority.callerThreadId,
+        ),
       handle: (args, _context, authority) => {
         const assignmentId = AssignmentId.makeUnsafe(
           readStringArg(args, "assignmentId", { required: true })!,
@@ -2133,7 +2266,7 @@ export function makeOrchestratorTools(
       },
     }),
     makeEntry({
-        name: "wait_for_event",
+      name: "wait_for_event",
       description:
         "Register one bounded durable event wait. Native monitor execution wakes the owner; the agent must not poll.",
       inputSchema: objectSchema(
@@ -2144,7 +2277,7 @@ export function makeOrchestratorTools(
           condition: { type: "string" },
           timeoutMs: { type: "integer", minimum: 1, maximum: 3_600_000 },
         },
-        ["expectedRevision", "monitorId", "condition", "timeoutMs"],
+        ["condition", "timeoutMs"],
       ),
       handle: (args, _context, authority) => {
         const createdAtMs = Date.now();
@@ -2152,31 +2285,72 @@ export function makeOrchestratorTools(
           required: true,
           max: 3_600_000,
         })!;
-        return dispatch({
-          type: "orchestrator.monitor.register",
-          ...rootCommandBase(authority, readInteger(args, "expectedRevision", { required: true })!),
-          monitor: {
-            id: MonitorId.makeUnsafe(readStringArg(args, "monitorId", { required: true })!),
-            rootThreadId: authority.rootThreadId,
-            targetThreadId:
-              args.targetThreadId === null || args.targetThreadId === undefined
-                ? null
-                : ThreadId.makeUnsafe(readStringArg(args, "targetThreadId", { required: true })!),
-            kind: "wait",
-            condition: readStringArg(args, "condition", { required: true })!,
-            cadenceMs: null,
-            nextWakeAt: null,
-            maxRuns: 1,
-            runCount: 0,
-            expiresAt: new Date(createdAtMs + timeoutMs).toISOString(),
-            ownerThreadId: authority.callerThreadId,
-            state: "active",
-          },
-        }).pipe(Effect.map((result) => orchestratorToolSuccess({ ...result, registered: true })));
+        const targetThreadId =
+          args.targetThreadId === null || args.targetThreadId === undefined
+            ? null
+            : resolveThreadReference(
+                authority,
+                readStringArg(args, "targetThreadId", { required: true })!,
+              );
+        const observeTarget = targetThreadId
+          ? input.snapshotQuery.getThreadDetailById(targetThreadId).pipe(
+              Effect.mapError((error) => new ToolInputError(errorText(error))),
+              Effect.map(Option.getOrNull),
+            )
+          : Effect.succeed(null);
+        return observeTarget.pipe(
+          Effect.flatMap((target) => {
+            if (
+              target !== null &&
+              target.latestTurn !== null &&
+              target.latestTurn.state !== "running"
+            ) {
+              return Effect.succeed(
+                orchestratorToolSuccess({
+                  registered: false,
+                  matchedImmediately: true,
+                  childId: targetThreadId ? orchestratorChildAlias(targetThreadId) : null,
+                  latestTurn: target.latestTurn,
+                  message: target.messages.at(-1) ?? null,
+                  action: "continue_current_turn",
+                }),
+              );
+            }
+            return dispatch({
+              type: "orchestrator.monitor.register",
+              ...rootCommandBase(
+                authority,
+                readInteger(args, "expectedRevision") ?? authority.core.root.root.revision,
+              ),
+              monitor: {
+                id: MonitorId.makeUnsafe(readStringArg(args, "monitorId") ?? randomUUID()),
+                rootThreadId: authority.rootThreadId,
+                targetThreadId,
+                kind: "wait",
+                condition: readStringArg(args, "condition", { required: true })!,
+                cadenceMs: null,
+                nextWakeAt: null,
+                maxRuns: 1,
+                runCount: 0,
+                expiresAt: new Date(createdAtMs + timeoutMs).toISOString(),
+                ownerThreadId: authority.callerThreadId,
+                state: "active",
+              },
+            }).pipe(
+              Effect.map((result) =>
+                orchestratorToolSuccess({
+                  ...result,
+                  registered: true,
+                  action: "end_turn_and_wait_for_wake",
+                }),
+              ),
+            );
+          }),
+        );
       },
     }),
     makeEntry({
-        name: "retire_child_thread",
+      name: "retire_child_thread",
       description:
         "Retire an authorized descendant while preserving its thread and orchestration history.",
       inputSchema: objectSchema(
@@ -2191,50 +2365,104 @@ export function makeOrchestratorTools(
         dispatch({
           type: "orchestrator.child.retire",
           ...rootCommandBase(authority, readInteger(args, "expectedRevision", { required: true })!),
-            childThreadId: resolveThreadReference(
-              authority,
-              readStringArg(args, "childThreadId", { required: true })!,
-            ),
+          childThreadId: resolveThreadReference(
+            authority,
+            readStringArg(args, "childThreadId", { required: true })!,
+          ),
           reason: readStringArg(args, "reason", { required: true })!,
         }).pipe(Effect.map((result) => orchestratorToolSuccess(result))),
     }),
   );
 
-    const readThreadEntry = entries.find((entry) => entry.definition.name === "read_thread")!;
-    entries.push(
-      {
-        ...readThreadEntry,
-        definition: {
-          ...readThreadEntry.definition,
-          name: "read_last_message",
-          displayName: ORCHESTRATOR_TOOL_DISPLAY_NAMES.read_last_message,
-          description: "Read the latest message from one authorized Root or child thread.",
-          inputSchema: objectSchema({ threadId: { type: "string" } }, ["threadId"]),
-        },
-        execute: (args, context) =>
-          readThreadEntry.execute({ ...args, view: "last_message" }, context),
+  const readThreadEntry = entries.find((entry) => entry.definition.name === "read_thread")!;
+  const createChildEntry = entries.find(
+    (entry) => entry.definition.name === "create_child_thread",
+  )!;
+  entries.push(
+    {
+      ...createChildEntry,
+      definition: {
+        ...createChildEntry.definition,
+        name: "start_child_conversation",
+        displayName: ORCHESTRATOR_TOOL_DISPLAY_NAMES.start_child_conversation,
+        description:
+          "Atomically create one independent Child and enqueue its first ordinary Root-to-Child message without a TaskProcess or Assignment.",
+        inputSchema: objectSchema(
+          {
+            title: { type: "string", maxLength: 512 },
+            modelTarget: modelTargetInputSchema,
+            reason: { type: "string", maxLength: 512 },
+            initialMessage: { type: "string", maxLength: 64_000 },
+          },
+          ["title", "modelTarget", "reason", "initialMessage"],
+        ),
       },
-      {
-        ...readThreadEntry,
-        definition: {
-          ...readThreadEntry.definition,
-          name: "read_transcript",
-          displayName: ORCHESTRATOR_TOOL_DISPLAY_NAMES.read_transcript,
-          description:
-            "Read a bounded transcript page from one authorized Root or child thread.",
-          inputSchema: objectSchema(
+      execute: (args, context) =>
+        createChildEntry
+          .execute(
             {
-              threadId: { type: "string" },
-              cursor: { type: "string" },
-              limit: { type: "integer", minimum: 1, maximum: MAX_CHILD_READ_ROWS },
+              title: args.title,
+              role: "participant",
+              allowedCapabilities: ["state.read", "message.send"],
+              modelTarget: args.modelTarget,
+              decisionReason: {
+                summary: args.reason,
+                taskFit: ["direct-peer-conversation"],
+                contextHealth: "healthy",
+                cacheEconomics: "unknown",
+                selectedAt: now(),
+              },
+              initialMessage: args.initialMessage,
             },
-            ["threadId"],
+            context,
+          )
+          .pipe(
+            Effect.map((result) =>
+              result.ok
+                ? {
+                    ...result,
+                    value: {
+                      ...(result.value as Readonly<Record<string, unknown>>),
+                      wakeStrategy: "mailbox_reply",
+                      action: "end_turn_and_wait_for_reply",
+                    },
+                  }
+                : result,
+            ),
           ),
-        },
-        execute: (args, context) =>
-          readThreadEntry.execute({ ...args, view: "full_transcript" }, context),
+    },
+    {
+      ...readThreadEntry,
+      definition: {
+        ...readThreadEntry.definition,
+        name: "read_last_message",
+        displayName: ORCHESTRATOR_TOOL_DISPLAY_NAMES.read_last_message,
+        description: "Read the latest message from one authorized Root or child thread.",
+        inputSchema: objectSchema({ threadId: { type: "string" } }, ["threadId"]),
       },
-    );
+      execute: (args, context) =>
+        readThreadEntry.execute({ ...args, view: "last_message" }, context),
+    },
+    {
+      ...readThreadEntry,
+      definition: {
+        ...readThreadEntry.definition,
+        name: "read_transcript",
+        displayName: ORCHESTRATOR_TOOL_DISPLAY_NAMES.read_transcript,
+        description: "Read a bounded transcript page from one authorized Root or child thread.",
+        inputSchema: objectSchema(
+          {
+            threadId: { type: "string" },
+            cursor: { type: "string" },
+            limit: { type: "integer", minimum: 1, maximum: MAX_CHILD_READ_ROWS },
+          },
+          ["threadId"],
+        ),
+      },
+      execute: (args, context) =>
+        readThreadEntry.execute({ ...args, view: "full_transcript" }, context),
+    },
+  );
 
-    return entries;
+  return entries;
 }

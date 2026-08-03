@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 
 import {
   ArtifactId,
@@ -136,6 +137,8 @@ import { OrchestratorArtifactRepository } from "./persistence/Services/Orchestra
 import { ProjectionOrchestratorRepository } from "./persistence/Services/ProjectionOrchestrator";
 import { ProjectionTaskProcessRepository } from "./persistence/Services/ProjectionTaskProcess";
 import { OrchestratorToolRuntime } from "./orchestration/Services/OrchestratorToolRuntime";
+import { HandoffPreparationService } from "./handoff/Services/HandoffPreparationService";
+import { projectOrchestratorChildren } from "./orchestration/orchestrator/childProjections";
 
 export function canManageExternalMcp(role: "owner" | "client"): boolean {
   return role === "owner";
@@ -362,6 +365,7 @@ const makeWsRpcHandlersLayer = () =>
       const orchestratorArtifacts = yield* OrchestratorArtifactRepository;
       const orchestratorProjections = yield* ProjectionOrchestratorRepository;
       const orchestratorToolRuntime = yield* OrchestratorToolRuntime;
+      const handoffPreparation = yield* HandoffPreparationService;
       const taskProcessProjections = yield* ProjectionTaskProcessRepository;
       const taskProcessQuery = yield* TaskProcessQuery;
       const providerCommandReactor = yield* ProviderCommandReactor;
@@ -843,14 +847,47 @@ const makeWsRpcHandlersLayer = () =>
             Effect.gen(function* () {
               const { command: normalizedCommand, prepareWorkspaceRoot } =
                 yield* normalizeDispatchCommand({ command });
-              const result = yield* dispatchOrchestrationCommand(normalizedCommand);
+              let authorizedCommand = normalizedCommand;
+              if (
+                normalizedCommand.type === "thread.handoff.create" &&
+                normalizedCommand.handoffAttemptId !== undefined
+              ) {
+                if (normalizedCommand.handoffDestinationMode === undefined) {
+                  return yield* Effect.fail(
+                    new Error("Cross-mode handoff destination mode is required."),
+                  );
+                }
+                const crossModeHandoff = yield* handoffPreparation.accept({
+                  attemptId: normalizedCommand.handoffAttemptId,
+                  destinationThreadId: normalizedCommand.threadId,
+                  destinationMode: normalizedCommand.handoffDestinationMode,
+                  projectId: normalizedCommand.projectId,
+                  sourceLinkOnly: normalizedCommand.handoffSourceLinkOnly === true,
+                });
+                if (crossModeHandoff.grant.sourceThreadId !== normalizedCommand.sourceThreadId) {
+                  return yield* Effect.fail(
+                    new Error("The handoff attempt belongs to another source thread."),
+                  );
+                }
+                authorizedCommand = { ...normalizedCommand, crossModeHandoff };
+              } else if (
+                normalizedCommand.type === "thread.handoff.create" &&
+                normalizedCommand.crossModeHandoff !== undefined
+              ) {
+                return yield* Effect.fail(
+                  new Error(
+                    "Cross-mode handoff authority must be resolved from a server preparation attempt.",
+                  ),
+                );
+              }
+              const result = yield* dispatchOrchestrationCommand(authorizedCommand);
               // Only scaffold managed workspace-root subdirectories (Inbox/Outbox/work/outputs)
               // AFTER the decider has accepted the command. A rejected dispatch (e.g. a
               // cross-kind workspace-root ownership conflict) must never mutate the filesystem.
               if (prepareWorkspaceRoot) {
                 yield* prepareWorkspaceRoot;
               }
-              if (normalizedCommand.type === "thread.archive") {
+              if (authorizedCommand.type === "thread.archive") {
                 yield* Effect.forkDetach(pruneManagedWorktrees);
               }
               return result;
@@ -973,6 +1010,54 @@ const makeWsRpcHandlersLayer = () =>
               providerSupport: tool.providerSupport,
             })),
           }),
+        [ORCHESTRATION_WS_METHODS.startHandoffPreparation]: (input) =>
+          rpcEffect(handoffPreparation.start(input), "Failed to start handoff preparation"),
+        [ORCHESTRATION_WS_METHODS.getHandoffPreparation]: (input) =>
+          rpcEffect(handoffPreparation.get(input), "Failed to read handoff preparation"),
+        [ORCHESTRATION_WS_METHODS.cancelHandoffPreparation]: (input) =>
+          rpcEffect(handoffPreparation.cancel(input), "Failed to cancel handoff preparation"),
+        [ORCHESTRATION_WS_METHODS.listHandoffGrants]: () =>
+          rpcEffect(
+            projectionReadModelQuery.getSnapshot().pipe(
+              Effect.map((snapshot) => ({
+                items: snapshot.threads.flatMap((thread) => {
+                  const grant = thread.handoff?.crossMode?.grant;
+                  return grant ? [grant] : [];
+                }),
+              })),
+            ),
+            "Failed to list handoff grants",
+          ),
+        [ORCHESTRATION_WS_METHODS.revokeHandoffGrant]: (input) =>
+          rpcEffect(
+            Effect.gen(function* () {
+              const snapshot = yield* projectionReadModelQuery.getSnapshot();
+              const thread = snapshot.threads.find(
+                (candidate) => candidate.handoff?.crossMode?.grant.grantId === input.grantId,
+              );
+              if (!thread?.handoff?.crossMode) return { revoked: false };
+              const now = new Date().toISOString();
+              yield* dispatchOrchestrationCommand({
+                type: "thread.meta.update",
+                commandId: CommandId.makeUnsafe(randomUUID()),
+                threadId: thread.id,
+                handoff: {
+                  ...thread.handoff,
+                  crossMode: {
+                    ...thread.handoff.crossMode,
+                    grant: {
+                      ...thread.handoff.crossMode.grant,
+                      status: "revoked",
+                      revision: thread.handoff.crossMode.grant.revision + 1,
+                      revokedAt: now,
+                    },
+                  },
+                },
+              });
+              return { revoked: true };
+            }),
+            "Failed to revoke handoff grant",
+          ),
         [ORCHESTRATION_WS_METHODS.getOrchestratorSnapshot]: (input) =>
           rpcEffect(
             Effect.gen(function* () {
@@ -1011,6 +1096,13 @@ const makeWsRpcHandlersLayer = () =>
                   ownershipEdges: core.ownershipEdges,
                   communicationLinks: core.communicationLinks,
                   assignments: core.assignments,
+                  childResults: core.childResults,
+                  childProjections: projectOrchestratorChildren({
+                    rootThreadId: core.root.root.rootThreadId,
+                    ownershipEdges: core.ownershipEdges,
+                    assignments: core.assignments,
+                    childResults: core.childResults,
+                  }),
                   runs: core.runs,
                   activeProcess,
                   providerCapabilities: core.providerCapabilities.slice(0, 256),

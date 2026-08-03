@@ -84,6 +84,7 @@ interface ChatHeaderProps {
   className?: string;
   hideSidebarControls?: boolean;
   hideHandoffControls?: boolean;
+  inspectOnly?: boolean;
   isGitRepo: boolean;
   openInTarget: string | null;
   activeProjectScripts: ProjectScript[] | undefined;
@@ -504,6 +505,7 @@ export function ChatHeader({
   className,
   hideSidebarControls: hideSidebarControlsProp,
   hideHandoffControls: hideHandoffControlsProp,
+  inspectOnly = false,
   isGitRepo,
   openInTarget,
   activeProjectScripts,
@@ -739,7 +741,7 @@ export function ChatHeader({
                 <h2
                   className="max-w-[clamp(12rem,42vw,36rem)] truncate font-system-ui text-[length:var(--app-font-size-ui,12px)] font-normal text-foreground"
                   title={activeThreadTitle}
-                  onDoubleClick={() => onRenameThread()}
+                  onDoubleClick={inspectOnly ? undefined : () => onRenameThread()}
                 >
                   {activeThreadTitle}
                 </h2>
@@ -823,7 +825,9 @@ export function ChatHeader({
                     }
                   >
                     <HandoffIcon className="size-[1em] shrink-0 opacity-80" />
-                    {!compact ? <span className="truncate font-normal">Hand off</span> : null}
+                    {!compact ? (
+                      <span className="truncate font-normal">Switch provider</span>
+                    ) : null}
                   </MenuTrigger>
                 }
               />
@@ -901,7 +905,7 @@ export function ChatHeader({
         ) : (
           <>
             {/* Open in editor: dedicated split-button with an editor switcher; the project
-                action control now lives beside Hand off as its own project command surface. */}
+                action control now lives beside Switch provider as its own project command surface. */}
             {activeProjectName ? (
               <OpenInPicker
                 keybindings={keybindings}

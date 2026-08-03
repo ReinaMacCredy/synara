@@ -35,6 +35,13 @@ import {
   OrchestrationReplayEventsInput,
 } from "./orchestration";
 import {
+  CancelHandoffPreparationInput,
+  GetHandoffPreparationInput,
+  ListHandoffGrantsInput,
+  RevokeHandoffGrantInput,
+  StartHandoffPreparationInput,
+} from "./handoff";
+import {
   ArchiveOrchestratorRootInput,
   CreateOrchestratorRootInput,
   DetachOrchestratorChildInput,
@@ -343,6 +350,11 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(ORCHESTRATION_WS_METHODS.getTaskProcessSummary, GetTaskProcessInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.getTaskProcessGraph, GetTaskProcessInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.getSessionProgress, GetSessionProgressInput),
+  tagRequestBody(ORCHESTRATION_WS_METHODS.startHandoffPreparation, StartHandoffPreparationInput),
+  tagRequestBody(ORCHESTRATION_WS_METHODS.getHandoffPreparation, GetHandoffPreparationInput),
+  tagRequestBody(ORCHESTRATION_WS_METHODS.cancelHandoffPreparation, CancelHandoffPreparationInput),
+  tagRequestBody(ORCHESTRATION_WS_METHODS.listHandoffGrants, ListHandoffGrantsInput),
+  tagRequestBody(ORCHESTRATION_WS_METHODS.revokeHandoffGrant, RevokeHandoffGrantInput),
   tagRequestBody(
     ORCHESTRATION_WS_METHODS.dispatchTaskProcessCommand,
     DispatchTaskProcessCommandInput,

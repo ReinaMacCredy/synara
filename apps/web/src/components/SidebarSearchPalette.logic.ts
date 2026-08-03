@@ -1,7 +1,7 @@
 // Purpose: Scores sidebar palette results for actions, themes, projects, and chat threads.
 // Keeps search local and deterministic so the palette can rank title hits above
 // message-content hits while still surfacing a useful snippet for chat matches.
-import type { ReactNode } from "react";
+import type { ComponentType } from "react";
 
 import type { ProviderKind } from "@synara/contracts";
 import { basenameOfPath } from "../file-icons";
@@ -16,7 +16,7 @@ export interface SidebarSearchAction {
   /** Dynamic actions (e.g. "Switch to <space>") execute this instead of a wired-up prop. */
   run?: () => void;
   /** Overrides the id-keyed icon map for actions whose glyph is data (a space's icon). */
-  icon?: (props: { className?: string }) => ReactNode;
+  icon?: ComponentType<{ className?: string }>;
   /**
    * Type-to-jump targets (one per space) only appear once the user types; listing them
    * all in the empty palette would push threads and projects below the fold.
@@ -63,6 +63,9 @@ export interface SidebarSearchThread {
   provider: ProviderKind;
   createdAt: string;
   updatedAt?: string | undefined;
+  rootBreadcrumb?: string | undefined;
+  lifecycle?: string | undefined;
+  model?: string | undefined;
   messages: readonly {
     text: string;
   }[];
@@ -353,6 +356,9 @@ export function matchSidebarSearchThreads(
       const projectName = normalizeText(thread.projectName);
       const projectRemoteName = normalizeText(thread.projectRemoteName);
       const spaceName = normalizeText(thread.spaceName);
+      const rootBreadcrumb = normalizeText(thread.rootBreadcrumb ?? "");
+      const lifecycle = normalizeText(thread.lifecycle ?? "");
+      const model = normalizeText(thread.model ?? "");
       const messageMatch = scoreMessage(thread.messages, normalizedQuery, queryTokens);
       let score: number | null = null;
       let matchKind: SidebarSearchThreadMatch["matchKind"] = "title";
@@ -385,6 +391,13 @@ export function matchSidebarSearchThreads(
         matchKind = "project";
       } else if (spaceName.includes(normalizedQuery)) {
         score = 55;
+        matchKind = "project";
+      } else if (
+        rootBreadcrumb.includes(normalizedQuery) ||
+        lifecycle.includes(normalizedQuery) ||
+        model.includes(normalizedQuery)
+      ) {
+        score = 52;
         matchKind = "project";
       }
 

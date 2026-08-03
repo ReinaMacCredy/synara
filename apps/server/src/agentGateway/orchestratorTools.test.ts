@@ -1,5 +1,6 @@
 import {
   AssignmentId,
+  ChildResultId,
   ContextBundleId,
   ProjectId,
   ProjectTaskId,
@@ -9,6 +10,7 @@ import {
   type OrchestratorProviderCapability,
   type TaskProcessGraphProjection,
 } from "@synara/contracts";
+import { orchestratorChildAlias } from "@synara/shared/orchestratorThreadAlias";
 import { Effect, Option } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -81,6 +83,7 @@ const core: ProjectionOrchestratorCore = {
   ],
   communicationLinks: [],
   assignments: [],
+  childResults: [],
   runs: [],
   providerCapabilities: [
     {
@@ -142,6 +145,10 @@ const context = (
   callerProvider: "codex",
   callerCapabilities: new Set(["thread:read", "thread:write"]),
   callerTurnId: "turn",
+  listOrchestratorCapabilities: () =>
+    options.failure
+      ? Effect.fail(new OrchestratorToolError("provider_capability_unavailable", "models missing"))
+      : Effect.succeed([options.capability ?? core.providerCapabilities[0]!]),
   resolveOrchestratorCapability: (input) =>
     Effect.suspend(() => {
       options.requests?.push(input);
@@ -157,6 +164,7 @@ const makeTools = (
   options: {
     readonly projectedCore?: ProjectionOrchestratorCore;
     readonly standaloneThread?: Readonly<Record<string, unknown>>;
+    readonly threadDetail?: Readonly<Record<string, unknown>>;
   } = {},
 ) => {
   const dispatched: OrchestrationCommand[] = [];
@@ -184,6 +192,7 @@ const makeTools = (
       }),
   } as unknown as OrchestrationEngineShape;
   const snapshotQuery = {
+    getThreadDetailById: () => Effect.succeed(Option.fromNullishOr(options.threadDetail)),
     getThreadShellById: (threadId: ThreadId) =>
       Effect.succeed(
         threadId === rootThreadId
@@ -225,6 +234,7 @@ describe("Orchestrator tools", () => {
   it("registers exactly the V1 names and no detach alias", () => {
     const { tools } = makeTools();
     expect(tools.map((tool) => tool.definition.name)).toEqual([
+      "list_provider_capabilities",
       "create_task_process",
       "read_task_process",
       "read_orchestrator_state",
@@ -241,12 +251,77 @@ describe("Orchestrator tools", () => {
       "update_run",
       "read_thread",
       "report_status",
+      "resolve_child_result",
       "request_change",
       "wait_for_event",
       "retire_child_thread",
+      "start_child_conversation",
       "read_last_message",
       "read_transcript",
     ]);
+  });
+
+  it("returns exact live model targets and persists the observed capabilities", async () => {
+    const liveCapability = {
+      ...core.providerCapabilities[0]!,
+      observedAt: "2026-08-01T00:00:01.000Z",
+    };
+    const { tools, persistedProviderCapabilities } = makeTools();
+    const listCapabilities = tools.find(
+      (tool) => tool.definition.name === "list_provider_capabilities",
+    )!;
+
+    const result = await Effect.runPromise(
+      listCapabilities.execute({}, context(rootThreadId, { capability: liveCapability })),
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        modelTargets: [
+          {
+            provider: "codex",
+            model: "gpt-5.4-mini",
+            runtimeMode: "approval-required",
+            workspaceRoot: "/tmp/project",
+          },
+        ],
+      },
+    });
+    expect(persistedProviderCapabilities).toEqual([liveCapability]);
+  });
+
+  it("projects resolve_child_result directly to the Root revision-checked command", async () => {
+    const { tools, dispatched } = makeTools();
+    const resolve = tools.find((tool) => tool.definition.name === "resolve_child_result")!;
+    const resultId = ChildResultId.makeUnsafe("child-result-native-tool");
+
+    const result = await Effect.runPromise(
+      resolve.execute(
+        {
+          expectedRevision: 7,
+          resultId,
+          expectedResultRevision: 2,
+          decision: "request_changes",
+          feedback: "Address the missing check",
+        },
+        context(rootThreadId),
+      ),
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: { resultId, decision: "request_changes" },
+    });
+    expect(dispatched).toHaveLength(1);
+    expect(dispatched[0]).toMatchObject({
+      type: "orchestrator.child-result.resolve",
+      rootThreadId,
+      resultId,
+      expectedRevision: 7,
+      expectedResultRevision: 2,
+      decision: "request_changes",
+    });
   });
 
   it("advertises the canonical report-status and artifact schemas to providers", () => {
@@ -335,15 +410,27 @@ describe("Orchestrator tools", () => {
       args: { expectedRevision: 7, artifact: {} },
     },
   ])("returns a recoverable native tool failure for $name", async ({ toolName, args }) => {
-    const { tools } = makeTools();
+    const { tools } = makeTools({
+      projectedCore:
+        toolName === "report_status"
+          ? {
+              ...core,
+              assignments: [
+                {
+                  assigneeThreadId: rootThreadId,
+                } as ProjectionOrchestratorCore["assignments"][number],
+              ],
+            }
+          : core,
+    });
     const tool = tools.find((candidate) => candidate.definition.name === toolName)!;
 
-    await expect(Effect.runPromise(tool.execute(args, context(rootThreadId)))).resolves.toMatchObject(
-      {
-        ok: false,
-        error: { code: "orchestrator_tool_input_invalid" },
-      },
-    );
+    await expect(
+      Effect.runPromise(tool.execute(args, context(rootThreadId))),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: "orchestrator_tool_input_invalid" },
+    });
   });
 
   it("lets Root grant a scoped sibling link without making Root an endpoint", async () => {
@@ -364,9 +451,7 @@ describe("Orchestrator tools", () => {
         ],
       },
     });
-    const createLink = tools.find(
-      (tool) => tool.definition.name === "create_communication_link",
-    )!;
+    const createLink = tools.find((tool) => tool.definition.name === "create_communication_link")!;
 
     const result = await Effect.runPromise(
       createLink.execute(
@@ -434,14 +519,59 @@ describe("Orchestrator tools", () => {
     );
 
     expect(result).toMatchObject({ ok: true, value: { model: "gpt-5.4-mini" } });
-    expect(providerCapabilityRequests).toEqual([
-      { provider: "codex", model: "gpt-5.4-mini" },
-    ]);
+    expect(providerCapabilityRequests).toEqual([{ provider: "codex", model: "gpt-5.4-mini" }]);
     expect(dispatched).toEqual([
       expect.objectContaining({
         type: "orchestrator.child.create",
         parentThreadId: rootThreadId,
         modelTarget: expect.objectContaining({ model: "gpt-5.4-mini" }),
+      }),
+    ]);
+  });
+
+  it("atomically starts a child conversation without a caller-supplied revision", async () => {
+    const { tools, dispatched } = makeTools();
+    const startConversation = tools.find(
+      (tool) => tool.definition.name === "start_child_conversation",
+    )!;
+
+    const result = await Effect.runPromise(
+      startConversation.execute(
+        {
+          title: "Independent peer",
+          modelTarget: {
+            provider: "codex",
+            model: "gpt-5.4-mini",
+            runtimeMode: "approval-required",
+            workspaceRoot: "/tmp/project",
+          },
+          reason: "Independent framing",
+          initialMessage: "Reply with CHILD_READY.",
+        },
+        context(rootThreadId),
+      ),
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        initialMessageQueued: true,
+        rootRevision: 7,
+        wakeStrategy: "mailbox_reply",
+        action: "end_turn_and_wait_for_reply",
+      },
+    });
+    expect(dispatched).toEqual([
+      expect.objectContaining({
+        type: "orchestrator.child.create",
+        expectedRevision: 7,
+        role: "participant",
+        capabilities: ["state.read", "message.send"],
+        decisionReason: expect.objectContaining({
+          summary: "Independent framing",
+          taskFit: ["direct-peer-conversation"],
+        }),
+        initialMessage: expect.objectContaining({ body: "Reply with CHILD_READY." }),
       }),
     ]);
   });
@@ -484,9 +614,7 @@ describe("Orchestrator tools", () => {
 
   it("publishes a complete non-duplicative standalone-child assignment wire contract", () => {
     const { tools } = makeTools();
-    const assignment = tools.find(
-      (tool) => tool.definition.name === "assign_task",
-    )!;
+    const assignment = tools.find((tool) => tool.definition.name === "assign_task")!;
 
     expect(assignment.definition.inputSchema).toMatchObject({
       properties: {
@@ -537,9 +665,7 @@ describe("Orchestrator tools", () => {
         runtimeMode: "approval-required",
       },
     });
-    const assignment = tools.find(
-      (tool) => tool.definition.name === "assign_task",
-    )!;
+    const assignment = tools.find((tool) => tool.definition.name === "assign_task")!;
 
     await Effect.runPromise(
       assignment.execute(
@@ -654,9 +780,7 @@ describe("Orchestrator tools", () => {
           ],
         },
       });
-    const assignment = tools.find(
-      (tool) => tool.definition.name === "assign_task",
-    )!;
+    const assignment = tools.find((tool) => tool.definition.name === "assign_task")!;
 
     await Effect.runPromise(
       assignment.execute(
@@ -711,9 +835,7 @@ describe("Orchestrator tools", () => {
       "orchestrator.assignment.create",
       "orchestrator.message.enqueue",
     ]);
-    expect(providerCapabilityRequests).toEqual([
-      { provider: "codex", model: "gpt-5.4-mini" },
-    ]);
+    expect(providerCapabilityRequests).toEqual([{ provider: "codex", model: "gpt-5.4-mini" }]);
     expect(persistedProviderCapabilities).toEqual([liveProviderCapability]);
     const createCommand = dispatched[0];
     if (createCommand?.type !== "thread.create") throw new Error("Expected thread.create.");
@@ -760,6 +882,12 @@ describe("Orchestrator tools", () => {
   it("derives actor, Root, project, and process instead of trusting spoofed arguments", async () => {
     const { tools, dispatched } = makeTools();
     const create = tools.find((tool) => tool.definition.name === "create_task")!;
+    expect(create.definition.inputSchema).toMatchObject({
+      required: expect.arrayContaining(["risk"]),
+      properties: {
+        risk: { enum: ["low", "medium", "high"] },
+      },
+    });
     await Effect.runPromise(
       create.execute(
         {
@@ -768,6 +896,7 @@ describe("Orchestrator tools", () => {
           title: "Task",
           acceptanceCriteria: [],
           priority: "normal",
+          risk: "medium",
           orderKey: "a",
           actor: { kind: "user", actorId: "forged" },
           rootThreadId: "forged-root",
@@ -785,6 +914,7 @@ describe("Orchestrator tools", () => {
       processId,
       projectId,
       taskId: ProjectTaskId.makeUnsafe("task"),
+      risk: "medium",
       actor: { kind: "thread", threadId: rootThreadId },
     });
     expect(dispatched[0]).not.toHaveProperty("readiness");
@@ -812,5 +942,91 @@ describe("Orchestrator tools", () => {
     );
     expect(result.ok).toBe(false);
     expect(dispatched).toHaveLength(0);
+  });
+
+  it("hides assignment-only tools from an unattached peer conversation", async () => {
+    const { tools } = makeTools();
+    const report = tools.find((tool) => tool.definition.name === "report_status")!;
+    const requestChange = tools.find((tool) => tool.definition.name === "request_change")!;
+
+    await expect(Effect.runPromise(report.isVisible!(context(participantThreadId)))).resolves.toBe(
+      false,
+    );
+    await expect(
+      Effect.runPromise(requestChange.isVisible!(context(participantThreadId))),
+    ).resolves.toBe(false);
+    const listCapabilities = tools.find(
+      (tool) => tool.definition.name === "list_provider_capabilities",
+    )!;
+    await expect(
+      Effect.runPromise(listCapabilities.isVisible!(context(participantThreadId))),
+    ).resolves.toBe(false);
+  });
+
+  it("returns an already-settled child immediately without registering a wake", async () => {
+    const { tools, dispatched } = makeTools({
+      threadDetail: {
+        latestTurn: { turnId: "turn-child", state: "completed" },
+        messages: [{ id: "message-child", role: "assistant", content: "CHILD_READY" }],
+      },
+    });
+    const wait = tools.find((tool) => tool.definition.name === "wait_for_event")!;
+
+    const result = await Effect.runPromise(
+      wait.execute(
+        {
+          targetThreadId: orchestratorChildAlias(participantThreadId),
+          condition: "Child settles",
+          timeoutMs: 60_000,
+        },
+        context(rootThreadId),
+      ),
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        registered: false,
+        matchedImmediately: true,
+        action: "continue_current_turn",
+      },
+    });
+    expect(dispatched).toHaveLength(0);
+  });
+
+  it("generates monitor identity and revision for a running child wait", async () => {
+    const { tools, dispatched } = makeTools({
+      threadDetail: {
+        latestTurn: { turnId: "turn-child", state: "running" },
+        messages: [],
+      },
+    });
+    const wait = tools.find((tool) => tool.definition.name === "wait_for_event")!;
+
+    const result = await Effect.runPromise(
+      wait.execute(
+        {
+          targetThreadId: "participant",
+          condition: "Child settles",
+          timeoutMs: 60_000,
+        },
+        context(rootThreadId),
+      ),
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: { registered: true, action: "end_turn_and_wait_for_wake" },
+    });
+    expect(dispatched).toEqual([
+      expect.objectContaining({
+        type: "orchestrator.monitor.register",
+        expectedRevision: 7,
+        monitor: expect.objectContaining({
+          targetThreadId: participantThreadId,
+          id: expect.any(String),
+        }),
+      }),
+    ]);
   });
 });

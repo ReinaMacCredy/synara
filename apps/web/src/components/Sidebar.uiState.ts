@@ -11,19 +11,24 @@ const SIDEBAR_UI_STATE_STORAGE_KEY = "synara:sidebar-ui:v1";
 export type SidebarUiState = {
   chatSectionExpanded: boolean;
   orchestratorRootsSectionExpanded: boolean;
+  orchestratorExpandedRootIds: string[];
   chatThreadListExtraPages: number;
   projectThreadListExtraPagesByCwd: Record<string, number>;
   dismissedThreadStatusKeyByThreadId: Record<string, string>;
   lastThreadRoute: LastThreadRoute | null;
+  /** Swaps the Projects surface for the flat task-feed Activity view. */
+  activityViewEnabled: boolean;
 };
 
 const DEFAULT_SIDEBAR_UI_STATE: SidebarUiState = {
   chatSectionExpanded: false,
   orchestratorRootsSectionExpanded: true,
+  orchestratorExpandedRootIds: [],
   chatThreadListExtraPages: 0,
   projectThreadListExtraPagesByCwd: {},
   dismissedThreadStatusKeyByThreadId: {},
   lastThreadRoute: null,
+  activityViewEnabled: false,
 };
 
 // Persisted paging is a request, not a promise: render-time clamping trims it to the real
@@ -74,6 +79,7 @@ export function readSidebarUiState(): SidebarUiState {
     const parsed = JSON.parse(raw) as {
       chatSectionExpanded?: boolean;
       orchestratorRootsSectionExpanded?: boolean;
+      orchestratorExpandedRootIds?: unknown;
       chatThreadListExtraPages?: number;
       projectThreadListExtraPagesByCwd?: Record<string, unknown>;
       /** Legacy (pre-paging) all-or-nothing "Show more" flags, migrated to one extra page. */
@@ -84,6 +90,7 @@ export function readSidebarUiState(): SidebarUiState {
         threadId?: unknown;
         splitViewId?: unknown;
       } | null;
+      activityViewEnabled?: boolean;
     };
 
     const lastThreadRoute =
@@ -117,6 +124,11 @@ export function readSidebarUiState(): SidebarUiState {
     return {
       chatSectionExpanded: parsed.chatSectionExpanded === true,
       orchestratorRootsSectionExpanded: parsed.orchestratorRootsSectionExpanded !== false,
+      orchestratorExpandedRootIds: Array.isArray(parsed.orchestratorExpandedRootIds)
+        ? parsed.orchestratorExpandedRootIds.filter(
+            (value): value is string => typeof value === "string" && value.length > 0,
+          )
+        : [],
       chatThreadListExtraPages:
         parsed.chatThreadListExtraPages === undefined && parsed.chatThreadListExpanded === true
           ? 1
@@ -132,10 +144,29 @@ export function readSidebarUiState(): SidebarUiState {
         ),
       ),
       lastThreadRoute,
+      activityViewEnabled: parsed.activityViewEnabled === true,
     };
   } catch {
     return DEFAULT_SIDEBAR_UI_STATE;
   }
+}
+
+/**
+ * Notifies when another tab rewrites the persisted sidebar UI state. Every tab
+ * persists this key wholesale from its in-memory state, so without adopting
+ * external writes a two-tab session silently fights over fields like the
+ * Activity view toggle (last writer wins and the toggle feels "stuck").
+ */
+export function subscribeSidebarUiState(listener: (state: SidebarUiState) => void): () => void {
+  if (typeof window === "undefined") {
+    return () => {};
+  }
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key !== SIDEBAR_UI_STATE_STORAGE_KEY) return;
+    listener(readSidebarUiState());
+  };
+  window.addEventListener("storage", handleStorage);
+  return () => window.removeEventListener("storage", handleStorage);
 }
 
 export function persistSidebarUiState(input: SidebarUiState): void {
@@ -149,6 +180,7 @@ export function persistSidebarUiState(input: SidebarUiState): void {
       JSON.stringify({
         chatSectionExpanded: input.chatSectionExpanded,
         orchestratorRootsSectionExpanded: input.orchestratorRootsSectionExpanded,
+        orchestratorExpandedRootIds: [...new Set(input.orchestratorExpandedRootIds)],
         chatThreadListExtraPages: sanitizeThreadListExtraPages(input.chatThreadListExtraPages),
         projectThreadListExtraPagesByCwd: sanitizeProjectThreadListExtraPagesByCwd(
           input.projectThreadListExtraPagesByCwd,
@@ -166,6 +198,7 @@ export function persistSidebarUiState(input: SidebarUiState): void {
                 : {}),
             }
           : null,
+        activityViewEnabled: input.activityViewEnabled,
       }),
     );
   } catch {

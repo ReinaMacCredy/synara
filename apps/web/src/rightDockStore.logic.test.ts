@@ -25,7 +25,6 @@ describe("RIGHT_DOCK_PANE_KINDS (single source of truth)", () => {
       "pullRequest",
       "orchestratorTeam",
       "orchestratorProcess",
-      "orchestratorExchanges",
       "orchestratorRuns",
     ]);
   });
@@ -50,7 +49,6 @@ describe("isRightDockPaneKind", () => {
       "pullRequest",
       "orchestratorTeam",
       "orchestratorProcess",
-      "orchestratorExchanges",
       "orchestratorRuns",
     ]) {
       expect(isRightDockPaneKind(kind)).toBe(true);
@@ -61,7 +59,6 @@ describe("isRightDockPaneKind", () => {
     const inputs = [
       { paneId: "team", kind: "orchestratorTeam" as const },
       { paneId: "process", kind: "orchestratorProcess" as const },
-      { paneId: "exchanges", kind: "orchestratorExchanges" as const },
       { paneId: "runs", kind: "orchestratorRuns" as const },
     ];
     const initialized = ensurePanesInState(createDefaultRightDockState(), inputs, "team");
@@ -85,9 +82,9 @@ describe("isRightDockPaneKind", () => {
       ...createDefaultRightDockState(),
       open: true,
     };
-    expect(
-      ensurePanesInState(transientlyOpenWithoutOrchestratorPanes, inputs, "team").open,
-    ).toBe(false);
+    expect(ensurePanesInState(transientlyOpenWithoutOrchestratorPanes, inputs, "team").open).toBe(
+      false,
+    );
   });
 
   it("rejects unknown or malformed kinds", () => {

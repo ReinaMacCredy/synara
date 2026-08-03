@@ -15,6 +15,7 @@ import {
   type ProviderStartOptions,
   type RuntimeMode,
   type ThreadHandoffImportedMessage,
+  type HandoffDraftV1,
   type ThreadId,
 } from "@synara/contracts";
 import * as Equal from "effect/Equal";
@@ -45,7 +46,7 @@ import {
 } from "./types";
 
 export const COMPOSER_DRAFT_STORAGE_KEY = "synara:composer-drafts:v1";
-export const COMPOSER_DRAFT_STORAGE_VERSION = 7;
+export const COMPOSER_DRAFT_STORAGE_VERSION = 8;
 export type DraftThreadEnvMode = "local" | "worktree";
 export type DraftThreadEntryPoint = ThreadPrimarySurface | "orchestrator";
 const TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX = "::terminal";
@@ -187,6 +188,7 @@ export interface ComposerThreadDraftState {
   activeProvider: ProviderKind | null;
   runtimeMode: RuntimeMode | null;
   interactionMode: ProviderInteractionMode | null;
+  handoffDraft: HandoffDraftV1 | null;
 }
 
 export interface DraftThreadState {
@@ -292,6 +294,8 @@ export interface ComposerDraftStoreState {
   clearDraftThread: (threadId: ThreadId) => void;
   setStickyModelSelection: (modelSelection: ModelSelection | null | undefined) => void;
   setPrompt: (threadId: ThreadId, prompt: string) => void;
+  setHandoffDraft: (threadId: ThreadId, handoffDraft: HandoffDraftV1 | null) => void;
+  detachHandoffDraft: (threadId: ThreadId) => void;
   setPromptHistorySavedDraft: (
     threadId: ThreadId,
     savedDraft: ComposerPromptHistorySavedDraft | null,
@@ -504,10 +508,7 @@ export function draftThreadStatesEqual(
     left.interactionMode === right.interactionMode &&
     left.entryPoint === right.entryPoint &&
     (left.orchestratorSourceThreadId ?? null) === (right.orchestratorSourceThreadId ?? null) &&
-    Equal.equals(
-      left.orchestratorHandoffMessages ?? [],
-      right.orchestratorHandoffMessages ?? [],
-    ) &&
+    Equal.equals(left.orchestratorHandoffMessages ?? [], right.orchestratorHandoffMessages ?? []) &&
     left.branch === right.branch &&
     left.worktreePath === right.worktreePath &&
     (left.workingDirectory ?? null) === (right.workingDirectory ?? null) &&
@@ -556,6 +557,7 @@ export function createEmptyThreadDraft(): ComposerThreadDraftState {
     activeProvider: null,
     runtimeMode: null,
     interactionMode: null,
+    handoffDraft: null,
   };
 }
 
@@ -853,7 +855,8 @@ export function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
     Object.keys(draft.modelSelectionByProvider).length === 0 &&
     draft.activeProvider === null &&
     draft.runtimeMode === null &&
-    draft.interactionMode === null
+    draft.interactionMode === null &&
+    draft.handoffDraft === null
   );
 }
 
@@ -861,9 +864,7 @@ export function normalizeDraftThreadEntryPoint(
   value: unknown,
   fallback: DraftThreadEntryPoint = "chat",
 ) {
-  return value === "terminal" || value === "chat" || value === "orchestrator"
-    ? value
-    : fallback;
+  return value === "terminal" || value === "chat" || value === "orchestrator" ? value : fallback;
 }
 
 const EMPTY_IMAGES: ComposerImageAttachment[] = [];
@@ -909,6 +910,7 @@ const EMPTY_THREAD_DRAFT = Object.freeze<ComposerThreadDraftState>({
   activeProvider: null,
   runtimeMode: null,
   interactionMode: null,
+  handoffDraft: null,
 });
 
 export function selectComposerThreadDraft(

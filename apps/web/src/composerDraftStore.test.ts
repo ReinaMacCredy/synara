@@ -259,7 +259,9 @@ describe("composerDraftStore project draft thread mapping", () => {
 
     store.clearProjectDraftThreadId(projectId, "chat");
 
-    expect(useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, "chat")).toBeNull();
+    expect(
+      useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, "chat"),
+    ).toBeNull();
     expect(
       useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, "orchestrator")
         ?.threadId,
@@ -267,6 +269,30 @@ describe("composerDraftStore project draft thread mapping", () => {
     expect(useComposerDraftStore.getState().draftsByThreadId[otherThreadId]?.prompt).toBe(
       "Design the orchestration plan",
     );
+  });
+
+  it("detaches handoff identity without making the destination draft unsendable", () => {
+    const store = useComposerDraftStore.getState();
+    const sourceThreadId = ThreadId.makeUnsafe("thread-source");
+    store.setProjectDraftThreadId(projectId, otherThreadId, {
+      entryPoint: "orchestrator",
+      orchestratorSourceThreadId: sourceThreadId,
+      orchestratorHandoffMessages: [],
+    });
+    store.setPrompt(otherThreadId, "Continue without the packet");
+    store.setHandoffDraft(otherThreadId, { handoffId: "handoff-1" } as never);
+
+    store.detachHandoffDraft(otherThreadId);
+
+    expect(useComposerDraftStore.getState().draftsByThreadId[otherThreadId]).toMatchObject({
+      prompt: "Continue without the packet",
+      handoffDraft: null,
+    });
+    expect(useComposerDraftStore.getState().getDraftThread(otherThreadId)).toMatchObject({
+      entryPoint: "orchestrator",
+      orchestratorSourceThreadId: null,
+      orchestratorHandoffMessages: [],
+    });
   });
 
   it("clears only matching project draft mapping entries", () => {

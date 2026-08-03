@@ -35,6 +35,12 @@ it.effect("parses keybinding rules", () =>
     });
     assert.strictEqual(parsedSearch.command, "sidebar.search");
 
+    const parsedActivity = yield* decode(KeybindingRule, {
+      key: "mod+alt+u",
+      command: "sidebar.activity",
+    });
+    assert.strictEqual(parsedActivity.command, "sidebar.activity");
+
     const parsedAddProject = yield* decode(KeybindingRule, {
       key: "mod+shift+o",
       command: "sidebar.addProject",
@@ -118,6 +124,12 @@ it.effect("parses keybinding rules", () =>
       command: "composer.focus.toggle",
     });
     assert.strictEqual(parsedComposerFocusToggle.command, "composer.focus.toggle");
+
+    const parsedMessageNavigator = yield* decode(KeybindingRule, {
+      key: "mod+shift+y",
+      command: "chat.messageNavigator",
+    });
+    assert.strictEqual(parsedMessageNavigator.command, "chat.messageNavigator");
 
     const parsedNewChat = yield* decode(KeybindingRule, {
       key: "mod+alt+n",

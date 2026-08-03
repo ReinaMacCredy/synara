@@ -7,7 +7,12 @@ import {
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-import { deriveProcessBoardLane, groupProcessBoardTasks, ProcessBoard } from "./ProcessBoard";
+import {
+  deriveProcessBoardLane,
+  groupProcessBoardTasks,
+  processBoardGroupForLane,
+  ProcessBoard,
+} from "./ProcessBoard";
 
 function graph(): TaskProcessGraphProjection {
   const processId = TaskProcessId.makeUnsafe("process-a");
@@ -24,6 +29,7 @@ function graph(): TaskProcessGraphProjection {
       description: null,
       acceptanceCriteria: [],
       priority: "normal" as const,
+      risk: "medium" as const,
       lifecycle,
       orderKey: id,
       createdBy: { kind: "user" as const, actorId: "owner" },
@@ -69,12 +75,22 @@ describe("ProcessBoard", () => {
     ).toEqual(["task-blocked"]);
   });
 
+  it("groups lifecycle lanes into the approved operational overview", () => {
+    expect(processBoardGroupForLane("in_progress")).toBe("active");
+    expect(processBoardGroupForLane("review")).toBe("attention");
+    expect(processBoardGroupForLane("blocked")).toBe("attention");
+    expect(processBoardGroupForLane("ready")).toBe("ready");
+    expect(processBoardGroupForLane("done")).toBe("completed");
+  });
+
   it("renders durable ProjectTask cards and hides edit controls when authority is read-only", () => {
     const markup = renderToStaticMarkup(
       <ProcessBoard graph={graph()} filter="all" canEdit={false} onSelectTask={vi.fn()} />,
     );
-    expect(markup).toContain('data-process-lane="ready"');
-    expect(markup).toContain('data-process-lane="blocked"');
+    expect(markup).toContain('data-process-group="ready"');
+    expect(markup).toContain('data-process-group="attention"');
+    expect(markup).toContain('data-task-risk="medium"');
+    expect(markup).toContain("Medium risk");
     expect(markup).not.toContain("Move up");
   });
 });

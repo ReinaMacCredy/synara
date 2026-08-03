@@ -89,6 +89,18 @@
   flex: 1;
 }
 
+.itemTitleRow {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.itemTitleRow .itemTitle {
+  min-width: 0;
+  flex: 1;
+}
+
 .headerTitle,
 .headerMeta,
 .itemTitle,

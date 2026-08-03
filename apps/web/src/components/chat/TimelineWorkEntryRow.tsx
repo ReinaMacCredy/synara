@@ -4,6 +4,7 @@
 // Exports: TimelineWorkEntryRow, EditedFileRowContent, prefersCompactWorkEntryRow
 
 import type { TurnId } from "@synara/contracts";
+import { BookOpen, Globe, Images, Pencil, Search, SquareTerminal, Wrench } from "lucide-react";
 import {
   createElement,
   memo,
@@ -25,16 +26,9 @@ import {
   CheckIcon,
   CircleAlertIcon,
   CircleQuestionIcon,
-  EyeIcon,
   GitHubIcon,
-  HammerIcon,
   type LucideIcon,
-  McpIcon,
   PencilIcon,
-  SearchIcon,
-  SkillCubeIcon,
-  TerminalIcon,
-  WebSearchIcon,
   ZapIcon,
 } from "~/lib/icons";
 import { describeLinkChip } from "~/lib/linkChips";
@@ -53,7 +47,6 @@ import { DiffStatLabel } from "./DiffStatLabel";
 import { type ExpandedImagePreview } from "./ExpandedImagePreview";
 import { LinkChipIcon } from "../LinkChipIcon";
 import { normalizeCompactToolLabel } from "./MessagesTimeline.logic";
-import { SynaraLogo } from "../SynaraLogo";
 import { ToolCallDetailsContent } from "./ToolCallDetailsDialog";
 import { DisclosureChevron } from "../ui/DisclosureChevron";
 import { DisclosureRegion } from "../ui/DisclosureRegion";
@@ -93,10 +86,13 @@ const EMPTY_FILE_DIFF_STATS: ReadonlyMap<string, { additions: number; deletions:
 type TimelineWorkEntry = WorkLogEntry;
 
 const AgentTaskIcon: LucideIcon = (props) => <BotIcon {...props} />;
-
-const SynaraToolIcon: LucideIcon = ({ className, ...props }) => (
-  <SynaraLogo {...props} className={cn("text-current", className)} />
-);
+const ToolWrenchIcon: LucideIcon = (props) => <Wrench {...props} strokeWidth={2} />;
+const ToolReadIcon: LucideIcon = (props) => <BookOpen {...props} strokeWidth={2} />;
+const ToolSearchIcon: LucideIcon = (props) => <Search {...props} strokeWidth={2} />;
+const ToolCommandIcon: LucideIcon = (props) => <SquareTerminal {...props} strokeWidth={2} />;
+const ToolImagesIcon: LucideIcon = (props) => <Images {...props} strokeWidth={2} />;
+const ToolEditIcon: LucideIcon = (props) => <Pencil {...props} strokeWidth={2} />;
+const ToolWebIcon: LucideIcon = (props) => <Globe {...props} strokeWidth={2} />;
 
 function workToneIcon(tone: TimelineWorkEntry["tone"]): {
   icon: LucideIcon;
@@ -217,12 +213,12 @@ function commandWorkEntryIcon(workEntry: TimelineWorkEntry): LucideIcon {
   const command = workEntry.command ?? workEntry.rawCommand;
   switch (command ? resolveCommandVisualKind(command) : "terminal") {
     case "inspect":
-      return SearchIcon;
+      return ToolSearchIcon;
     case "git":
     case "github":
       return GitHubIcon;
     case "terminal":
-      return TerminalIcon;
+      return ToolCommandIcon;
   }
 }
 
@@ -235,25 +231,26 @@ function workEntryIcon(workEntry: TimelineWorkEntry): LucideIcon {
   if (workEntry.nativeEventType === "background_tasks_changed") return BackgroundTrayIcon;
 
   if (workEntry.requestKind === "command") return commandWorkEntryIcon(workEntry);
-  if (workEntry.requestKind === "file-read") return SearchIcon;
-  if (workEntry.requestKind === "file-change") return PencilIcon;
+  if (workEntry.requestKind === "file-read") return ToolReadIcon;
+  if (workEntry.requestKind === "file-change") return ToolEditIcon;
 
   if (workEntry.itemType === "command_execution" || workEntry.command) {
     return commandWorkEntryIcon(workEntry);
   }
   if (workEntry.itemType === "file_change") {
-    return PencilIcon;
+    return ToolEditIcon;
   }
-  if (workEntry.itemType === "web_search") return WebSearchIcon;
-  if (workEntry.itemType === "image_generation") return ZapIcon;
-  if (workEntry.itemType === "image_view") return EyeIcon;
-  if (isFileReadToolEntry(workEntry)) return SearchIcon;
+  if (workEntry.itemType === "web_search") return ToolWebIcon;
+  if (workEntry.itemType === "image_generation" || workEntry.itemType === "image_view") {
+    return ToolImagesIcon;
+  }
+  if (isFileReadToolEntry(workEntry)) return ToolReadIcon;
 
   switch (workEntry.itemType) {
     case "mcp_tool_call":
-      return SkillCubeIcon;
+      return ToolWrenchIcon;
     case "dynamic_tool_call":
-      return HammerIcon;
+      return ToolWrenchIcon;
     case "collab_agent_tool_call":
       return AgentTaskIcon;
   }
@@ -273,8 +270,6 @@ export function renderWorkEntryIcon(Icon: LucideIcon, className: string): ReactE
 // summary row, which borrows its first entry's icon.
 export function workEntryLeftIcon(workEntry: TimelineWorkEntry): LucideIcon {
   if (isGitHubMcpToolCall(workEntry)) return GitHubIcon;
-  if (isSynaraToolCall(workEntry)) return SynaraToolIcon;
-  if (workEntry.itemType === "mcp_tool_call") return McpIcon;
   return workEntryIcon(workEntry);
 }
 
@@ -320,14 +315,14 @@ export function prefersCompactWorkEntryRow(workEntry: TimelineWorkEntry): boolea
   }
   const EntryIcon = workEntryIcon(workEntry);
   return (
-    EntryIcon === TerminalIcon ||
-    EntryIcon === HammerIcon ||
+    EntryIcon === ToolCommandIcon ||
+    EntryIcon === ToolWrenchIcon ||
     EntryIcon === AgentTaskIcon ||
-    EntryIcon === PencilIcon ||
-    EntryIcon === SkillCubeIcon ||
+    EntryIcon === ToolEditIcon ||
     // File-read / inspect rows (e.g. `Read …`) surface the search icon and have no
     // disclosure chevron; keep them at the same compact height as command rows.
-    EntryIcon === SearchIcon
+    EntryIcon === ToolReadIcon ||
+    EntryIcon === ToolSearchIcon
   );
 }
 
@@ -570,7 +565,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
   const rowFontSizePx = textFontSizePx;
 
   return (
-    <div className={cn(compact ? "py-0.5" : "rounded-lg py-1")}>
+    <div data-work-entry-row="true" className={cn(compact ? "py-0.5" : "rounded-lg py-1")}>
       {showEditedRows ? (
         <div className="space-y-0.5">
           {changedFiles.map((changedFilePath) => {

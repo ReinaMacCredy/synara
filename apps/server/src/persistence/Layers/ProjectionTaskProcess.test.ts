@@ -72,6 +72,7 @@ layer("ProjectionTaskProcessRepository", (it) => {
               description: null,
               acceptanceCriteria: ["verified"],
               priority: "normal",
+              risk: id === taskA ? "high" : "medium",
               lifecycle: id === taskA ? "in_progress" : "planned",
               orderKey,
               createdBy: actor,
@@ -151,6 +152,10 @@ layer("ProjectionTaskProcessRepository", (it) => {
       assert.ok(Option.isSome(graph));
       if (Option.isNone(graph)) return;
       assert.strictEqual(graph.value.tasks.length, 2);
+      assert.deepStrictEqual(
+        graph.value.tasks.map((task) => task.task.risk),
+        ["high", "medium"],
+      );
       assert.deepStrictEqual(graph.value.tasks[1]?.unmetDependencyIds, [dependencyId]);
       assert.strictEqual(graph.value.tasks[1]?.blockerIds.length, 1);
       assert.strictEqual(graph.value.bindings.length, 1);

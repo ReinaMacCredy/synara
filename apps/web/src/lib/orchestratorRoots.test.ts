@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   collectOrchestratorThreadIds,
+  orchestratorQueryKeys,
+  orchestratorRootQueryOptions,
   partitionThreadsByOrchestratorMembership,
   sortOrchestratorRoots,
 } from "./orchestratorRoots";
@@ -20,6 +22,14 @@ const root = (id: string, createdAt: string, archivedAt: string | null = null) =
 });
 
 describe("orchestratorRoots", () => {
+  it("shares one canonical Root cache key between promotion and the detail route", () => {
+    const rootThreadId = ThreadId.makeUnsafe("root-cache");
+
+    expect(orchestratorRootQueryOptions(rootThreadId).queryKey).toEqual(
+      orchestratorQueryKeys.root(rootThreadId),
+    );
+  });
+
   it("collects roots and transitive descendants without hiding unrelated threads", () => {
     const rootId = ThreadId.makeUnsafe("root");
     const childId = ThreadId.makeUnsafe("child");
@@ -65,15 +75,15 @@ describe("orchestratorRoots", () => {
         sourceThreadId: rootId,
         creationSource: "user",
       },
-      ];
+    ];
 
-      const ids = collectOrchestratorThreadIds([root("root", "2026-01-01T00:00:00.000Z")], threads);
-      expect([...ids]).toEqual([rootId, childId, grandchildId]);
-      expect(partitionThreadsByOrchestratorMembership(threads, ids)).toEqual({
-        ordinaryThreads: [threads[3]],
-        orchestratorThreads: threads.slice(0, 3),
-      });
+    const ids = collectOrchestratorThreadIds([root("root", "2026-01-01T00:00:00.000Z")], threads);
+    expect([...ids]).toEqual([rootId, childId, grandchildId]);
+    expect(partitionThreadsByOrchestratorMembership(threads, ids)).toEqual({
+      ordinaryThreads: [threads[3]],
+      orchestratorThreads: threads.slice(0, 3),
     });
+  });
 
   it("sorts active and archived roots by their latest lifecycle timestamp", () => {
     expect(

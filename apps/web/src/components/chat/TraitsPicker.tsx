@@ -184,7 +184,7 @@ function FastModeToggle({ enabled, onToggle }: { enabled: boolean; onToggle: () 
   );
 }
 
-interface TraitRadioOption {
+export interface TraitRadioOption {
   value: string;
   label: string;
   isDefault?: boolean;
@@ -196,7 +196,7 @@ interface TraitRadioOption {
 // `onSelectionComplete` runs on every row click (not just on value change) so
 // re-selecting the already-active option still closes the menu — a radio group's
 // `onValueChange` does not fire when the value is unchanged.
-function TraitRadioSection({
+export function TraitRadioSection({
   label,
   labelTrailing,
   note,

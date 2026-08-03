@@ -1,0 +1,104 @@
+.root {
+  container-type: inline-size;
+}
+
+.layout {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.team {
+  flex: 0 0 auto;
+  max-height: 46%;
+  overflow-y: auto;
+}
+
+.activity {
+  min-height: 8rem;
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+
+.connections {
+  flex: 0 0 auto;
+}
+
+.node,
+.childNode {
+  position: relative;
+}
+
+.children {
+  position: relative;
+  margin-left: 1rem;
+  padding-left: 1.25rem;
+}
+
+.children::before {
+  position: absolute;
+  top: 0;
+  bottom: 1.25rem;
+  left: 0.45rem;
+  width: 1px;
+  content: "";
+  background: var(--border);
+}
+
+.childNode::before {
+  position: absolute;
+  top: 1.45rem;
+  left: -0.8rem;
+  width: 0.8rem;
+  height: 1px;
+  content: "";
+  background: var(--border);
+}
+
+.wideActivityLabel {
+  display: none;
+}
+
+.narrowActivityLabel {
+  display: inline;
+}
+
+@container (min-width: 720px) {
+  .layout {
+    display: grid;
+    height: 100%;
+    overflow: hidden;
+    grid-template-areas:
+      "team activity"
+      "connections activity";
+    grid-template-columns: minmax(15rem, 0.9fr) minmax(18rem, 1.1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+
+  .activity {
+    grid-area: activity;
+    overflow-y: auto;
+    border-left: 1px solid var(--border);
+    border-top: 0;
+  }
+
+  .team {
+    grid-area: team;
+    max-height: none;
+    overflow-y: auto;
+  }
+
+  .connections {
+    grid-area: connections;
+  }
+
+  .wideActivityLabel {
+    display: inline;
+  }
+
+  .narrowActivityLabel {
+    display: none;
+  }
+}

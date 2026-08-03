@@ -52,12 +52,12 @@ export function makeServerProviderLayer(
     // the same MCP catalog/dispatcher through its native custom-tool API.
     const agentGatewayCredentialsLayer =
       options.agentGatewayCredentialsLayer ?? AgentGatewayCredentialsWithSecretsLive;
-      const codexAdapterLayer = makeCodexAdapterLive(
-        nativeEventLogger ? { nativeEventLogger } : undefined,
-      ).pipe(
-        Layer.provide(agentGatewayCredentialsLayer),
-        Layer.provide(OrchestratorToolRuntimeConfiguredLive),
-      );
+    const codexAdapterLayer = makeCodexAdapterLive(
+      nativeEventLogger ? { nativeEventLogger } : undefined,
+    ).pipe(
+      Layer.provide(agentGatewayCredentialsLayer),
+      Layer.provide(OrchestratorToolRuntimeConfiguredLive),
+    );
     const claudeAdapterLayer = makeClaudeAdapterLive(
       nativeEventLogger ? { nativeEventLogger } : undefined,
     ).pipe(Layer.provide(agentGatewayCredentialsLayer));

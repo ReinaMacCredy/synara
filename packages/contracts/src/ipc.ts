@@ -234,6 +234,16 @@ import type {
 } from "./providerDiscovery";
 import type { ProviderCompactThreadInput } from "./provider";
 import type {
+  CancelHandoffPreparationInput,
+  GetHandoffPreparationInput,
+  HandoffPreparationSnapshot,
+  ListHandoffGrantsInput,
+  ListHandoffGrantsResult,
+  RevokeHandoffGrantInput,
+  RevokeHandoffGrantResult,
+  StartHandoffPreparationInput,
+} from "./handoff";
+import type {
   StatsGetProfileStatsInput,
   StatsGetProfileStatsResult,
   StatsGetProfileTokenStatsInput,
@@ -808,6 +818,17 @@ export interface NativeApi {
     getTaskProcessSummary: (input: GetTaskProcessInput) => Promise<GetTaskProcessSummaryResult>;
     getTaskProcessGraph: (input: GetTaskProcessInput) => Promise<GetTaskProcessGraphResult>;
     getSessionProgress: (input: GetSessionProgressInput) => Promise<GetSessionProgressResult>;
+    startHandoffPreparation: (
+      input: StartHandoffPreparationInput,
+    ) => Promise<HandoffPreparationSnapshot>;
+    getHandoffPreparation: (
+      input: GetHandoffPreparationInput,
+    ) => Promise<HandoffPreparationSnapshot>;
+    cancelHandoffPreparation: (
+      input: CancelHandoffPreparationInput,
+    ) => Promise<HandoffPreparationSnapshot>;
+    listHandoffGrants: (input?: ListHandoffGrantsInput) => Promise<ListHandoffGrantsResult>;
+    revokeHandoffGrant: (input: RevokeHandoffGrantInput) => Promise<RevokeHandoffGrantResult>;
     dispatchTaskProcessCommand: (
       input: DispatchTaskProcessCommandInput,
     ) => Promise<DispatchTaskProcessCommandResult>;

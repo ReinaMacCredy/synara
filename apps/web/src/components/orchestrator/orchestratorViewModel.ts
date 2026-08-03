@@ -107,8 +107,21 @@ export function communicationLinksForSelection(
 ): readonly OrchestratorCommunicationLink[] {
   if (selectedThreadId === rootThreadId) return links;
   return links.filter(
-    (link) =>
-      link.sourceThreadId === selectedThreadId || link.targetThreadId === selectedThreadId,
+    (link) => link.sourceThreadId === selectedThreadId || link.targetThreadId === selectedThreadId,
+  );
+}
+
+export function ownershipRoutesForSelection(
+  rootThreadId: ThreadId,
+  selectedThreadId: ThreadId,
+  ownershipEdges: readonly OrchestratorOwnershipEdge[],
+): readonly OrchestratorOwnershipEdge[] {
+  const activeEdges = ownershipEdges.filter((edge) => edge.retiredAt === null);
+  if (selectedThreadId === rootThreadId) {
+    return activeEdges.filter((edge) => edge.parentThreadId === rootThreadId);
+  }
+  return activeEdges.filter(
+    (edge) => edge.parentThreadId === selectedThreadId || edge.childThreadId === selectedThreadId,
   );
 }
 

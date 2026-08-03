@@ -2,6 +2,7 @@ import type {
   ProjectTaskId,
   ProjectTaskLifecycle,
   ProjectTaskProjection,
+  ProjectTaskRisk,
   TaskProcessGraphProjection,
   TaskProgressEntry,
   ThreadId,
@@ -11,6 +12,8 @@ import { useMemo, useState } from "react";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Textarea } from "~/components/ui/textarea";
+
+import { TaskRiskBadge } from "./TaskRiskBadge";
 
 export interface ProcessThreadOption {
   readonly id: ThreadId;
@@ -34,7 +37,11 @@ export function TaskDetailDrawer(props: {
   readonly canEditGraph: boolean;
   readonly pending?: boolean;
   readonly onClose: () => void;
-  readonly onUpdateTask: (input: { title: string; description: string | null }) => void;
+  readonly onUpdateTask: (input: {
+    title: string;
+    description: string | null;
+    risk: ProjectTaskRisk;
+  }) => void;
   readonly onSetDependencies: (taskIds: readonly ProjectTaskId[]) => void;
   readonly onBindThread: (threadId: ThreadId) => void;
   readonly onTransition: (lifecycle: ProjectTaskLifecycle) => void;
@@ -45,6 +52,7 @@ export function TaskDetailDrawer(props: {
   const taskId = props.task.task.id;
   const [title, setTitle] = useState(props.task.task.title);
   const [description, setDescription] = useState(props.task.task.description ?? "");
+  const [risk, setRisk] = useState<ProjectTaskRisk>(props.task.task.risk);
   const [threadId, setThreadId] = useState("");
   const dependencyIds = useMemo(
     () =>
@@ -67,8 +75,8 @@ export function TaskDetailDrawer(props: {
   const canReopen = ["done", "failed", "cancelled"].includes(props.task.task.lifecycle);
 
   return (
-    <aside
-      className="flex h-full w-[min(28rem,42vw)] min-w-[20rem] shrink-0 flex-col border-l border-border bg-background"
+      <aside
+        className="flex h-full w-full min-w-[20rem] flex-col border-l border-border bg-background"
       aria-label={`Task details: ${props.task.task.title}`}
       data-task-detail-drawer={taskId}
     >
@@ -81,6 +89,7 @@ export function TaskDetailDrawer(props: {
           <p className="mt-1 text-[10px] capitalize text-muted-foreground">
             {props.task.task.lifecycle} · {props.task.readiness} · {props.task.executionHealth}
           </p>
+          <TaskRiskBadge risk={props.task.task.risk} className="mt-2" />
         </div>
         <Button size="xs" variant="ghost" onClick={props.onClose} aria-label="Close task details">
           Close
@@ -104,6 +113,19 @@ export function TaskDetailDrawer(props: {
                 aria-label="Task description"
                 placeholder="Describe the durable outcome"
               />
+              <label className="grid gap-1 text-[10px] font-medium text-muted-foreground">
+                Task risk
+                <select
+                  className="min-h-9 rounded-lg border border-border bg-background px-2 text-xs text-foreground"
+                  value={risk}
+                  onChange={(event) => setRisk(event.target.value as ProjectTaskRisk)}
+                  aria-label="Task risk"
+                >
+                  <option value="high">High risk</option>
+                  <option value="medium">Medium risk</option>
+                  <option value="low">Low risk</option>
+                </select>
+              </label>
               <Button
                 size="sm"
                 disabled={props.pending || title.trim().length === 0}
@@ -111,6 +133,7 @@ export function TaskDetailDrawer(props: {
                   props.onUpdateTask({
                     title: title.trim(),
                     description: description.trim() || null,
+                    risk,
                   })
                 }
               >

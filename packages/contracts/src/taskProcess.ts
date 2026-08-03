@@ -63,6 +63,8 @@ export const ProjectTaskLifecycle = Schema.Literals([
 export type ProjectTaskLifecycle = typeof ProjectTaskLifecycle.Type;
 export const ProjectTaskPriority = Schema.Literals(["low", "normal", "high", "critical"]);
 export type ProjectTaskPriority = typeof ProjectTaskPriority.Type;
+export const ProjectTaskRisk = Schema.Literals(["low", "medium", "high"]);
+export type ProjectTaskRisk = typeof ProjectTaskRisk.Type;
 export const ProjectTaskReadiness = Schema.Literals(["ready", "blocked"]);
 export type ProjectTaskReadiness = typeof ProjectTaskReadiness.Type;
 export const ProjectTaskExecutionHealth = Schema.Literals([
@@ -104,6 +106,7 @@ export const ProjectTask = Schema.Struct({
   description: Schema.NullOr(BoundedText),
   acceptanceCriteria: AcceptanceCriteria,
   priority: ProjectTaskPriority,
+  risk: ProjectTaskRisk,
   lifecycle: ProjectTaskLifecycle,
   orderKey: TrimmedNonEmptyString.check(Schema.isMaxLength(256)),
   createdBy: ActorIdentity,
@@ -340,6 +343,7 @@ export const ProjectTaskCreateCommand = Schema.Struct({
   description: Schema.NullOr(BoundedText),
   acceptanceCriteria: AcceptanceCriteria,
   priority: ProjectTaskPriority,
+  risk: ProjectTaskRisk,
   orderKey: TrimmedNonEmptyString,
 });
 export const ProjectTaskMetaUpdateCommand = Schema.Struct({
@@ -351,6 +355,7 @@ export const ProjectTaskMetaUpdateCommand = Schema.Struct({
   description: Schema.optional(Schema.NullOr(BoundedText)),
   acceptanceCriteria: Schema.optional(AcceptanceCriteria),
   priority: Schema.optional(ProjectTaskPriority),
+  risk: Schema.optional(ProjectTaskRisk),
 });
 export const ProjectTaskReorderCommand = Schema.Struct({
   ...TaskProcessCommandBase,

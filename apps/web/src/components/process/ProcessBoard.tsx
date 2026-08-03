@@ -5,10 +5,16 @@ import type {
   TaskBlocker,
   TaskProcessGraphProjection,
 } from "@synara/contracts";
+import { useState } from "react";
 
+import { ThreadActivityGlyph, type ThreadActivityState } from "~/components/ThreadActivityGlyph";
+import { DisclosureChevron } from "~/components/ui/DisclosureChevron";
+import { DisclosureRegion } from "~/components/ui/DisclosureRegion";
 import type { TaskProcessFilter } from "~/taskProcessStore";
 import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
+
+import { TaskRiskBadge } from "./TaskRiskBadge";
 
 export type ProcessBoardLane =
   | "ready"
@@ -41,6 +47,37 @@ const LANE_LABELS: Record<ProcessBoardLane, string> = {
   failed: "Failed",
   cancelled: "Cancelled",
 };
+
+export type ProcessBoardGroup = "active" | "attention" | "ready" | "completed";
+
+const PROCESS_BOARD_GROUPS: readonly ProcessBoardGroup[] = [
+  "active",
+  "attention",
+  "ready",
+  "completed",
+];
+
+const GROUP_LABELS: Record<ProcessBoardGroup, string> = {
+  active: "Active",
+  attention: "Needs attention",
+  ready: "Ready next",
+  completed: "Completed",
+};
+
+export function processBoardGroupForLane(lane: ProcessBoardLane): ProcessBoardGroup {
+  if (lane === "in_progress" || lane === "paused") return "active";
+  if (lane === "review" || lane === "blocked" || lane === "failed") return "attention";
+  if (lane === "done" || lane === "cancelled") return "completed";
+  return "ready";
+}
+
+function activityStateForLane(lane: ProcessBoardLane): ThreadActivityState {
+  if (lane === "in_progress") return "working";
+  if (lane === "review" || lane === "done") return "ready";
+  if (lane === "blocked" || lane === "paused") return "blocked";
+  if (lane === "failed" || lane === "cancelled") return "failed";
+  return "idle";
+}
 
 export function deriveProcessBoardLane(task: ProjectTaskProjection): ProcessBoardLane {
   if (
@@ -92,9 +129,10 @@ function ProcessTaskCard(props: {
   const blockers = props.blockers.filter(
     (blocker) => blocker.taskId === props.task.task.id && blocker.resolvedAt === null,
   );
+  const lane = deriveProcessBoardLane(props.task);
   return (
     <article
-      className="rounded-xl border border-border/75 bg-background/75 p-3 shadow-sm"
+      className="rounded-xl border border-border/75 bg-background/75 px-3 py-2.5 shadow-sm transition-colors hover:border-border"
       data-process-task-id={props.task.task.id}
     >
       <button
@@ -102,23 +140,23 @@ function ProcessTaskCard(props: {
         className="w-full text-left"
         onClick={() => props.onSelect(props.task.task.id)}
       >
-        <div className="flex items-start justify-between gap-2">
-          <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            {props.task.task.id}
+        <div className="flex items-start gap-2">
+          <ThreadActivityGlyph state={activityStateForLane(lane)} className="mt-0.5 shrink-0" />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-xs font-medium text-foreground">
+              {props.task.task.title}
+            </span>
+            <span className="mt-1 block text-[10px] text-muted-foreground">
+              {LANE_LABELS[lane]} · {props.task.executionHealth}
+              {taskBindings.length > 0
+                ? ` · ${taskBindings.length} bound thread${taskBindings.length === 1 ? "" : "s"}`
+                : ""}
+            </span>
           </span>
-          <span className="text-[10px] capitalize text-muted-foreground">
-            {props.task.task.priority}
-          </span>
+          <TaskRiskBadge risk={props.task.task.risk} compact />
         </div>
-        <p className="mt-1 text-xs font-medium text-foreground">{props.task.task.title}</p>
-        <p className="mt-2 text-[10px] text-muted-foreground">
-          {props.task.executionHealth}
-          {taskBindings.length > 0
-            ? ` · ${taskBindings.length} bound thread${taskBindings.length === 1 ? "" : "s"}`
-            : ""}
-        </p>
         {blockers.length > 0 ? (
-          <p className="mt-1 text-[10px] text-warning">{blockers[0]?.summary}</p>
+          <p className="ml-6 mt-1 text-[10px] text-warning">{blockers[0]?.summary}</p>
         ) : null}
       </button>
       {props.canEdit && props.onMove ? (
@@ -151,50 +189,65 @@ export function ProcessBoard(props: {
   readonly onMoveTask?: (taskId: ProjectTaskId, direction: "up" | "down") => void;
 }) {
   const lanes = groupProcessBoardTasks(props.graph, props.filter);
-  const visibleLanes = PROCESS_BOARD_LANES.filter((lane) => (lanes.get(lane)?.length ?? 0) > 0);
+  const [completedOpen, setCompletedOpen] = useState(false);
+  const grouped = new Map<ProcessBoardGroup, ProjectTaskProjection[]>(
+    PROCESS_BOARD_GROUPS.map((group) => [group, []]),
+  );
+  for (const lane of PROCESS_BOARD_LANES) {
+    grouped.get(processBoardGroupForLane(lane))?.push(...(lanes.get(lane) ?? []));
+  }
+  const visibleGroups = PROCESS_BOARD_GROUPS.filter(
+    (group) => (grouped.get(group)?.length ?? 0) > 0,
+  );
 
   return (
-    <div
-      className="grid min-w-max grid-flow-col auto-cols-[minmax(15rem,1fr)] gap-3 p-4"
-      data-process-view="board"
-    >
-      {visibleLanes.length === 0 ? (
-        <div className="w-[22rem] rounded-xl border border-dashed border-border p-6 text-center text-xs text-muted-foreground">
+    <div className="mx-auto grid w-full max-w-5xl gap-5 p-4" data-process-view="board">
+      {visibleGroups.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-border p-8 text-center text-xs text-muted-foreground">
           No tasks match this filter.
         </div>
       ) : null}
-      {visibleLanes.map((lane) => (
-        <section
-          key={lane}
-          className={cn(
-            "rounded-2xl border border-border/70 bg-muted/20 p-2",
-            lane === "blocked" && "border-warning/30 bg-warning/5",
-          )}
-          data-process-lane={lane}
-        >
-          <div className="mb-2 flex items-center justify-between px-1">
-            <h2 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              {LANE_LABELS[lane]}
-            </h2>
-            <span className="text-[10px] tabular-nums text-muted-foreground">
-              {lanes.get(lane)?.length ?? 0}
-            </span>
-          </div>
-          <div className="grid gap-2">
-            {lanes.get(lane)?.map((task) => (
-              <ProcessTaskCard
-                key={task.task.id}
-                task={task}
-                bindings={props.graph.bindings}
-                blockers={props.graph.blockers}
-                canEdit={props.canEdit}
-                onSelect={props.onSelectTask}
-                {...(props.onMoveTask ? { onMove: props.onMoveTask } : {})}
-              />
-            ))}
-          </div>
-        </section>
-      ))}
+      {visibleGroups.map((group) => {
+        const tasks = grouped.get(group) ?? [];
+        const collapsible = group === "completed";
+        const open = !collapsible || completedOpen;
+        return (
+          <section key={group} data-process-group={group}>
+            <button
+              type="button"
+              className={cn(
+                "mb-2 flex w-full items-center gap-2 text-left",
+                !collapsible && "cursor-default",
+              )}
+              aria-expanded={collapsible ? open : undefined}
+              onClick={() => {
+                if (collapsible) setCompletedOpen((value) => !value);
+              }}
+            >
+              {collapsible ? <DisclosureChevron open={open} /> : null}
+              <h2 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                {GROUP_LABELS[group]}
+              </h2>
+              <span className="text-[10px] tabular-nums text-muted-foreground">{tasks.length}</span>
+            </button>
+            <DisclosureRegion open={open}>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {tasks.map((task) => (
+                  <ProcessTaskCard
+                    key={task.task.id}
+                    task={task}
+                    bindings={props.graph.bindings}
+                    blockers={props.graph.blockers}
+                    canEdit={props.canEdit}
+                    onSelect={props.onSelectTask}
+                    {...(props.onMoveTask ? { onMove: props.onMoveTask } : {})}
+                  />
+                ))}
+              </div>
+            </DisclosureRegion>
+          </section>
+        );
+      })}
     </div>
   );
 }

@@ -766,6 +766,16 @@ export function createWsNativeApi(): NativeApi {
       },
       dispatchTaskProcessCommand: (input) =>
         transport.request(ORCHESTRATION_WS_METHODS.dispatchTaskProcessCommand, input),
+      startHandoffPreparation: (input) =>
+        transport.request(ORCHESTRATION_WS_METHODS.startHandoffPreparation, input),
+      getHandoffPreparation: (input) =>
+        transport.request(ORCHESTRATION_WS_METHODS.getHandoffPreparation, input),
+      cancelHandoffPreparation: (input) =>
+        transport.request(ORCHESTRATION_WS_METHODS.cancelHandoffPreparation, input),
+      listHandoffGrants: (input = {}) =>
+        transport.request(ORCHESTRATION_WS_METHODS.listHandoffGrants, input),
+      revokeHandoffGrant: (input) =>
+        transport.request(ORCHESTRATION_WS_METHODS.revokeHandoffGrant, input),
       onDomainEvent: (callback) => {
         const shouldStartTransport = orchestrationDomainEventListeners.size === 0;
         const unsubscribe = orchestrationDomainEventListeners.subscribe(callback);

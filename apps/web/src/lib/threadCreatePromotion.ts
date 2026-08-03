@@ -19,6 +19,17 @@ interface PromoteThreadCreateOptions {
 
 const inFlightThreadCreateById = new Map<ThreadId, Promise<PromoteThreadCreateResult>>();
 
+export async function prehydratePromotedThreadDetail(
+  threadId: ThreadId,
+  api: NativeApi | undefined = readNativeApi(),
+): Promise<boolean> {
+  if (!api) return false;
+  const snapshot = await api.orchestration.getThreadDetailSnapshot({ threadId }).catch(() => null);
+  if (!snapshot) return false;
+  useStore.getState().syncServerThreadDetailHotPath(snapshot.thread);
+  return useStore.getState().threadDetailSyncById?.[threadId] === "synced";
+}
+
 export function isDuplicateThreadCreateError(error: unknown, threadId: ThreadId): boolean {
   const message =
     error instanceof Error

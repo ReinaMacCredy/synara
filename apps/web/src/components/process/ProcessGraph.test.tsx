@@ -7,7 +7,7 @@ import {
 } from "@synara/contracts";
 import { describe, expect, it } from "vitest";
 
-import { buildDependencyWaves } from "./ProcessGraph";
+import { buildDependencyLayout, buildDependencyWaves } from "./ProcessGraph";
 
 describe("ProcessGraph", () => {
   it("lays out only active dependency edges when the graph view requests layout", () => {
@@ -21,6 +21,7 @@ describe("ProcessGraph", () => {
         description: null,
         acceptanceCriteria: [],
         priority: "normal" as const,
+        risk: "medium" as const,
         lifecycle: "planned" as const,
         orderKey: id,
         createdBy: { kind: "user" as const, actorId: "owner" },
@@ -68,5 +69,15 @@ describe("ProcessGraph", () => {
     expect(
       buildDependencyWaves(graph).map((wave) => wave.tasks.map((item) => item.task.id)),
     ).toEqual([["a", "c"], ["b"]]);
+    const layout = buildDependencyLayout(graph);
+    expect(layout.edges).toHaveLength(1);
+    expect(layout.edges[0]).toMatchObject({
+      prerequisiteTaskId: "a",
+      dependentTaskId: "b",
+    });
+    expect(layout.edges[0]?.path).toMatch(/^M .* C .*$/);
+    expect(layout.nodes.find((node) => node.task.task.id === "b")?.left).toBeGreaterThan(
+      layout.nodes.find((node) => node.task.task.id === "a")?.left ?? 0,
+    );
   });
 });

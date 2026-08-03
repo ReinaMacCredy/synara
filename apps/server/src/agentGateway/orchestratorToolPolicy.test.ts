@@ -103,6 +103,7 @@ const core: ProjectionOrchestratorCore = {
   ],
   communicationLinks: [],
   assignments: [],
+  childResults: [],
   runs: [],
   providerCapabilities: [],
   capacity: null,
@@ -111,7 +112,7 @@ const core: ProjectionOrchestratorCore = {
 describe("Orchestrator tool policy", () => {
   it("shows the exact V1 catalog according to durable role capabilities", () => {
     const root = resolveOrchestratorCallerAuthority({ core, callerThreadId: rootThreadId })!;
-    expect(visibleOrchestratorToolNames(root)).toHaveLength(21);
+    expect(visibleOrchestratorToolNames(root)).toHaveLength(24);
     expect(visibleOrchestratorToolNames(root)).not.toContain("detach_child_thread");
 
     const participant = resolveOrchestratorCallerAuthority({
@@ -119,6 +120,7 @@ describe("Orchestrator tool policy", () => {
       callerThreadId: participantId,
     })!;
     expect(visibleOrchestratorToolNames(participant)).toEqual([
+      "list_provider_capabilities",
       "read_task_process",
       "read_orchestrator_state",
       "send_message",

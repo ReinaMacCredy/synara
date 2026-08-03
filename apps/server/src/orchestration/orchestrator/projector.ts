@@ -1,6 +1,7 @@
 import type {
   AssignmentCompletionEvidence,
   AssignmentContract,
+  ChildResultEnvelope,
   OrchestratorArtifact,
   OrchestratorCommunicationLink,
   OrchestratorDomainEvent,
@@ -18,6 +19,7 @@ export interface OrchestratorAggregateState {
   readonly communicationLinks: ReadonlyArray<OrchestratorCommunicationLink>;
   readonly assignments: ReadonlyArray<AssignmentContract>;
   readonly assignmentEvidence: ReadonlyArray<AssignmentCompletionEvidence>;
+  readonly childResults: ReadonlyArray<ChildResultEnvelope>;
   readonly messages: ReadonlyArray<OrchestratorMessageEnvelope>;
   readonly artifacts: ReadonlyArray<OrchestratorArtifact>;
   readonly runs: ReadonlyArray<OrchestratorRun>;
@@ -33,6 +35,7 @@ export const createEmptyOrchestratorState = (): OrchestratorAggregateState => ({
   communicationLinks: [],
   assignments: [],
   assignmentEvidence: [],
+  childResults: [],
   messages: [],
   artifacts: [],
   runs: [],
@@ -65,6 +68,15 @@ export function projectOrchestratorEvent(
             event.payload.evidence,
             (left, right) =>
               left.assignmentId === right.assignmentId && left.reportedAt === right.reportedAt,
+          ),
+        }
+      : {}),
+    ...(event.payload.childResult !== undefined
+      ? {
+          childResults: upsert(
+            state.childResults,
+            event.payload.childResult,
+            (left, right) => left.resultId === right.resultId,
           ),
         }
       : {}),

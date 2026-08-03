@@ -293,14 +293,8 @@ export function ArchivedSettingsPanel({ active }: { readonly active: boolean }) 
     () => sortOrchestratorRoots(rootsQuery.data?.items ?? []),
     [rootsQuery.data?.items],
   );
-  const rootThreadIds = useMemo(
-    () => new Set(roots.map((root) => root.rootThreadId)),
-    [roots],
-  );
-  const archivedRoots = useMemo(
-    () => roots.filter((root) => root.state === "archived"),
-    [roots],
-  );
+  const rootThreadIds = useMemo(() => new Set(roots.map((root) => root.rootThreadId)), [roots]);
+  const archivedRoots = useMemo(() => roots.filter((root) => root.state === "archived"), [roots]);
   const threadById = useMemo(
     () => new Map(threadShells.map((thread) => [thread.id, thread] as const)),
     [threadShells],

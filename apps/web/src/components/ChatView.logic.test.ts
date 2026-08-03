@@ -32,6 +32,7 @@ import {
   deriveComposerVoiceState,
   describeVoiceRecordingStartError,
   hasServerAcknowledgedLocalDispatch,
+  hasTurnLifecycleAcknowledgedLocalDispatch,
   isVoiceAuthExpiredMessage,
   resolveActiveThreadTitle,
   resolveActiveTurnLiveDiffState,
@@ -57,7 +58,6 @@ import {
   shouldHandlePromptHistoryNavigationKey,
   shouldRenderProviderHealthBanner,
   shouldShowComposerModelBootstrapSkeleton,
-  shouldStartActiveTurnLayoutGrace,
   shouldRenderTerminalWorkspace,
   worktreeSetupHasError,
 } from "./ChatView.logic";
@@ -1110,6 +1110,31 @@ describe("resolveCycledModelSlug", () => {
 });
 
 describe("resolveActiveTurnLiveDiffState", () => {
+  it("ignores a diff snapshot when a text-only turn has no mutation evidence", () => {
+    const turnId = TurnId.makeUnsafe("turn-greeting");
+    expect(
+      resolveActiveTurnLiveDiffState({
+        latestTurnId: turnId,
+        turnDiffSummaries: [
+          {
+            turnId,
+            status: "ready",
+            completedAt: "2026-01-01T00:00:10Z",
+            files: [{ path: "src/unrelated.ts", kind: "modified", additions: 1, deletions: 0 }],
+            assistantMessageId: null,
+          },
+        ],
+        workLogEntries: [],
+      }),
+    ).toEqual({
+      turnId: null,
+      fileCount: 0,
+      additions: 0,
+      deletions: 0,
+      hasChanges: false,
+    });
+  });
+
   it("uses only the diff summary for the active turn", () => {
     const activeTurnId = TurnId.makeUnsafe("turn-active");
 
@@ -1641,48 +1666,6 @@ describe("shouldRenderProviderHealthBanner", () => {
   });
 });
 
-describe("shouldStartActiveTurnLayoutGrace", () => {
-  it("starts the grace window when a live turn just became settled", () => {
-    expect(
-      shouldStartActiveTurnLayoutGrace({
-        previousTurnLayoutLive: true,
-        currentTurnLayoutLive: false,
-        latestTurnStartedAt: "2026-04-13T00:00:00.000Z",
-      }),
-    ).toBe(true);
-  });
-
-  it("does not start the grace window for already-idle threads", () => {
-    expect(
-      shouldStartActiveTurnLayoutGrace({
-        previousTurnLayoutLive: false,
-        currentTurnLayoutLive: false,
-        latestTurnStartedAt: "2026-04-13T00:00:00.000Z",
-      }),
-    ).toBe(false);
-  });
-
-  it("does not start the grace window while work is still live", () => {
-    expect(
-      shouldStartActiveTurnLayoutGrace({
-        previousTurnLayoutLive: true,
-        currentTurnLayoutLive: true,
-        latestTurnStartedAt: "2026-04-13T00:00:00.000Z",
-      }),
-    ).toBe(false);
-  });
-
-  it("does not start the grace window when the turn never started", () => {
-    expect(
-      shouldStartActiveTurnLayoutGrace({
-        previousTurnLayoutLive: true,
-        currentTurnLayoutLive: false,
-        latestTurnStartedAt: null,
-      }),
-    ).toBe(false);
-  });
-});
-
 describe("worktree setup snapshots", () => {
   it("marks earlier steps done, the active step active, and later steps pending", () => {
     expect(createWorktreeSetupSnapshot("prepare-thread").steps).toEqual([
@@ -1915,32 +1898,33 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
   });
 
   it("acknowledges a first send when its user message becomes durable", () => {
-    expect(
-      hasServerAcknowledgedLocalDispatch({
-        localDispatch: firstTurnLocalDispatch,
-        phase: "ready",
-        latestTurn: null,
-        messages: [
-          {
-            id: "message-first-send" as never,
-            role: "user",
-            text: "the submitted message",
-            createdAt: "2026-04-13T00:00:01.000Z",
-            streaming: false,
-          },
-        ],
-        session: {
-          provider: "claudeAgent",
-          status: "ready",
-          orchestrationStatus: "ready",
-          createdAt: "2026-04-13T00:00:00.000Z",
-          updatedAt: "2026-04-13T00:00:01.000Z",
+    const durableUserMessageInput = {
+      localDispatch: firstTurnLocalDispatch,
+      phase: "ready" as const,
+      latestTurn: null,
+      messages: [
+        {
+          id: "message-first-send" as never,
+          role: "user" as const,
+          text: "the submitted message",
+          createdAt: "2026-04-13T00:00:01.000Z",
+          streaming: false,
         },
-        hasPendingApproval: false,
-        hasPendingUserInput: false,
-        threadError: null,
-      }),
-    ).toBe(true);
+      ],
+      session: {
+        provider: "claudeAgent" as const,
+        status: "ready" as const,
+        orchestrationStatus: "ready" as const,
+        createdAt: "2026-04-13T00:00:00.000Z",
+        updatedAt: "2026-04-13T00:00:01.000Z",
+      },
+      hasPendingApproval: false,
+      hasPendingUserInput: false,
+      threadError: null,
+    };
+
+    expect(hasServerAcknowledgedLocalDispatch(durableUserMessageInput)).toBe(true);
+    expect(hasTurnLifecycleAcknowledgedLocalDispatch(durableUserMessageInput)).toBe(false);
   });
 
   it("still acknowledges non-ready session transitions without a latest turn snapshot", () => {

@@ -15,6 +15,7 @@ import {
   ProviderStartOptions,
   RuntimeMode,
   ThreadHandoffImportedMessage,
+  HandoffDraftV1,
   ThreadId,
 } from "@synara/contracts";
 import * as Schema from "effect/Schema";
@@ -250,6 +251,7 @@ const PersistedComposerThreadDraftState = Schema.Struct({
   activeProvider: Schema.optionalKey(Schema.NullOr(ProviderKind)),
   runtimeMode: Schema.optionalKey(RuntimeMode),
   interactionMode: Schema.optionalKey(ProviderInteractionMode),
+  handoffDraft: Schema.optionalKey(HandoffDraftV1),
 });
 
 type PersistedComposerThreadDraftState = typeof PersistedComposerThreadDraftState.Type;
@@ -898,6 +900,18 @@ function normalizePersistedDraftsByThreadId(
       draftCandidate.interactionMode === "plan" || draftCandidate.interactionMode === "default"
         ? draftCandidate.interactionMode
         : null;
+    const handoffDraft = Schema.is(HandoffDraftV1)(draftCandidate.handoffDraft)
+      ? {
+          ...draftCandidate.handoffDraft,
+          ...(draftCandidate.handoffDraft.preparationState === "preparing"
+            ? {
+                preparationState: "interrupted" as const,
+                preparationPhase: "Preparation interrupted by reload",
+                attemptId: null,
+              }
+            : {}),
+        }
+      : null;
     const prompt = ensureInlineTerminalContextPlaceholders(
       promptCandidate,
       terminalContexts.length,
@@ -972,7 +986,8 @@ function normalizePersistedDraftsByThreadId(
       restoredSourceProposedPlan === null &&
       !hasModelData &&
       !runtimeMode &&
-      !interactionMode
+      !interactionMode &&
+      !handoffDraft
     ) {
       continue;
     }
@@ -992,6 +1007,7 @@ function normalizePersistedDraftsByThreadId(
       ...(hasModelData ? { modelSelectionByProvider, activeProvider } : {}),
       ...(runtimeMode ? { runtimeMode } : {}),
       ...(interactionMode ? { interactionMode } : {}),
+      ...(handoffDraft ? { handoffDraft } : {}),
     };
   }
 
@@ -1130,7 +1146,8 @@ export function partializeComposerDraftStoreState(
       draft.restoredSourceProposedPlan == null &&
       !hasModelData &&
       draft.runtimeMode === null &&
-      draft.interactionMode === null
+      draft.interactionMode === null &&
+      draft.handoffDraft === null
     ) {
       continue;
     }
@@ -1266,6 +1283,7 @@ export function partializeComposerDraftStoreState(
         : {}),
       ...(draft.runtimeMode ? { runtimeMode: draft.runtimeMode } : {}),
       ...(draft.interactionMode ? { interactionMode: draft.interactionMode } : {}),
+      ...(draft.handoffDraft ? { handoffDraft: draft.handoffDraft } : {}),
     };
     persistedDraftsByThreadId[threadId as ThreadId] = persistedDraft;
   }
@@ -1441,5 +1459,6 @@ export function toHydratedThreadDraft(
     activeProvider,
     runtimeMode: persistedDraft.runtimeMode ?? null,
     interactionMode: persistedDraft.interactionMode ?? null,
+    handoffDraft: persistedDraft.handoffDraft ?? null,
   };
 }

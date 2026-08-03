@@ -48,12 +48,7 @@ export const ProjectionThread = Schema.Struct({
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   creationSource: Schema.optional(
     Schema.NullOr(
-      Schema.Literals([
-        "synara_mcp",
-        "external_mcp",
-        "provider_native",
-        "orchestrator_native",
-      ]),
+      Schema.Literals(["synara_mcp", "external_mcp", "provider_native", "orchestrator_native"]),
     ),
   ).pipe(Schema.withDecodingDefault(() => null)),
   sourceThreadId: Schema.optional(Schema.NullOr(ThreadId)).pipe(
@@ -84,6 +79,9 @@ export const ProjectionThread = Schema.Struct({
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
+  settledAt: Schema.optional(Schema.NullOr(IsoDateTime)).pipe(
     Schema.withDecodingDefault(() => null),
   ),
   deletedAt: Schema.NullOr(IsoDateTime),

@@ -47,8 +47,8 @@ export type ProviderSessionModelSwitchMode = "in-session" | "restart-session" | 
 export interface ProviderAdapterOrchestratorCapabilities {
   /** The provider installs Synara's role text above the user-message channel. */
   readonly authoritativeRoleInstruction: boolean;
-    /** The provider exposes the canonical Synara registry through a true provider-native callback. */
-    readonly nativeTools: boolean;
+  /** The provider exposes the canonical Synara registry through a true provider-native callback. */
+  readonly nativeTools: boolean;
   /** One Synara thread owns one independently resumable provider runtime/session. */
   readonly independentSession: boolean;
   readonly instructionChannel:
@@ -103,7 +103,7 @@ export function isProviderAdapterOrchestratorCapable(
   const orchestrator = capabilities.orchestrator;
   return (
     orchestrator?.authoritativeRoleInstruction === true &&
-      orchestrator.nativeTools === true &&
+    orchestrator.nativeTools === true &&
     orchestrator.independentSession === true
   );
 }

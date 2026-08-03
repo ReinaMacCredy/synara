@@ -917,12 +917,8 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                                     query={query}
                                   />
                                 </div>
-                                {/* Project only, not "project · space": this column is
-                                    96px, and a thread's Space is already implied by its
-                                    project. Space stays searchable — it just does not
-                                    get to eat the name the user is scanning for. */}
                                 <span className="w-24 shrink-0 truncate text-right text-[length:var(--app-font-size-ui-meta,10px)] text-muted-foreground/79">
-                                  {thread.projectName}
+                                  {thread.rootBreadcrumb ?? thread.projectName}
                                 </span>
                                 {thread.updatedAt || thread.createdAt ? (
                                   <span className="w-10 shrink-0 text-right text-[length:var(--app-font-size-ui-timestamp,10px)] text-muted-foreground/79">
@@ -948,6 +944,12 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                               ) : threadMatchLabel({ matchKind, messageMatchCount }) ? (
                                 <div className="mt-0.5 text-[length:var(--app-font-size-ui-meta,10px)] text-muted-foreground/58">
                                   {threadMatchLabel({ matchKind, messageMatchCount })}
+                                </div>
+                              ) : thread.lifecycle || thread.model ? (
+                                <div className="mt-0.5 truncate text-[length:var(--app-font-size-ui-meta,10px)] text-muted-foreground/66">
+                                  {[thread.lifecycle, thread.provider, thread.model]
+                                    .filter(Boolean)
+                                    .join(" · ")}
                                 </div>
                               ) : null}
                             </div>
