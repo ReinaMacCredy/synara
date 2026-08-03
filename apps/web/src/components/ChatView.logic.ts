@@ -1103,13 +1103,12 @@ export function hasTurnLifecycleAcknowledgedLocalDispatch(
   }
 
   if (input.localDispatch.sessionOrchestrationStatus !== nextSessionOrchestrationStatus) {
-    if (
-      input.localDispatch.sessionOrchestrationStatus === null &&
-      nextSessionOrchestrationStatus === "ready"
-    ) {
-      return false;
-    }
-    return true;
+    return (
+      nextSessionOrchestrationStatus === "error" ||
+      nextSessionOrchestrationStatus === "interrupted" ||
+      nextSessionOrchestrationStatus === "idle" ||
+      nextSessionOrchestrationStatus === "stopped"
+    );
   }
 
   return false;

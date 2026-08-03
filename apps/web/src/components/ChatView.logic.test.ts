@@ -1897,6 +1897,27 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
     ).toBe(false);
   });
 
+  it("keeps the first-turn optimistic timer alive while the provider session starts", () => {
+    expect(
+      hasTurnLifecycleAcknowledgedLocalDispatch({
+        localDispatch: firstTurnLocalDispatch,
+        phase: "connecting",
+        latestTurn: null,
+        messages: [],
+        session: {
+          provider: "codex",
+          status: "connecting",
+          orchestrationStatus: "starting",
+          createdAt: "2026-04-13T00:00:00.000Z",
+          updatedAt: "2026-04-13T00:00:01.000Z",
+        },
+        hasPendingApproval: false,
+        hasPendingUserInput: false,
+        threadError: null,
+      }),
+    ).toBe(false);
+  });
+
   it("acknowledges a first send when its user message becomes durable", () => {
     const durableUserMessageInput = {
       localDispatch: firstTurnLocalDispatch,

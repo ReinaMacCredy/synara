@@ -3040,7 +3040,8 @@ export default function ChatView({
       : null;
   const latestTurnInProgress = Boolean(activeLatestTurn?.requestedAt) && !latestTurnSettled;
   const activeTurnInProgress =
-    !activeThread?.error && (localDispatch !== null || hasLiveTurn || latestTurnInProgress);
+    !activeThread?.error &&
+    (localDispatch !== null || isConnecting || hasLiveTurn || latestTurnInProgress);
   const isComposerApprovalState = activePendingApproval !== null;
   const isComposerEditorDisabled = isConnecting || isComposerApprovalState;
   const canCollapsePastedTextToDraft = shouldEnableComposerPastedTextCollapse({
