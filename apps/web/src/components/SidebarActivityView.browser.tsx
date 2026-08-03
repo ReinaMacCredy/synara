@@ -74,6 +74,8 @@ function renderActivity(input: {
   prByThreadId?: ReadonlyMap<ThreadId, OrchestrationThreadPullRequest | null>;
   onVisibleThreadIdsChange?: (threadIds: readonly ThreadId[]) => void;
   onSetThreadSettled?: (threadId: ThreadId, settled: boolean) => void;
+  settlementEnabled?: boolean;
+  createActionLabel?: string;
   onMarkThreadRead?: (threadId: ThreadId, completedAt?: string) => void;
   resolveThreadStatus?: (thread: SidebarThreadSummary) => ThreadStatusPill | null;
 }) {
@@ -90,7 +92,11 @@ function renderActivity(input: {
       onVisibleThreadIdsChange={input.onVisibleThreadIdsChange ?? (() => {})}
       resolveThreadStatus={input.resolveThreadStatus ?? (() => null)}
       onOpenThread={() => {}}
-      onSetThreadSettled={input.onSetThreadSettled ?? (() => {})}
+      onSetThreadSettled={
+        input.settlementEnabled === false ? undefined : (input.onSetThreadSettled ?? (() => {}))
+      }
+      settlementEnabled={input.settlementEnabled}
+      createActionLabel={input.createActionLabel}
       onToggleThreadPinned={() => {}}
       onArchiveThread={() => {}}
       onMarkThreadRead={input.onMarkThreadRead ?? (() => {})}
@@ -214,6 +220,27 @@ describe("SidebarActivityView", () => {
     expect(onMarkThreadRead.mock.invocationCallOrder[0]).toBeLessThan(
       onSetThreadSettled.mock.invocationCallOrder[1] ?? Number.POSITIVE_INFINITY,
     );
+    await mounted.unmount();
+  });
+
+  it("uses Activity presentation without Done or Undo controls for Orchestrator Roots", async () => {
+    const root = makeThread(150, { settledAt: "2026-08-02T12:30:00.000Z" });
+    const mounted = await render(
+      renderActivity({
+        threads: [root],
+        settlementEnabled: false,
+        createActionLabel: "Start new Orchestrator Root",
+      }),
+    );
+
+    const rootRow = page.getByTestId(`activity-thread-${root.id}`).element();
+    rootRow.focus();
+    expect(rootRow.parentElement?.querySelector('button[aria-label="Done"]')).toBeNull();
+    expect(rootRow.parentElement?.querySelector('button[aria-label="Undo"]')).toBeNull();
+    expect(document.body.textContent).not.toContain("Done");
+    expect(
+      page.getByRole("button", { name: "Start new Orchestrator Root" }).element(),
+    ).toBeTruthy();
     await mounted.unmount();
   });
 

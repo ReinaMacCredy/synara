@@ -162,6 +162,7 @@ export function buildActivityViewModel(input: {
   threads: readonly SidebarThreadSummary[];
   pinnedThreadIdSet: ReadonlySet<ThreadId>;
   settledOverrideByThreadId?: ReadonlyMap<ThreadId, boolean>;
+  includeSettled?: boolean;
   /** Project scope as a set so merged scopes (all project-less chats) filter as one. */
   projectFilterIds?: ReadonlySet<ProjectId> | null;
 }): ActivityViewModel {
@@ -179,6 +180,7 @@ export function buildActivityViewModel(input: {
     }
     const statusGroup = resolveActivityStatusGroup(thread);
     if (
+      (input.includeSettled ?? true) &&
       isThreadSettledForActivity(thread, input.settledOverrideByThreadId) &&
       statusGroup === "seen"
     ) {

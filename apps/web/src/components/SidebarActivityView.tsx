@@ -105,7 +105,7 @@ function ActivityThreadRow({
   pr: OrchestrationThreadPullRequest | null;
   status: ThreadStatusPill | null;
   onOpen: () => void;
-  onSetSettled: (settled: boolean) => void;
+  onSetSettled?: ((settled: boolean) => void) | undefined;
   onTogglePinned: () => void;
   onArchive: () => void;
   renderHoverCard: (anchorId: string) => ReactNode;
@@ -149,7 +149,9 @@ function ActivityThreadRow({
             className={cn(
               "flex min-w-0 items-center gap-1.5 overflow-hidden pr-5 transition-[padding] duration-150 ease-out",
               // Yield the title row to the hover action cluster (pin + archive + done).
-              "group-hover/activity-row:pr-[4.25rem] group-focus-within/activity-row:pr-[4.25rem]",
+              onSetSettled
+                ? "group-hover/activity-row:pr-[4.25rem] group-focus-within/activity-row:pr-[4.25rem]"
+                : "group-hover/activity-row:pr-12 group-focus-within/activity-row:pr-12",
             )}
           >
             <ProviderIcon
@@ -213,18 +215,20 @@ function ActivityThreadRow({
             toneClassName={actionToneClassName}
             onArchive={onArchive}
           />
-          <SidebarIconButton
-            icon={isSettled ? Undo2Icon : CircleCheckIcon}
-            label={isSettled ? "Undo" : "Done"}
-            title={isSettled ? "Undo" : "Done"}
-            iconClassName={SIDEBAR_TRAILING_ICON_CLASS}
-            className={cn("hover:text-foreground/89", actionToneClassName)}
-            onMouseDown={stopRowActivation}
-            onClick={(event) => {
-              stopRowActivation(event);
-              onSetSettled(!isSettled);
-            }}
-          />
+          {onSetSettled ? (
+            <SidebarIconButton
+              icon={isSettled ? Undo2Icon : CircleCheckIcon}
+              label={isSettled ? "Undo" : "Done"}
+              title={isSettled ? "Undo" : "Done"}
+              iconClassName={SIDEBAR_TRAILING_ICON_CLASS}
+              className={cn("hover:text-foreground/89", actionToneClassName)}
+              onMouseDown={stopRowActivation}
+              onClick={(event) => {
+                stopRowActivation(event);
+                onSetSettled(!isSettled);
+              }}
+            />
+          ) : null}
         </span>
       </TooltipTrigger>
       {renderHoverCard(hoverAnchorId)}
@@ -470,6 +474,9 @@ export function SidebarActivityView({
   onVisibleThreadIdsChange,
   onCreateChat,
   onAddProject,
+  settlementEnabled = true,
+  createActionLabel = "Start new chat in last used project",
+  createActionTooltip = "New chat",
 }: {
   threads: readonly SidebarThreadSummary[];
   projectById: ReadonlyMap<ProjectId, Project>;
@@ -481,7 +488,7 @@ export function SidebarActivityView({
   onVisibleThreadIdsChange: (threadIds: readonly ThreadId[]) => void;
   resolveThreadStatus: (thread: SidebarThreadSummary) => ThreadStatusPill | null;
   onOpenThread: (threadId: ThreadId) => void;
-  onSetThreadSettled: (threadId: ThreadId, settled: boolean) => void;
+  onSetThreadSettled?: ((threadId: ThreadId, settled: boolean) => void) | undefined;
   onToggleThreadPinned: (threadId: ThreadId) => void;
   onArchiveThread: (threadId: ThreadId) => void;
   /** Records a completion as seen (the classic sidebar's markThreadVisited). */
@@ -492,6 +499,10 @@ export function SidebarActivityView({
   onCreateChat: () => void;
   /** Same "Add project" action the Projects section header runs. */
   onAddProject: () => void;
+  /** Orchestrator Roots share Activity presentation but do not use human Done/Undo lifecycle. */
+  settlementEnabled?: boolean | undefined;
+  createActionLabel?: string | undefined;
+  createActionTooltip?: string | undefined;
 }) {
   const [scopeSelection, setScopeSelection] = useState<ActivityScopeSelection>(null);
   const [groupMode, setGroupMode] = useState<ActivityGroupMode>("time");
@@ -522,6 +533,7 @@ export function SidebarActivityView({
     threads,
     pinnedThreadIdSet,
     settledOverrideByThreadId,
+    includeSettled: settlementEnabled,
     projectFilterIds,
   });
   const scopedPinnedThreads = model.pinned;
@@ -628,17 +640,24 @@ export function SidebarActivityView({
       pr={prByThreadId.get(thread.id) ?? thread.lastKnownPr ?? null}
       status={resolveThreadStatus(thread)}
       onOpen={() => onOpenThread(thread.id)}
-      onSetSettled={(settled) => {
-        if (settled) onMarkThreadRead(thread.id, thread.latestTurn?.completedAt ?? undefined);
-        onSetThreadSettled(thread.id, settled);
-      }}
+      onSetSettled={
+        settlementEnabled && onSetThreadSettled
+          ? (settled) => {
+              if (settled) onMarkThreadRead(thread.id, thread.latestTurn?.completedAt ?? undefined);
+              onSetThreadSettled(thread.id, settled);
+            }
+          : undefined
+      }
       onTogglePinned={() => onToggleThreadPinned(thread.id)}
       onArchive={() => onArchiveThread(thread.id)}
       renderHoverCard={(anchorId) => renderThreadHoverCard(thread, anchorId)}
     />
   );
   const renderActiveRow = (thread: SidebarThreadSummary) =>
-    renderRow(thread, isThreadSettledForActivity(thread, settledOverrideByThreadId));
+    renderRow(
+      thread,
+      settlementEnabled && isThreadSettledForActivity(thread, settledOverrideByThreadId),
+    );
 
   // The placeholder speaks for the whole surface, so it may only appear when no
   // section has rows — a feed with nothing active but a populated Pinned or Done
@@ -661,7 +680,11 @@ export function SidebarActivityView({
           onToggle={() => setPinnedOpen((open) => !open)}
         >
           {scopedPinnedThreads.map((thread) =>
-            renderRow(thread, isThreadSettledForActivity(thread, settledOverrideByThreadId)),
+            renderRow(
+              thread,
+              settlementEnabled &&
+                isThreadSettledForActivity(thread, settledOverrideByThreadId),
+            ),
           )}
         </ActivityCollapsibleSection>
       ) : null}
@@ -678,8 +701,8 @@ export function SidebarActivityView({
         <SidebarSectionToolbar revealOnHover className="mr-0">
           <SidebarIconButton
             icon={NewThreadIcon}
-            label="Start new chat in last used project"
-            tooltip="New chat"
+            label={createActionLabel}
+            tooltip={createActionTooltip}
             tooltipSide="bottom"
             onClick={onCreateChat}
           />

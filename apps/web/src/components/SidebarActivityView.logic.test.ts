@@ -371,6 +371,24 @@ describe("buildActivityViewModel", () => {
     expect(model.active.map((thread) => thread.id)).toEqual(["attention", "unseen", "running"]);
     expect(model.settled.map((thread) => thread.id)).toEqual(["reviewed"]);
   });
+
+  it("keeps settled Orchestrator Roots in active history when settlement is disabled", () => {
+    const root = makeThread({
+      id: "orchestrator-root",
+      settledAt: "2026-08-01T09:50:00.000Z",
+      latestTurn: completedTurn("2026-08-01T09:30:00.000Z"),
+      lastVisitedAt: "2026-08-01T10:00:00.000Z",
+    });
+
+    const model = buildActivityViewModel({
+      threads: [root],
+      pinnedThreadIdSet: new Set(),
+      includeSettled: false,
+    });
+
+    expect(model.active.map((thread) => thread.id)).toEqual(["orchestrator-root"]);
+    expect(model.settled).toEqual([]);
+  });
 });
 
 describe("date buckets", () => {
