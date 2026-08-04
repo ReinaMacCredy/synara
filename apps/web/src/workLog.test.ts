@@ -11,6 +11,68 @@ import {
 import { makeActivity } from "./storeTestFixtures";
 
 describe("deriveWorkLogEntries", () => {
+  it("pairs user-input questions and submitted answers onto both transcript rows", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "user-input-requested",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        summary: "User input requested",
+        kind: "user-input.requested",
+        payload: {
+          requestId: "request-1",
+          questions: [
+            {
+              id: "checks",
+              header: "Publishing checks",
+              question: "Which checks should block publishing?",
+              multiSelect: true,
+              options: [
+                { label: "Type safety", description: "Require the type check to pass." },
+                { label: "Accessibility", description: "Require the accessibility audit." },
+              ],
+            },
+          ],
+        },
+      }),
+      makeActivity({
+        id: "user-input-resolved",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        summary: "User input submitted",
+        kind: "user-input.resolved",
+        payload: {
+          requestId: "request-1",
+          answers: {
+            checks: ["Type safety", "Accessibility"],
+          },
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+
+    expect(entries).toHaveLength(2);
+    for (const entry of entries) {
+      expect(entry.userInputInteraction).toEqual({
+        requestId: "request-1",
+        questions: [
+          {
+            id: "checks",
+            header: "Publishing checks",
+            question: "Which checks should block publishing?",
+            multiSelect: true,
+            options: [
+              { label: "Type safety", description: "Require the type check to pass." },
+              { label: "Accessibility", description: "Require the accessibility audit." },
+            ],
+          },
+        ],
+        answers: {
+          checks: ["Type safety", "Accessibility"],
+        },
+      });
+    }
+  });
+
   it("keeps started tool entries so pending Cursor calls appear immediately", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({

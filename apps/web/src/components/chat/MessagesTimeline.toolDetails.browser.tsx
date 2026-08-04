@@ -93,6 +93,64 @@ function LiveActivityTimeline() {
   );
 }
 
+function UserInputHistoryRows() {
+  const interaction = {
+    requestId: "request-history",
+    questions: [
+      {
+        id: "checks",
+        header: "Publishing checks",
+        question: "Which checks should block publishing?",
+        multiSelect: true,
+        options: [
+          { label: "Type safety", description: "Require the type check to pass." },
+          { label: "Accessibility", description: "Require the accessibility audit." },
+        ],
+      },
+    ],
+    answers: {
+      checks: ["Type safety", "Accessibility"],
+    },
+  };
+
+  return (
+    <div>
+      <TimelineWorkEntryRow
+        workEntry={{
+          id: "user-input-requested",
+          createdAt: "2026-03-17T19:12:28.000Z",
+          label: "User input requested",
+          tone: "info",
+          activityKind: "user-input.requested",
+          userInputInteraction: interaction,
+        }}
+        chatMetaFontSizePx={12}
+        textFontSizePx={13}
+        density="compact"
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        timestampFormat="locale"
+      />
+      <TimelineWorkEntryRow
+        workEntry={{
+          id: "user-input-resolved",
+          createdAt: "2026-03-17T19:12:29.000Z",
+          label: "User input submitted",
+          tone: "info",
+          activityKind: "user-input.resolved",
+          userInputInteraction: interaction,
+        }}
+        chatMetaFontSizePx={12}
+        textFontSizePx={13}
+        density="compact"
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        timestampFormat="locale"
+      />
+    </div>
+  );
+}
+
 function createTimelineHost(): HTMLDivElement {
   const host = document.createElement("div");
   host.style.cssText = "display:flex;width:600px;height:520px;overflow:hidden;";
@@ -219,6 +277,43 @@ describe("MessagesTimeline tool details", () => {
       for (const time of document.querySelectorAll<HTMLTimeElement>("time[datetime]")) {
         expect(time.textContent).toBe(formatTimestamp(time.dateTime, "24-hour"));
       }
+    } finally {
+      await screen.unmount();
+      host.remove();
+      await settleLayout();
+    }
+  });
+
+  it("reveals the original question and selected answers from either user-input row", async () => {
+    const host = createTimelineHost();
+    const screen = await render(<UserInputHistoryRows />, { container: host });
+
+    try {
+      const triggers = document.querySelectorAll<HTMLButtonElement>(
+        "[data-user-input-detail-trigger='true']",
+      );
+      expect(triggers).toHaveLength(2);
+      expect(document.body.textContent ?? "").not.toContain(
+        "Which checks should block publishing?",
+      );
+
+      triggers[0]?.click();
+
+      await expect
+        .poll(() => document.querySelectorAll("[data-user-input-details-inline='true']").length)
+        .toBe(1);
+      expect(triggers[0]?.getAttribute("aria-expanded")).toBe("true");
+      expect(document.body.textContent ?? "").toContain("Which checks should block publishing?");
+      expect(document.body.textContent ?? "").toContain("Selected answers");
+      expect(document.body.textContent ?? "").toContain("Type safety");
+      expect(document.body.textContent ?? "").toContain("Accessibility");
+
+      triggers[1]?.click();
+
+      await expect
+        .poll(() => document.querySelectorAll("[data-user-input-details-inline='true']").length)
+        .toBe(2);
+      expect(triggers[1]?.getAttribute("aria-expanded")).toBe("true");
     } finally {
       await screen.unmount();
       host.remove();

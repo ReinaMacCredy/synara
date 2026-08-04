@@ -507,6 +507,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
     ? () => onOpenAgentActivity?.(workEntry.id)
     : undefined;
   const hasToolDetails = Boolean(workEntry.toolDetails);
+  const userInputInteraction = workEntry.userInputInteraction;
   // File-read rows open the referenced file in the in-app viewer when the
   // hosting surface provides an opener (right-dock file pane / editor pane).
   const opener = useWorkspaceFileOpener();
@@ -552,9 +553,11 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
       ? extractFilePathFromDetail(workEntry.detail)
       : null;
   const canOpenReadFile = readFilePath !== null;
-  const canOpenToolDetails =
+  const canOpenEntryDetails =
     !canOpenAgentActivity &&
-    Boolean(workEntry.toolDetails || (workEntry.liveActivity && !canOpenReadFile));
+    Boolean(
+      userInputInteraction || workEntry.toolDetails || (workEntry.liveActivity && !canOpenReadFile),
+    );
   const openReadFile = readFilePath
     ? () => openWorkspaceFileReference(opener, readFilePath)
     : undefined;
@@ -582,7 +585,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                     changedFiles.length,
                   ) ?? summaryStat);
             const canOpenEditedDiff = Boolean(turnId && onOpenTurnDiff);
-            const canOpenEditedRow = canOpenToolDetails || canOpenEditedDiff;
+            const canOpenEditedRow = canOpenEntryDetails || canOpenEditedDiff;
             const editedRowClassName = cn(
               "group/file-row flex w-full max-w-full items-center text-left transition-colors duration-150",
               compact ? "gap-1.5" : "gap-2",
@@ -597,9 +600,9 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                 compact={compact}
               />
             );
-            if (hasToolDetails || (canOpenToolDetails && !canOpenEditedDiff)) {
+            if (hasToolDetails || (canOpenEntryDetails && !canOpenEditedDiff)) {
               return (
-                <ToolDetailsDisclosure
+                <WorkEntryDetailsDisclosure
                   key={`${workEntry.id}:${changedFilePath}`}
                   details={workEntry.toolDetails}
                   activity={workEntry.liveActivity}
@@ -610,7 +613,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                   timestampFormat={timestampFormat}
                 >
                   {editedRowChildren}
-                </ToolDetailsDisclosure>
+                </WorkEntryDetailsDisclosure>
               );
             }
             return (
@@ -709,17 +712,23 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
               </div>
             </>
           );
-          if (canOpenToolDetails) {
+          if (canOpenEntryDetails) {
             return (
-              <ToolDetailsDisclosure
+              <WorkEntryDetailsDisclosure
                 details={workEntry.toolDetails}
                 activity={workEntry.liveActivity}
+                detailKind={userInputInteraction ? "user-input" : "tool"}
+                detailsContent={
+                  userInputInteraction ? (
+                    <UserInputInteractionDetails interaction={userInputInteraction} />
+                  ) : undefined
+                }
                 compact={compact}
                 timestampFormat={timestampFormat}
                 tooltip={toolRowTooltipContent(rawCommand, displayText, displayText)}
               >
                 {rowContentChildren}
-              </ToolDetailsDisclosure>
+              </WorkEntryDetailsDisclosure>
             );
           }
 
@@ -840,16 +849,64 @@ function AgentActivityOpenSurface(props: {
   return <ToolRowTooltip content={props.tooltip}>{surface}</ToolRowTooltip>;
 }
 
-function ToolDetailsDisclosure(props: {
+function UserInputInteractionDetails(props: {
+  interaction: NonNullable<TimelineWorkEntry["userInputInteraction"]>;
+}) {
+  return (
+    <div className="rounded-xl border border-border/60 bg-muted/20 px-3 py-2.5">
+      {props.interaction.questions.map((question, index) => {
+        const rawAnswer = props.interaction.answers?.[question.id];
+        const answers = Array.isArray(rawAnswer)
+          ? rawAnswer.filter((answer) => answer.length > 0)
+          : typeof rawAnswer === "string" && rawAnswer.length > 0
+            ? [rawAnswer]
+            : [];
+        return (
+          <section
+            key={question.id}
+            className={cn(index > 0 && "mt-3 border-t border-border/50 pt-3")}
+          >
+            <p className="text-xs font-medium text-muted-foreground">{question.header}</p>
+            <p className="mt-1 text-sm leading-5 text-foreground">{question.question}</p>
+            <div className="mt-2">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/65">
+                {answers.length > 1 ? "Selected answers" : "Selected answer"}
+              </p>
+              {answers.length > 0 ? (
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {answers.map((answer, answerIndex) => (
+                    <span
+                      key={`${answer}:${answerIndex}`}
+                      className="rounded-md border border-border/60 bg-background/70 px-2 py-1 text-xs leading-4 text-foreground"
+                    >
+                      {answer}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-1 text-xs text-muted-foreground">Awaiting response</p>
+              )}
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function WorkEntryDetailsDisclosure(props: {
   children: ReactNode;
   compact: boolean;
   dataFileChangeRow?: boolean | undefined;
+  detailKind?: "tool" | "user-input" | undefined;
+  detailsContent?: ReactNode;
   details?: TimelineWorkEntry["toolDetails"] | undefined;
   activity?: TimelineWorkEntry["liveActivity"] | undefined;
   summaryClassName?: string | undefined;
   timestampFormat: TimestampFormat;
   tooltip?: ReactNode;
 }) {
+  const detailKind = props.detailKind ?? "tool";
   const summaryClassName =
     props.summaryClassName ??
     cn(
@@ -906,7 +963,9 @@ function ToolDetailsDisclosure(props: {
       className={summaryClassName}
       aria-expanded={open}
       data-file-change-row={props.dataFileChangeRow ? "true" : undefined}
-      data-tool-detail-trigger="true"
+      data-work-entry-detail-trigger="true"
+      data-tool-detail-trigger={detailKind === "tool" ? "true" : undefined}
+      data-user-input-detail-trigger={detailKind === "user-input" ? "true" : undefined}
       onClick={() => {
         setDetailsOpen(!open);
       }}
@@ -927,12 +986,18 @@ function ToolDetailsDisclosure(props: {
           open={motionOpen}
           contentClassName={cn("min-w-0 pt-2", props.compact ? "ml-5" : "ml-7")}
         >
-          <div data-tool-details-inline="true">
-            <ToolCallDetailsContent
-              details={props.details}
-              activity={props.activity}
-              timestampFormat={props.timestampFormat}
-            />
+          <div
+            data-work-entry-details-inline="true"
+            data-tool-details-inline={detailKind === "tool" ? "true" : undefined}
+            data-user-input-details-inline={detailKind === "user-input" ? "true" : undefined}
+          >
+            {props.detailsContent ?? (
+              <ToolCallDetailsContent
+                details={props.details}
+                activity={props.activity}
+                timestampFormat={props.timestampFormat}
+              />
+            )}
           </div>
         </DisclosureRegion>
       ) : null}

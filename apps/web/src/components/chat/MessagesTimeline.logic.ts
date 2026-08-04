@@ -1085,6 +1085,54 @@ function workLogLiveActivitiesEqual(
   );
 }
 
+function workLogUserInputInteractionsEqual(
+  a: WorkLogEntry["userInputInteraction"],
+  b: WorkLogEntry["userInputInteraction"],
+): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.requestId !== b.requestId || a.questions.length !== b.questions.length) {
+    return false;
+  }
+  for (let index = 0; index < a.questions.length; index += 1) {
+    const left = a.questions[index]!;
+    const right = b.questions[index]!;
+    if (
+      left.id !== right.id ||
+      left.header !== right.header ||
+      left.question !== right.question ||
+      left.multiSelect !== right.multiSelect ||
+      left.options.length !== right.options.length
+    ) {
+      return false;
+    }
+    for (let optionIndex = 0; optionIndex < left.options.length; optionIndex += 1) {
+      const leftOption = left.options[optionIndex]!;
+      const rightOption = right.options[optionIndex]!;
+      if (
+        leftOption.label !== rightOption.label ||
+        leftOption.description !== rightOption.description
+      ) {
+        return false;
+      }
+    }
+  }
+
+  const leftAnswers = a.answers;
+  const rightAnswers = b.answers;
+  if (leftAnswers === rightAnswers) return true;
+  if (!leftAnswers || !rightAnswers) return false;
+  const leftAnswerKeys = Object.keys(leftAnswers);
+  if (leftAnswerKeys.length !== Object.keys(rightAnswers).length) return false;
+  return leftAnswerKeys.every((questionId) => {
+    const leftAnswer = leftAnswers[questionId];
+    const rightAnswer = rightAnswers[questionId];
+    if (Array.isArray(leftAnswer) && Array.isArray(rightAnswer)) {
+      return stringArraysEqual(leftAnswer, rightAnswer);
+    }
+    return leftAnswer === rightAnswer;
+  });
+}
+
 function workLogEntryContentEqual(a: WorkLogEntry, b: WorkLogEntry): boolean {
   return (
     a.id === b.id &&
@@ -1109,6 +1157,7 @@ function workLogEntryContentEqual(a: WorkLogEntry, b: WorkLogEntry): boolean {
     workLogAutomationsEqual(a.automation, b.automation) &&
     workLogSynaraThreadCreationsEqual(a.synaraThreadCreation, b.synaraThreadCreation) &&
     workLogLiveActivitiesEqual(a.liveActivity, b.liveActivity) &&
+    workLogUserInputInteractionsEqual(a.userInputInteraction, b.userInputInteraction) &&
     workLogToolDetailsEqual(a.toolDetails, b.toolDetails)
   );
 }

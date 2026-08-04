@@ -3,8 +3,10 @@ import {
   type OrchestrationLatestTurnState,
   type OrchestrationThreadActivity,
   type ProviderKind,
+  type ProviderUserInputAnswers,
   type ToolLifecycleItemType,
   type TurnId,
+  type UserInputQuestion,
 } from "@synara/contracts";
 import {
   decodeSubagentAgentStates,
@@ -34,6 +36,7 @@ import {
   type WorkLogToolDetails,
 } from "./lib/toolCallDetails";
 import { stripProposedPlanBlocksFromText } from "./proposedPlan";
+import { parseUserInputAnswers, parseUserInputQuestions } from "./userInputActivity";
 
 import type { ChatMessage, ProposedPlan } from "./types";
 
@@ -67,6 +70,7 @@ export interface WorkLogEntry {
   subagentAction?: WorkLogSubagentAction;
   automation?: WorkLogAutomation;
   synaraThreadCreation?: WorkLogSynaraThreadCreation;
+  userInputInteraction?: WorkLogUserInputInteraction;
   // Source activity kind, kept so the timeline can pick a kind-specific icon
   // (e.g. user-input.requested -> question glyph) instead of the generic
   // tone fallback. Same rationale as `toolName` below.
@@ -74,6 +78,12 @@ export interface WorkLogEntry {
   // Provider-native event type carried through the activity payload (e.g.
   // "background_tasks_changed") so the timeline can pick a specific icon.
   nativeEventType?: string;
+}
+
+export interface WorkLogUserInputInteraction {
+  requestId: string;
+  questions: ReadonlyArray<UserInputQuestion>;
+  answers?: ProviderUserInputAnswers;
 }
 
 export type WorkLogLiveActivityState =
@@ -278,6 +288,7 @@ export function deriveWorkLogEntries(
 ): WorkLogEntry[] {
   const visibleTurnIds = options.visibleTurnIds;
   const ordered = orderedActivities(activities);
+  const userInputInteractions = deriveUserInputInteractions(ordered);
   const entries = ordered
     .filter((activity) => shouldKeepActivityForWorkLog(activity, latestTurnId, visibleTurnIds))
     .filter(
@@ -294,7 +305,7 @@ export function deriveWorkLogEntries(
     )
     .filter((activity) => activity.summary !== "Checkpoint captured")
     .filter((activity) => !isPlanBoundaryToolActivity(activity))
-    .map(toDerivedWorkLogEntry);
+    .map((activity) => toDerivedWorkLogEntry(activity, userInputInteractions));
   // Strip the derivation-only helpers that exist solely on DerivedWorkLogEntry.
   // `toolName` and `activityKind` are intentionally kept: they are public
   // WorkLogEntry fields that the timeline relies on to pick the right icon (e.g.
@@ -455,7 +466,49 @@ function extractWorkLogSynaraThreadCreation(
   return { operationId, requestedCount, createdCount, threads };
 }
 
-function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWorkLogEntry {
+function deriveUserInputInteractions(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): ReadonlyMap<string, WorkLogUserInputInteraction> {
+  const interactions = new Map<string, WorkLogUserInputInteraction>();
+
+  for (const activity of activities) {
+    if (activity.kind !== "user-input.requested" && activity.kind !== "user-input.resolved") {
+      continue;
+    }
+    const payload =
+      activity.payload && typeof activity.payload === "object"
+        ? (activity.payload as Record<string, unknown>)
+        : null;
+    const requestId =
+      typeof payload?.requestId === "string" && payload.requestId.length > 0
+        ? payload.requestId
+        : null;
+    if (!requestId) {
+      continue;
+    }
+
+    if (activity.kind === "user-input.requested") {
+      const questions = parseUserInputQuestions(payload);
+      if (questions) {
+        interactions.set(requestId, { requestId, questions });
+      }
+      continue;
+    }
+
+    const interaction = interactions.get(requestId);
+    const answers = parseUserInputAnswers(payload);
+    if (interaction && answers) {
+      interactions.set(requestId, { ...interaction, answers });
+    }
+  }
+
+  return interactions;
+}
+
+function toDerivedWorkLogEntry(
+  activity: OrchestrationThreadActivity,
+  userInputInteractions: ReadonlyMap<string, WorkLogUserInputInteraction>,
+): DerivedWorkLogEntry {
   const payload =
     activity.payload && typeof activity.payload === "object"
       ? (activity.payload as Record<string, unknown>)
@@ -478,6 +531,13 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
     ...(toolCallId ? { toolCallId } : {}),
     ...(toolStatus ? { toolStatus } : {}),
   };
+  if (activity.kind === "user-input.requested" || activity.kind === "user-input.resolved") {
+    const requestId = typeof payload?.requestId === "string" ? payload.requestId : null;
+    const userInputInteraction = requestId ? userInputInteractions.get(requestId) : undefined;
+    if (userInputInteraction) {
+      entry.userInputInteraction = userInputInteraction;
+    }
+  }
   const itemType = extractWorkLogItemType(payload);
   const requestKind = extractWorkLogRequestKind(payload);
   if (payload && typeof payload.detail === "string" && payload.detail.length > 0) {
