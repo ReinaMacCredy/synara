@@ -75,8 +75,8 @@ export function TaskDetailDrawer(props: {
   const canReopen = ["done", "failed", "cancelled"].includes(props.task.task.lifecycle);
 
   return (
-      <aside
-        className="flex h-full w-full min-w-[20rem] flex-col border-l border-border bg-background"
+    <aside
+      className="flex h-full w-full min-w-[20rem] flex-col border-l border-border bg-background"
       aria-label={`Task details: ${props.task.task.title}`}
       data-task-detail-drawer={taskId}
     >

@@ -1,4 +1,4 @@
-import { ProjectId, ThreadId } from "@synara/contracts";
+import { LeadSeatId, ProfilePresetId, ProjectId, ThreadId } from "@synara/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { selectComposerThreadDraft } from "./composerDraftDomain";
 import {
@@ -144,6 +144,10 @@ describe("composerDraftStore project draft thread mapping", () => {
       envMode: "worktree",
       runtimeMode: "full-access",
       interactionMode: "default",
+      supervisionMode: "orchestrate",
+      profilePresetId: null,
+      leadSeatId: null,
+      supervisorSeatId: null,
       createdAt: "2026-01-01T00:00:00.000Z",
       lastKnownPr: null,
     });
@@ -156,6 +160,10 @@ describe("composerDraftStore project draft thread mapping", () => {
       envMode: "worktree",
       runtimeMode: "full-access",
       interactionMode: "default",
+      supervisionMode: "orchestrate",
+      profilePresetId: null,
+      leadSeatId: null,
+      supervisorSeatId: null,
       createdAt: "2026-01-01T00:00:00.000Z",
       lastKnownPr: null,
     });
@@ -232,6 +240,24 @@ describe("composerDraftStore project draft thread mapping", () => {
     expect(useComposerDraftStore.getState().getDraftThread(otherThreadId)?.entryPoint).toBe(
       "terminal",
     );
+  });
+
+  it("tracks chat, Orchestrator, and Supervisor drafts independently for one project", () => {
+    const store = useComposerDraftStore.getState();
+    const supervisorThreadId = ThreadId.makeUnsafe("thread-supervisor");
+    store.setProjectDraftThreadId(projectId, threadId, { entryPoint: "chat" });
+    store.setProjectDraftThreadId(projectId, otherThreadId, { entryPoint: "orchestrator" });
+    store.setProjectDraftThreadId(projectId, supervisorThreadId, { entryPoint: "supervisor" });
+
+    expect(
+      useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, "chat"),
+    ).toMatchObject({ threadId, entryPoint: "chat" });
+    expect(
+      useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, "orchestrator"),
+    ).toMatchObject({ threadId: otherThreadId, entryPoint: "orchestrator" });
+    expect(
+      useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, "supervisor"),
+    ).toMatchObject({ threadId: supervisorThreadId, entryPoint: "supervisor" });
   });
 
   it("retains a separate Orchestrator Root draft and its staged handoff source", () => {
@@ -492,6 +518,25 @@ describe("composerDraftStore project draft thread mapping", () => {
       branch: "feature/next",
       worktreePath: "/tmp/feature-next",
       envMode: "worktree",
+    });
+  });
+
+  it("persists Supervise mode and its profile selection independently of interaction mode", () => {
+    const store = useComposerDraftStore.getState();
+    store.setProjectDraftThreadId(projectId, threadId, {
+      entryPoint: "orchestrator",
+      interactionMode: "default",
+      supervisionMode: "supervise",
+      profilePresetId: ProfilePresetId.makeUnsafe("profile-lead"),
+      leadSeatId: LeadSeatId.makeUnsafe("lead-seat"),
+    });
+
+    expect(useComposerDraftStore.getState().getDraftThread(threadId)).toMatchObject({
+      entryPoint: "orchestrator",
+      interactionMode: "default",
+      supervisionMode: "supervise",
+      profilePresetId: "profile-lead",
+      leadSeatId: "lead-seat",
     });
   });
 

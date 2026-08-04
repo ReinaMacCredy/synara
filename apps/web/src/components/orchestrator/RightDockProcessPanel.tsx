@@ -19,10 +19,7 @@ import {
 import { TaskRiskBadge } from "~/components/process/TaskRiskBadge";
 import { ThreadActivityGlyph, type ThreadActivityState } from "~/components/ThreadActivityGlyph";
 import { Button } from "~/components/ui/button";
-import {
-  sessionProgressQueryOptions,
-  taskProcessGraphQueryOptions,
-} from "~/lib/serverReactQuery";
+import { sessionProgressQueryOptions, taskProcessGraphQueryOptions } from "~/lib/serverReactQuery";
 
 import styles from "./RightDockProcessPanel.module.css";
 
@@ -107,9 +104,7 @@ function TaskPulseItem(props: {
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-1.5">
           <span className="truncate text-xs font-medium">{props.task.task.title}</span>
-          <span className="shrink-0 text-[10px] text-muted-foreground">
-            {LANE_LABELS[lane]}
-          </span>
+          <span className="shrink-0 text-[10px] text-muted-foreground">{LANE_LABELS[lane]}</span>
         </span>
         <span className="mt-0.5 line-clamp-2 block text-[10px] leading-relaxed text-muted-foreground">
           {taskSignal(props.task, props.graph, props.progress)}
@@ -134,9 +129,7 @@ function PulseSection(props: {
         <h3 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
           {GROUP_LABELS[props.group]}
         </h3>
-        <span className="text-[10px] tabular-nums text-muted-foreground">
-          {props.tasks.length}
-        </span>
+        <span className="text-[10px] tabular-nums text-muted-foreground">{props.tasks.length}</span>
       </div>
       {props.tasks.slice(0, 3).map((task) => (
         <TaskPulseItem
@@ -196,7 +189,10 @@ export function RightDockProcessPanelView(props: {
           </span>
         </div>
         <div className="mt-2 h-1 overflow-hidden rounded-full bg-muted" aria-hidden>
-          <div className="h-full rounded-full bg-foreground transition-[width]" style={{ width: `${percent}%` }} />
+          <div
+            className="h-full rounded-full bg-foreground transition-[width]"
+            style={{ width: `${percent}%` }}
+          />
         </div>
         <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
           <span>{counts.active} active</span>

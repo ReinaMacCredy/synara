@@ -10,6 +10,7 @@ import {
   ORCHESTRATION_WS_METHODS,
   TaskProcessDomainEvent,
   TaskProcessId,
+  SupervisionCommand,
   ThreadId,
   WS_BOOTSTRAP_METHOD,
   WS_BOOTSTRAP_PATH,
@@ -139,6 +140,10 @@ import { ProjectionTaskProcessRepository } from "./persistence/Services/Projecti
 import { OrchestratorToolRuntime } from "./orchestration/Services/OrchestratorToolRuntime";
 import { HandoffPreparationService } from "./handoff/Services/HandoffPreparationService";
 import { projectOrchestratorChildren } from "./orchestration/orchestrator/childProjections";
+import {
+  profileLaunchIssue,
+  resolveProfilePreset,
+} from "./orchestration/supervision/profileResolver";
 
 export function canManageExternalMcp(role: "owner" | "client"): boolean {
   return role === "owner";
@@ -317,6 +322,7 @@ function isShellRelevantEvent(event: OrchestrationEvent): boolean {
     event.type === "project.meta-updated" ||
     event.type === "project.deleted" ||
     event.type === "thread.deleted" ||
+    event.aggregateKind === "supervision" ||
     (event.aggregateKind === "thread" && shouldPublishThreadShellForEvent(event))
   );
 }
@@ -755,6 +761,18 @@ const makeWsRpcHandlersLayer = () =>
               }),
             );
           default:
+            if (event.aggregateKind === "supervision") {
+              return projectionReadModelQuery.getSupervisionShellSnapshot().pipe(
+                Effect.map((supervision) =>
+                  Option.some({
+                    kind: "supervision-updated" as const,
+                    sequence: event.sequence,
+                    supervision,
+                  }),
+                ),
+                Effect.catch(() => Effect.succeed(Option.none())),
+              );
+            }
             if (event.aggregateKind !== "thread") return Effect.succeed(Option.none());
             return projectionReadModelQuery
               .getThreadShellById(ThreadId.makeUnsafe(String(event.aggregateId)))
@@ -848,6 +866,127 @@ const makeWsRpcHandlersLayer = () =>
               const { command: normalizedCommand, prepareWorkspaceRoot } =
                 yield* normalizeDispatchCommand({ command });
               let authorizedCommand = normalizedCommand;
+              if (Schema.is(SupervisionCommand)(normalizedCommand)) {
+                yield* requireOwnerSession;
+                const actor = { kind: "user" as const, actorId: "owner" };
+                if (
+                  normalizedCommand.type === "supervision.supervisor.create" ||
+                  normalizedCommand.type === "supervision.lead.enroll" ||
+                  normalizedCommand.type === "supervision.lead.replace"
+                ) {
+                  const snapshot = yield* projectionReadModelQuery.getSnapshot();
+                  const preset = snapshot.supervision.profiles.find(
+                    (candidate) => candidate.id === normalizedCommand.profilePresetId,
+                  );
+                  if (!preset) {
+                    return yield* Effect.fail(new Error("Supervision profile does not exist."));
+                  }
+                  const launchIssue = profileLaunchIssue(preset);
+                  if (launchIssue !== null) {
+                    return yield* Effect.fail(new Error(launchIssue));
+                  }
+                  const profileSnapshotId =
+                    normalizedCommand.type === "supervision.supervisor.create"
+                      ? normalizedCommand.supervisor.profileSnapshotId
+                      : normalizedCommand.type === "supervision.lead.enroll"
+                        ? normalizedCommand.lead.profileSnapshotId
+                        : normalizedCommand.rotation.replacementProfileSnapshotId;
+                  authorizedCommand = {
+                    ...normalizedCommand,
+                    actor,
+                    ...(normalizedCommand.type === "supervision.lead.replace"
+                      ? {
+                          replacementProfileSnapshot: resolveProfilePreset({
+                            preset,
+                            snapshotId: profileSnapshotId,
+                            createdAt: normalizedCommand.createdAt,
+                          }),
+                        }
+                      : {
+                          profileSnapshot: resolveProfilePreset({
+                            preset,
+                            snapshotId: profileSnapshotId,
+                            createdAt: normalizedCommand.createdAt,
+                          }),
+                        }),
+                  };
+                } else {
+                  authorizedCommand = { ...normalizedCommand, actor };
+                }
+              } else if (
+                normalizedCommand.type === "orchestrator.child.create" &&
+                normalizedCommand.supervisionPeerBootstrap !== undefined
+              ) {
+                yield* requireOwnerSession;
+                const snapshot = yield* projectionReadModelQuery.getSnapshot();
+                const bootstrap = normalizedCommand.supervisionPeerBootstrap;
+                const preset = snapshot.supervision.profiles.find(
+                  (candidate) => candidate.id === bootstrap.profilePresetId,
+                );
+                if (!preset) {
+                  return yield* Effect.fail(new Error("Supervision profile does not exist."));
+                }
+                const launchIssue = profileLaunchIssue(preset);
+                if (launchIssue !== null) {
+                  return yield* Effect.fail(new Error(launchIssue));
+                }
+                const activeLead = snapshot.supervision.leads.find(
+                  (lead) =>
+                    lead.id === bootstrap.peer.leadSeatId &&
+                    lead.activeThreadId === normalizedCommand.rootThreadId &&
+                    lead.projectId === normalizedCommand.projectId &&
+                    lead.status === "active",
+                );
+                if (!activeLead) {
+                  return yield* Effect.fail(
+                    new Error("Peer creation requires the Project's active Lead Root."),
+                  );
+                }
+                authorizedCommand = {
+                  ...normalizedCommand,
+                  actor: { kind: "user" as const, actorId: "owner" },
+                  supervisionPeerBootstrap: {
+                    ...bootstrap,
+                    profileSnapshot: resolveProfilePreset({
+                      preset,
+                      snapshotId: bootstrap.peer.profileSnapshotId,
+                      createdAt: normalizedCommand.createdAt,
+                    }),
+                  },
+                };
+              } else if (
+                normalizedCommand.type === "thread.turn.start" &&
+                normalizedCommand.supervisionBootstrap !== undefined
+              ) {
+                yield* requireOwnerSession;
+                const snapshot = yield* projectionReadModelQuery.getSnapshot();
+                const bootstrap = normalizedCommand.supervisionBootstrap;
+                const preset = snapshot.supervision.profiles.find(
+                  (candidate) => candidate.id === bootstrap.profilePresetId,
+                );
+                if (!preset) {
+                  return yield* Effect.fail(new Error("Supervision profile does not exist."));
+                }
+                const launchIssue = profileLaunchIssue(preset);
+                if (launchIssue !== null) {
+                  return yield* Effect.fail(new Error(launchIssue));
+                }
+                const profileSnapshotId =
+                  bootstrap.kind === "lead"
+                    ? bootstrap.lead.profileSnapshotId
+                    : bootstrap.supervisor.profileSnapshotId;
+                authorizedCommand = {
+                  ...normalizedCommand,
+                  supervisionBootstrap: {
+                    ...bootstrap,
+                    profileSnapshot: resolveProfilePreset({
+                      preset,
+                      snapshotId: profileSnapshotId,
+                      createdAt: normalizedCommand.createdAt,
+                    }),
+                  },
+                };
+              }
               if (
                 normalizedCommand.type === "thread.handoff.create" &&
                 normalizedCommand.handoffAttemptId !== undefined

@@ -4,6 +4,8 @@ import {
   type OrchestratorChildProjection,
   type OrchestratorMessageEnvelope,
   type OrchestratorSnapshot,
+  type ProfilePreset,
+  type ProfilePresetId,
   type ThreadId,
 } from "@synara/contracts";
 import { formatModelDisplayName } from "@synara/shared/model";
@@ -14,12 +16,14 @@ import { ProviderIcon } from "~/components/ProviderIcon";
 import { ThreadActivityGlyph, type ThreadActivityState } from "~/components/ThreadActivityGlyph";
 import { DisclosureChevron } from "~/components/ui/DisclosureChevron";
 import { DisclosureRegion } from "~/components/ui/DisclosureRegion";
+import { Button } from "~/components/ui/button";
 import { ChevronRightIcon, MessageCircleIcon } from "~/lib/icons";
 import { formatRelativeTime } from "~/lib/relativeTime";
 import { cn } from "~/lib/utils";
 import type { Thread } from "~/types";
 
 import { CommunicationGraphInspect } from "./CommunicationGraphInspect";
+import { CreatePeerDialog } from "./CreatePeerDialog";
 import {
   buildOwnershipTree,
   communicationLinksForSelection,
@@ -152,7 +156,10 @@ function TeamNode(props: {
               <DisclosureChevron open={open} />
             </button>
           ) : (
-            <ChevronRightIcon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+            <ChevronRightIcon
+              aria-hidden="true"
+              className="size-3.5 shrink-0 text-muted-foreground"
+            />
           )}
           <ProviderIcon provider={provider} className="size-4 shrink-0" />
           <button
@@ -218,7 +225,15 @@ export function TeamPanel(props: {
   readonly exchanges: readonly OrchestratorMessageEnvelope[];
   readonly exchangesLoading: boolean;
   readonly exchangesError: string | null;
+  readonly profiles: readonly ProfilePreset[];
+  readonly canCreatePeer: boolean;
+  readonly onCreatePeer: (input: {
+    readonly title: string;
+    readonly brief: string;
+    readonly profilePresetId: ProfilePresetId;
+  }) => Promise<void>;
 }) {
+  const [createPeerOpen, setCreatePeerOpen] = useState(false);
   const tree = useMemo(
     () => buildOwnershipTree(props.snapshot.root.rootThreadId, props.snapshot.ownershipEdges),
     [props.snapshot.ownershipEdges, props.snapshot.root.rootThreadId],
@@ -263,9 +278,16 @@ export function TeamPanel(props: {
           aria-label="Team ownership"
           data-team-section="ownership"
         >
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Team
-          </p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Team
+            </p>
+            {props.canCreatePeer ? (
+              <Button size="xs" variant="outline" onClick={() => setCreatePeerOpen(true)}>
+                New Peer
+              </Button>
+            ) : null}
+          </div>
           <p className="mt-1 text-xs text-muted-foreground">
             {teamThreadCount} threads · {activeCount} active
           </p>
@@ -338,9 +360,7 @@ export function TeamPanel(props: {
           <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             Connections
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {visibleLinks.length} explicit
-          </p>
+          <p className="mt-1 text-xs text-muted-foreground">{visibleLinks.length} explicit</p>
           <CommunicationGraphInspect
             rootThreadId={props.snapshot.root.rootThreadId}
             selectedThreadId={props.selectedThreadId}
@@ -352,6 +372,12 @@ export function TeamPanel(props: {
           />
         </section>
       </div>
+      <CreatePeerDialog
+        open={createPeerOpen}
+        profiles={props.profiles}
+        onOpenChange={setCreatePeerOpen}
+        onCreate={props.onCreatePeer}
+      />
     </div>
   );
 }

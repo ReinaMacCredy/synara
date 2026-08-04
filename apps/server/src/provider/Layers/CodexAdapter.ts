@@ -1853,6 +1853,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
           ...(input.interactionMode !== undefined
             ? { interactionMode: input.interactionMode }
             : {}),
+          ...(input.dispatchOrigin !== undefined ? { dispatchOrigin: input.dispatchOrigin } : {}),
           ...(nativeCodexAttachments.length > 0 ? { attachments: nativeCodexAttachments } : {}),
         } satisfies CodexAppServerSendTurnInput;
       });
@@ -1879,6 +1880,9 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
         ...(input.providerOptions !== undefined ? { providerOptions: input.providerOptions } : {}),
         ...(input.orchestratorContext !== undefined
           ? { orchestratorContext: input.orchestratorContext }
+          : {}),
+        ...(input.supervisionContext !== undefined
+          ? { supervisionContext: input.supervisionContext }
           : {}),
         ...(input.handoffContext !== undefined ? { handoffContext: input.handoffContext } : {}),
         runtimeMode: input.runtimeMode,

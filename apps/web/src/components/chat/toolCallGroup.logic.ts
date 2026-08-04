@@ -10,10 +10,18 @@
 import { pluralize } from "@synara/shared/text";
 import { isFileChangeWorkLogEntry, type WorkLogEntry } from "../../session-logic";
 import { deriveReadableCommandDisplay } from "../../lib/toolCallLabel";
+import { isReasoningUpdateWorkEntry } from "./agentActivity.logic";
 
-// A single invocation is already the most concise truthful presentation. Only
-// a real run of related calls earns a purpose disclosure.
 export const MIN_COLLAPSIBLE_TOOL_GROUP_SIZE = 2;
+
+const SINGLETON_SUMMARY_CATEGORIES = new Set<ToolCallSummaryCategory>([
+  "command",
+  "edit",
+  "read",
+  "search",
+  "web",
+  "image",
+]);
 
 export type ToolCallSummaryCategory =
   | "command"
@@ -46,11 +54,49 @@ export interface ToolCallGroupSummary {
 export function isSummarizableToolCallEntry(entry: WorkLogEntry): boolean {
   return (
     entry.tone === "tool" &&
+    !isReasoningUpdateWorkEntry(entry) &&
     !entry.synaraThreadCreation &&
     !entry.automation &&
     !entry.subagentAction &&
     (entry.subagents?.length ?? 0) === 0
   );
+}
+
+export function formatToolCallDetailLabel(entry: WorkLogEntry): string {
+  const category = classifyToolCallSummaryCategory(entry);
+  const command = entry.command ?? entry.rawCommand;
+  const commandDisplay = command ? deriveReadableCommandDisplay(command) : null;
+
+  switch (category) {
+    case "read":
+      return commandDisplay?.target
+        ? `Read ${commandDisplay.target}`
+        : entry.changedFiles?.[0]
+          ? `Read ${entry.changedFiles[0].split("/").at(-1)}`
+          : "Read a file";
+    case "search":
+      return commandDisplay?.target
+        ? commandDisplay.target.startsWith("for ")
+          ? `Searched ${commandDisplay.target}`
+          : `Searched for ${commandDisplay.target}`
+        : "Searched";
+    case "command":
+      return "Ran command";
+    case "edit":
+      return entry.changedFiles?.length === 1
+        ? `Edited ${entry.changedFiles[0]}`
+        : "Edited files";
+    case "web":
+      return "Searched the web";
+    case "image":
+      return "Viewed an image";
+    case "agent":
+      return "Ran an agent task";
+    case "tool":
+      return entry.toolTitle?.trim() || entry.label.trim() || entry.toolName?.trim() || "Used a tool";
+    case "other":
+      return entry.toolTitle?.trim() || entry.label.trim() || "Ran a tool";
+  }
 }
 
 const READ_VERBS = new Set(["Read", "Reading"]);
@@ -63,11 +109,19 @@ function classifyCommandVerb(verb: string): ToolCallSummaryCategory {
 }
 
 export function classifyToolCallSummaryCategory(entry: WorkLogEntry): ToolCallSummaryCategory {
-  if (isFileChangeWorkLogEntry(entry)) {
-    return "edit";
-  }
   if (entry.requestKind === "file-read") {
     return "read";
+  }
+  if (
+    entry.itemType === "mcp_tool_call" ||
+    entry.itemType === "dynamic_tool_call" ||
+    entry.toolName ||
+    entry.toolTitle?.toLowerCase().includes("mcp__")
+  ) {
+    return "tool";
+  }
+  if (isFileChangeWorkLogEntry(entry)) {
+    return "edit";
   }
   if (entry.itemType === "web_search") {
     return "web";
@@ -87,12 +141,6 @@ export function classifyToolCallSummaryCategory(entry: WorkLogEntry): ToolCallSu
   }
   if (entry.itemType === "collab_agent_tool_call") {
     return "agent";
-  }
-  if (entry.itemType === "mcp_tool_call" || entry.itemType === "dynamic_tool_call") {
-    return "tool";
-  }
-  if (entry.toolName) {
-    return "tool";
   }
   return "other";
 }
@@ -166,7 +214,13 @@ export function summarizeToolCallGroup(
   entries: ReadonlyArray<WorkLogEntry>,
 ): ToolCallGroupSummary | null {
   const summarizable = entries.filter(isSummarizableToolCallEntry);
-  if (summarizable.length < MIN_COLLAPSIBLE_TOOL_GROUP_SIZE) {
+  if (summarizable.length === 0) {
+    return null;
+  }
+  if (
+    summarizable.length < MIN_COLLAPSIBLE_TOOL_GROUP_SIZE &&
+    !SINGLETON_SUMMARY_CATEGORIES.has(classifyToolCallSummaryCategory(summarizable[0]!))
+  ) {
     return null;
   }
 

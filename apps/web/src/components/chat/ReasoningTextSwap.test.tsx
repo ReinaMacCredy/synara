@@ -1,44 +1,47 @@
 import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import {
-  advanceReasoningSwapState,
-  INITIAL_REASONING_SWAP_STATE,
-  ReasoningTextSwap,
-  REASONING_TEXT_SWAP_INTERVAL_MS,
-  REASONING_TEXT_SWAP_PHRASES,
-} from "./ReasoningTextSwap";
+import { ReasoningTextSwap } from "./ReasoningTextSwap";
 
 describe("ReasoningTextSwap", () => {
-  it("cycles through the selected Swap phrases and wraps to Thinking", () => {
-    const observed = [
-      REASONING_TEXT_SWAP_PHRASES[INITIAL_REASONING_SWAP_STATE.index],
-    ];
-    let state = INITIAL_REASONING_SWAP_STATE;
+  it("renders only Thinking before the current turn emits a provider summary", () => {
+    const markup = renderToStaticMarkup(
+      <ReasoningTextSwap active scopeKey="turn-without-summary" />,
+    );
 
-    for (let index = 0; index < REASONING_TEXT_SWAP_PHRASES.length; index += 1) {
-      state = advanceReasoningSwapState(state);
-      observed.push(REASONING_TEXT_SWAP_PHRASES[state.index]);
-    }
-
-    expect(REASONING_TEXT_SWAP_INTERVAL_MS).toBe(1_800);
-    expect(observed).toEqual([
-      "Thinking",
-      "Reading the request",
-      "Working through the details",
-      "Preparing the answer",
-      "Thinking",
-    ]);
+    expect(markup).toContain('data-reasoning-source="synthetic"');
+    expect(markup).toContain("Thinking…");
+    expect(markup).not.toContain("Reading the request");
+    expect(markup).not.toContain("Working through the details");
+    expect(markup).not.toContain("Preparing the answer");
   });
 
-  it("renders a stable longest-phrase slot and polite current status", () => {
-    const markup = renderToStaticMarkup(<ReasoningTextSwap active />);
+  it("starts directly on the current turn provider summary", () => {
+    const markup = renderToStaticMarkup(
+      <ReasoningTextSwap
+        active
+        scopeKey="turn-with-summary"
+        providerPhrase="Planning README inspection strategy"
+      />,
+    );
 
     expect(markup).toContain('role="status"');
     expect(markup).toContain('aria-live="polite"');
-    expect(markup).toContain("Working through the details…");
-    expect(markup).toContain("Thinking…");
-    expect(markup).toContain(">Thinking<");
+    expect(markup).toContain('data-reasoning-source="provider"');
+    expect(markup).toContain("Planning README inspection strategy");
+    expect(markup).not.toContain("Thinking…");
+  });
+
+  it("renders nothing when the turn is not active", () => {
+    const markup = renderToStaticMarkup(
+      <ReasoningTextSwap
+        active={false}
+        scopeKey="settled-turn"
+        providerPhrase="Completed reasoning"
+      />,
+    );
+
+    expect(markup).toBe("");
   });
 
   it("keeps the beUI Swap motion and reduced-motion contracts", () => {

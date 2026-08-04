@@ -13,6 +13,7 @@ import {
   ThreadId,
   ThreadMarkerId,
   TurnId,
+  emptySupervisionSnapshot,
 } from "@synara/contracts";
 import { describe, expect, it } from "vitest";
 
@@ -34,6 +35,8 @@ import {
   makeShellSnapshot,
   threadsOf,
 } from "./storeTestFixtures";
+
+const EMPTY_SUPERVISION = emptySupervisionSnapshot("2026-02-27T00:00:00.000Z");
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE } from "./types";
 
 describe("store event reducer", () => {
@@ -212,6 +215,7 @@ describe("store event reducer", () => {
   it("adds projects immediately from live project.created events", () => {
     const next = applyOrchestrationEvents(
       {
+        supervision: EMPTY_SUPERVISION,
         spaces: [],
         projects: [],
         sidebarThreadSummaryById: {},
@@ -251,6 +255,7 @@ describe("store event reducer", () => {
 
   it("updates existing projects immediately from live project.meta-updated events", () => {
     const initialState: AppState = {
+      supervision: EMPTY_SUPERVISION,
       spaces: [],
       projects: [
         makeProject({
@@ -315,6 +320,7 @@ describe("store event reducer", () => {
   it("removes projects immediately from live project.deleted events", () => {
     const next = applyOrchestrationEvents(
       {
+        supervision: EMPTY_SUPERVISION,
         spaces: [],
         projects: [makeProject({ id: ProjectId.makeUnsafe("project-live") })],
         sidebarThreadSummaryById: {},

@@ -3,6 +3,7 @@ import {
   CommandId,
   OrchestratorDomainEvent,
   TaskProcessDomainEvent,
+  SupervisionDomainEvent,
   type OrchestrationEvent,
 } from "@synara/contracts";
 import {
@@ -36,6 +37,7 @@ import { ProjectionProjectRepository } from "../../persistence/Services/Projecti
 import { ProjectionOrchestratorRepository } from "../../persistence/Services/ProjectionOrchestrator.ts";
 import { OrchestratorArtifactRepository } from "../../persistence/Services/OrchestratorArtifacts.ts";
 import { ProjectionTaskProcessRepository } from "../../persistence/Services/ProjectionTaskProcess.ts";
+import { ProjectionSupervisionRepository } from "../../persistence/Services/ProjectionSupervision.ts";
 import { ProjectionSpaceRepository } from "../../persistence/Services/ProjectionSpaces.ts";
 import { ProjectionStateRepository } from "../../persistence/Services/ProjectionState.ts";
 import { ProjectionThreadActivityRepository } from "../../persistence/Services/ProjectionThreadActivities.ts";
@@ -62,6 +64,7 @@ import { ProjectionProjectRepositoryLive } from "../../persistence/Layers/Projec
 import { ProjectionOrchestratorRepositoryLive } from "../../persistence/Layers/ProjectionOrchestrator.ts";
 import { OrchestratorArtifactRepositoryLive } from "../../persistence/Layers/OrchestratorArtifacts.ts";
 import { ProjectionTaskProcessRepositoryLive } from "../../persistence/Layers/ProjectionTaskProcess.ts";
+import { ProjectionSupervisionRepositoryLive } from "../../persistence/Layers/ProjectionSupervision.ts";
 import { ProjectionSpaceRepositoryLive } from "../../persistence/Layers/ProjectionSpaces.ts";
 import { ProjectionStateRepositoryLive } from "../../persistence/Layers/ProjectionState.ts";
 import { ProjectionThreadActivityRepositoryLive } from "../../persistence/Layers/ProjectionThreadActivities.ts";
@@ -101,6 +104,7 @@ import {
   projectTaskProcessEvent,
   type TaskProcessAggregateState,
 } from "../taskProcess/projector.ts";
+import { projectSupervisionEvent } from "../supervision/projector.ts";
 
 export const ORCHESTRATION_PROJECTOR_NAMES = {
   hot: "projection.hot",
@@ -118,6 +122,7 @@ export const ORCHESTRATION_PROJECTOR_NAMES = {
   pendingInteractions: "projection.pending-approvals",
   orchestrator: "projection.orchestrator",
   taskProcess: "projection.task-process",
+  supervision: "projection.supervision",
 } as const;
 
 type ProjectorName =
@@ -487,6 +492,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
   const projectionOrchestratorRepository = yield* ProjectionOrchestratorRepository;
   const orchestratorArtifactRepository = yield* OrchestratorArtifactRepository;
   const projectionTaskProcessRepository = yield* ProjectionTaskProcessRepository;
+  const projectionSupervisionRepository = yield* ProjectionSupervisionRepository;
   const projectionSpaceRepository = yield* ProjectionSpaceRepository;
   const projectionThreadRepository = yield* ProjectionThreadRepository;
   const projectionThreadMessageRepository = yield* ProjectionThreadMessageRepository;
@@ -570,6 +576,15 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           task,
         }),
       );
+    });
+  };
+
+  const applySupervisionProjection: ProjectorDefinition["apply"] = (event) => {
+    if (!Schema.is(SupervisionDomainEvent)(event)) return Effect.void;
+    return Effect.gen(function* () {
+      const current = yield* projectionSupervisionRepository.getSnapshot();
+      const next = projectSupervisionEvent(current, event);
+      yield* projectionSupervisionRepository.replaceSnapshot(next);
     });
   };
 
@@ -1974,6 +1989,12 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
       apply: applyTaskProcessProjection,
     },
     {
+      name: ORCHESTRATION_PROJECTOR_NAMES.supervision,
+      phase: "hot",
+      shouldApply: Schema.is(SupervisionDomainEvent),
+      apply: applySupervisionProjection,
+    },
+    {
       name: ORCHESTRATION_PROJECTOR_NAMES.threadMessages,
       phase: "hot",
       shouldApply: (event) => THREAD_MESSAGE_PROJECTION_EVENT_TYPES.has(event.type),
@@ -2423,6 +2444,7 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   Layer.provideMerge(ProjectionOrchestratorRepositoryLive),
   Layer.provideMerge(OrchestratorArtifactRepositoryLive),
   Layer.provideMerge(ProjectionTaskProcessRepositoryLive),
+  Layer.provideMerge(ProjectionSupervisionRepositoryLive),
   Layer.provideMerge(ProjectionSpaceRepositoryLive),
   Layer.provideMerge(ProjectionThreadRepositoryLive),
   Layer.provideMerge(ProjectionThreadMessageRepositoryLive),

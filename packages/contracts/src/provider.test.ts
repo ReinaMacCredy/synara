@@ -89,6 +89,15 @@ describe("ProviderSessionStartInput", () => {
 });
 
 describe("ProviderSendTurnInput", () => {
+  it("preserves the authenticated dispatch origin for provider-native tools", () => {
+    const parsed = decodeProviderSendTurnInput({
+      threadId: "thread-1",
+      dispatchOrigin: "user",
+    });
+
+    expect(parsed.dispatchOrigin).toBe("user");
+  });
+
   it("accepts codex modelSelection", () => {
     const parsed = decodeProviderSendTurnInput({
       threadId: "thread-1",

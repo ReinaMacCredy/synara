@@ -16,6 +16,7 @@ import {
   SpaceId,
   TaskProcessId,
   ThreadId,
+  SupervisionAggregateId,
 } from "@synara/contracts";
 import { ServiceMap } from "effect";
 import type { Effect, Stream } from "effect";
@@ -48,7 +49,7 @@ export interface OrchestrationEventStoreShape {
 
   readonly getAggregateHighWaterSequence: (input: {
     readonly aggregateKind: OrchestrationAggregateKind;
-    readonly aggregateId: SpaceId | ProjectId | ThreadId | TaskProcessId;
+    readonly aggregateId: SpaceId | ProjectId | ThreadId | TaskProcessId | SupervisionAggregateId;
   }) => Effect.Effect<number, OrchestrationEventStoreError>;
 
   /** Read one stable, newest-first page from a thread's durable event stream. */
@@ -63,12 +64,12 @@ export interface OrchestrationEventStoreShape {
   /** Read the complete ordered history for one event-sourced aggregate. */
   readonly readAggregateEvents: (input: {
     readonly aggregateKind: OrchestrationAggregateKind;
-    readonly aggregateId: SpaceId | ProjectId | ThreadId | TaskProcessId;
+    readonly aggregateId: SpaceId | ProjectId | ThreadId | TaskProcessId | SupervisionAggregateId;
   }) => Effect.Effect<ReadonlyArray<OrchestrationEvent>, OrchestrationEventStoreError>;
 
   readonly readAggregateEventPage: (input: {
     readonly aggregateKind: OrchestrationAggregateKind;
-    readonly aggregateId: SpaceId | ProjectId | ThreadId | TaskProcessId;
+    readonly aggregateId: SpaceId | ProjectId | ThreadId | TaskProcessId | SupervisionAggregateId;
     readonly beforeSequenceExclusive?: number;
     readonly limit: number;
   }) => Effect.Effect<ReadonlyArray<OrchestrationEvent>, OrchestrationEventStoreError>;

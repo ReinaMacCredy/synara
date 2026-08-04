@@ -1,8 +1,4 @@
-import {
-  type HandoffRuntimeSelection,
-  type ModelSlug,
-  type ThreadId,
-} from "@synara/contracts";
+import { type HandoffRuntimeSelection, type ModelSlug, type ThreadId } from "@synara/contracts";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
@@ -123,17 +119,13 @@ export function CrossModeHandoffDialog(props: {
                 disabled={busy}
                 onProviderModelChange={(_provider, model) => setSelectedModel(model)}
               />
-              {runtime.customGuidance.trim() ? (
-                <span>Global guidance applies</span>
-              ) : null}
+              {runtime.customGuidance.trim() ? <span>Global guidance applies</span> : null}
               {loadingModelProviders[selectedProvider] ? (
                 <span className="sr-only">Loading live models</span>
               ) : null}
             </div>
           ) : (
-            <p className="mt-3 text-xs text-muted-foreground">
-              Loading configured Handoff Agent…
-            </p>
+            <p className="mt-3 text-xs text-muted-foreground">Loading configured Handoff Agent…</p>
           )}
           {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}
         </DialogPanel>

@@ -62,6 +62,7 @@ import {
   SettingsSectionShell,
 } from "../components/settings/SettingsPanelPrimitives";
 import { SkillsSettingsPanel } from "../components/settings/SkillsSettingsPanel";
+import { SupervisedOrchestrationSettingsPanel } from "../components/settings/SupervisedOrchestrationSettingsPanel";
 import { ThemePackEditor } from "../components/ThemePackEditor";
 import {
   CHAT_CONTENT_CARD_CLASS_NAME,
@@ -1043,11 +1044,15 @@ function SettingsRouteView() {
           <div className="flex-1 overflow-y-auto">
             <div
               className={cn(
-                "mx-auto w-full px-6 py-8",
-                activeSection === "profile" ? "max-w-3xl" : "max-w-2xl",
+                "mx-auto w-full py-8",
+                activeSection === "profile"
+                  ? "max-w-3xl px-6"
+                  : activeSection === "supervised-orchestration"
+                    ? "max-w-[1180px] px-4 sm:px-6 lg:px-8"
+                    : "max-w-2xl px-6",
               )}
             >
-              {activeSection !== "profile" ? (
+              {activeSection !== "profile" && activeSection !== "supervised-orchestration" ? (
                 <div className="mb-8 flex items-start justify-between gap-4">
                   <div className="min-w-0">
                     <h1 className="text-xl font-medium tracking-tight text-foreground">
@@ -1094,6 +1099,9 @@ function SettingsRouteView() {
                   defaults={defaults}
                   updateSettings={updateSettings}
                   resetEpoch={resetEpoch}
+                />
+                <SupervisedOrchestrationSettingsPanel
+                  active={activeSection === "supervised-orchestration"}
                 />
                 <HandoffAgentSettingsPanel active={activeSection === "handoff-agent"} />
                 <HandoffAccessSettingsPanel active={activeSection === "handoff-access"} />

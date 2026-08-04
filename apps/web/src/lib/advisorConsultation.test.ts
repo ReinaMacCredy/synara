@@ -33,8 +33,14 @@ function shell(input: Partial<ThreadShell> & Pick<ThreadShell, "id" | "createdAt
 
 describe("Advisor consultation presentation", () => {
   it("selects only the newest Advisor child for the active parent", () => {
-    const first = shell({ id: ThreadId.makeUnsafe("advisor-1"), createdAt: "2026-08-03T01:00:00Z" });
-    const second = shell({ id: ThreadId.makeUnsafe("advisor-2"), createdAt: "2026-08-03T02:00:00Z" });
+    const first = shell({
+      id: ThreadId.makeUnsafe("advisor-1"),
+      createdAt: "2026-08-03T01:00:00Z",
+    });
+    const second = shell({
+      id: ThreadId.makeUnsafe("advisor-2"),
+      createdAt: "2026-08-03T02:00:00Z",
+    });
     const unrelated = shell({
       id: ThreadId.makeUnsafe("reviewer"),
       createdAt: "2026-08-03T03:00:00Z",

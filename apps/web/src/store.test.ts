@@ -2,6 +2,7 @@
 // Purpose: Exercises the public store facade, persistence, and simple UI actions.
 
 import {
+  emptySupervisionSnapshot,
   ProjectId,
   SpaceId,
   ThreadId,
@@ -31,6 +32,8 @@ import {
   makeReadModelProject,
   threadsOf,
 } from "./storeTestFixtures";
+
+const EMPTY_SUPERVISION = emptySupervisionSnapshot("2026-02-27T00:00:00.000Z");
 
 describe("store facade", () => {
   it("frees a batch of thread details in a single store write", () => {
@@ -188,6 +191,7 @@ describe("store facade", () => {
     const project2 = ProjectId.makeUnsafe("project-2");
     const project3 = ProjectId.makeUnsafe("project-3");
     const state: AppState = {
+      supervision: EMPTY_SUPERVISION,
       spaces: [],
       projects: [
         makeProject({
@@ -225,6 +229,7 @@ describe("store facade", () => {
     const project1 = ProjectId.makeUnsafe("project-1");
     const project2 = ProjectId.makeUnsafe("project-2");
     const state: AppState = {
+      supervision: EMPTY_SUPERVISION,
       spaces: [],
       projects: [
         makeProject({
@@ -257,6 +262,7 @@ describe("store facade", () => {
 
   it("collapses all projects when toggled off", () => {
     const state: AppState = {
+      supervision: EMPTY_SUPERVISION,
       spaces: [],
       projects: [
         makeProject({
@@ -287,6 +293,7 @@ describe("store facade", () => {
     const project1 = ProjectId.makeUnsafe("project-1");
     const project2 = ProjectId.makeUnsafe("project-2");
     const state: AppState = {
+      supervision: EMPTY_SUPERVISION,
       spaces: [],
       projects: [
         makeProject({
@@ -334,6 +341,7 @@ describe("store facade", () => {
     const project2 = ProjectId.makeUnsafe("project-2");
     const project3 = ProjectId.makeUnsafe("project-3");
     const initialState: AppState = {
+      supervision: EMPTY_SUPERVISION,
       spaces: [],
       projects: [
         makeProject({
@@ -387,6 +395,7 @@ describe("store facade", () => {
     const project1 = ProjectId.makeUnsafe("project-1");
     const project2 = ProjectId.makeUnsafe("project-2");
     const initialState: AppState = {
+      supervision: EMPTY_SUPERVISION,
       spaces: [],
       projects: [
         makeProject({

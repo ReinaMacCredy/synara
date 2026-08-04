@@ -3,8 +3,8 @@ import { Schema } from "effect";
 import { NonNegativeInt } from "./baseSchemas";
 
 export const WS_PROTOCOL_EPOCH = 1;
-export const WS_PROTOCOL_MIN_REVISION = 1;
-export const WS_PROTOCOL_MAX_REVISION = 1;
+export const WS_PROTOCOL_MIN_REVISION = 2;
+export const WS_PROTOCOL_MAX_REVISION = 2;
 export const WS_BOOTSTRAP_METHOD = "bootstrap.negotiate";
 export const WS_BOOTSTRAP_PATH = "/ws/bootstrap";
 export const WS_NEGOTIATE_HTTP_PATH = "/ws/negotiate";
@@ -39,6 +39,7 @@ export const WS_NEGOTIATE_QUERY = {
 export const WS_CLIENT_REQUIRED_CAPABILITIES = [
   "orchestration.cursor-safe-streams",
   "orchestration.thread-detail-snapshot",
+  "orchestration.supervised-orchestration",
   "rpc.typed-errors",
 ] as const;
 

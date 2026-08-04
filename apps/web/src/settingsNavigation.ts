@@ -14,6 +14,7 @@ export const SETTINGS_SECTION_IDS = [
   "worktrees",
   "archived",
   "models",
+  "supervised-orchestration",
   "handoff-agent",
   "handoff-access",
   "providers",
@@ -145,6 +146,14 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     description: "Choose the model used for Git writing and add custom model slugs.",
     icon: "brain",
     eyebrow: "Model configuration",
+  },
+  {
+    id: "supervised-orchestration",
+    group: "coding",
+    label: "Supervised orchestration",
+    description: "Manage reusable profiles, Supervisor seats, and visible workflow directives.",
+    icon: "agents",
+    eyebrow: "Oversight",
   },
   {
     id: "handoff-agent",

@@ -13,6 +13,7 @@ import {
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   type ProviderMentionReference,
   type ProviderOrchestratorSessionContext,
+  type ProviderSupervisionSessionContext,
   type ProviderRuntimeEvent,
   ProviderKind,
   type ProviderReviewTarget,
@@ -484,6 +485,7 @@ const make = Effect.gen(function* () {
   // against the old subprocess configuration before the next turn starts.
   const threadSessionModelSelections = new Map<string, ModelSelection>();
   const threadSessionOrchestratorContexts = new Map<string, ProviderOrchestratorSessionContext>();
+  const threadSessionSupervisionContexts = new Map<string, ProviderSupervisionSessionContext>();
   // Seeded from the engine's in-memory command read model, not a second snapshot query.
   // The engine loads that model once after the projection bootstrap and keeps it current
   // as commands commit, so reading it here is both free and strictly fresher than
@@ -521,6 +523,66 @@ const make = Effect.gen(function* () {
       thread,
       projects: [project],
     });
+  });
+
+  const resolveSupervisionSessionContext = Effect.fnUntraced(function* (
+    threadId: ThreadId,
+  ): Effect.fn.Return<ProviderSupervisionSessionContext | undefined> {
+    const snapshot = yield* projectionSnapshotQuery.getSnapshot();
+    const supervisor = snapshot.supervision.supervisors.find(
+      (seat) => seat.activeThreadId === threadId && seat.status !== "archived",
+    );
+    const lead = snapshot.supervision.leads.find(
+      (seat) => seat.activeThreadId === threadId && seat.status !== "archived",
+    );
+    const peer = snapshot.supervision.peers.find(
+      (binding) => binding.threadId === threadId && binding.status === "active",
+    );
+    const pendingLeadRotation =
+      supervisor === undefined && lead === undefined && peer === undefined
+        ? snapshot.supervision.rotations.find(
+            (rotation) =>
+              rotation.replacementThreadId === threadId &&
+              rotation.state !== "completed" &&
+              rotation.state !== "failed",
+          )
+        : undefined;
+    const rotationLead = pendingLeadRotation
+      ? snapshot.supervision.leads.find(
+          (candidate) => candidate.id === pendingLeadRotation.leadSeatId,
+        )
+      : undefined;
+    const seat = supervisor ?? lead ?? rotationLead;
+    if (!seat && !peer) return undefined;
+    const profileSnapshotId =
+      pendingLeadRotation?.replacementProfileSnapshotId ??
+      seat?.profileSnapshotId ??
+      peer!.profileSnapshotId;
+    const profileSnapshot = snapshot.supervision.profileSnapshots.find(
+      (profile) => profile.id === profileSnapshotId,
+    );
+    if (!profileSnapshot) {
+      return yield* new ProviderAdapterValidationError({
+        provider: profileSnapshot?.runtime.provider ?? "codex",
+        operation: "thread.turn.start",
+        issue: `Supervision seat for thread '${threadId}' has no resolved profile snapshot.`,
+      });
+    }
+    return {
+      role: supervisor ? "supervisor" : peer ? "peer" : "lead",
+      ...(supervisor
+        ? { supervisorSeatId: supervisor.id }
+        : { leadSeatId: peer?.leadSeatId ?? (lead ?? rotationLead)!.id }),
+      profileSnapshot,
+      missionIds: supervisor
+        ? snapshot.supervision.missions
+            .filter(
+              (mission) =>
+                mission.supervisorSeatId === supervisor.id && mission.status === "active",
+            )
+            .map((mission) => mission.id)
+        : [],
+    };
   });
   const editResendTurnStartKeys = new Set<string>();
   const quarantinedThreads = new Set<string>();
@@ -1091,7 +1153,7 @@ const make = Effect.gen(function* () {
       });
     }
     const preferredProvider: ProviderKind = currentProvider ?? threadProvider;
-    const desiredModelSelection = requestedModelSelection ?? thread.modelSelection;
+    let desiredModelSelection = requestedModelSelection ?? thread.modelSelection;
     const settingsSnapshot = yield* serverSettings.getSnapshot;
     if (!settingsSnapshot.settings.providers[preferredProvider].enabled) {
       return yield* new ProviderAdapterValidationError({
@@ -1104,6 +1166,46 @@ const make = Effect.gen(function* () {
       settingsSnapshot.settings,
     );
     const desiredOrchestratorContext = yield* resolveOrchestratorSessionContext(threadId);
+    const desiredSupervisionContext = yield* resolveSupervisionSessionContext(threadId);
+    if (desiredSupervisionContext !== undefined) {
+      const runtime = desiredSupervisionContext.profileSnapshot.runtime;
+      if (runtime.provider !== preferredProvider) {
+        return yield* new ProviderAdapterValidationError({
+          provider: preferredProvider,
+          operation: "thread.turn.start",
+          issue:
+            `Resolved supervision profile requires provider '${runtime.provider}', ` +
+            `but thread '${threadId}' is bound to provider '${preferredProvider}'.`,
+        });
+      }
+      if (runtime.provider === "codex") {
+        desiredModelSelection = {
+          provider: "codex",
+          model: runtime.model,
+          ...(runtime.reasoningEffort
+            ? {
+                options: {
+                  ...(desiredModelSelection.provider === "codex"
+                    ? desiredModelSelection.options
+                    : {}),
+                  reasoningEffort: runtime.reasoningEffort,
+                },
+              }
+            : {}),
+        };
+      }
+    }
+    if (
+      desiredSupervisionContext !== undefined &&
+      preferredProvider !== "codex" &&
+      preferredProvider !== "claudeAgent"
+    ) {
+      return yield* new ProviderAdapterValidationError({
+        provider: preferredProvider,
+        operation: "thread.turn.start",
+        issue: `Provider '${preferredProvider}' does not expose a proven supervision instruction channel.`,
+      });
+    }
     const desiredHandoffContext = thread.handoff?.crossMode ?? undefined;
     const effectiveCwd = yield* resolveProjectedThreadWorkspaceCwd(thread);
     const workspaceState = resolveThreadWorkspaceState({
@@ -1124,6 +1226,9 @@ const make = Effect.gen(function* () {
       providerOptions: resolvedProviderOptions,
       ...(desiredOrchestratorContext !== undefined
         ? { orchestratorContext: desiredOrchestratorContext }
+        : {}),
+      ...(desiredSupervisionContext !== undefined
+        ? { supervisionContext: desiredSupervisionContext }
         : {}),
       ...(desiredHandoffContext !== undefined ? { handoffContext: desiredHandoffContext } : {}),
       runtimeMode: desiredRuntimeMode,
@@ -1185,8 +1290,8 @@ const make = Effect.gen(function* () {
           ? "in-session"
           : (yield* providerService.getCapabilities(currentProvider)).sessionModelSwitch;
       const modelChanged =
-        requestedModelSelection !== undefined &&
-        requestedModelSelection.model !== activeSessionBeforeEnsure?.model;
+        (desiredSupervisionContext !== undefined || requestedModelSelection !== undefined) &&
+        desiredModelSelection.model !== activeSessionBeforeEnsure?.model;
       const shouldRestartForModelChange = modelChanged && sessionModelSwitch === "restart-session";
       const previousModelSelection = threadSessionModelSelections.get(threadId);
       // Claude restarts resume via `--resume`, which replays the whole conversation
@@ -1209,17 +1314,22 @@ const make = Effect.gen(function* () {
         threadSessionOrchestratorContexts.get(threadId),
         desiredOrchestratorContext,
       );
+      const supervisionContextChanged =
+        JSON.stringify(threadSessionSupervisionContexts.get(threadId) ?? null) !==
+        JSON.stringify(desiredSupervisionContext ?? null);
 
       if (
         !runtimeModeChanged &&
         !providerChanged &&
         !shouldRestartForModelChange &&
         !shouldRestartForModelSelectionChange &&
-        !orchestratorContextChanged
+        !orchestratorContextChanged &&
+        !supervisionContextChanged
       ) {
         return {
           activeSessionBeforeEnsure,
           activeSession: activeSessionBeforeEnsure,
+          modelSelection: desiredModelSelection,
         };
       }
 
@@ -1240,6 +1350,7 @@ const make = Effect.gen(function* () {
         shouldRestartForModelChange,
         shouldRestartForModelSelectionChange,
         orchestratorContextChanged,
+        supervisionContextChanged,
         hasResumeCursor: resumeCursor !== undefined,
       });
       const restartedSession = yield* startProviderSession(
@@ -1260,6 +1371,11 @@ const make = Effect.gen(function* () {
       } else {
         threadSessionOrchestratorContexts.delete(threadId);
       }
+      if (desiredSupervisionContext) {
+        threadSessionSupervisionContexts.set(threadId, desiredSupervisionContext);
+      } else {
+        threadSessionSupervisionContexts.delete(threadId);
+      }
       yield* Effect.logInfo("provider command reactor restarted provider session", {
         threadId,
         previousSessionId: existingSessionThreadId,
@@ -1272,6 +1388,7 @@ const make = Effect.gen(function* () {
       return {
         activeSessionBeforeEnsure,
         activeSession: restartedSession,
+        modelSelection: desiredModelSelection,
       };
     }
 
@@ -1313,6 +1430,7 @@ const make = Effect.gen(function* () {
         return {
           activeSessionBeforeEnsure,
           activeSession: forkedSession,
+          modelSelection: desiredModelSelection,
         };
       }
       if (shouldRegisterContextBootstrap && !thread.sidechatSourceThreadId) {
@@ -1338,11 +1456,17 @@ const make = Effect.gen(function* () {
     } else {
       threadSessionOrchestratorContexts.delete(threadId);
     }
+    if (desiredSupervisionContext) {
+      threadSessionSupervisionContexts.set(threadId, desiredSupervisionContext);
+    } else {
+      threadSessionSupervisionContexts.delete(threadId);
+    }
     yield* bindSessionToThread(startedSession);
     suppressContextBootstrapOnNextStartThreadIds.delete(threadId);
     return {
       activeSessionBeforeEnsure,
       activeSession: startedSession,
+      modelSelection: desiredModelSelection,
     };
   });
 
@@ -1446,15 +1570,15 @@ const make = Effect.gen(function* () {
       });
       return;
     }
-    const { activeSessionBeforeEnsure, activeSession } = yield* ensureSessionForThread(
-      input.threadId,
-      input.createdAt,
-      {
-        ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
-        ...(input.providerOptions !== undefined ? { providerOptions: input.providerOptions } : {}),
-        ...(input.runtimeMode !== undefined ? { runtimeMode: input.runtimeMode } : {}),
-      },
-    );
+    const {
+      activeSessionBeforeEnsure,
+      activeSession,
+      modelSelection: ensuredModelSelection,
+    } = yield* ensureSessionForThread(input.threadId, input.createdAt, {
+      ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
+      ...(input.providerOptions !== undefined ? { providerOptions: input.providerOptions } : {}),
+      ...(input.runtimeMode !== undefined ? { runtimeMode: input.runtimeMode } : {}),
+    });
     if (!activeSession) {
       return yield* Effect.die(
         new Error(`Provider session for thread '${input.threadId}' was not established.`),
@@ -1463,9 +1587,7 @@ const make = Effect.gen(function* () {
     if (input.providerOptions !== undefined) {
       threadProviderOptions.set(input.threadId, input.providerOptions);
     }
-    if (input.modelSelection !== undefined) {
-      threadSessionModelSelections.set(input.threadId, input.modelSelection);
-    }
+    threadSessionModelSelections.set(input.threadId, ensuredModelSelection);
     // Bootstrap prompts wrap the user message in `<latest_user_message>` tags;
     // mentioned-thread context is appended after the assembled provider input
     // instead so it never reads as part of the user's own words. The budget
@@ -1487,11 +1609,7 @@ const make = Effect.gen(function* () {
       shouldBootstrapHandoff && handoffBootstrapAvailableChars > 0
         ? buildHandoffBootstrapText(thread, handoffBootstrapAvailableChars)
         : null;
-    const selectedProvider =
-      input.modelSelection?.provider ??
-      threadSessionModelSelections.get(input.threadId)?.provider ??
-      thread.session?.providerName ??
-      thread.modelSelection.provider;
+      const selectedProvider = ensuredModelSelection.provider;
     const hasPendingPriorTranscriptBootstrap =
       freshSessionContextBootstrapThreadIds.has(input.threadId) ||
       rollbackContextBootstrapThreadIds.has(input.threadId);
@@ -1628,7 +1746,7 @@ const make = Effect.gen(function* () {
     });
     const sessionModelSwitch = (yield* providerService.getCapabilities(activeSession.provider))
       .sessionModelSwitch;
-    const requestedModelSelection = input.modelSelection ?? thread.modelSelection;
+    const requestedModelSelection = ensuredModelSelection;
     const modelForTurn =
       sessionModelSwitch === "unsupported"
         ? activeSession.model !== undefined
@@ -1645,6 +1763,7 @@ const make = Effect.gen(function* () {
       ...(providerMentions !== undefined ? { mentions: providerMentions } : {}),
       ...(modelForTurn !== undefined ? { modelSelection: modelForTurn } : {}),
       ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
+      dispatchOrigin: input.dispatchOrigin ?? "user",
       ...(input.threadOrigin !== undefined ? { threadOrigin: input.threadOrigin } : {}),
     };
     const sendQueuedProviderTurn = (messageText: string | undefined) =>

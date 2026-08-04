@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import type { LucideIcon } from "~/lib/icons";
 import {
   DiffIcon,
+  EyeIcon,
   FileIcon,
   FoldersIcon,
   GitCommitIcon,
@@ -45,6 +46,7 @@ export const RIGHT_DOCK_PANE_META: Record<RightDockPaneKind, RightDockPaneMeta> 
   orchestratorTeam: { label: "Team", Icon: UsersIcon },
   orchestratorProcess: { label: "Tasks", Icon: ProcessIcon },
   orchestratorRuns: { label: "Runs", Icon: WorkflowIcon },
+  supervision: { label: "Supervision", Icon: EyeIcon },
 };
 
 // Neutral fallback for any pane kind we no longer recognize (e.g. stale
@@ -67,7 +69,11 @@ export function getRightDockPaneMeta(kind: RightDockPaneKind): RightDockPaneMeta
 // clicking a file reference in chat, while the add menu offers the richer
 // "explorer" pane (file tree + search + viewer) in its place.
 export const RIGHT_DOCK_ADD_MENU_KINDS: readonly RightDockPaneKind[] = RIGHT_DOCK_PANE_KINDS.filter(
-  (kind) => kind !== "file" && kind !== "pullRequest" && !kind.startsWith("orchestrator"),
+  (kind) =>
+    kind !== "file" &&
+    kind !== "pullRequest" &&
+    kind !== "supervision" &&
+    !kind.startsWith("orchestrator"),
 );
 
 // Resolves a tab label, preferring caller-provided per-pane overrides (e.g. the

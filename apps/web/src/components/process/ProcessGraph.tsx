@@ -102,7 +102,10 @@ export function buildDependencyLayout(graph: TaskProcessGraphProjection): Proces
   const outgoingTotals = new Map<ProjectTaskId, number>();
   const incomingTotals = new Map<ProjectTaskId, number>();
   for (const edge of activeEdges) {
-    outgoingTotals.set(edge.prerequisiteTaskId, (outgoingTotals.get(edge.prerequisiteTaskId) ?? 0) + 1);
+    outgoingTotals.set(
+      edge.prerequisiteTaskId,
+      (outgoingTotals.get(edge.prerequisiteTaskId) ?? 0) + 1,
+    );
     incomingTotals.set(edge.dependentTaskId, (incomingTotals.get(edge.dependentTaskId) ?? 0) + 1);
   }
   const outgoingIndexes = new Map<ProjectTaskId, number>();

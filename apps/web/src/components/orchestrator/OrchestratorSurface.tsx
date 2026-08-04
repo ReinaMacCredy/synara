@@ -1,4 +1,12 @@
-import type { OrchestratorSnapshot, ProjectTaskId, ThreadId } from "@synara/contracts";
+import {
+  CommandId,
+  OrchestratorMessageId,
+  ProfileSnapshotId,
+  ThreadId,
+  type OrchestratorSnapshot,
+  type ProfilePresetId,
+  type ProjectTaskId,
+} from "@synara/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo } from "react";
@@ -26,10 +34,12 @@ import { selectRightDockState, useRightDockStore } from "~/rightDockStore";
 import { ensurePanesInState, type RightDockPane } from "~/rightDockStore.logic";
 import { useStore } from "~/store";
 import { createAllThreadsSelector } from "~/storeSelectors";
-import { cn } from "~/lib/utils";
+import { cn, randomUUID } from "~/lib/utils";
 import { useTaskProcessStore } from "~/taskProcessStore";
 import { useComposerDraftStore } from "~/composerDraftStore";
 import { ArrowLeftIcon, CopyIcon, MessageCircleIcon } from "~/lib/icons";
+import { LeadSupervisionBadge } from "~/components/supervision/LeadSupervisionBadge";
+import { ensureNativeApi } from "~/nativeApi";
 
 import { OrchestratorTranscriptProvider } from "./OrchestratorThreadMessageRow";
 import { RunsPanel } from "./RunsPanel";
@@ -60,6 +70,7 @@ export function OrchestratorSurface(props: {
   const navigate = useNavigate();
   const selectProcessTask = useTaskProcessStore((state) => state.selectTask);
   const threads = useStore(useMemo(() => createAllThreadsSelector(), []));
+  const supervision = useStore((state) => state.supervision);
   const dockState = useRightDockStore(
     useMemo(() => selectRightDockState(dockScopeId), [dockScopeId]),
   );
@@ -104,6 +115,100 @@ export function OrchestratorSurface(props: {
     props.selectedThreadId === rootThreadId
       ? null
       : (threads.find((thread) => thread.id === props.selectedThreadId) ?? null);
+  const leadSeat = supervision.leads.find(
+    (candidate) =>
+      candidate.projectId === props.snapshot.root.projectId && candidate.status !== "archived",
+  );
+
+  const createPeer = useCallback(
+    async (input: {
+      readonly title: string;
+      readonly brief: string;
+      readonly profilePresetId: ProfilePresetId;
+    }) => {
+      if (!leadSeat || leadSeat.activeThreadId !== rootThreadId || leadSeat.status !== "active") {
+        throw new Error("This Project does not have an active Lead Root.");
+      }
+      const profile = supervision.profiles.find(
+        (candidate) => candidate.id === input.profilePresetId && candidate.archivedAt === null,
+      );
+      if (!profile) throw new Error("The selected profile is unavailable.");
+      const rootThread = threads.find((thread) => thread.id === rootThreadId);
+      const workspaceRoot = rootThread?.workingDirectory ?? rootThread?.worktreePath ?? null;
+      if (!workspaceRoot) throw new Error("The Lead workspace is unavailable.");
+      const createdAt = new Date().toISOString();
+      const childThreadId = ThreadId.makeUnsafe(randomUUID());
+      const runtimeMode =
+        profile.runtime.sandboxMode === "danger-full-access"
+          ? ("full-access" as const)
+          : ("approval-required" as const);
+      const providerOptions = Object.fromEntries(
+        Object.entries(
+          typeof profile.runtime.providerOptions === "object" &&
+            profile.runtime.providerOptions !== null
+            ? profile.runtime.providerOptions
+            : {},
+        ).filter(
+          (entry): entry is [string, string | number | boolean] =>
+            typeof entry[1] === "string" ||
+            typeof entry[1] === "number" ||
+            typeof entry[1] === "boolean",
+        ),
+      );
+      await ensureNativeApi().orchestration.dispatchCommand({
+        type: "orchestrator.child.create",
+        commandId: CommandId.makeUnsafe(randomUUID()),
+        rootThreadId,
+        projectId: props.snapshot.root.projectId,
+        actor: { kind: "user", actorId: "owner" },
+        protocolVersion: props.snapshot.root.protocolVersion,
+        expectedRevision: props.snapshot.root.revision,
+        createdAt,
+        parentThreadId: rootThreadId,
+        childThreadId,
+        title: input.title,
+        role: "participant",
+        capabilities: ["state.read", "message.send"],
+        continuity: { kind: "reuse", threadId: childThreadId },
+        modelTarget: {
+          provider: profile.runtime.provider,
+          model: profile.runtime.model,
+          runtimeMode,
+          workspaceRoot,
+          providerOptions,
+        },
+        decisionReason: {
+          summary: `Owner created Peer '${input.title}' with profile '${profile.name}'.`,
+          taskFit: ["independent-peer-judgment"],
+          contextHealth: "healthy",
+          cacheEconomics: "unknown",
+          selectedAt: createdAt,
+        },
+        initialMessage: {
+          messageId: OrchestratorMessageId.makeUnsafe(randomUUID()),
+          body: input.brief,
+          expiresAt: new Date(Date.parse(createdAt) + 10 * 60 * 1_000).toISOString(),
+        },
+        supervisionPeerBootstrap: {
+          profilePresetId: profile.id,
+          peer: {
+            threadId: childThreadId,
+            projectId: props.snapshot.root.projectId,
+            leadSeatId: leadSeat.id,
+            rootThreadId,
+            profileSnapshotId: ProfileSnapshotId.makeUnsafe(`${childThreadId}:initial-profile`),
+            status: "active",
+            createdAt,
+            updatedAt: createdAt,
+            archivedAt: null,
+            revision: 0,
+          },
+        },
+      });
+      props.onSelectThread(childThreadId);
+    },
+    [leadSeat, props, rootThreadId, supervision.profiles, threads],
+  );
 
   const askRootAboutChild = useCallback(() => {
     if (!selectedChild) return;
@@ -168,6 +273,11 @@ export function OrchestratorSurface(props: {
             exchanges={exchanges}
             exchangesLoading={exchangesQuery.isPending}
             exchangesError={errorMessage(exchangesQuery.error)}
+            profiles={supervision.profiles}
+            canCreatePeer={
+              leadSeat?.activeThreadId === rootThreadId && leadSeat.status === "active"
+            }
+            onCreatePeer={createPeer}
           />
         );
       case "orchestratorProcess":
@@ -256,6 +366,13 @@ export function OrchestratorSurface(props: {
                   Copy reference
                 </button>
               </div>
+            ) : null}
+            {!selectedChild && leadSeat?.activeThreadId === rootThreadId ? (
+              <LeadSupervisionBadge
+                snapshot={supervision}
+                projectId={props.snapshot.root.projectId}
+                leadSeatId={leadSeat.id}
+              />
             ) : null}
             {selectedThreadExists ? (
               <DeferredChatView

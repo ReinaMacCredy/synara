@@ -14,6 +14,11 @@ import {
   ProviderSkillReference,
   ProviderStartOptions,
   RuntimeMode,
+  DEFAULT_SUPERVISION_DRAFT_MODE,
+  ProfilePresetId,
+  SupervisorSeatId,
+  LeadSeatId,
+  SupervisionDraftMode,
   ThreadHandoffImportedMessage,
   HandoffDraftV1,
   ThreadId,
@@ -34,6 +39,7 @@ import {
   normalizeFileComments,
   normalizeTerminalContextsForThread,
   projectDraftThreadEntryPointFromKey,
+  projectDraftThreadMappingKey,
   projectIdFromDraftThreadMappingKey,
   PersistedComposerImageAttachment,
   type ComposerDraftStoreState,
@@ -63,7 +69,12 @@ import {
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE } from "./types";
 
 const DraftThreadEnvModeSchema = Schema.Literals(["local", "worktree"]);
-const DraftThreadEntryPointSchema = Schema.Literals(["chat", "terminal", "orchestrator"]);
+const DraftThreadEntryPointSchema = Schema.Literals([
+  "chat",
+  "terminal",
+  "orchestrator",
+  "supervisor",
+]);
 
 function cloneBrowserAnnotation(annotation: BrowserAnnotationDraft): BrowserAnnotationDraft {
   return {
@@ -297,6 +308,12 @@ const PersistedDraftThreadState = Schema.Struct({
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
   entryPoint: DraftThreadEntryPointSchema.pipe(Schema.withDecodingDefault(() => "chat")),
+  supervisionMode: SupervisionDraftMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_SUPERVISION_DRAFT_MODE),
+  ),
+  profilePresetId: Schema.optionalKey(Schema.NullOr(ProfilePresetId)),
+  supervisorSeatId: Schema.optionalKey(Schema.NullOr(SupervisorSeatId)),
+  leadSeatId: Schema.optionalKey(Schema.NullOr(LeadSeatId)),
   orchestratorSourceThreadId: Schema.optionalKey(Schema.NullOr(ThreadId)),
   orchestratorHandoffMessages: Schema.optionalKey(Schema.Array(ThreadHandoffImportedMessage)),
   branch: Schema.NullOr(Schema.String),
@@ -737,6 +754,23 @@ function normalizePersistedDraftThreads(
         candidateDraftThread.promotedTo.length > 0
           ? (candidateDraftThread.promotedTo as ThreadId)
           : undefined;
+      const supervisionMode =
+        candidateDraftThread.supervisionMode === "supervise" ? "supervise" : "orchestrate";
+      const profilePresetId =
+        typeof candidateDraftThread.profilePresetId === "string" &&
+        candidateDraftThread.profilePresetId.trim().length > 0
+          ? ProfilePresetId.makeUnsafe(candidateDraftThread.profilePresetId)
+          : null;
+      const supervisorSeatId =
+        typeof candidateDraftThread.supervisorSeatId === "string" &&
+        candidateDraftThread.supervisorSeatId.trim().length > 0
+          ? SupervisorSeatId.makeUnsafe(candidateDraftThread.supervisorSeatId)
+          : null;
+      const leadSeatId =
+        typeof candidateDraftThread.leadSeatId === "string" &&
+        candidateDraftThread.leadSeatId.trim().length > 0
+          ? LeadSeatId.makeUnsafe(candidateDraftThread.leadSeatId)
+          : null;
       const orchestratorSourceThreadId =
         typeof candidateDraftThread.orchestratorSourceThreadId === "string" &&
         candidateDraftThread.orchestratorSourceThreadId.length > 0
@@ -772,6 +806,10 @@ function normalizePersistedDraftThreads(
             ? candidateDraftThread.interactionMode
             : DEFAULT_INTERACTION_MODE,
         entryPoint: normalizeDraftThreadEntryPoint(candidateDraftThread.entryPoint),
+        supervisionMode,
+        profilePresetId,
+        supervisorSeatId,
+        leadSeatId,
         ...(orchestratorSourceThreadId !== undefined ? { orchestratorSourceThreadId } : {}),
         ...(orchestratorHandoffMessages !== undefined ? { orchestratorHandoffMessages } : {}),
         branch: typeof branch === "string" ? branch : null,
@@ -794,14 +832,23 @@ function normalizePersistedDraftThreads(
       rawProjectDraftThreadIdByProjectId as Record<string, unknown>,
     )) {
       const projectId = projectIdFromDraftThreadMappingKey(mappingKey);
-      const entryPoint = projectDraftThreadEntryPointFromKey(mappingKey);
+      const mappedThreadId = typeof threadId === "string" ? (threadId as ThreadId) : null;
+      const persistedDraftThread = mappedThreadId
+        ? draftThreadsByThreadId[mappedThreadId]
+        : undefined;
+      const decodedEntryPoint = projectDraftThreadEntryPointFromKey(mappingKey);
+      const entryPoint =
+        decodedEntryPoint === "chat" && persistedDraftThread?.entryPoint === "supervisor"
+          ? "supervisor"
+          : decodedEntryPoint;
       if (
         typeof projectId === "string" &&
         projectId.length > 0 &&
         typeof threadId === "string" &&
         threadId.length > 0
       ) {
-        projectDraftThreadIdByProjectId[mappingKey] = threadId as ThreadId;
+        const canonicalMappingKey = projectDraftThreadMappingKey(projectId, entryPoint);
+        projectDraftThreadIdByProjectId[canonicalMappingKey] = threadId as ThreadId;
         if (!draftThreadsByThreadId[threadId as ThreadId]) {
           draftThreadsByThreadId[threadId as ThreadId] = {
             projectId: projectId as ProjectId,
@@ -809,6 +856,10 @@ function normalizePersistedDraftThreads(
             runtimeMode: DEFAULT_RUNTIME_MODE,
             interactionMode: DEFAULT_INTERACTION_MODE,
             entryPoint,
+            supervisionMode: DEFAULT_SUPERVISION_DRAFT_MODE,
+            profilePresetId: null,
+            supervisorSeatId: null,
+            leadSeatId: null,
             branch: null,
             worktreePath: null,
             workingDirectory: null,
@@ -1287,9 +1338,16 @@ export function partializeComposerDraftStoreState(
     };
     persistedDraftsByThreadId[threadId as ThreadId] = persistedDraft;
   }
+  const persistedDraftThreadsByThreadId: Record<ThreadId, PersistedDraftThreadState> = {};
+  for (const [threadId, draftThread] of Object.entries(state.draftThreadsByThreadId)) {
+    persistedDraftThreadsByThreadId[threadId as ThreadId] = {
+      ...draftThread,
+      supervisionMode: draftThread.supervisionMode ?? DEFAULT_SUPERVISION_DRAFT_MODE,
+    };
+  }
   return {
     draftsByThreadId: persistedDraftsByThreadId,
-    draftThreadsByThreadId: state.draftThreadsByThreadId,
+    draftThreadsByThreadId: persistedDraftThreadsByThreadId,
     projectDraftThreadIdByProjectId: state.projectDraftThreadIdByProjectId,
     stickyModelSelectionByProvider: state.stickyModelSelectionByProvider,
     stickyActiveProvider: state.stickyActiveProvider,

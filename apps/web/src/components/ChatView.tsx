@@ -5,6 +5,10 @@ import {
   DEFAULT_MODEL_BY_PROVIDER,
   EventId,
   MessageId,
+  LeadSeatId,
+  ProfileSnapshotId,
+  SupervisionMissionId,
+  SupervisorSeatId,
   type ModelSelection,
   type NativeApi,
   type OrchestrationShellSnapshot,
@@ -27,6 +31,7 @@ import {
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   type ResolvedKeybindingsConfig,
   type ServerProviderStatus,
+  type ThreadFirstSendBootstrap,
   ThreadId,
   ThreadMarkerId,
   type ThreadMarker,
@@ -179,6 +184,8 @@ import {
 } from "../lib/automationDraft";
 import { dispatchThreadRename } from "../lib/threadRename";
 import { useHandleNewChat } from "../hooks/useHandleNewChat";
+import { ensureOrchestratorDraft } from "../hooks/useHandleNewOrchestrator";
+import { ensureSupervisorDraft } from "../hooks/useHandleNewSupervisor";
 import { useComposerDropzone } from "../hooks/useComposerDropzone";
 import { useDiffRouteSearch } from "../hooks/useDiffRouteSearch";
 import {
@@ -263,9 +270,9 @@ import {
   deriveWorkLogEntries,
   omitRoutedSubagentWorkEntries,
   buildSourceProposedPlanReference,
-  hasActionableProposedPlan,
-  hasLiveTurnTailWork,
-  isLatestTurnSettled,
+    hasActionableProposedPlan,
+    hasLiveTurnTailWork,
+    isLatestTurnSettled,
   type ActiveTaskListState,
 } from "../session-logic";
 import {
@@ -328,6 +335,7 @@ import TerminalWorkspaceTabs from "./TerminalWorkspaceTabs";
 import {
   ChevronDownIcon,
   ComposerSendArrowIcon,
+  EyeIcon,
   LayoutSidebarIcon,
   RefreshCwIcon,
 } from "~/lib/icons";
@@ -504,6 +512,11 @@ import {
 } from "./chat/ComposerLocalDirectoryMenu";
 import { ComposerPendingApprovalPanel } from "./chat/ComposerPendingApprovalPanel";
 import { ComposerExtrasMenu } from "./chat/ComposerExtrasMenu";
+import { ComposerOrchestrationModeSwitch } from "./chat/ComposerOrchestrationModeSwitch";
+import {
+  ComposerProfilePicker,
+  ComposerResolvedProfileSummary,
+} from "./chat/ComposerProfilePicker";
 import { ContextWindowMeter } from "./chat/ContextWindowMeter";
 import { ComposerInputBanners } from "./chat/ComposerInputBanners";
 import { ComposerPendingUserInputPanel } from "./chat/ComposerPendingUserInputPanel";
@@ -577,9 +590,9 @@ import {
   collectUserMessageBlobPreviewUrls,
   deriveComposerSendState,
   failWorktreeSetupSnapshot,
-  filterSidechatTranscriptMessages,
-  hasServerAcknowledgedLocalDispatch,
-  hasTurnLifecycleAcknowledgedLocalDispatch,
+    filterSidechatTranscriptMessages,
+    hasServerAcknowledgedLocalDispatch,
+  hasTurnLifecycleSettledLocalDispatch,
   resolveNextLocalDispatchSnapshot,
   WORKTREE_SETUP_ERROR_HOLD_MS,
   worktreeSetupHasError,
@@ -613,6 +626,7 @@ import {
   isDuplicateProjectCreateError,
   waitForRecoverableProjectForDuplicateCreate,
 } from "../lib/projectCreateRecovery";
+import { resolveSupervisionBoundModelSelection } from "../lib/supervision";
 
 // The terminal drawer drags in xterm plus its addons (~223 KB gzip). Both mount points
 // are conditional, so loading it lazily keeps the terminal stack out of the initial
@@ -1129,6 +1143,7 @@ interface ChatViewProps {
     readonly onResetProject: () => void;
   };
   onOpenSessionProgressProcess?: () => void;
+  supervisionMissionStrips?: ReactNode;
   orchestratorMode?: boolean;
   inspectOnly?: boolean;
 }
@@ -1193,6 +1208,7 @@ export default function ChatView({
   onAdjacentRightDockOpenChange,
   orchestratorRootDraft,
   onOpenSessionProgressProcess,
+  supervisionMissionStrips,
   orchestratorMode: orchestratorModeProp,
   inspectOnly: inspectOnlyProp,
 }: ChatViewProps) {
@@ -1362,6 +1378,8 @@ export default function ChatView({
   const draftThread = useComposerDraftStore(
     (store) => store.draftThreadsByThreadId[threadId] ?? null,
   );
+  const supervision = useStore((store) => store.supervision);
+  const supervisionPeers = supervision.peers ?? [];
   const markWorkflowRunPaused = useWorkflowRunUiStore((store) => store.markPaused);
   const markWorkflowRunDismissed = useWorkflowRunUiStore((store) => store.markDismissed);
   const serverThread = useStore(useMemo(() => createThreadSelector(threadId), [threadId]));
@@ -1865,6 +1883,58 @@ export default function ChatView({
   const isServerThread = serverThread !== undefined;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const isOrchestratorRootDraft = isLocalDraftThread && draftThread?.entryPoint === "orchestrator";
+  const isSupervisorDraft = isLocalDraftThread && draftThread?.entryPoint === "supervisor";
+  const supervisionDraftMode = draftThread?.supervisionMode ?? "orchestrate";
+  const selectedSupervisionProfile = useMemo(() => {
+    const role = isSupervisorDraft ? "supervisor" : "lead";
+    const activeProfiles = supervision.profiles.filter((profile) => profile.archivedAt === null);
+    return (
+      activeProfiles.find((profile) => profile.id === draftThread?.profilePresetId) ??
+      activeProfiles.find((profile) => profile.roleHints.includes(role)) ??
+      activeProfiles[0] ??
+      null
+    );
+  }, [draftThread?.profilePresetId, isSupervisorDraft, supervision.profiles]);
+  const durableSupervisionRole = useMemo(() => {
+    if (!isServerThread || !orchestratorMode) return null;
+    if (supervision.supervisors.some((seat) => seat.activeThreadId === threadId)) {
+      return "Supervisor" as const;
+    }
+    if (supervision.leads.some((seat) => seat.activeThreadId === threadId)) {
+      return "Lead" as const;
+    }
+    if (supervisionPeers.some((peer) => peer.threadId === threadId && peer.status === "active")) {
+      return "Peer" as const;
+    }
+    return "Orchestrate" as const;
+  }, [
+    isServerThread,
+    orchestratorMode,
+    supervision.leads,
+    supervisionPeers,
+    supervision.supervisors,
+    threadId,
+  ]);
+  const durableSupervisionProfileSnapshot = useMemo(() => {
+    if (!isServerThread || !orchestratorMode) return null;
+    const seat =
+      supervision.supervisors.find((candidate) => candidate.activeThreadId === threadId) ??
+      supervision.leads.find((candidate) => candidate.activeThreadId === threadId) ??
+      supervisionPeers.find((candidate) => candidate.threadId === threadId) ??
+      null;
+    return seat
+      ? (supervision.profileSnapshots.find((snapshot) => snapshot.id === seat.profileSnapshotId) ??
+          null)
+      : null;
+  }, [
+    isServerThread,
+    orchestratorMode,
+    supervision.leads,
+    supervisionPeers,
+    supervision.profileSnapshots,
+    supervision.supervisors,
+    threadId,
+  ]);
   useLayoutEffect(() => {
     if (!isOrchestratorRootDraft) return;
     const releaseWarmDetail = retainThreadDetailSubscription(threadId);
@@ -2882,32 +2952,29 @@ export default function ChatView({
     }
     return toolUseIds;
   }, [stripSourceActivities]);
-  const composerSubagentStripItems = useMemo(
-    () => {
-      const rows = deriveComposerSubagentStripItems({
-        workEntries: stripWorkLogEntries,
-        liveTurnId: stripLiveTurnId,
-        backgroundedProviderThreadIds: backgroundedSubagentToolUseIds,
-        viewedThreadId: stripParentThread ? (activeThread?.id ?? null) : null,
-        parentRow: stripParentThread
-          ? { threadId: stripParentThread.id, label: stripParentThread.title ?? null }
-          : null,
-      });
-      const withoutAdvisor = rows.filter(
-        (row) =>
-          row.kind === "parent" ||
-          !isAdvisorIdentity({ nickname: row.primaryLabel, role: row.role, title: row.fullLabel }),
-      );
-      return withoutAdvisor.some((row) => row.kind === "subagent") ? withoutAdvisor : [];
-    },
-    [
-      activeThread?.id,
-      backgroundedSubagentToolUseIds,
-      stripLiveTurnId,
-      stripParentThread,
-      stripWorkLogEntries,
-    ],
-  );
+  const composerSubagentStripItems = useMemo(() => {
+    const rows = deriveComposerSubagentStripItems({
+      workEntries: stripWorkLogEntries,
+      liveTurnId: stripLiveTurnId,
+      backgroundedProviderThreadIds: backgroundedSubagentToolUseIds,
+      viewedThreadId: stripParentThread ? (activeThread?.id ?? null) : null,
+      parentRow: stripParentThread
+        ? { threadId: stripParentThread.id, label: stripParentThread.title ?? null }
+        : null,
+    });
+    const withoutAdvisor = rows.filter(
+      (row) =>
+        row.kind === "parent" ||
+        !isAdvisorIdentity({ nickname: row.primaryLabel, role: row.role, title: row.fullLabel }),
+    );
+    return withoutAdvisor.some((row) => row.kind === "subagent") ? withoutAdvisor : [];
+  }, [
+    activeThread?.id,
+    backgroundedSubagentToolUseIds,
+    stripLiveTurnId,
+    stripParentThread,
+    stripWorkLogEntries,
+  ]);
   // Links workflow agent rows to their subagent child threads (and models) when the
   // Task tool_use_id produced one; agents spawned without a tool call stay unlinked.
   const workflowSubagentThreadsByToolUseId = useMemo(() => {
@@ -2974,7 +3041,7 @@ export default function ChatView({
   const serverAcknowledgedLocalDispatch = hasServerAcknowledgedLocalDispatch(
     localDispatchAcknowledgementInput,
   );
-  const turnLifecycleAcknowledgedLocalDispatch = hasTurnLifecycleAcknowledgedLocalDispatch(
+  const localDispatchSettled = hasTurnLifecycleSettledLocalDispatch(
     localDispatchAcknowledgementInput,
   );
   const isSendBusy = localDispatch !== null && !serverAcknowledgedLocalDispatch;
@@ -3033,11 +3100,6 @@ export default function ChatView({
   const hasStreamingAssistantText =
     activeThread?.messages.some((message) => message.role === "assistant" && message.streaming) ??
     false;
-  const activeWorkStartedAt = hasLiveTurnTail
-    ? (activeLatestTurn?.startedAt ?? null)
-    : hasLiveTurn
-      ? deriveActiveWorkStartedAt(activeLatestTurn, activeThread?.session ?? null, null)
-      : null;
   const latestTurnInProgress = Boolean(activeLatestTurn?.requestedAt) && !latestTurnSettled;
   const activeTurnInProgress =
     !activeThread?.error &&
@@ -3165,6 +3227,31 @@ export default function ChatView({
     }, ATTACHMENT_PREVIEW_HANDOFF_TTL_MS);
   }, []);
   const serverMessages = activeThread?.messages;
+  const emptySupervisorTurnMessage = useMemo<ChatMessage | null>(() => {
+    if (
+      durableSupervisionRole !== "Supervisor" ||
+      !latestTurnSettled ||
+      !activeLatestTurn?.completedAt
+    ) {
+      return null;
+    }
+    if (
+      (serverMessages ?? []).some(
+        (message) => message.role === "assistant" && message.turnId === activeLatestTurn.turnId,
+      )
+    ) {
+      return null;
+    }
+    return {
+      id: MessageId.makeUnsafe(`supervision-empty:${activeLatestTurn.turnId}`),
+      role: "assistant",
+      text: "Supervisor finished without a visible response.",
+      createdAt: activeLatestTurn.completedAt,
+      streaming: false,
+      source: "native",
+      turnId: activeLatestTurn.turnId,
+    };
+  }, [activeLatestTurn, durableSupervisionRole, latestTurnSettled, serverMessages]);
   const timelineMessages = useMemo(() => {
     const messages = filterSidechatTranscriptMessages(
       serverMessages ?? [],
@@ -3226,14 +3313,18 @@ export default function ChatView({
       const serverIds = new Set(serverMessagesWithPreviewHandoff.map((message) => message.id));
       pendingMessages = optimisticUserMessages.filter((message) => !serverIds.has(message.id));
     }
+    const withSupervisorFallback = emptySupervisorTurnMessage
+      ? [...serverMessagesWithPreviewHandoff, emptySupervisorTurnMessage]
+      : serverMessagesWithPreviewHandoff;
     const withPending =
       pendingMessages.length === 0
-        ? serverMessagesWithPreviewHandoff
-        : [...serverMessagesWithPreviewHandoff, ...pendingMessages];
+        ? withSupervisorFallback
+        : [...withSupervisorFallback, ...pendingMessages];
     return setupBubbles.length === 0 ? withPending : [...withPending, ...setupBubbles];
   }, [
     activeThread?.sidechatSourceThreadId,
     serverMessages,
+    emptySupervisorTurnMessage,
     attachmentPreviewHandoffByMessageId,
     optimisticUserMessages,
     pendingAutomationConversation,
@@ -3261,6 +3352,26 @@ export default function ChatView({
       ),
     [activeThread?.proposedPlans, agentActivityTimelineState.timelineWorkEntries, timelineMessages],
   );
+  const latestUserMessageStartedAt = useMemo(() => {
+    for (let index = timelineEntries.length - 1; index >= 0; index -= 1) {
+      const entry = timelineEntries[index];
+      if (entry?.kind === "message" && entry.message.role === "user") {
+        return entry.message.createdAt;
+      }
+    }
+    return null;
+  }, [timelineEntries]);
+  const activeWorkStartedAt =
+    localDispatch !== null || hasLiveTurn
+      ? deriveActiveWorkStartedAt(
+          activeLatestTurn,
+          activeThread?.session ?? null,
+          localDispatch?.startedAt ?? null,
+          latestUserMessageStartedAt,
+        )
+      : hasLiveTurnTail
+        ? (latestUserMessageStartedAt ?? activeLatestTurn?.startedAt ?? null)
+        : null;
   const enteringUserMessageIds = useMemo<ReadonlySet<MessageId>>(
     () => new Set(optimisticUserMessages.map((message) => message.id)),
     [optimisticUserMessages],
@@ -4896,6 +5007,82 @@ export default function ChatView({
   const toggleInteractionMode = useCallback(() => {
     handleInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
   }, [handleInteractionModeChange, interactionMode]);
+  const toggleSupervisionDraftMode = useCallback(() => {
+    if (!isOrchestratorRootDraft) return;
+    const nextMode = supervisionDraftMode === "supervise" ? "orchestrate" : "supervise";
+    if (nextMode === "supervise" && activeProject?.kind !== "project") {
+      toastManager.add({
+        type: "warning",
+        title: "Supervise requires a real Project",
+        description:
+          "Choose a Project workspace first. Supervisor missions may still span all Projects after the Supervisor task is created.",
+      });
+      scheduleComposerFocus();
+      return;
+    }
+    setDraftThreadContext(threadId, {
+      supervisionMode: nextMode,
+      ...(nextMode === "supervise" && selectedSupervisionProfile
+        ? { profilePresetId: selectedSupervisionProfile.id }
+        : {}),
+      ...(nextMode === "supervise" ? { interactionMode: "default" } : {}),
+    });
+    if (nextMode === "supervise" && interactionMode !== "default") {
+      setComposerDraftInteractionMode(threadId, "default");
+    }
+    scheduleComposerFocus();
+  }, [
+    interactionMode,
+    activeProject?.kind,
+    isOrchestratorRootDraft,
+    scheduleComposerFocus,
+    selectedSupervisionProfile,
+    setComposerDraftInteractionMode,
+    setDraftThreadContext,
+    supervisionDraftMode,
+    threadId,
+  ]);
+  const openRetainedOrchestratorDraft = useCallback(() => {
+    if (activeProject?.kind !== "project") {
+      scheduleComposerFocus();
+      return;
+    }
+    const destinationThreadId = ensureOrchestratorDraft({ project: activeProject });
+    useComposerDraftStore.getState().setDraftThreadContext(destinationThreadId, {
+      supervisionMode: "orchestrate",
+      interactionMode: "default",
+    });
+    void navigate({ to: "/orchestrator", search: { projectId: activeProject.id } });
+  }, [activeProject, navigate, scheduleComposerFocus]);
+  const toggleSupervisorDraftMode = useCallback(() => {
+    if (!isSupervisorDraft) {
+      scheduleComposerFocus();
+      return;
+    }
+    openRetainedOrchestratorDraft();
+  }, [isSupervisorDraft, openRetainedOrchestratorDraft, scheduleComposerFocus]);
+  const toggleDurableOrchestrationMode = useCallback(() => {
+    if (
+      durableSupervisionRole === null ||
+      durableSupervisionRole === "Peer" ||
+      activeProject?.kind !== "project"
+    ) {
+      scheduleComposerFocus();
+      return;
+    }
+    if (durableSupervisionRole === "Supervisor") {
+      openRetainedOrchestratorDraft();
+    } else {
+      ensureSupervisorDraft({ project: activeProject });
+      void navigate({ to: "/supervisors", search: { projectId: activeProject.id } });
+    }
+  }, [
+    activeProject,
+    durableSupervisionRole,
+    navigate,
+    openRetainedOrchestratorDraft,
+    scheduleComposerFocus,
+  ]);
   const togglePlanSidebar = useCallback(() => {
     setPlanSidebarOpen((open) => {
       if (open) {
@@ -5768,7 +5955,7 @@ export default function ChatView({
 
   const localDispatchWorktreeSetupFailed = worktreeSetupHasError(activeWorktreeSetup);
   useEffect(() => {
-    if (!turnLifecycleAcknowledgedLocalDispatch) {
+    if (!localDispatchSettled) {
       return;
     }
     // A failed worktree setup would otherwise reset in the same commit that
@@ -5799,7 +5986,7 @@ export default function ChatView({
     localDispatch?.startedAt,
     localDispatchWorktreeSetupFailed,
     resetLocalDispatch,
-    turnLifecycleAcknowledgedLocalDispatch,
+    localDispatchSettled,
   ]);
 
   useEffect(() => {
@@ -7427,9 +7614,41 @@ export default function ChatView({
         setPendingAutomationConversation(null);
       }
     }
+    if (isOrchestratorRootDraft && supervisionDraftMode === "supervise") {
+      const activeLead = supervision.leads.find(
+        (lead) => lead.projectId === draftThread?.projectId && lead.status !== "archived",
+      );
+      if (activeLead) {
+        await navigate({
+          to: "/orchestrator/$rootThreadId",
+          params: { rootThreadId: activeLead.activeThreadId },
+        });
+        return true;
+      }
+    }
+    const promoteToLead = isOrchestratorRootDraft && supervisionDraftMode === "supervise";
+    const createSupervisorSeat = isSupervisorDraft;
+    const supervisionProfileForSend =
+      promoteToLead || createSupervisorSeat ? selectedSupervisionProfile : null;
+    if (promoteToLead && targetProjectKindForSend !== "project") {
+      setStoreThreadError(
+        activeThread.id,
+        "Supervise can create a Lead only inside a real Project workspace.",
+      );
+      return false;
+    }
+    if ((promoteToLead || createSupervisorSeat) && supervisionProfileForSend === null) {
+      setStoreThreadError(activeThread.id, "Choose an active supervision profile before sending.");
+      return false;
+    }
+    const effectiveModelSelectionForSend = resolveSupervisionBoundModelSelection({
+      fallback: selectedModelSelectionForSend,
+      runtime:
+        supervisionProfileForSend?.runtime ?? durableSupervisionProfileSnapshot?.runtime ?? null,
+    });
     sendPreflightInFlightRef.current = true;
     const sendProviderAvailability = await resolveProviderSendAvailabilityWithRefresh({
-      provider: selectedModelSelectionForSend.provider,
+      provider: effectiveModelSelectionForSend.provider,
       statuses: providerStatuses,
       refreshStatuses: () => refreshProviderStatuses({ silent: true }),
     }).finally(() => {
@@ -7528,7 +7747,7 @@ export default function ChatView({
         selectedProvider: selectedProviderForSend,
         selectedModel: selectedModelForSend,
         selectedPromptEffort: selectedPromptEffortForSend,
-        modelSelection: selectedModelSelectionForSend,
+        modelSelection: effectiveModelSelectionForSend,
         ...(providerOptionsForDispatchForSend
           ? { providerOptionsForDispatch: providerOptionsForDispatchForSend }
           : {}),
@@ -7867,6 +8086,23 @@ export default function ChatView({
     let createdServerThreadForLocalDraft = false;
     let createdWorktreeForSendPath: string | null = null;
     let turnStartSucceeded = false;
+    let atomicThreadBootstrap: ThreadFirstSendBootstrap | null = null;
+    let atomicBootstrapThreadNotes: string | null = null;
+    const promotedLeadSeatId = promoteToLead
+      ? (draftThread?.leadSeatId ?? LeadSeatId.makeUnsafe(randomUUID()))
+      : null;
+    const createdSupervisorSeatId = createSupervisorSeat
+      ? (draftThread?.supervisorSeatId ?? SupervisorSeatId.makeUnsafe(randomUUID()))
+      : null;
+    if (promotedLeadSeatId !== null || createdSupervisorSeatId !== null) {
+      setDraftThreadContext(threadIdForSend, {
+        ...(promotedLeadSeatId !== null ? { leadSeatId: promotedLeadSeatId } : {}),
+        ...(createdSupervisorSeatId !== null ? { supervisorSeatId: createdSupervisorSeatId } : {}),
+        ...(supervisionProfileForSend !== null
+          ? { profilePresetId: supervisionProfileForSend.id }
+          : {}),
+      });
+    }
     await (async () => {
       // On first message: lock in branch + create worktree if needed.
       if (baseBranchForWorktree) {
@@ -7914,17 +8150,7 @@ export default function ChatView({
         }
       }
 
-      const threadCreateModelSelection: ModelSelection = buildModelSelection(
-        selectedModelSelectionForSend.provider,
-        selectedModelSelectionForSend.model ||
-          selectedModelForSend ||
-          targetProjectDefaultModelSelectionForSend?.model ||
-          DEFAULT_MODEL_BY_PROVIDER.codex,
-        selectedModelSelectionForSend.options,
-        selectedModelSelectionForSend.provider === "claudeAgent"
-          ? selectedModelSelectionForSend.supportsAutoMode
-          : undefined,
-      );
+      const threadCreateModelSelection: ModelSelection = effectiveModelSelectionForSend;
 
       if (isLocalDraftThread) {
         const inheritedProjectInstructions =
@@ -7940,6 +8166,8 @@ export default function ChatView({
           : null;
         const handoffSourceThreadId =
           stagedCrossModeHandoff?.sourceThreadId ?? orchestratorSourceThreadId;
+        const shouldAtomicallyBootstrapSupervisedThread =
+          handoffSourceThreadId === null && (promoteToLead || createSupervisorSeat);
         if (handoffSourceThreadId) {
           const importedMessages = draftThread?.orchestratorHandoffMessages ?? [];
           if (!stagedCrossModeHandoff && importedMessages.length === 0) {
@@ -7979,6 +8207,28 @@ export default function ChatView({
             createdAt: activeThread.createdAt,
           });
           markPromotedDraftThreads(new Set([threadIdForSend]));
+        } else if (shouldAtomicallyBootstrapSupervisedThread) {
+          atomicThreadBootstrap = {
+            projectId: targetProjectIdForSend,
+            title,
+            modelSelection: threadCreateModelSelection,
+            runtimeMode: nextRuntimeModeForSend,
+            interactionMode: interactionModeForSend,
+            envMode: nextThreadEnvMode,
+            branch: nextThreadBranch,
+            worktreePath: nextThreadWorktreePath,
+            workingDirectory: nextThreadWorkingDirectory,
+            associatedWorktreePath: nextAssociatedWorktreePath,
+            associatedWorktreeBranch: nextAssociatedWorktreeBranch,
+            associatedWorktreeRef: nextAssociatedWorktreeRef,
+            createBranchFlowCompleted: false,
+            lastKnownPr: activeThread.lastKnownPr ?? null,
+            createdAt: activeThread.createdAt,
+          };
+          atomicBootstrapThreadNotes =
+            inheritedThreadNotes !== threadNotes && inheritedThreadNotes.trim().length > 0
+              ? inheritedThreadNotes
+              : null;
         } else {
           await promoteThreadCreate(
             {
@@ -8006,7 +8256,11 @@ export default function ChatView({
         // `thread.create` does not carry notes, so seed the freshly created
         // server thread's notepad with the inherited project instructions via a
         // dedicated meta update. Best-effort: a failure here must not abort the turn.
-        if (inheritedThreadNotes !== threadNotes && inheritedThreadNotes.trim().length > 0) {
+        if (
+          !shouldAtomicallyBootstrapSupervisedThread &&
+          inheritedThreadNotes !== threadNotes &&
+          inheritedThreadNotes.trim().length > 0
+        ) {
           try {
             await dispatchThreadNotes(threadIdForSend, inheritedThreadNotes);
           } catch {
@@ -8062,7 +8316,7 @@ export default function ChatView({
         await persistThreadSettingsForNextTurn({
           threadId: threadIdForSend,
           createdAt: messageCreatedAt,
-          modelSelection: selectedModelSelectionForSend,
+          modelSelection: effectiveModelSelectionForSend,
           runtimeMode: nextRuntimeModeForSend,
           interactionMode: interactionModeForSend,
         });
@@ -8076,7 +8330,7 @@ export default function ChatView({
       const stagedTurnAttachments = await turnAttachmentsPromise;
       rememberCustomBinaryPathForDispatch({
         threadId: threadIdForSend,
-        provider: selectedModelSelectionForSend.provider,
+        provider: effectiveModelSelectionForSend.provider,
         providerOptions: providerOptionsForDispatchForSend,
       });
       await stagedTurnAttachments.runWithDispatch((turnAttachments) =>
@@ -8094,8 +8348,8 @@ export default function ChatView({
               ? { mentions: mentionedPluginMentionsForSend }
               : {}),
           },
-          modelSelection: selectedModelSelectionForSend,
-          ...(providerOptionsForDispatchForSend
+          modelSelection: threadCreateModelSelection,
+          ...(!supervisionProfileForSend && providerOptionsForDispatchForSend
             ? { providerOptions: providerOptionsForDispatchForSend }
             : {}),
           assistantDeliveryMode,
@@ -8103,6 +8357,7 @@ export default function ChatView({
           runtimeMode: nextRuntimeModeForSend,
           interactionMode: interactionModeForSend,
           ...(sourceProposedPlanForSend ? { sourceProposedPlan: sourceProposedPlanForSend } : {}),
+          ...(atomicThreadBootstrap ? { threadBootstrap: atomicThreadBootstrap } : {}),
           ...(isOrchestratorRootDraft
             ? {
                 orchestratorRoot: {
@@ -8117,14 +8372,84 @@ export default function ChatView({
                 },
               }
             : {}),
+          ...(promotedLeadSeatId !== null && supervisionProfileForSend !== null
+            ? {
+                supervisionBootstrap: {
+                  kind: "lead" as const,
+                  profilePresetId: supervisionProfileForSend.id,
+                  lead: {
+                    id: promotedLeadSeatId,
+                    projectId: targetProjectIdForSend,
+                    activeThreadId: threadIdForSend,
+                    predecessorThreadIds: [],
+                    profileSnapshotId: ProfileSnapshotId.makeUnsafe(
+                      `${promotedLeadSeatId}:initial-profile`,
+                    ),
+                    status: "active" as const,
+                    createdAt: messageCreatedAt,
+                    updatedAt: messageCreatedAt,
+                    archivedAt: null,
+                    revision: 0,
+                  },
+                },
+              }
+            : createdSupervisorSeatId !== null && supervisionProfileForSend !== null
+              ? {
+                  supervisionBootstrap: {
+                    kind: "supervisor" as const,
+                    profilePresetId: supervisionProfileForSend.id,
+                    supervisor: {
+                      id: createdSupervisorSeatId,
+                      name: title || `Supervisor ${supervision.supervisors.length + 1}`,
+                      activeThreadId: threadIdForSend,
+                      predecessorThreadIds: [],
+                      profileSnapshotId: ProfileSnapshotId.makeUnsafe(
+                        `${createdSupervisorSeatId}:initial-profile`,
+                      ),
+                      status: "active" as const,
+                      createdAt: messageCreatedAt,
+                      updatedAt: messageCreatedAt,
+                      archivedAt: null,
+                      revision: 0,
+                    },
+                    initialMission: {
+                      id: SupervisionMissionId.makeUnsafe(
+                        `${createdSupervisorSeatId}:initial-mission`,
+                      ),
+                      supervisorSeatId: createdSupervisorSeatId,
+                      brief: trimmed,
+                      focus: trimmed,
+                      scope: [{ kind: "project" as const, projectId: targetProjectIdForSend }],
+                      grants: ["lead.observe" as const, "lead.advise" as const],
+                      endCondition: { kind: "manual" as const },
+                      status: "active" as const,
+                      sourceMessageId: messageIdForSend,
+                      createdAt: messageCreatedAt,
+                      updatedAt: messageCreatedAt,
+                      completedAt: null,
+                      revision: 0,
+                    },
+                  },
+                }
+              : {}),
           createdAt: messageCreatedAt,
         }),
       );
       turnStartSucceeded = true;
-      if (isOrchestratorRootDraft) {
+      if (atomicThreadBootstrap) {
+        markPromotedDraftThreads(new Set([threadIdForSend]));
+        if (atomicBootstrapThreadNotes) {
+          await dispatchThreadNotes(threadIdForSend, atomicBootstrapThreadNotes).catch(
+            () => undefined,
+          );
+        }
+      }
+      if (isOrchestratorRootDraft || isSupervisorDraft) {
         const shellSnapshot = await api.orchestration.getShellSnapshot();
         syncServerShellSnapshot(shellSnapshot);
         await prehydratePromotedThreadDetail(threadIdForSend, api);
+      }
+      if (isOrchestratorRootDraft) {
         await queryClient.invalidateQueries({ queryKey: orchestratorQueryKeys.all });
         await queryClient
           .fetchQuery(orchestratorRootQueryOptions(threadIdForSend))
@@ -8133,13 +8458,18 @@ export default function ChatView({
           to: "/orchestrator/$rootThreadId",
           params: { rootThreadId: threadIdForSend },
         });
+      } else if (isSupervisorDraft && createdSupervisorSeatId) {
+        await navigate({
+          to: "/supervisors/$supervisorSeatId",
+          params: { supervisorSeatId: createdSupervisorSeatId },
+        });
       }
       // Non-Codex steers interrupt the live turn before re-dispatching; hold
       // queued auto-dispatch through that gap so it can't race the steer. The
       // live session provider decides the interrupt path server-side, so the
       // gate keys off it rather than the requested model selection.
       const liveProviderForSteerGate =
-        activeThread?.session?.provider ?? selectedModelSelectionForSend.provider;
+        activeThread?.session?.provider ?? effectiveModelSelectionForSend.provider;
       if (dispatchMode === "steer" && liveProviderForSteerGate !== "codex") {
         setQueuedSteerGate({
           sawInterruptGap: false,
@@ -8392,21 +8722,6 @@ export default function ChatView({
     },
     [activeThreadId, setStoreThreadError],
   );
-
-  const onCancelActivePendingUserInput = useCallback(() => {
-    if (!activePendingUserInput || activePendingIsResponding) {
-      return;
-    }
-    promptRef.current = "";
-    setPrompt("");
-    setComposerCursor(0);
-    setComposerTrigger(null);
-    void onRespondToUserInput(
-      activePendingUserInput.requestId,
-      {},
-      activePendingUserInput.lifecycleGeneration,
-    );
-  }, [activePendingIsResponding, activePendingUserInput, onRespondToUserInput, setPrompt]);
 
   const setActivePendingUserInputQuestionIndex = useCallback(
     (nextQuestionIndex: number) => {
@@ -9403,7 +9718,25 @@ export default function ChatView({
     },
     [handleModelPickerOpenChange],
   );
-  const composerPickerControls = showComposerModelBootstrapSkeleton ? (
+  const supervisionProfilePickerActive =
+    isSupervisorDraft || (isOrchestratorRootDraft && supervisionDraftMode === "supervise");
+  const composerPickerControls = supervisionProfilePickerActive ? (
+    <ComposerProfilePicker
+      profiles={supervision.profiles}
+      selectedProfileId={selectedSupervisionProfile?.id ?? null}
+      disabled={isComposerEditorDisabled}
+      compact={isComposerFooterCompact}
+      onSelect={(profilePresetId) => {
+        setDraftThreadContext(threadId, { profilePresetId });
+      }}
+      onSelectionCommitted={scheduleComposerFocus}
+    />
+  ) : durableSupervisionProfileSnapshot !== null ? (
+    <ComposerResolvedProfileSummary
+      snapshot={durableSupervisionProfileSnapshot}
+      compact={isComposerFooterCompact}
+    />
+  ) : showComposerModelBootstrapSkeleton ? (
     useSplitComposerPickerControls ? (
       <>
         {selectedProviderRuntimeModelDiscoveryPending ? (
@@ -10312,8 +10645,25 @@ export default function ChatView({
       return false;
     }
 
-    if (key === "Tab" && event.shiftKey) {
-      toggleInteractionMode();
+    if (
+      key === "Tab" &&
+      event.shiftKey &&
+      !event.isComposing &&
+      event.keyCode !== 229 &&
+      !composerMenuOpenRef.current &&
+      !isModelPickerOpen &&
+      !isTraitsPickerOpen &&
+      !isLocalFolderBrowserOpen
+    ) {
+      if (isOrchestratorRootDraft) {
+        toggleSupervisionDraftMode();
+      } else if (isSupervisorDraft) {
+        toggleSupervisorDraftMode();
+      } else if (durableSupervisionRole !== null && durableSupervisionRole !== "Peer") {
+        toggleDurableOrchestrationMode();
+      } else {
+        toggleInteractionMode();
+      }
       return true;
     }
 
@@ -10714,6 +11064,7 @@ export default function ChatView({
         onAddPhotos={addComposerImages}
         onToggleFastMode={toggleFastMode}
         onSetPlanMode={setPlanMode}
+        showPlanMode={!isOrchestratorRootDraft}
       />
       {!isVoiceRecording && !isVoiceTranscribing ? (
         <RuntimeUsageControls
@@ -10824,7 +11175,7 @@ export default function ChatView({
         disabledReason={advisorDisabledReason}
         active={advisorActive}
         defaultModelSelection={settings.advisorModelSelection}
-        projectCwd={activeProject.cwd}
+        projectCwd={activeProject?.cwd ?? null}
         onAsk={onAskAdvisor}
       />
       <Button
@@ -11145,9 +11496,17 @@ export default function ChatView({
                     answers={activePendingDraftAnswers}
                     questionIndex={activePendingQuestionIndex}
                     onToggleOption={onToggleActivePendingUserInputOption}
+                    onCustomAnswerChange={(questionId, value) =>
+                      onChangeActivePendingUserInputCustomAnswer(
+                        questionId,
+                        value,
+                        value.length,
+                        value.length,
+                        false,
+                      )
+                    }
                     onAdvance={onAdvanceActivePendingUserInput}
                     onPrevious={onPreviousActivePendingUserInputQuestion}
-                    onCancel={onCancelActivePendingUserInput}
                   />
                 </div>
               ) : null}
@@ -11169,12 +11528,18 @@ export default function ChatView({
                   onBack={() => onNavigateToThread(activeThread.parentThreadId!)}
                 />
               ) : null}
+              {supervisionMissionStrips ? (
+                <div className="pb-2" data-supervision-mission-strips="true">
+                  {supervisionMissionStrips}
+                </div>
+              ) : null}
             </div>
             <div
               className={cn(
                 COMPOSER_INPUT_SHELL_CLASS_NAME,
                 composerProviderState.composerFrameClassName,
                 composerMenuOpen && !isComposerApprovalState && "overflow-visible",
+                pendingUserInputs.length > 0 && "hidden",
               )}
             >
               <div
@@ -11268,36 +11633,23 @@ export default function ChatView({
                         onRemoveImage={removeComposerImage}
                       />
                     )}
-                  <ComposerPromptEditor
-                    ref={composerEditorRef}
-                    value={
-                      isComposerApprovalState
-                        ? ""
-                        : activePendingProgress
-                          ? activePendingProgress.customAnswer
-                          : prompt
-                    }
-                    cursor={composerCursor}
-                    terminalContexts={
-                      !isComposerApprovalState && pendingUserInputs.length === 0
-                        ? composerTerminalContexts
-                        : []
-                    }
-                    mentionReferences={selectedComposerMentions}
-                    onRemoveTerminalContext={removeComposerTerminalContextFromDraft}
-                    onChange={onPromptChange}
-                    onCommandKeyDown={onComposerCommandKey}
-                    onPaste={onComposerPaste}
-                    {...(canCollapsePastedTextToDraft
-                      ? { onCollapsePastedText: addPastedTextToDraft }
-                      : {})}
-                    placeholder={
-                      isComposerApprovalState
-                        ? "Resolve this approval request to continue"
-                        : activePendingProgress
-                          ? activePendingProgress.activeQuestion?.options.length === 0
-                            ? "Type your answer to continue"
-                            : "Type your own answer, or leave this blank to use the selected option"
+                  {pendingUserInputs.length === 0 ? (
+                    <ComposerPromptEditor
+                      ref={composerEditorRef}
+                      value={isComposerApprovalState ? "" : prompt}
+                      cursor={composerCursor}
+                      terminalContexts={isComposerApprovalState ? [] : composerTerminalContexts}
+                      mentionReferences={selectedComposerMentions}
+                      onRemoveTerminalContext={removeComposerTerminalContextFromDraft}
+                      onChange={onPromptChange}
+                      onCommandKeyDown={onComposerCommandKey}
+                      onPaste={onComposerPaste}
+                      {...(canCollapsePastedTextToDraft
+                        ? { onCollapsePastedText: addPastedTextToDraft }
+                        : {})}
+                      placeholder={
+                        isComposerApprovalState
+                          ? "Resolve this approval request to continue"
                           : showPlanFollowUpPrompt && activeProposedPlan
                             ? "Add feedback to refine the plan, or leave this blank to implement it"
                             : activeThread?.parentThreadId
@@ -11307,14 +11659,14 @@ export default function ChatView({
                                 : phase === "disconnected"
                                   ? "Ask for follow-up changes or attach images"
                                   : "Ask anything, @tag files/folders, or use / to show available commands"
-                    }
-                    disabled={isComposerEditorDisabled}
-                  />
+                      }
+                      disabled={isComposerEditorDisabled}
+                    />
+                  ) : null}
                 </div>
-                {/* Bottom toolbar — hidden while an approval takes over the composer,
-                    since the approve/decline actions live in the detached approval card
-                    floating above (see ComposerPendingApprovalPanel). */}
-                {activePendingApproval ? null : (
+                {/* Decision cards own their controls and inputs while active, so the normal
+                    composer footer stays hidden until the provider request settles. */}
+                {activePendingApproval || pendingUserInputs.length > 0 ? null : (
                   <div
                     data-chat-composer-footer="true"
                     className={cn(
@@ -11342,7 +11694,51 @@ export default function ChatView({
 
                       {!isVoiceRecording && !isVoiceTranscribing ? (
                         <>
-                          {interactionMode === "plan" ? (
+                          {isOrchestratorRootDraft ? (
+                            <ComposerOrchestrationModeSwitch
+                              mode={supervisionDraftMode}
+                              disabled={isComposerEditorDisabled}
+                              unavailableReason={
+                                supervisionDraftMode === "orchestrate" &&
+                                activeProject?.kind !== "project"
+                                  ? "Supervise requires a real Project workspace"
+                                  : null
+                              }
+                              onToggle={toggleSupervisionDraftMode}
+                            />
+                          ) : isSupervisorDraft ? (
+                            <ComposerOrchestrationModeSwitch
+                              mode="supervise"
+                              disabled={isComposerEditorDisabled}
+                              title="Open an Orchestrate draft. This Supervisor draft will be retained. · Shift+Tab"
+                              onToggle={toggleSupervisorDraftMode}
+                            />
+                          ) : durableSupervisionRole !== null &&
+                            durableSupervisionRole !== "Peer" ? (
+                            <ComposerOrchestrationModeSwitch
+                              mode={
+                                durableSupervisionRole === "Supervisor"
+                                  ? "supervise"
+                                  : "orchestrate"
+                              }
+                              disabled={isComposerEditorDisabled}
+                              title={
+                                durableSupervisionRole === "Supervisor"
+                                  ? "Open an Orchestrate draft. This room remains a Supervisor. · Shift+Tab"
+                                  : "Open a Supervise draft. This room keeps its current identity. · Shift+Tab"
+                              }
+                              onToggle={toggleDurableOrchestrationMode}
+                            />
+                          ) : durableSupervisionRole !== null ? (
+                            <span
+                              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground"
+                              aria-label={`${durableSupervisionRole} role`}
+                              data-testid="composer-orchestration-role-label"
+                            >
+                              <EyeIcon className="size-3.5" />
+                              {durableSupervisionRole}
+                            </span>
+                          ) : interactionMode === "plan" ? (
                             <Button
                               variant="ghost"
                               className="shrink-0 whitespace-nowrap px-2 text-[length:var(--app-font-size-ui-sm,11px)] sm:text-[length:var(--app-font-size-ui-sm,11px)] font-normal text-[var(--color-text-foreground-secondary)] hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)] sm:px-3"

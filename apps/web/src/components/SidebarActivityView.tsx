@@ -682,8 +682,7 @@ export function SidebarActivityView({
           {scopedPinnedThreads.map((thread) =>
             renderRow(
               thread,
-              settlementEnabled &&
-                isThreadSettledForActivity(thread, settledOverrideByThreadId),
+              settlementEnabled && isThreadSettledForActivity(thread, settledOverrideByThreadId),
             ),
           )}
         </ActivityCollapsibleSection>

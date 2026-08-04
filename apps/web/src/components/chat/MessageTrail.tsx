@@ -181,8 +181,8 @@ export function MessageTrail({
       if (!el) {
         continue;
       }
-        el.style.transform = `scaleX(${styles[i]!.width / TICK_BASE_W})`;
-        el.style.opacity = `${styles[i]!.opacity}`;
+      el.style.transform = `scaleX(${styles[i]!.width / TICK_BASE_W})`;
+      el.style.opacity = `${styles[i]!.opacity}`;
     }
   };
 
@@ -406,13 +406,14 @@ export function MessageTrail({
       return;
     }
     const currentIndex = navigatorIndexRef.current;
-    const nextIndex = currentIndex >= 0 && currentIndex < items.length
-      ? currentIndex
-      : anchorIndex >= 0
-        ? anchorIndex
-        : items.length > 0
-          ? 0
-          : -1;
+    const nextIndex =
+      currentIndex >= 0 && currentIndex < items.length
+        ? currentIndex
+        : anchorIndex >= 0
+          ? anchorIndex
+          : items.length > 0
+            ? 0
+            : -1;
     setNavigatorIndex(nextIndex, true);
     if (nextIndex >= 0) {
       scheduleFrame();
@@ -685,7 +686,7 @@ export function MessageTrail({
                 tickRefs.current[index] = el;
               }}
               aria-hidden="true"
-                className="absolute origin-left rounded-full transition-[transform,opacity] duration-[90ms] ease-out motion-reduce:transition-none"
+              className="absolute origin-left rounded-full transition-[transform,opacity] duration-[90ms] ease-out motion-reduce:transition-none"
               style={{
                 left: TICK_LEFT_PAD_PX,
                 height: TICK_HEIGHT_PX,
@@ -697,7 +698,7 @@ export function MessageTrail({
                       ? TICK_VISIBLE_OPACITY
                       : TICK_REST_OPACITY,
                 backgroundColor: "var(--color-text-foreground)",
-                  willChange: "transform, opacity",
+                willChange: "transform, opacity",
               }}
             />
           ))}
@@ -753,7 +754,7 @@ export function MessageTrail({
                 onPointerMove={() => handleOptionPointer(index)}
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => selectNavigatorIndex(index)}
-                  className="flex w-full min-w-0 items-center rounded-xl px-4 py-2.5 text-left text-[15px] leading-5 text-foreground/84 outline-none hover:bg-[var(--color-background-button-secondary-hover)] data-[active=true]:bg-[var(--color-background-button-secondary-hover)]"
+                className="flex w-full min-w-0 items-center rounded-xl px-4 py-2.5 text-left text-[15px] leading-5 text-foreground/84 outline-none hover:bg-[var(--color-background-button-secondary-hover)] data-[active=true]:bg-[var(--color-background-button-secondary-hover)]"
                 title={item.preview}
               >
                 <span className="min-w-0 flex-1 truncate">{item.preview}</span>

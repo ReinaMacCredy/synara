@@ -41,7 +41,7 @@ function thread(id: ThreadId, title: string): Thread {
       createdAt: "2026-08-02T00:00:00.000Z",
       updatedAt: "2026-08-02T00:00:00.000Z",
     },
-  } as Thread;
+  } as unknown as Thread;
 }
 
 const threads = [
@@ -106,6 +106,9 @@ async function renderTeamPanel(width: number) {
         exchanges={exchanges}
         exchangesLoading={false}
         exchangesError={null}
+        profiles={[]}
+        canCreatePeer={false}
+        onCreatePeer={vi.fn()}
       />
     </div>,
   );
@@ -143,7 +146,7 @@ describe("TeamPanel adaptive layout", () => {
       connections.getBoundingClientRect().top + 1,
     );
     expect(activity.scrollHeight).toBeGreaterThan(activity.clientHeight);
-    expect(document.querySelector('[data-team-children]')).not.toBeNull();
+    expect(document.querySelector("[data-team-children]")).not.toBeNull();
     expect(document.body.textContent).not.toContain("CHILD OWNER");
     expect(document.body.textContent).toContain("Codex · GPT-5.6 Luna");
     const explicitConnection = document.querySelector<HTMLElement>(

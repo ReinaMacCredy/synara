@@ -11,6 +11,7 @@ import {
   type ProviderListModelsResult,
   type ProviderListPluginsResult,
   type ProviderMentionReference,
+  type MessageDispatchOrigin,
   type ProviderForkThreadInput,
   type ProviderReadPluginResult,
   type ProviderForkThreadResult,
@@ -28,6 +29,7 @@ import {
   type ProviderSession,
   type ProviderSessionStartInput,
   type ProviderOrchestratorSessionContext,
+  type ProviderSupervisionSessionContext,
   type ProviderKind,
   type ProviderTurnStartResult,
   RuntimeMode,
@@ -56,6 +58,8 @@ import {
 } from "./agentGateway/mcpInjection.ts";
 import { SYNARA_GATEWAY_HARNESS_POLICY } from "./agentGateway/harnessPolicy.ts";
 import { orchestratorInstructionForSession } from "./orchestration/orchestrator/protocolV1.ts";
+import { supervisionInstructionForSession } from "./orchestration/supervision/protocolV1.ts";
+import { codexProfileConfigArgs } from "./orchestration/supervision/profileResolver.ts";
 import type { OrchestratorToolRuntimeShape } from "./orchestration/Services/OrchestratorToolRuntime.ts";
 import {
   OrchestratorToolError,
@@ -176,8 +180,10 @@ interface CodexSessionContext {
   gatewayCredentialRetired?: boolean;
   session: ProviderSession;
   lifecycleGeneration?: string;
+  supervisionContext?: ProviderSupervisionSessionContext;
   orchestratorInstruction?: string | null;
   orchestratorToolRuntime?: OrchestratorToolRuntimeShape;
+  activeTurnDispatchOrigin?: MessageDispatchOrigin;
   account: CodexAccountSnapshot;
   child: ChildProcessWithoutNullStreams;
   stdoutFramer: CodexJsonlFramer;
@@ -279,6 +285,7 @@ export interface CodexAppServerSendTurnInput {
   readonly serviceTier?: string | null;
   readonly effort?: string;
   readonly interactionMode?: ProviderInteractionMode;
+  readonly dispatchOrigin?: MessageDispatchOrigin;
 }
 
 type CodexAppServerReviewTarget = ProviderStartReviewInput["target"];
@@ -293,6 +300,7 @@ export interface CodexAppServerStartSessionInput {
   readonly resumeCursor?: unknown;
   readonly providerOptions?: ProviderSessionStartInput["providerOptions"];
   readonly orchestratorContext?: ProviderOrchestratorSessionContext | null;
+  readonly supervisionContext?: ProviderSessionStartInput["supervisionContext"];
   readonly handoffContext?: AcceptedCrossModeHandoffV1 | null;
   /** Session-scoped native tools for ephemeral system work such as handoff preparation. */
   readonly nativeToolRuntime?: OrchestratorToolRuntimeShape;
@@ -599,9 +607,11 @@ Your active mode changes only when new developer instructions with a different \
 
 ## request_user_input availability
 
-The \`request_user_input\` tool is unavailable in Default mode. If you call it while in Default mode, it will return an error.
+The \`request_user_input\` tool is available in Default mode. Use it for a material decision that cannot be discovered from local context and where a reasonable assumption would risk the wrong result. Keep questions concise and offer only meaningful choices.
 
-In Default mode, strongly prefer making reasonable assumptions and executing the user's request rather than stopping to ask questions. If you absolutely must ask a question because the answer cannot be discovered from local context and a reasonable assumption would be risky, ask the user directly with a concise plain-text question. Never write a multiple choice question as a textual assistant message.
+The tool list for the current turn is authoritative. Ignore earlier transcript claims that \`request_user_input\` is Plan-only, unavailable, disabled, or named \`ask_user_tool\`. When the user explicitly asks you to invoke \`request_user_input\` and the tool is present, invoke it instead of replying that the current mode blocks it.
+
+In Default mode, still prefer making reasonable assumptions and executing the user's request when the question is non-blocking. Do not turn routine implementation choices into approval gates.
 </collaboration_mode>${CODEX_ADVISOR_DEVELOPER_INSTRUCTIONS}${CODEX_BROWSER_TOOL_ROUTING_INSTRUCTIONS}\n\n${SYNARA_GATEWAY_HARNESS_POLICY}`;
 
 // Maps Synara's simple runtime toggle to Codex thread-level permission overrides.
@@ -675,6 +685,19 @@ function resolveCodexTurnOverrides(context: CodexSessionContext): {
   readonly approvalsReviewer: CodexApprovalsReviewer;
   readonly sandboxPolicy: CodexTurnSandboxPolicy;
 } {
+  if (context.supervisionContext) {
+    const runtime = context.supervisionContext.profileSnapshot.runtime;
+    return {
+      approvalPolicy: runtime.approvalPolicy,
+      approvalsReviewer: "user",
+      sandboxPolicy:
+        runtime.sandboxMode === "read-only"
+          ? { type: "readOnly" }
+          : runtime.sandboxMode === "workspace-write"
+            ? { type: "workspaceWrite" }
+            : { type: "dangerFullAccess" },
+    };
+  }
   return (
     context.sessionApprovalOverride ??
     mapCodexRuntimeModeToTurnOverrides(context.session.runtimeMode)
@@ -692,15 +715,31 @@ export function resolveCodexModelForAccount(
   return CODEX_DEFAULT_MODEL;
 }
 
+export function buildCodexAppServerArgs(
+  profileConfigArgs: ReadonlyArray<string> = [],
+): string[] {
+  return [
+    "app-server",
+    "--enable",
+    "default_mode_request_user_input",
+    ...profileConfigArgs,
+  ];
+}
+
 function spawnCodexAppServer(input: {
   readonly binaryPath: string;
   readonly cwd: string;
   readonly env: NodeJS.ProcessEnv;
+  readonly profileConfigArgs?: ReadonlyArray<string>;
 }): ChildProcessWithoutNullStreams {
-  const prepared = prepareWindowsSafeProcess(input.binaryPath, ["app-server"], {
-    cwd: input.cwd,
-    env: input.env,
-  });
+  const prepared = prepareWindowsSafeProcess(
+    input.binaryPath,
+    buildCodexAppServerArgs(input.profileConfigArgs),
+    {
+      cwd: input.cwd,
+      env: input.env,
+    },
+  );
   return spawn(prepared.command, prepared.args, {
     cwd: input.cwd,
     env: input.env,
@@ -1049,7 +1088,14 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       const defaultHandoffInstruction = input.handoffContext
         ? buildHandoffDestinationInstruction(input.handoffContext)
         : undefined;
-      const combinedNativeInstruction = [defaultOrchestratorInstruction, defaultHandoffInstruction]
+      const defaultSupervisionInstruction = input.supervisionContext
+        ? supervisionInstructionForSession(input.supervisionContext)
+        : undefined;
+      const combinedNativeInstruction = [
+        defaultOrchestratorInstruction,
+        defaultSupervisionInstruction,
+        defaultHandoffInstruction,
+      ]
         .filter((value): value is string => typeof value === "string" && value.length > 0)
         .join("\n\n");
       const orchestratorInstruction =
@@ -1058,11 +1104,16 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       const isOrchestratorSession = input.orchestratorContext != null;
       const nativeToolRuntime =
         input.nativeToolRuntime ??
-        (isOrchestratorSession || input.handoffContext != null
+        (isOrchestratorSession || input.supervisionContext != null || input.handoffContext != null
           ? this.orchestratorToolRuntime
           : undefined);
       const isNativeToolSession = nativeToolRuntime !== undefined;
-      if ((isOrchestratorSession || input.handoffContext != null) && !nativeToolRuntime) {
+      if (
+        (isOrchestratorSession ||
+          input.supervisionContext != null ||
+          input.handoffContext != null) &&
+        !nativeToolRuntime
+      ) {
         throw new Error("Native Synara tool runtime is unavailable.");
       }
 
@@ -1088,6 +1139,13 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           gatewaySessionLease?.connection.bearerToken,
           !isNativeToolSession,
         ),
+        ...(input.supervisionContext
+          ? {
+              profileConfigArgs: codexProfileConfigArgs(
+                input.supervisionContext.profileSnapshot.runtime,
+              ),
+            }
+          : {}),
       });
 
       context = {
@@ -1095,6 +1153,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         session,
         ...(input.lifecycleGeneration !== undefined
           ? { lifecycleGeneration: input.lifecycleGeneration }
+          : {}),
+        ...(input.supervisionContext !== undefined
+          ? { supervisionContext: input.supervisionContext }
           : {}),
         ...(orchestratorInstruction !== undefined ? { orchestratorInstruction } : {}),
         ...(nativeToolRuntime ? { orchestratorToolRuntime: nativeToolRuntime } : {}),
@@ -1149,7 +1210,13 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         model: normalizedModel ?? null,
         ...(input.serviceTier !== undefined ? { serviceTier: input.serviceTier } : {}),
         cwd: resolvedCwd,
-        ...mapCodexRuntimeMode(input.runtimeMode ?? "full-access"),
+        ...(input.supervisionContext
+          ? {
+              approvalPolicy: input.supervisionContext.profileSnapshot.runtime.approvalPolicy,
+              approvalsReviewer: "user" as const,
+              sandbox: input.supervisionContext.profileSnapshot.runtime.sandboxMode,
+            }
+          : mapCodexRuntimeMode(input.runtimeMode ?? "full-access")),
         ...(orchestratorInstruction !== undefined
           ? { developerInstructions: orchestratorInstruction }
           : {}),
@@ -1379,6 +1446,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       throw new Error("turn/start response did not include a turn id.");
     }
     const turnId = TurnId.makeUnsafe(turnIdRaw);
+    context.activeTurnDispatchOrigin = input.dispatchOrigin;
 
     this.updateSession(context, {
       status: "running",
@@ -1430,6 +1498,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       throw new Error("turn/steer response did not include a turn id.");
     }
     const turnId = TurnId.makeUnsafe(turnIdRaw);
+    context.activeTurnDispatchOrigin = input.dispatchOrigin;
 
     this.updateSession(context, {
       status: "running",
@@ -1476,6 +1545,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       throw new Error("review/start response did not include a turn id.");
     }
     const turnId = TurnId.makeUnsafe(turnIdRaw);
+    context.activeTurnDispatchOrigin = undefined;
     context.reviewTurnIds.add(turnId);
     log.info("[codex-review] review/start acknowledged", {
       threadId: context.session.threadId,
@@ -3253,6 +3323,11 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       callerSessionKey: `codex:${context.session.threadId}`,
       callerProvider: "codex",
       callerTurnId: turnId,
+      ...(turnId !== null &&
+      context.session.activeTurnId === turnId &&
+      context.activeTurnDispatchOrigin !== undefined
+        ? { callerDispatchOrigin: context.activeTurnDispatchOrigin }
+        : {}),
       listOrchestratorCapabilities,
       resolveOrchestratorCapability: (input: {
         readonly provider: ProviderKind;

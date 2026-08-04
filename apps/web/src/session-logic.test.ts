@@ -612,15 +612,46 @@ describe("isLatestTurnSettled", () => {
   });
 });
 
-describe("deriveActiveWorkStartedAt", () => {
+  describe("deriveActiveWorkStartedAt", () => {
   const latestTurn = {
     turnId: TurnId.makeUnsafe("turn-1"),
     state: "completed",
     startedAt: "2026-02-27T21:10:00.000Z",
     completedAt: "2026-02-27T21:10:06.000Z",
-  } as const;
+    } as const;
 
-  it("prefers the latest-turn start while the running session still points at it", () => {
+    it("keeps the user prompt timestamp as the stable origin across provider mini-turns", () => {
+      const userMessageStartedAt = "2026-02-27T21:10:59.900Z";
+
+      expect(
+        deriveActiveWorkStartedAt(
+          latestTurn,
+          {
+            orchestrationStatus: "running",
+            activeTurnId: TurnId.makeUnsafe("turn-1"),
+          },
+          "2026-02-27T21:11:00.000Z",
+          userMessageStartedAt,
+        ),
+      ).toBe(userMessageStartedAt);
+      expect(
+        deriveActiveWorkStartedAt(
+          {
+            ...latestTurn,
+            turnId: TurnId.makeUnsafe("turn-2"),
+            startedAt: "2026-02-27T21:11:07.000Z",
+          },
+          {
+            orchestrationStatus: "running",
+            activeTurnId: TurnId.makeUnsafe("turn-2"),
+          },
+          null,
+          userMessageStartedAt,
+        ),
+      ).toBe(userMessageStartedAt);
+    });
+
+  it("keeps the local send start while the provider acknowledges the same running turn", () => {
     expect(
       deriveActiveWorkStartedAt(
         latestTurn,
@@ -629,6 +660,19 @@ describe("deriveActiveWorkStartedAt", () => {
           activeTurnId: TurnId.makeUnsafe("turn-1"),
         },
         "2026-02-27T21:11:00.000Z",
+      ),
+    ).toBe("2026-02-27T21:11:00.000Z");
+  });
+
+  it("uses the provider start when no local send timestamp is available", () => {
+    expect(
+      deriveActiveWorkStartedAt(
+        latestTurn,
+        {
+          orchestrationStatus: "running",
+          activeTurnId: TurnId.makeUnsafe("turn-1"),
+        },
+        null,
       ),
     ).toBe("2026-02-27T21:10:00.000Z");
   });

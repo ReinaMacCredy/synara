@@ -11,6 +11,7 @@ import {
   ClockIcon,
   CopyIcon,
   ExternalLinkIcon,
+  EyeIcon,
   FolderOpenIcon,
   GiftIcon,
   KeyboardIcon,
@@ -369,6 +370,7 @@ import {
   SIDEBAR_SECTION_LABEL_CLASS_NAME,
 } from "../sidebarRowStyles";
 import { SettingsSidebarNav } from "./SettingsSidebarNav";
+import { SupervisorSidebarSection } from "./SupervisorSidebarSection";
 import {
   ComposerPickerMenuPopup,
   ComposerPickerMenuSubPopup,
@@ -1373,7 +1375,8 @@ export default function Sidebar() {
   const isOnSettings = useLocation({
     select: (loc) => loc.pathname === "/settings",
   });
-  const isOnOrchestratorRoute = pathname.startsWith("/orchestrator");
+  const isOnOrchestratorRoute =
+    pathname.startsWith("/orchestrator") || pathname.startsWith("/supervisors");
   const isOnAutomations = pathname.startsWith("/automations");
   const isOnPullRequests = pathname.startsWith("/pull-requests");
   const isOnTasks = pathname.startsWith("/tasks") || pathname.includes("/tasks/");
@@ -2510,6 +2513,19 @@ export default function Sidebar() {
       search: { projectId },
     });
   }, [focusedProjectId, navigate, orchestratorRoots]);
+
+  const handleCreateSupervisor = () => {
+    const projectId =
+      focusedProjectId ??
+      projects.find((project) => project.kind === "project" && project.cwd.trim().length > 0)?.id ??
+      null;
+    if (!projectId) {
+      setCreateProjectReturnToOrchestrator(true);
+      setCreateProjectDialogOpen(true);
+      return;
+    }
+    void navigate({ to: "/supervisors", search: { projectId } });
+  };
 
   const addProjectFromPath = useCallback(
     async (
@@ -6504,9 +6520,7 @@ export default function Sidebar() {
                 <SidebarActivityBellButton
                   active={activityViewEnabled}
                   showUnreadDot={
-                    isOnOrchestrator
-                      ? hasUnreadOrchestratorActivity
-                      : hasUnreadOrdinaryActivity
+                    isOnOrchestrator ? hasUnreadOrchestratorActivity : hasUnreadOrdinaryActivity
                   }
                   shortcutLabel={activityShortcutLabel}
                   onClick={() => setActivityViewEnabledSmoothly(!activityViewEnabled)}
@@ -6537,6 +6551,12 @@ export default function Sidebar() {
                         iconClassName="size-3.5"
                         label="New Orchestrator Root"
                         onClick={handleCreateOrchestrator}
+                      />
+                      <SidebarPrimaryAction
+                        icon={EyeIcon}
+                        label="New Supervisor"
+                        active={pathname === "/supervisors"}
+                        onClick={handleCreateSupervisor}
                       />
                       <SidebarPrimaryAction
                         icon={ProcessIcon}
@@ -6613,9 +6633,7 @@ export default function Sidebar() {
                     }
                     resolveThreadStatus={resolveThreadStatusForSidebar}
                     onOpenThread={activateThreadFromSidebarIntent}
-                    onSetThreadSettled={
-                      isOnOrchestrator ? undefined : setThreadSettledWithToast
-                    }
+                    onSetThreadSettled={isOnOrchestrator ? undefined : setThreadSettledWithToast}
                     onToggleThreadPinned={toggleThreadPinned}
                     onArchiveThread={(threadId) => {
                       const orchestratorRoot = orchestratorRootByThreadId.get(threadId) ?? null;
@@ -6649,6 +6667,20 @@ export default function Sidebar() {
                 </SidebarGroup>
               ) : isOnOrchestrator ? (
                 <SidebarGroup className="px-1.5 py-1.5">
+                  <SupervisorSidebarSection
+                    activeSupervisorSeatId={
+                      pathname.startsWith("/supervisors/")
+                        ? pathname.slice("/supervisors/".length)
+                        : null
+                    }
+                    onCreateSupervisor={handleCreateSupervisor}
+                    onOpenSupervisor={(supervisorSeatId) =>
+                      void navigate({
+                        to: "/supervisors/$supervisorSeatId",
+                        params: { supervisorSeatId },
+                      })
+                    }
+                  />
                   {renderListSectionHeader(
                     "Projects",
                     <>

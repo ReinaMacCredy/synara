@@ -2,10 +2,7 @@
 // Purpose: Derive durable Advisor UI state from projected child threads.
 
 import type { ThreadId } from "@synara/contracts";
-import {
-  extractAdvisorConsultationQuestion,
-  isAdvisorIdentity,
-} from "@synara/shared/advisor";
+import { extractAdvisorConsultationQuestion, isAdvisorIdentity } from "@synara/shared/advisor";
 
 import type { Thread, ThreadShell } from "../types";
 
@@ -53,12 +50,14 @@ export function findLatestAdvisorThreadShell(
 export function deriveAdvisorConsultation(thread: Thread | undefined): AdvisorConsultation | null {
   if (!thread) return null;
   const questionMessageIndex = thread.messages.findLastIndex(
-    (message) => message.role === "user" && extractAdvisorConsultationQuestion(message.text) !== null,
+    (message) =>
+      message.role === "user" && extractAdvisorConsultationQuestion(message.text) !== null,
   );
   const questionMessage =
     questionMessageIndex >= 0 ? thread.messages[questionMessageIndex] : undefined;
   const question =
-    extractAdvisorConsultationQuestion(questionMessage?.text) ?? "Agent requested a second opinion.";
+    extractAdvisorConsultationQuestion(questionMessage?.text) ??
+    "Agent requested a second opinion.";
   const answerMessage = thread.messages
     .slice(questionMessageIndex + 1)
     .findLast((message) => message.role === "assistant");

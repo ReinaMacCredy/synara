@@ -21,12 +21,15 @@ import {
   CommandId,
   ContextBundleId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
-  EventId,
-  MessageId,
-  PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
-  ProjectId,
-  ThreadId,
-  TurnId,
+    EventId,
+    LeadSeatId,
+    MessageId,
+    ProfileSnapshotId,
+    PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
+    ProjectId,
+    SupervisionAggregateId,
+    ThreadId,
+    TurnId,
 } from "@synara/contracts";
 import { PROVIDER_DELIVERY_BLOCK_SUMMARY } from "@synara/shared/providerDeliveryBlock";
 import {
@@ -87,6 +90,8 @@ import { attachmentRelativePath } from "../../attachmentStore.ts";
 import { resolveProviderAttachmentPath } from "../../provider/providerAttachmentPaths.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { checkpointRefForThreadTurn } from "../../checkpointing/Utils.ts";
+import { DEFAULT_SUPERVISION_PROFILES } from "../supervision/profileSeeds.ts";
+import { resolveProfilePreset } from "../supervision/profileResolver.ts";
 import {
   CheckpointStore,
   type CheckpointStoreShape,
@@ -6451,7 +6456,7 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
-  it("adopts the requested provider on a first turn before binding a session", async () => {
+    it("adopts the requested provider on a first turn before binding a session", async () => {
     const harness = await createHarness({
       threadModelSelection: { provider: "codex", model: "gpt-5-codex" },
     });
@@ -6502,10 +6507,94 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.providerName).toBe("claudeAgent");
     expect(
       thread?.activities.find((activity) => activity.kind === "provider.turn.start.failed"),
-    ).toBeUndefined();
-  });
+      ).toBeUndefined();
+    });
 
-  it("preserves the active session model when in-session model switching is unsupported", async () => {
+    it("uses the immutable supervision profile model for a durable seat follow-up", async () => {
+      const harness = await createHarness({
+        threadModelSelection: { provider: "codex", model: "gpt-5.6-luna" },
+      });
+      const createdAt = new Date().toISOString();
+      const profile = DEFAULT_SUPERVISION_PROFILES.find((candidate) =>
+        candidate.roleHints.includes("lead"),
+      )!;
+      const profileSnapshotId = ProfileSnapshotId.makeUnsafe(
+        "profile-snapshot-durable-follow-up",
+      );
+
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "supervision.lead.enroll",
+          commandId: CommandId.makeUnsafe("cmd-enroll-durable-follow-up"),
+          aggregateId: SupervisionAggregateId.makeUnsafe("supervision"),
+          actor: { kind: "user", actorId: "owner" },
+          expectedRevision: 0,
+          createdAt,
+          profilePresetId: profile.id,
+          profileSnapshot: resolveProfilePreset({
+            preset: profile,
+            snapshotId: profileSnapshotId,
+            createdAt,
+          }),
+          lead: {
+            id: LeadSeatId.makeUnsafe("lead-durable-follow-up"),
+            projectId: asProjectId("project-1"),
+            activeThreadId: ThreadId.makeUnsafe("thread-1"),
+            predecessorThreadIds: [],
+            profileSnapshotId,
+            status: "active",
+            createdAt,
+            updatedAt: createdAt,
+            archivedAt: null,
+            revision: 0,
+          },
+        }),
+      );
+
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.makeUnsafe("cmd-turn-start-durable-follow-up"),
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          message: {
+            messageId: asMessageId("user-message-durable-follow-up"),
+            role: "user",
+            text: "continue under the resolved profile",
+            attachments: [],
+          },
+          modelSelection: { provider: "codex", model: "gpt-5.6-luna" },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          createdAt,
+        }),
+      );
+
+      await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+      expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5.6-sol",
+          options: { reasoningEffort: "medium" },
+        },
+      });
+      expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5.6-sol",
+          options: { reasoningEffort: "medium" },
+        },
+      });
+
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const thread = readModel.threads.find(
+        (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
+      );
+      expect(
+        thread?.activities.find((activity) => activity.kind === "provider.turn.start.failed"),
+      ).toBeUndefined();
+    });
+
+    it("preserves the active session model when in-session model switching is unsupported", async () => {
     const harness = await createHarness({ sessionModelSwitch: "unsupported" });
     const now = new Date().toISOString();
 

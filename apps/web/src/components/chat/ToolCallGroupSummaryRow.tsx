@@ -12,17 +12,19 @@ import { DisclosureChevron } from "../ui/DisclosureChevron";
 import { DisclosureRegion } from "../ui/DisclosureRegion";
 import { DISCLOSURE_CLEANUP_BUFFER_MS, DISCLOSURE_TRANSITION_MS } from "~/lib/disclosureMotion";
 import type { ToolCallGroupSummary } from "./toolCallGroup.logic";
-import { cn } from "~/lib/utils";
+import { AnimatedTextSwap } from "./AnimatedTextSwap";
 
 export function ToolCallGroupSummaryRow(props: {
   summary: ToolCallGroupSummary;
+  headline?: string | null;
   open: boolean;
   onToggle: (open: boolean) => void;
   fontSizePx: number;
   live?: boolean;
   renderChildren: () => ReactNode;
 }) {
-  const { summary, open, onToggle, fontSizePx, live = false, renderChildren } = props;
+  const { summary, headline, open, onToggle, fontSizePx, live = false, renderChildren } =
+    props;
   const [keepChildrenMounted, setKeepChildrenMounted] = useState(open);
 
   useEffect(() => {
@@ -52,7 +54,11 @@ export function ToolCallGroupSummaryRow(props: {
         <span className="flex size-5 shrink-0 items-center justify-center" aria-hidden>
           <Wrench className="size-[18px]" strokeWidth={2} />
         </span>
-        <span className={cn(live && "shimmer motion-reduce:animate-none")}>{summary.label}</span>
+          <AnimatedTextSwap
+            phrase={headline ?? summary.label}
+            shimmer={live}
+            rootData={{ "data-tool-summary-swap": "true" }}
+          />
         <DisclosureChevron open={open} className="text-muted-foreground/55" />
       </button>
       <DisclosureRegion open={open}>

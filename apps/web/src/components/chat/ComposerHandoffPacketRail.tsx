@@ -56,11 +56,11 @@ export function ComposerHandoffPacketRail(props: {
           : "Preparing";
 
   return (
-      <ComposerStackedPanel
-        attachedToPrevious={props.attachedToPrevious}
-        className={isPreparing ? "handoff-magic-border" : undefined}
-        data-testid="handoff-packet-rail"
-      >
+    <ComposerStackedPanel
+      attachedToPrevious={props.attachedToPrevious}
+      className={isPreparing ? "handoff-magic-border" : undefined}
+      data-testid="handoff-packet-rail"
+    >
       <ComposerStackedPanelHeaderRow className="gap-2 sm:gap-3">
         <button
           type="button"

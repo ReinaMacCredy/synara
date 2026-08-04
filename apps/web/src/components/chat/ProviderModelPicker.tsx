@@ -467,6 +467,7 @@ type ProviderModelPickerProps = {
   hiddenProviders?: ReadonlyArray<ProviderKind>;
   providerOrder?: ReadonlyArray<ProviderKind>;
   activeProviderIconClassName?: string;
+  triggerClassName?: string;
   compact?: boolean;
   // Icon-only trigger for narrow composers; the model name moves to title/sr-only.
   hideLabel?: boolean;
@@ -527,7 +528,7 @@ export const ProviderModelPicker = function ProviderModelPicker(props: ProviderM
       disabled={props.disabled ?? false}
       compact={props.compact ?? false}
       hideLabel={props.hideLabel ?? false}
-      className="text-[var(--color-text-foreground)]"
+      className={cn("text-[var(--color-text-foreground)]", props.triggerClassName)}
       icon={
         <ProviderIcon
           aria-hidden="true"

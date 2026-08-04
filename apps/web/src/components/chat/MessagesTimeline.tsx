@@ -71,8 +71,8 @@ import { InlineSkillChip } from "./InlineSkillChip";
 import { InlineAgentChip } from "./InlineAgentChip";
 import { MessageActionButton, MESSAGE_ACTION_ICON_CLASS_NAME } from "./MessageActionButton";
 import { MessageCopyButton } from "./MessageCopyButton";
-import { ReasoningActivityStream } from "./ReasoningActivityStream";
 import { ReasoningTextSwap } from "./ReasoningTextSwap";
+import { formatAgentActivityEntryPreview } from "./agentActivity.logic";
 import { AssistantSelectionsSummaryChip } from "./AssistantSelectionsSummaryChip";
 import { FileAttachmentChip } from "./FileAttachmentChip";
 import { FileCommentsSummaryChip } from "./FileCommentsSummaryChip";
@@ -104,7 +104,7 @@ import {
   resolveAssistantMessageDisplayText,
   type StableMessagesTimelineRowsState,
 } from "./MessagesTimeline.logic";
-import { summarizeToolCallGroup } from "./toolCallGroup.logic";
+import { isSummarizableToolCallEntry, summarizeToolCallGroup } from "./toolCallGroup.logic";
 import { ToolCallGroupSummaryRow } from "./ToolCallGroupSummaryRow";
 import {
   deriveDisplayedUserMessageState,
@@ -617,6 +617,14 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     ],
   );
   const rows = useStableRows(rawRows);
+  const alwaysRenderedTurnActivityRows = useMemo(() => {
+    const keys: string[] = [];
+    for (let index = rows.length - 1; index >= 0 && keys.length < 2; index -= 1) {
+      const row = rows[index];
+      if (row?.kind === "turn-activity") keys.push(row.id);
+    }
+    return { keys };
+  }, [rows]);
   // The newest work group renders its rows inline while the turn is live; every
   // older run of tool calls folds into a "Ran N commands..." summary row.
   const lastLiveWorkGroupId = useMemo(() => findLastLiveWorkGroupId(rows), [rows]);
@@ -959,13 +967,14 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       className={cn(
         CHAT_COLUMN_FRAME_CLASS_NAME,
         "px-1 transition-colors duration-500",
-        (row.kind === "turn-activity" && row.state === "working") ||
-          (row.kind === "message" &&
+          (row.kind === "turn-activity" && row.state === "working") ||
+            (row.kind === "message" &&
             row.message.role === "assistant" &&
             row.assistantTurnInProgress)
           ? "pb-1"
-          : row.kind === "work" ||
-              row.kind === "turn-activity" ||
+            : row.kind === "work" ||
+                row.kind === "reasoning-status" ||
+                row.kind === "turn-activity" ||
               (row.kind === "message" && row.message.role === "assistant")
             ? "pb-2"
             : "pb-4",
@@ -1004,6 +1013,21 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               {...(onOpenAutomation ? { onOpenAutomation } : {})}
             />
           );
+          const renderSummaryEntryRow = (workEntry: WorkLogEntry) => (
+            <TimelineWorkEntryRow
+              key={`work-summary-detail:${workEntry.id}`}
+              workEntry={workEntry}
+              chatMetaFontSizePx={appTypographyScale.chatMetaPx}
+              textFontSizePx={normalizedChatFontSizePx}
+              density="compact"
+              presentation="summary-detail"
+              markdownCwd={markdownCwd}
+              onImageExpand={onImageExpand}
+              timestampFormat={timestampFormat}
+              {...(onOpenAgentActivity ? { onOpenAgentActivity } : {})}
+              {...(onOpenAutomation ? { onOpenAutomation } : {})}
+            />
+          );
           const isLiveGroup =
             groupId === lastLiveWorkGroupId && (activeTurnInProgress || isWorking);
           const isExpanded = expandedWorkGroupsState[groupId] ?? false;
@@ -1026,16 +1050,19 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                     const summary = chunk.summary;
                     const summaryKey = `${groupId}:${chunk.id}`;
                     return (
-                      <ToolCallGroupSummaryRow
-                        key={`tool-summary:${summaryKey}`}
-                        summary={summary}
-                        open={chunk.live || (toolGroupSummaryOverrides[summaryKey] ?? false)}
+                        <ToolCallGroupSummaryRow
+                          key={`tool-summary:${summaryKey}`}
+                          summary={summary}
+                          headline={chunk.headline}
+                        open={isExpanded || (toolGroupSummaryOverrides[summaryKey] ?? false)}
                         onToggle={(open) => setToolGroupSummaryOpen(summaryKey, open)}
                         fontSizePx={normalizedChatFontSizePx}
                         live={chunk.live}
-                        renderChildren={() => (
-                          <div className="space-y-0.5 pt-0.5">
-                            {chunk.entries.map(renderEntryRow)}
+                          renderChildren={() => (
+                            <div className="space-y-0.5 pt-0.5">
+                              {chunk.entries
+                                .filter(isSummarizableToolCallEntry)
+                                .map(renderSummaryEntryRow)}
                           </div>
                         )}
                       />
@@ -1478,12 +1505,28 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 {...(turnSummary?.turnId ? { turnId: turnSummary.turnId } : {})}
               />
             );
+            const renderInlineSummaryToolRow = (workEntry: WorkLogEntry) => (
+              <TimelineWorkEntryRow
+                key={`${placement}-tool-summary-detail:${row.message.id}:${workEntry.id}`}
+                workEntry={workEntry}
+                chatMetaFontSizePx={appTypographyScale.chatMetaPx}
+                textFontSizePx={normalizedChatFontSizePx}
+                density="compact"
+                presentation="summary-detail"
+                fileDiffStatByPath={fileDiffStatByPath}
+                markdownCwd={markdownCwd}
+                onImageExpand={onImageExpand}
+                onOpenTurnDiff={onOpenTurnDiff}
+                timestampFormat={timestampFormat}
+                {...(onOpenAgentActivity ? { onOpenAgentActivity } : {})}
+                {...(onOpenAutomation ? { onOpenAutomation } : {})}
+                {...(turnSummary?.turnId ? { turnId: turnSummary.turnId } : {})}
+              />
+            );
             const isLiveGroup =
               display.toolGroupId !== null &&
               display.toolGroupId === lastLiveWorkGroupId &&
               (activeTurnInProgress || isWorking);
-            // Leading groups are never a live tail: the message's own text
-            // already follows them, so their last tool run collapses too.
             const plannedRenderChunks = planWorkEntryRenderChunks(
               display.orderedRenderableEntries,
               {
@@ -1491,10 +1534,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               },
             );
             const cappedRenderPlan = capOpenWorkEntryRenderChunks(plannedRenderChunks, {
-              // An active purpose is already explicitly open: every child row must remain
-              // visible while tools stream, matching the Codex timeline instead of hiding
-              // older live calls behind a second "show more" control.
-              expanded: display.toolExpanded || isLiveGroup,
+              expanded: display.toolExpanded,
               maxVisibleEntries: MAX_VISIBLE_INLINE_TOOL_ENTRIES,
               keep: activeTurnInProgress ? "last" : "first",
               shouldCapEntry: (workEntry) => workEntry.tone === "tool",
@@ -1518,18 +1558,22 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                         // Message ids stay stable while a live group's first-entry id can drift.
                         const summaryOverrideKey = `${placement}:${row.message.id}:${chunk.id}`;
                         return (
-                          <ToolCallGroupSummaryRow
-                            key={`inline-tool-summary:${summaryOverrideKey}`}
-                            summary={summary}
+                            <ToolCallGroupSummaryRow
+                              key={`inline-tool-summary:${summaryOverrideKey}`}
+                              summary={summary}
+                              headline={chunk.headline}
                             open={
-                              chunk.live || (toolGroupSummaryOverrides[summaryOverrideKey] ?? false)
+                              display.toolExpanded ||
+                              (toolGroupSummaryOverrides[summaryOverrideKey] ?? false)
                             }
                             onToggle={(open) => setToolGroupSummaryOpen(summaryOverrideKey, open)}
                             fontSizePx={normalizedChatFontSizePx}
                             live={chunk.live}
-                            renderChildren={() => (
-                              <div className="space-y-px pt-0.5">
-                                {chunk.entries.map(renderInlineToolRow)}
+                              renderChildren={() => (
+                                <div className="space-y-px pt-0.5">
+                                  {chunk.entries
+                                    .filter(isSummarizableToolCallEntry)
+                                    .map(renderInlineSummaryToolRow)}
                               </div>
                             )}
                           />
@@ -1574,7 +1618,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                       )}
                   </div>
                 )}
-                {display.statusEntries.length > 0 && (
+                  {!collapseAsSummary && display.statusEntries.length > 0 && (
                   <div
                     className={cn(
                       "space-y-0.5",
@@ -1883,7 +1927,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           );
         })()}
 
-      {row.kind === "proposed-plan" && (
+        {row.kind === "proposed-plan" && (
         <div className="min-w-0 py-0.5">
           <ProposedPlanCard
             planMarkdown={row.proposedPlan.planMarkdown}
@@ -1892,9 +1936,17 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             chatTypographyStyle={chatTypographyStyle}
           />
         </div>
-      )}
+        )}
 
-      {row.kind === "turn-activity" &&
+        {row.kind === "reasoning-status" && (
+          <LiveReasoningStatusRow
+            scopeKey={row.scopeKey}
+            reasoningEntries={row.reasoningEntries}
+            fontSize={chatTypographyStyle.fontSize}
+          />
+        )}
+
+        {row.kind === "turn-activity" &&
         (() => {
           const detailItems = (row.collapsedTurnItems ?? []).filter(
             (item) => item.kind !== "work" || !item.entry.synaraThreadCreation,
@@ -1903,7 +1955,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             row.state === "settled" && detailItems.length > 0
               ? (expandedCollapsedWork[row.id] ?? false)
               : false;
-          const renderItem = (item: CollapsedTurnItem, keyPrefix: string) =>
+          const renderItem = (
+            item: CollapsedTurnItem,
+            keyPrefix: string,
+            presentation: "default" | "summary-detail" = "default",
+          ) =>
             item.kind === "work" ? (
               <TimelineWorkEntryRow
                 key={`${keyPrefix}:work:${row.id}:${item.id}`}
@@ -1911,6 +1967,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 chatMetaFontSizePx={appTypographyScale.chatMetaPx}
                 textFontSizePx={normalizedChatFontSizePx}
                 density={prefersCompactWorkEntryRow(item.entry) ? "compact" : "default"}
+                presentation={presentation}
                 markdownCwd={markdownCwd}
                 onImageExpand={onImageExpand}
                 timestampFormat={timestampFormat}
@@ -1952,8 +2009,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 live={false}
                 renderChildren={() => (
                   <div className="space-y-0.5 pt-0.5">
-                    {chunk.entries.map((entry) =>
-                      renderItem({ kind: "work", id: entry.id, entry }, "turn-activity"),
+                  {chunk.entries.map((entry) =>
+                    renderItem(
+                      { kind: "work", id: entry.id, entry },
+                      "turn-activity",
+                      "summary-detail",
+                    ),
                     )}
                   </div>
                 )}
@@ -1966,16 +2027,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               activityId={row.id}
               state={row.state}
               startedAt={row.createdAt}
-              showThinking={row.showThinking ?? false}
-              reasoningEntries={row.reasoningEntries ?? []}
               settledElapsed={row.collapsedWorkElapsed ?? null}
               nowIso={nowIso}
               open={expanded}
               hasDetails={detailItems.length > 0}
               fontSize={chatTypographyStyle.fontSize}
               onToggle={(open) => setCollapsedWorkExpanded(row.id, open)}
-              markdownCwd={markdownCwd}
-              onImageExpand={onImageExpand}
               renderChildren={() => (
                 <div className="mb-2.5 space-y-1.5">
                   {chunkCollapsedTurnItems(detailItems).map(renderChunk)}
@@ -2019,6 +2076,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         keyExtractor={(row) => row.id}
         renderItem={({ item }) => renderRowContent(item)}
         estimatedItemSize={90}
+        // Reserve only the newest turn pair so LegendList cannot recycle the live
+        // follow-up's physical DOM before Working transitions to Worked.
+        alwaysRender={alwaysRenderedTurnActivityRows}
         // LegendList caches rendered rows, so every local expansion map that changes row content
         // has to be surfaced through extraData.
         extraData={timelineExtraData}
@@ -2265,8 +2325,6 @@ function TurnActivityRegion(props: {
   activityId: string;
   state: "working" | "settled";
   startedAt: string | null;
-  showThinking: boolean;
-  reasoningEntries: ReadonlyArray<WorkLogEntry>;
   settledElapsed: string | null;
   nowIso?: string;
   open: boolean;
@@ -2274,11 +2332,9 @@ function TurnActivityRegion(props: {
   fontSize: CSSProperties["fontSize"];
   onToggle: (open: boolean) => void;
   renderChildren: () => ReactNode;
-  markdownCwd: string | undefined;
-  onImageExpand: (preview: ExpandedImagePreview) => void;
-}) {
-  const live = props.state === "working";
-  const [keepChildrenMounted, setKeepChildrenMounted] = useState(props.open);
+  }) {
+    const live = props.state === "working";
+    const [keepChildrenMounted, setKeepChildrenMounted] = useState(props.open);
 
   useEffect(() => {
     if (props.open) {
@@ -2321,26 +2377,32 @@ function TurnActivityRegion(props: {
         <CollapsiblePanel>
           {props.open || keepChildrenMounted ? props.renderChildren() : null}
         </CollapsiblePanel>
-      </Collapsible>
-      <div className="h-px w-full bg-border" />
-      <DisclosureRegion open={live && (props.showThinking || props.reasoningEntries.length > 0)}>
-        {props.reasoningEntries.length > 0 ? (
-          <ReasoningActivityStream
-            entries={props.reasoningEntries}
-            fontSize={props.fontSize}
-            markdownCwd={props.markdownCwd}
-            onImageExpand={props.onImageExpand}
-          />
-        ) : (
-          <div
-            data-turn-thinking="true"
-            className="pt-3 text-muted-foreground/70"
-            style={{ fontSize: props.fontSize }}
-          >
-            <ReasoningTextSwap active={live && props.showThinking} />
-          </div>
-        )}
-      </DisclosureRegion>
+        </Collapsible>
+        <div className="h-px w-full bg-border" />
+      </div>
+    );
+  }
+
+function LiveReasoningStatusRow(props: {
+  scopeKey: string;
+  reasoningEntries: ReadonlyArray<WorkLogEntry>;
+  fontSize: CSSProperties["fontSize"];
+}) {
+  const providerPhrase = useMemo(() => {
+    for (let index = props.reasoningEntries.length - 1; index >= 0; index -= 1) {
+      const phrase = formatAgentActivityEntryPreview(props.reasoningEntries[index]!);
+      if (phrase) return phrase;
+    }
+    return null;
+  }, [props.reasoningEntries]);
+
+  return (
+    <div
+      data-turn-thinking="true"
+      className="text-muted-foreground/70"
+      style={{ fontSize: props.fontSize }}
+    >
+      <ReasoningTextSwap active scopeKey={props.scopeKey} providerPhrase={providerPhrase} />
     </div>
   );
 }

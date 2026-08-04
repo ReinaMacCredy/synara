@@ -1,4 +1,10 @@
-import { OrchestrationProposedPlanId, ProjectId, ThreadId } from "@synara/contracts";
+import {
+  LeadSeatId,
+  OrchestrationProposedPlanId,
+  ProfilePresetId,
+  ProjectId,
+  ThreadId,
+} from "@synara/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { partializeComposerDraftStoreState, useComposerDraftStore } from "./composerDraftStore";
 import { normalizeCurrentPersistedComposerDraftStoreState } from "./composerDraftPersistence";
@@ -68,6 +74,9 @@ describe("composerDraftStore persisted-state hydration", () => {
       runtimeMode: "full-access",
       interactionMode: "default",
       entryPoint: "terminal",
+      supervisionMode: "orchestrate",
+      profilePresetId: null,
+      leadSeatId: null,
     });
     expect(hydrated.draftsByThreadId[threadId]?.assistantSelections).toEqual([
       {
@@ -103,6 +112,9 @@ describe("composerDraftStore persisted-state hydration", () => {
           runtimeMode: "approval-required",
           interactionMode: "default",
           entryPoint: "orchestrator",
+          supervisionMode: "supervise",
+          profilePresetId: ProfilePresetId.makeUnsafe("profile-lead"),
+          leadSeatId: LeadSeatId.makeUnsafe("lead-seat"),
           orchestratorSourceThreadId: sourceThreadId,
           orchestratorHandoffMessages: [
             {
@@ -126,6 +138,9 @@ describe("composerDraftStore persisted-state hydration", () => {
     expect(hydrated.draftThreadsByThreadId[threadId]).toMatchObject({
       projectId,
       entryPoint: "orchestrator",
+      supervisionMode: "supervise",
+      profilePresetId: "profile-lead",
+      leadSeatId: "lead-seat",
       orchestratorSourceThreadId: sourceThreadId,
       orchestratorHandoffMessages: [
         {
@@ -133,6 +148,42 @@ describe("composerDraftStore persisted-state hydration", () => {
           text: "Use a durable Root aggregate.",
         },
       ],
+    });
+  });
+
+  it("migrates a legacy Supervisor draft mapping without decoding it as chat", () => {
+    const projectId = ProjectId.makeUnsafe("project-supervisor-draft");
+    const threadId = ThreadId.makeUnsafe("thread-supervisor-draft");
+    const hydrated = normalizeCurrentPersistedComposerDraftStoreState({
+      draftsByThreadId: {
+        [threadId]: { prompt: "Keep supervising this Project", attachments: [] },
+      },
+      draftThreadsByThreadId: {
+        [threadId]: {
+          projectId,
+          createdAt: "2026-08-03T00:00:00.000Z",
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          entryPoint: "supervisor",
+          supervisionMode: "supervise",
+          profilePresetId: ProfilePresetId.makeUnsafe("profile-supervisor"),
+          branch: null,
+          worktreePath: null,
+          workingDirectory: "/workspace/project",
+          envMode: "local",
+        },
+      },
+      projectDraftThreadIdByProjectId: { [projectId]: threadId },
+    });
+
+    expect(hydrated.projectDraftThreadIdByProjectId).toEqual({
+      [`${projectId}::supervisor`]: threadId,
+    });
+    expect(hydrated.draftThreadsByThreadId[threadId]).toMatchObject({
+      projectId,
+      entryPoint: "supervisor",
+      supervisionMode: "supervise",
+      profilePresetId: "profile-supervisor",
     });
   });
 

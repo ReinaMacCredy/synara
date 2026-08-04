@@ -1,8 +1,6 @@
 // FILE: ComposerChoiceRow.tsx
-// Purpose: Shared list-style choice row (leading number chip + label + inline
-// description + optional trailing affordance) used by both composer decision cards —
-// the pending-approval card and the AskUserQuestion card — so approvals and questions
-// read as one coherent set of Codex-style list controls instead of drifting apart.
+// Purpose: List-style choice row (leading number chip + label + inline description +
+// optional trailing affordance) used by the composer tool-approval decision card.
 // Layer: Chat composer UI
 // Exports: ComposerChoiceRow, ComposerChoiceTone
 

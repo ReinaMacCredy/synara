@@ -1075,6 +1075,22 @@ type LocalDispatchAcknowledgementInput = {
   threadError: string | null | undefined;
 };
 
+function hasLatestTurnChangedSinceLocalDispatch(
+  input: LocalDispatchAcknowledgementInput,
+): boolean {
+  const localDispatch = input.localDispatch;
+  if (!localDispatch) {
+    return false;
+  }
+  const latestTurn = input.latestTurn ?? null;
+  return (
+    localDispatch.latestTurnTurnId !== (latestTurn?.turnId ?? null) ||
+    localDispatch.latestTurnRequestedAt !== (latestTurn?.requestedAt ?? null) ||
+    localDispatch.latestTurnStartedAt !== (latestTurn?.startedAt ?? null) ||
+    localDispatch.latestTurnCompletedAt !== (latestTurn?.completedAt ?? null)
+  );
+}
+
 export function hasTurnLifecycleAcknowledgedLocalDispatch(
   input: LocalDispatchAcknowledgementInput,
 ): boolean {
@@ -1089,16 +1105,9 @@ export function hasTurnLifecycleAcknowledgedLocalDispatch(
   ) {
     return true;
   }
-  const latestTurn = input.latestTurn ?? null;
   const session = input.session ?? null;
   const nextSessionOrchestrationStatus = session?.orchestrationStatus ?? null;
-  const latestTurnChanged =
-    input.localDispatch.latestTurnTurnId !== (latestTurn?.turnId ?? null) ||
-    input.localDispatch.latestTurnRequestedAt !== (latestTurn?.requestedAt ?? null) ||
-    input.localDispatch.latestTurnStartedAt !== (latestTurn?.startedAt ?? null) ||
-    input.localDispatch.latestTurnCompletedAt !== (latestTurn?.completedAt ?? null);
-
-  if (latestTurnChanged) {
+  if (hasLatestTurnChangedSinceLocalDispatch(input)) {
     return true;
   }
 
@@ -1111,6 +1120,39 @@ export function hasTurnLifecycleAcknowledgedLocalDispatch(
     );
   }
 
+  return false;
+}
+
+export function hasTurnLifecycleSettledLocalDispatch(
+  input: LocalDispatchAcknowledgementInput,
+): boolean {
+  if (!input.localDispatch) {
+    return false;
+  }
+  if (Boolean(input.threadError)) {
+    return true;
+  }
+
+  const session = input.session ?? null;
+  if (
+    input.phase === "running" ||
+    input.hasPendingApproval ||
+    input.hasPendingUserInput ||
+    session?.orchestrationStatus === "running" ||
+    session?.activeTurnId != null
+  ) {
+    return false;
+  }
+
+  const latestTurn = input.latestTurn ?? null;
+  if (
+    hasLatestTurnChangedSinceLocalDispatch(input) &&
+    (latestTurn?.completedAt != null ||
+      latestTurn?.state === "interrupted" ||
+      latestTurn?.state === "error")
+  ) {
+    return true;
+  }
   return false;
 }
 

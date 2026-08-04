@@ -206,7 +206,14 @@ export function deriveActiveWorkStartedAt(
   latestTurn: LatestTurnTiming | null,
   session: SessionActivityState | null,
   sendStartedAt: string | null,
+  userMessageStartedAt: string | null = null,
 ): string | null {
+  if (userMessageStartedAt) {
+    return userMessageStartedAt;
+  }
+  if (sendStartedAt) {
+    return sendStartedAt;
+  }
   const runningTurnId =
     session?.orchestrationStatus === "running" ? (session.activeTurnId ?? null) : null;
   if (runningTurnId !== null && runningTurnId === latestTurn?.turnId) {

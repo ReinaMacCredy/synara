@@ -189,12 +189,7 @@ export function AdvisorPopoverButton({
           <div className="flex items-center justify-between gap-3">
             <span className="text-[11px] text-muted-foreground">⌘/Ctrl + Enter to send</span>
             <div className="flex items-center gap-1.5">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setPopoverOpen(false)}
-              >
+              <Button type="button" variant="ghost" size="sm" onClick={() => setPopoverOpen(false)}>
                 Cancel
               </Button>
               <Button

@@ -42,6 +42,7 @@ import {
   type ProviderSendTurnInput,
   type ProviderSession,
   type ProviderOrchestratorSessionContext,
+  type ProviderSupervisionSessionContext,
   type ThreadTokenUsageSnapshot,
   type ProviderUserInputAnswers,
   type RuntimeContentStreamKind,
@@ -93,6 +94,7 @@ import {
 import { buildClaudeMcpServers } from "../../agentGateway/mcpInjection.ts";
 import { renderSynaraHarnessPolicy } from "../../agentGateway/harnessPolicy.ts";
 import { orchestratorInstructionForSession } from "../../orchestration/orchestrator/protocolV1.ts";
+import { supervisionInstructionForSession } from "../../orchestration/supervision/protocolV1.ts";
 import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
 import { PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY } from "../Services/ProviderAdapter.ts";
 import {
@@ -1028,6 +1030,7 @@ const CLAUDE_INTERRUPT_TIMEOUT = Duration.seconds(10);
 export const buildEmbeddedClaudeSystemPromptAppend = (
   gatewayControlAvailable: boolean,
   orchestratorContext?: ProviderOrchestratorSessionContext | null,
+  supervisionContext?: ProviderSupervisionSessionContext | null,
 ) =>
   [
     "You are running inside Synara, a coding app that embeds the Claude Agent SDK.",
@@ -1039,6 +1042,7 @@ export const buildEmbeddedClaudeSystemPromptAppend = (
     "Provider-native subagents are provider-owned helpers, not standalone Synara Orchestrator threads. They must not claim a Synara ownership role or call Synara Orchestrator native mutation tools.",
     renderSynaraHarnessPolicy({ gatewayControlAvailable }),
     ...(orchestratorContext ? [orchestratorInstructionForSession(orchestratorContext)] : []),
+    ...(supervisionContext ? [supervisionInstructionForSession(supervisionContext)] : []),
   ].join("\n");
 
 const CLAUDE_WORKER_EFFORT_TIERS = ["low", "medium", "high", "xhigh"] as const;
@@ -4956,6 +4960,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             append: buildEmbeddedClaudeSystemPromptAppend(
               agentGatewayCredentials !== undefined,
               input.orchestratorContext,
+              input.supervisionContext,
             ),
             // Strip per-user dynamic sections (working directory, auto-memory
             // path) into the first user message so the cached system-prompt

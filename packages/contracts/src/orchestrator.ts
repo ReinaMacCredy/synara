@@ -22,6 +22,7 @@ import {
   TaskThreadBindingId,
   TaskThreadRole,
 } from "./taskProcess";
+import { SupervisionPeerBootstrap } from "./supervision";
 
 const makeOrchestratorId = <Brand extends string>(brand: Brand) =>
   TrimmedNonEmptyString.pipe(Schema.brand(brand));
@@ -695,6 +696,7 @@ export const OrchestratorChildCreateCommand = Schema.Struct({
       expiresAt: IsoDateTime,
     }),
   ),
+  supervisionPeerBootstrap: Schema.optional(SupervisionPeerBootstrap),
 });
 export const OrchestratorChildRetireCommand = Schema.Struct({
   ...OrchestratorCommandBase,
@@ -865,6 +867,7 @@ export const OrchestratorUserCommand = Schema.Union([
   OrchestratorRootCreateCommand,
   OrchestratorRootArchiveCommand,
   OrchestratorRootRestoreCommand,
+  OrchestratorChildCreateCommand,
 ]);
 export type OrchestratorUserCommand = typeof OrchestratorUserCommand.Type;
 export const OrchestratorCommand = Schema.Union([
@@ -1102,6 +1105,15 @@ export const OrchestratorToolName = Schema.Literals([
   "list_handoff_sources",
   "read_handoff_source",
   "search_handoff_source",
+  "read_supervision_state",
+  "create_supervision_mission",
+  "update_supervision_mission",
+  "complete_supervision_mission",
+  "cancel_supervision_mission",
+  "send_supervision_advice",
+  "apply_supervision_workflow",
+  "revoke_supervision_workflow",
+  "request_lead_replacement",
 ]);
 export type OrchestratorToolName = typeof OrchestratorToolName.Type;
 

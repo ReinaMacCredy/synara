@@ -61,8 +61,8 @@ export function CommunicationGraphInspect(props: {
               <LinkIcon className="size-3.5 shrink-0 text-muted-foreground" />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-xs font-medium">
-                  {threadLabel(props.threadLabels, link.sourceThreadId)} {" "}
-                  {link.direction === "bidirectional" ? "↔" : "→"} {" "}
+                  {threadLabel(props.threadLabels, link.sourceThreadId)}{" "}
+                  {link.direction === "bidirectional" ? "↔" : "→"}{" "}
                   {threadLabel(props.threadLabels, link.targetThreadId)}
                 </span>
                 <span className="mt-0.5 flex min-w-0 items-center gap-1 text-[10px] text-muted-foreground">

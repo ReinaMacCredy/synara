@@ -2,7 +2,13 @@
 // Purpose: Defines the normalized web-store state shape and stable empty slice sentinels.
 // Exports: AppState, its initial value, and immutable empty normalized records.
 
-import type { MessageId, ThreadId, TurnId } from "@synara/contracts";
+import {
+  emptySupervisionSnapshot,
+  type MessageId,
+  type SupervisionSnapshot,
+  type ThreadId,
+  type TurnId,
+} from "@synara/contracts";
 
 import type {
   ChatMessage,
@@ -26,6 +32,7 @@ export interface AppState {
   shellSnapshotSequence?: number;
   spaces: Space[];
   projects: Project[];
+  supervision: SupervisionSnapshot;
   sidebarThreadSummaryById: Record<string, SidebarThreadSummary>;
   threadsHydrated: boolean;
   threadIds?: ThreadId[];
@@ -81,6 +88,7 @@ export const initialState: AppState = {
   shellSnapshotSequence: 0,
   spaces: [],
   projects: [],
+  supervision: emptySupervisionSnapshot(new Date(0).toISOString()),
   sidebarThreadSummaryById: {},
   threadsHydrated: false,
   threadIds: [],

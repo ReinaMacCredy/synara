@@ -21,6 +21,7 @@ export interface OrchestratorToolInvocationContext {
   readonly callerSessionKey: string;
   readonly callerProvider: ProviderKind;
   readonly callerTurnId: string | null;
+  readonly callerDispatchOrigin?: "user" | "automation" | "agent" | "orchestrator";
   readonly listOrchestratorCapabilities: () => Effect.Effect<
     ReadonlyArray<OrchestratorProviderCapability>,
     OrchestratorToolError

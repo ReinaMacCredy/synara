@@ -26,6 +26,7 @@ describe("RIGHT_DOCK_PANE_KINDS (single source of truth)", () => {
       "orchestratorTeam",
       "orchestratorProcess",
       "orchestratorRuns",
+      "supervision",
     ]);
   });
 
@@ -50,6 +51,7 @@ describe("isRightDockPaneKind", () => {
       "orchestratorTeam",
       "orchestratorProcess",
       "orchestratorRuns",
+      "supervision",
     ]) {
       expect(isRightDockPaneKind(kind)).toBe(true);
     }

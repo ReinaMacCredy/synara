@@ -7,19 +7,21 @@ import type { ThreadId } from "@synara/contracts";
 
 export function resolveRouteVisibleThreadIds(input: {
   readonly routeThreadId: ThreadId | null;
+  readonly supervisorRouteThreadId?: ThreadId | null | undefined;
   readonly orchestratorSelectedThreadId?: ThreadId | null | undefined;
   readonly splitViewThreadIds?: readonly ThreadId[] | undefined;
 }): ThreadId[] {
   if (input.splitViewThreadIds) {
     return [...new Set(input.splitViewThreadIds)];
   }
-  if (!input.routeThreadId) {
+  const primaryThreadId = input.routeThreadId ?? input.supervisorRouteThreadId ?? null;
+  if (!primaryThreadId) {
     return [];
   }
   return input.orchestratorSelectedThreadId &&
-    input.orchestratorSelectedThreadId !== input.routeThreadId
-    ? [input.routeThreadId, input.orchestratorSelectedThreadId]
-    : [input.routeThreadId];
+    input.orchestratorSelectedThreadId !== primaryThreadId
+    ? [primaryThreadId, input.orchestratorSelectedThreadId]
+    : [primaryThreadId];
 }
 
 /**

@@ -53,14 +53,15 @@ function commandEntry(id: string, command: string): TimelineEntry {
       createdAt: "2026-03-17T19:12:28.000Z",
       label: "Ran command",
       tone: "tool",
-      itemType: "command_execution",
-      toolStatus: "completed",
-      command,
-    },
-  };
-}
+        itemType: "command_execution",
+        toolStatus: "completed",
+        command,
+        turnId: TurnId.makeUnsafe("turn-live"),
+      },
+    };
+  }
 
-function thinkingEntry(id: string, label: string): TimelineEntry {
+function reasoningEntry(id: string, preview: string): TimelineEntry {
   return {
     id: `entry-${id}`,
     kind: "work",
@@ -68,8 +69,11 @@ function thinkingEntry(id: string, label: string): TimelineEntry {
     entry: {
       id,
       createdAt: "2026-03-17T19:12:28.000Z",
-      label,
-      tone: "thinking",
+      label: "Reasoning summary",
+      toolTitle: "Reasoning summary",
+      preview,
+      tone: "tool",
+      turnId: TurnId.makeUnsafe("turn-live"),
     },
   };
 }
@@ -87,6 +91,7 @@ function ToolGroupCollapseTimeline(props: {
   timelineEntries: TimelineEntry[];
   isWorking?: boolean;
   activeTurnInProgress?: boolean;
+  activeTurnStartedAt?: string;
 }) {
   return (
     <MessagesTimeline
@@ -94,7 +99,7 @@ function ToolGroupCollapseTimeline(props: {
       isWorking={props.isWorking ?? false}
       activeTurnInProgress={props.activeTurnInProgress ?? true}
       activeTurnId={TurnId.makeUnsafe("turn-live")}
-      activeTurnStartedAt="2026-03-17T19:12:20.000Z"
+      activeTurnStartedAt={props.activeTurnStartedAt ?? "2026-03-17T19:12:20.000Z"}
       timelineEntries={props.timelineEntries}
       turnDiffSummaryByAssistantMessageId={new Map()}
       nowIso="2026-03-17T19:12:30.000Z"
@@ -154,7 +159,7 @@ describe("MessagesTimeline tool group collapse", () => {
     document.body.innerHTML = "";
   });
 
-  it("collapses the settled run behind a summary and keeps the live run expanded", async () => {
+  it("keeps settled and streaming tool runs collapsed until explicitly opened", async () => {
     const host = createTimelineHost();
     const screen = await render(
       <ToolGroupCollapseTimeline
@@ -172,6 +177,14 @@ describe("MessagesTimeline tool group collapse", () => {
       await expect.poll(() => findSummaryTriggers("Ran commands").length).toBe(2);
       const trigger = findSummaryTriggers("Ran commands")[0]!;
       const liveTrigger = findSummaryTriggers("Ran commands")[1]!;
+      const nextAssistantText = document.querySelector<HTMLElement>(
+        '[data-assistant-message-id="narration-2"]',
+      )!;
+      expect(trigger.compareDocumentPosition(nextAssistantText) & Node.DOCUMENT_POSITION_FOLLOWING)
+        .not.toBe(0);
+      expect(
+        nextAssistantText.compareDocumentPosition(liveTrigger) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).not.toBe(0);
       expect(trigger.getAttribute("aria-expanded")).toBe("false");
 
       // Closed groups do not mount every tool row; this keeps large settled
@@ -180,18 +193,24 @@ describe("MessagesTimeline tool group collapse", () => {
         expect(document.body.textContent ?? "").not.toContain(command);
       }
 
-      // The live run keeps the semantic headline visible while its rows stream.
-      expect(liveTrigger.getAttribute("aria-expanded")).toBe("true");
+      // Streaming updates only the semantic headline; verbose command rows stay hidden.
+      expect(liveTrigger.getAttribute("aria-expanded")).toBe("false");
       for (const command of LIVE_COMMANDS) {
-        expect(isVisibleOutsideClosedDisclosure(command)).toBe(true);
+        expect(isVisibleOutsideClosedDisclosure(command)).toBe(false);
       }
 
       trigger.click();
 
       await expect.poll(() => trigger.getAttribute("aria-expanded")).toBe("true");
-      for (const command of SETTLED_COMMANDS) {
-        await expect.poll(() => isVisibleOutsideClosedDisclosure(command)).toBe(true);
-      }
+      await expect
+        .poll(
+          () =>
+            [...document.querySelectorAll<HTMLElement>("[data-work-entry-row='true']")].filter(
+              (element) => element.closest("[aria-hidden='true']") === null,
+            ).length,
+        )
+        .toBe(SETTLED_COMMANDS.length);
+      expect(document.body.textContent ?? "").not.toContain("Completed command");
 
       trigger.click();
 
@@ -206,16 +225,14 @@ describe("MessagesTimeline tool group collapse", () => {
     }
   });
 
-  it("keeps generic thinking inside the active purpose instead of splitting the group", async () => {
+    it("keeps reasoning out of expanded tool details", async () => {
     const host = createTimelineHost();
-    // A provider thinking delta is not a semantic phase boundary. All tool
-    // calls remain in one live purpose group and the generic row is suppressed.
-    const screen = await render(
+      const screen = await render(
       <ToolGroupCollapseTimeline
         timelineEntries={[
           assistantEntry("narration-1", "Looking at the failing checks first.", true),
           ...SETTLED_COMMANDS.map((command, index) => commandEntry(`settled-${index}`, command)),
-          thinkingEntry("think-1", "Weighing the next verification step"),
+          reasoningEntry("think-1", "Weighing the next verification step"),
           ...LIVE_COMMANDS.map((command, index) => commandEntry(`live-${index}`, command)),
         ]}
       />,
@@ -224,14 +241,108 @@ describe("MessagesTimeline tool group collapse", () => {
 
     try {
       await expect.poll(() => findSummaryTriggers("Ran commands").length).toBe(1);
-      expect(findSummaryTrigger("Ran commands")!.getAttribute("aria-expanded")).toBe("true");
+      const trigger = findSummaryTrigger("Ran commands")!;
+      expect(trigger.getAttribute("aria-expanded")).toBe("false");
       expect(document.body.textContent ?? "").not.toContain("Weighing the next verification step");
       const visibleToolRows = [
         ...document.querySelectorAll<HTMLElement>("[data-work-entry-row='true']"),
       ].filter((element) => element.closest("[aria-hidden='true']") === null);
-      expect(visibleToolRows).toHaveLength(SETTLED_COMMANDS.length + LIVE_COMMANDS.length);
+      expect(visibleToolRows).toHaveLength(0);
+
+      trigger.click();
+      await expect.poll(() => trigger.getAttribute("aria-expanded")).toBe("true");
+        expect(trigger.nextElementSibling?.textContent ?? "").not.toContain(
+          "Weighing the next verification step",
+        );
+        expect(
+          [...document.querySelectorAll<HTMLElement>("[data-work-entry-row='true']")].filter(
+            (element) => element.closest("[aria-hidden='true']") === null,
+          ),
+        ).toHaveLength(SETTLED_COMMANDS.length + LIVE_COMMANDS.length);
     } finally {
       await screen.unmount();
+      host.remove();
+    }
+  });
+
+    it("swaps tool and reasoning headlines in one stable disclosure row", async () => {
+    const host = createTimelineHost();
+    const user = userEntry("reasoning-user", "Inspect the workspace.");
+    const firstReasoning = reasoningEntry("reasoning-first", "Inspecting the workspace");
+    const tool = commandEntry("reasoning-command", "bun run build");
+    const secondReasoning = reasoningEntry("reasoning-second", "Checking the build result");
+    const nextTool = commandEntry("reasoning-command-next", "bun run test");
+    const mounted = await render(
+      <ToolGroupCollapseTimeline timelineEntries={[user]} isWorking activeTurnInProgress />,
+      { container: host },
+    );
+
+    try {
+      expect(isThinkingVisible()).toBe(true);
+
+        await mounted.rerender(
+          <ToolGroupCollapseTimeline
+          timelineEntries={[user, firstReasoning]}
+          isWorking
+          activeTurnInProgress
+        />,
+      );
+      await expect.poll(() => document.body.textContent ?? "").toContain("Inspecting the workspace");
+      expect(
+        document.querySelector<HTMLElement>("[data-reasoning-source='provider']"),
+      ).not.toBeNull();
+
+      await mounted.rerender(
+        <ToolGroupCollapseTimeline
+          timelineEntries={[user, firstReasoning, tool]}
+          isWorking
+          activeTurnInProgress
+        />,
+      );
+      const toolTrigger = findSummaryTrigger("Ran a command");
+      expect(toolTrigger).not.toBeNull();
+      expect(toolTrigger?.getAttribute("aria-expanded")).toBe("false");
+      expect(document.body.textContent ?? "").not.toContain("Inspecting the workspace");
+      expect(isThinkingVisible()).toBe(false);
+
+        toolTrigger?.click();
+        await expect.poll(() => toolTrigger?.getAttribute("aria-expanded")).toBe("true");
+        expect(document.body.textContent ?? "").toContain("Ran command");
+        expect(toolTrigger?.nextElementSibling?.textContent ?? "").not.toContain(
+          "Inspecting the workspace",
+        );
+        expect(document.body.textContent ?? "").not.toContain("bun run build");
+        expect(document.body.textContent ?? "").not.toContain("Completed command");
+        toolTrigger?.click();
+        await expect.poll(() => toolTrigger?.getAttribute("aria-expanded")).toBe("false");
+
+        const summarySwap = document.querySelector<HTMLElement>("[data-tool-summary-swap='true']");
+        await mounted.rerender(
+        <ToolGroupCollapseTimeline
+          timelineEntries={[user, firstReasoning, tool, secondReasoning]}
+          isWorking
+          activeTurnInProgress
+        />,
+        );
+        await expect.poll(() => document.body.textContent ?? "").toContain("Checking the build result");
+        expect(
+          document.querySelector("[data-timeline-row-kind='reasoning-status']"),
+        ).toBeNull();
+        expect(document.querySelector("[data-tool-summary-swap='true']")).toBe(summarySwap);
+
+        await mounted.rerender(
+        <ToolGroupCollapseTimeline
+          timelineEntries={[user, firstReasoning, tool, secondReasoning, nextTool]}
+          isWorking
+          activeTurnInProgress
+        />,
+      );
+      await expect.poll(() => findSummaryTrigger("Ran commands")).not.toBeNull();
+      expect(document.querySelector("[data-tool-summary-swap='true']")).toBe(summarySwap);
+      expect(document.querySelector("[data-timeline-row-kind='reasoning-status']")).toBeNull();
+      expect(document.body.textContent ?? "").toContain("Checking the build result");
+    } finally {
+      await mounted.unmount();
       host.remove();
     }
   });
@@ -262,10 +373,10 @@ describe("MessagesTimeline tool group collapse", () => {
             commandEntry("settling-command", "bun run build"),
             assistantEntry("settling-assistant", "Finishing the verification.", false),
           ]}
-          isWorking={false}
-          activeTurnInProgress={false}
-        />,
-      );
+            isWorking
+            activeTurnInProgress={false}
+          />,
+        );
 
       await expect.poll(() => document.body.textContent ?? "").toContain("Worked for");
       expect(document.querySelectorAll("[data-turn-work-region]")).toHaveLength(1);
@@ -301,6 +412,19 @@ describe("MessagesTimeline tool group collapse", () => {
       expect(transitioningOpacity).toBeGreaterThan(0);
       expect(transitioningOpacity).toBeLessThan(1);
       await expect.poll(() => getComputedStyle(settledLayer!).opacity).toBe("1");
+
+      await mounted.rerender(
+        <ToolGroupCollapseTimeline
+          timelineEntries={[
+            assistantEntry("settling-intro", "Running the final verification.", false),
+            commandEntry("settling-command", "bun run build"),
+            assistantEntry("settling-assistant", "Finishing the verification.", false),
+          ]}
+          isWorking={false}
+          activeTurnInProgress={false}
+        />,
+      );
+      expect(document.querySelector<HTMLElement>("[data-turn-work-region]")).toBe(liveRegion);
     } finally {
       await mounted.unmount();
       host.remove();
@@ -377,7 +501,7 @@ describe("MessagesTimeline tool group collapse", () => {
     try {
       const liveRegion = document.querySelector<HTMLElement>("[data-turn-work-region]");
       expect(liveRegion).not.toBeNull();
-      expect(isThinkingVisible()).toBe(true);
+      expect(isThinkingVisible()).toBe(false);
 
       await mounted.rerender(
         <ToolGroupCollapseTimeline

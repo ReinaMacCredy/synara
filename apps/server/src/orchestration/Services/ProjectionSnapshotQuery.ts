@@ -13,6 +13,7 @@ import type {
   OrchestrationSpaceShell,
   OrchestrationReadModel,
   OrchestrationShellSnapshot,
+  SupervisionSnapshot,
   OrchestrationThreadDetailSnapshot,
   OrchestrationThread,
   OrchestrationThreadShell,
@@ -150,6 +151,12 @@ export interface ProjectionSnapshotQueryShape {
    */
   readonly getShellSnapshot: () => Effect.Effect<
     OrchestrationShellSnapshot,
+    ProjectionRepositoryError
+  >;
+
+  /** Read the redacted supervision slice used by the live shell stream. */
+  readonly getSupervisionShellSnapshot: () => Effect.Effect<
+    SupervisionSnapshot,
     ProjectionRepositoryError
   >;
 

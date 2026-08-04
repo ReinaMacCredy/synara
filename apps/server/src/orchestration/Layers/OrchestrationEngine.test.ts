@@ -4,10 +4,14 @@ import {
   CommandId,
   ContextBundleId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
+  LeadRotationId,
+  LeadSeatId,
   MessageId,
   OrchestratorMessageId,
+  ProfileSnapshotId,
   ProjectId,
   ProjectTaskId,
+  SupervisionAggregateId,
   TaskProcessId,
   TaskProgressEntryId,
   TaskThreadBindingId,
@@ -38,6 +42,8 @@ import {
 } from "../Services/ProjectionPipeline.ts";
 import { ServerConfig } from "../../config.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { DEFAULT_SUPERVISION_PROFILES } from "../supervision/profileSeeds.ts";
+import { resolveProfilePreset } from "../supervision/profileResolver.ts";
 
 /**
  * Command ids whose fingerprinting throws synchronously, standing in for any
@@ -482,6 +488,269 @@ describe("OrchestrationEngine", () => {
       "orchestrator.root.restored",
       "thread.unarchived",
     ]);
+    await system.dispose();
+  });
+
+  it("atomically creates the thread, Root, Lead, and first turn, then rolls back a competing Lead", async () => {
+    const system = await createOrchestrationSystem();
+    const createdAt = "2026-08-03T10:00:00.000Z";
+    const projectId = asProjectId("project-atomic-supervised-first-send");
+    const rootThreadId = ThreadId.makeUnsafe("thread-atomic-supervised-first-send");
+    const leadSeatId = LeadSeatId.makeUnsafe("lead-atomic-supervised-first-send");
+    const profile = DEFAULT_SUPERVISION_PROFILES.find((candidate) =>
+      candidate.roleHints.includes("lead"),
+    )!;
+    const profileSnapshotId = ProfileSnapshotId.makeUnsafe(
+      "profile-snapshot-atomic-supervised-first-send",
+    );
+
+    await system.run(
+      system.engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.makeUnsafe("cmd-atomic-supervised-project"),
+        projectId,
+        title: "Atomic supervised project",
+        workspaceRoot: "/tmp/project-atomic-supervised-first-send",
+        defaultModelSelection: { provider: "codex", model: "gpt-5.6-sol" },
+        createdAt,
+      }),
+    );
+
+    const command = {
+      type: "thread.turn.start" as const,
+      commandId: CommandId.makeUnsafe("cmd-atomic-supervised-first-send"),
+      threadId: rootThreadId,
+      message: {
+        messageId: asMessageId("message-atomic-supervised-first-send"),
+        role: "user" as const,
+        text: "Own the release outcome",
+        attachments: [],
+      },
+      modelSelection: { provider: "codex" as const, model: "gpt-5.6-sol" },
+      runtimeMode: "full-access" as const,
+      interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+      threadBootstrap: {
+        projectId,
+        title: "Release Lead",
+        modelSelection: { provider: "codex" as const, model: "gpt-5.6-sol" },
+        runtimeMode: "full-access" as const,
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        branch: null,
+        worktreePath: null,
+        createdAt,
+      },
+      orchestratorRoot: {
+        protocolVersion: 1 as const,
+        modelTarget: {
+          provider: "codex" as const,
+          model: "gpt-5.6-sol",
+          runtimeMode: "full-access" as const,
+          workspaceRoot: "/tmp/project-atomic-supervised-first-send",
+        },
+        title: "Release Lead",
+      },
+      supervisionBootstrap: {
+        kind: "lead" as const,
+        profilePresetId: profile.id,
+        profileSnapshot: resolveProfilePreset({
+          preset: profile,
+          snapshotId: profileSnapshotId,
+          createdAt,
+        }),
+        lead: {
+          id: leadSeatId,
+          projectId,
+          activeThreadId: rootThreadId,
+          predecessorThreadIds: [],
+          profileSnapshotId,
+          status: "active" as const,
+          createdAt,
+          updatedAt: createdAt,
+          archivedAt: null,
+          revision: 0,
+        },
+      },
+      createdAt,
+    };
+
+    const accepted = await system.run(system.engine.dispatch(command));
+    await expect(system.run(system.engine.dispatch(command))).resolves.toEqual(accepted);
+
+    const acceptedEvents = Array.from(
+      await system.run(Stream.runCollect(system.engine.readEvents(0))),
+    ).filter((event) => event.commandId === command.commandId);
+    expect(acceptedEvents.map((event) => event.type)).toEqual([
+      "thread.created",
+      "orchestrator.root.created",
+      "supervision.lead-enrolled",
+      "thread.message-sent",
+      "thread.turn-start-requested",
+    ]);
+    const readModel = await system.run(system.engine.getReadModel());
+    expect(readModel.threads.find((thread) => thread.id === rootThreadId)).toBeDefined();
+    expect(readModel.supervision.leads).toContainEqual(
+      expect.objectContaining({ id: leadSeatId, activeThreadId: rootThreadId, status: "active" }),
+    );
+
+    const peerProfile = DEFAULT_SUPERVISION_PROFILES.find((candidate) =>
+      candidate.roleHints.includes("peer"),
+    )!;
+    const peerThreadId = ThreadId.makeUnsafe("thread-atomic-supervised-peer");
+    const peerSnapshotId = ProfileSnapshotId.makeUnsafe("profile-snapshot-atomic-supervised-peer");
+    const peerCommandId = CommandId.makeUnsafe("cmd-atomic-supervised-peer");
+    await system.run(
+      system.engine.dispatch({
+        type: "orchestrator.child.create",
+        commandId: peerCommandId,
+        rootThreadId,
+        projectId,
+        actor: { kind: "user", actorId: "owner" },
+        protocolVersion: 1,
+        expectedRevision: 1,
+        createdAt,
+        parentThreadId: rootThreadId,
+        childThreadId: peerThreadId,
+        title: "Release reviewer",
+        role: "participant",
+        capabilities: ["state.read", "message.send"],
+        continuity: { kind: "reuse", threadId: peerThreadId },
+        modelTarget: {
+          provider: "codex",
+          model: "gpt-5.6-sol",
+          runtimeMode: "full-access",
+          workspaceRoot: "/tmp/project-atomic-supervised-first-send",
+        },
+        decisionReason: {
+          summary: "Independent release review",
+          taskFit: ["review"],
+          contextHealth: "healthy",
+          cacheEconomics: "unknown",
+          selectedAt: createdAt,
+        },
+        initialMessage: {
+          messageId: OrchestratorMessageId.makeUnsafe("message-atomic-supervised-peer"),
+          body: "Review backward compatibility independently.",
+          expiresAt: "2026-08-03T10:10:00.000Z",
+        },
+        supervisionPeerBootstrap: {
+          profilePresetId: peerProfile.id,
+          profileSnapshot: resolveProfilePreset({
+            preset: peerProfile,
+            snapshotId: peerSnapshotId,
+            createdAt,
+          }),
+          peer: {
+            threadId: peerThreadId,
+            projectId,
+            leadSeatId,
+            rootThreadId,
+            profileSnapshotId: peerSnapshotId,
+            status: "active",
+            createdAt,
+            updatedAt: createdAt,
+            archivedAt: null,
+            revision: 0,
+          },
+        },
+      }),
+    );
+    const peerEvents = Array.from(
+      await system.run(Stream.runCollect(system.engine.readEvents(0))),
+    ).filter((event) => event.commandId === peerCommandId);
+    expect(peerEvents.map((event) => event.type)).toEqual([
+      "thread.created",
+      "orchestrator.child.attached",
+      "supervision.peer-bound",
+      "orchestrator.message.enqueued",
+    ]);
+    expect((await system.run(system.engine.getReadModel())).supervision.peers).toContainEqual(
+      expect.objectContaining({ threadId: peerThreadId, profileSnapshotId: peerSnapshotId }),
+    );
+
+    const competingThreadId = ThreadId.makeUnsafe("thread-competing-supervised-first-send");
+    await expect(
+      system.run(
+        system.engine.dispatch({
+          ...command,
+          commandId: CommandId.makeUnsafe("cmd-competing-supervised-first-send"),
+          threadId: competingThreadId,
+          message: {
+            ...command.message,
+            messageId: asMessageId("message-competing-supervised-first-send"),
+          },
+          threadBootstrap: {
+            ...command.threadBootstrap,
+            title: "Competing Lead",
+          },
+          orchestratorRoot: {
+            ...command.orchestratorRoot,
+            title: "Competing Lead",
+          },
+          supervisionBootstrap: {
+            ...command.supervisionBootstrap,
+            lead: {
+              ...command.supervisionBootstrap.lead,
+              id: LeadSeatId.makeUnsafe("lead-competing-supervised-first-send"),
+              activeThreadId: competingThreadId,
+              profileSnapshotId: ProfileSnapshotId.makeUnsafe(
+                "profile-snapshot-competing-supervised-first-send",
+              ),
+            },
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({ _tag: "OrchestrationCommandInvariantError" });
+    const afterRejection = await system.run(system.engine.getReadModel());
+    expect(afterRejection.threads.some((thread) => thread.id === competingThreadId)).toBe(false);
+    expect(afterRejection.supervision.leads).toHaveLength(1);
+
+    const replacementProfileSnapshotId = ProfileSnapshotId.makeUnsafe(
+      "profile-snapshot-replacement-supervised-first-send",
+    );
+    await system.run(
+      system.engine.dispatch({
+        type: "supervision.lead.replace",
+        commandId: CommandId.makeUnsafe("cmd-freeze-supervised-lead"),
+        aggregateId: SupervisionAggregateId.makeUnsafe("supervision"),
+        actor: { kind: "user", actorId: "owner" },
+        expectedRevision: 1,
+        createdAt,
+        profilePresetId: profile.id,
+        replacementProfileSnapshot: resolveProfilePreset({
+          preset: profile,
+          snapshotId: replacementProfileSnapshotId,
+          createdAt,
+        }),
+        rotation: {
+          id: LeadRotationId.makeUnsafe("rotation-freeze-supervised-lead"),
+          leadSeatId,
+          missionId: null,
+          predecessorThreadId: rootThreadId,
+          replacementThreadId: ThreadId.makeUnsafe("thread-replacement-supervised-lead"),
+          replacementProfileSnapshotId,
+          state: "requested",
+          error: null,
+          createdAt,
+          updatedAt: createdAt,
+          revision: 0,
+        },
+      }),
+    );
+    await expect(
+      system.run(
+        system.engine.dispatch({
+          ...command,
+          commandId: CommandId.makeUnsafe("cmd-frozen-supervised-lead-turn"),
+          message: {
+            ...command.message,
+            messageId: asMessageId("message-frozen-supervised-lead-turn"),
+          },
+          threadBootstrap: undefined,
+          orchestratorRoot: undefined,
+          supervisionBootstrap: undefined,
+        }),
+      ),
+    ).rejects.toThrow("Lead dispatch is frozen while replacement is in progress");
     await system.dispose();
   });
 

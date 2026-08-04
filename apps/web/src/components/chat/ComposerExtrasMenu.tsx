@@ -29,6 +29,7 @@ export const ComposerExtrasMenu = function ComposerExtrasMenu(props: {
   onAddPhotos: (files: File[]) => void;
   onToggleFastMode: () => void;
   onSetPlanMode: (enabled: boolean) => void;
+  showPlanMode?: boolean;
 }) {
   const inputId = useId();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -77,19 +78,23 @@ export const ComposerExtrasMenu = function ComposerExtrasMenu(props: {
             Add image
           </MenuItem>
 
-          <MenuSeparator />
-          <MenuCheckboxItem
-            checked={props.interactionMode === "plan"}
-            variant="switch"
-            onCheckedChange={(checked) => {
-              props.onSetPlanMode(checked === true);
-            }}
-          >
-            <span className="inline-flex items-center gap-2">
-              <GoTasklist className="size-4 shrink-0" />
-              Plan mode
-            </span>
-          </MenuCheckboxItem>
+          {props.showPlanMode !== false ? (
+            <>
+              <MenuSeparator />
+              <MenuCheckboxItem
+                checked={props.interactionMode === "plan"}
+                variant="switch"
+                onCheckedChange={(checked) => {
+                  props.onSetPlanMode(checked === true);
+                }}
+              >
+                <span className="inline-flex items-center gap-2">
+                  <GoTasklist className="size-4 shrink-0" />
+                  Plan mode
+                </span>
+              </MenuCheckboxItem>
+            </>
+          ) : null}
 
           {props.supportsFastMode ? (
             <>

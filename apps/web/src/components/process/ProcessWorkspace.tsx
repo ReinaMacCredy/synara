@@ -503,84 +503,82 @@ export function ProcessWorkspace(props: { readonly processId: TaskProcessId }) {
           </div>
         </main>
 
-          <TaskDetailTransitionShell open={drawerOpen}>
-            {drawerTask ? (
-              <TaskDetailDrawer
-                key={drawerTask.task.id}
-                task={drawerTask}
-                graph={graph}
-                progress={progressQuery.data?.progress?.latestProgress ?? []}
-                threadOptions={threadOptions}
-                canEditGraph={authority.canEditGraph}
-                pending={pending}
-                onClose={() => selectTask(props.processId, null)}
-                onUpdateTask={({ title, description, risk }) =>
-                  void dispatch({
-                    ...commandBase(),
-                    type: "project-task.meta.update",
-                    taskId: drawerTask.task.id,
-                    title,
-                    description,
-                    risk,
-                  })
-                }
-                onSetDependencies={(prerequisiteTaskIds) =>
-                  void dispatch({
-                    ...commandBase(),
-                    type: "project-task.dependencies.set",
-                    taskId: drawerTask.task.id,
-                    prerequisiteTaskIds: [...prerequisiteTaskIds],
-                  })
-                }
-                onBindThread={(threadId) =>
-                  void dispatch({
-                    ...commandBase(),
-                    type: "project-task.thread.bind",
-                    bindingId: TaskThreadBindingId.makeUnsafe(crypto.randomUUID()),
-                    taskId: drawerTask.task.id,
-                    threadId,
-                    assignmentId: null,
-                    role: "contributor",
-                  })
-                }
-                onTransition={(lifecycle: ProjectTaskLifecycle) =>
-                  void dispatch({
-                    ...commandBase(),
-                    type: "project-task.transition",
-                    taskId: drawerTask.task.id,
-                    lifecycle,
-                    reason: "Changed by the user",
-                  })
-                }
-                onComplete={(evidenceRefs) =>
-                  void dispatch({
-                    ...commandBase(),
-                    type: "project-task.complete",
-                    taskId: drawerTask.task.id,
-                    assignmentIds: graph.bindings
-                      .filter(
-                        (binding) =>
-                          binding.binding.taskId === drawerTask.task.id &&
-                          binding.binding.assignmentId !== null,
-                      )
-                      .map((binding) => binding.binding.assignmentId!),
-                    evidenceRefs: [...evidenceRefs],
-                  })
-                }
-                onReopen={() =>
-                  void dispatch({
-                    ...commandBase(),
-                    type: "project-task.reopen",
-                    taskId: drawerTask.task.id,
-                    reason: "Reopened by the user",
-                  })
-                }
-                onOpenThread={(threadId) =>
-                  void navigate({ to: "/$threadId", params: { threadId } })
-                }
-              />
-            ) : null}
-          </TaskDetailTransitionShell>
+        <TaskDetailTransitionShell open={drawerOpen}>
+          {drawerTask ? (
+            <TaskDetailDrawer
+              key={drawerTask.task.id}
+              task={drawerTask}
+              graph={graph}
+              progress={progressQuery.data?.progress?.latestProgress ?? []}
+              threadOptions={threadOptions}
+              canEditGraph={authority.canEditGraph}
+              pending={pending}
+              onClose={() => selectTask(props.processId, null)}
+              onUpdateTask={({ title, description, risk }) =>
+                void dispatch({
+                  ...commandBase(),
+                  type: "project-task.meta.update",
+                  taskId: drawerTask.task.id,
+                  title,
+                  description,
+                  risk,
+                })
+              }
+              onSetDependencies={(prerequisiteTaskIds) =>
+                void dispatch({
+                  ...commandBase(),
+                  type: "project-task.dependencies.set",
+                  taskId: drawerTask.task.id,
+                  prerequisiteTaskIds: [...prerequisiteTaskIds],
+                })
+              }
+              onBindThread={(threadId) =>
+                void dispatch({
+                  ...commandBase(),
+                  type: "project-task.thread.bind",
+                  bindingId: TaskThreadBindingId.makeUnsafe(crypto.randomUUID()),
+                  taskId: drawerTask.task.id,
+                  threadId,
+                  assignmentId: null,
+                  role: "contributor",
+                })
+              }
+              onTransition={(lifecycle: ProjectTaskLifecycle) =>
+                void dispatch({
+                  ...commandBase(),
+                  type: "project-task.transition",
+                  taskId: drawerTask.task.id,
+                  lifecycle,
+                  reason: "Changed by the user",
+                })
+              }
+              onComplete={(evidenceRefs) =>
+                void dispatch({
+                  ...commandBase(),
+                  type: "project-task.complete",
+                  taskId: drawerTask.task.id,
+                  assignmentIds: graph.bindings
+                    .filter(
+                      (binding) =>
+                        binding.binding.taskId === drawerTask.task.id &&
+                        binding.binding.assignmentId !== null,
+                    )
+                    .map((binding) => binding.binding.assignmentId!),
+                  evidenceRefs: [...evidenceRefs],
+                })
+              }
+              onReopen={() =>
+                void dispatch({
+                  ...commandBase(),
+                  type: "project-task.reopen",
+                  taskId: drawerTask.task.id,
+                  reason: "Reopened by the user",
+                })
+              }
+              onOpenThread={(threadId) => void navigate({ to: "/$threadId", params: { threadId } })}
+            />
+          ) : null}
+        </TaskDetailTransitionShell>
       </div>
     </RouteInsetSurface>
   );

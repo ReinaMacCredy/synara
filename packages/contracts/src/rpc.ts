@@ -1133,7 +1133,47 @@ export const WsSubscribeAutomationEventsRpc = Rpc.make(WS_METHODS.subscribeAutom
 
 export const WsBootstrapRpcGroup = RpcGroup.make(WsBootstrapNegotiateRpc);
 
-const WsOrchestrationFeatureRpcGroup = RpcGroup.make(
+type WsOrchestrationFeatureRpc =
+  | typeof WsOrchestrationDispatchCommandRpc
+  | typeof WsOrchestrationImportThreadRpc
+  | typeof WsOrchestrationGetSnapshotRpc
+  | typeof WsOrchestrationGetShellSnapshotRpc
+  | typeof WsOrchestrationGetThreadDetailSnapshotRpc
+  | typeof WsOrchestrationRepairStateRpc
+  | typeof WsOrchestrationGetTurnDiffRpc
+  | typeof WsOrchestrationGetFullThreadDiffRpc
+  | typeof WsOrchestrationReplayEventsRpc
+  | typeof WsOrchestrationListProviderDeliveryBlockersRpc
+  | typeof WsOrchestrationReconcileProviderDeliveryRpc
+  | typeof WsOrchestrationSubscribeShellRpc
+  | typeof WsOrchestrationUnsubscribeShellRpc
+  | typeof WsOrchestrationSubscribeThreadRpc
+  | typeof WsOrchestrationUnsubscribeThreadRpc
+  | typeof WsOrchestrationSubscribeDomainEventsRpc
+  | typeof WsOrchestrationListOrchestratorRootsRpc
+  | typeof WsOrchestrationListNativeOrchestratorToolsRpc
+  | typeof WsOrchestrationGetOrchestratorSnapshotRpc
+  | typeof WsOrchestrationListOrchestratorExchangesRpc
+  | typeof WsOrchestrationListOrchestratorArtifactsRpc
+  | typeof WsOrchestrationReadOrchestratorArtifactRpc
+  | typeof WsOrchestrationListOrchestratorAuditEventsRpc
+  | typeof WsOrchestrationCreateOrchestratorRootRpc
+  | typeof WsOrchestrationArchiveOrchestratorRootRpc
+  | typeof WsOrchestrationRestoreOrchestratorRootRpc
+  | typeof WsOrchestrationDetachOrchestratorChildRpc
+  | typeof WsOrchestrationUpgradeOrchestratorRootRpc
+  | typeof WsOrchestrationListTaskProcessesRpc
+  | typeof WsOrchestrationGetTaskProcessSummaryRpc
+  | typeof WsOrchestrationGetTaskProcessGraphRpc
+  | typeof WsOrchestrationGetSessionProgressRpc
+  | typeof WsOrchestrationDispatchTaskProcessCommandRpc
+  | typeof WsOrchestrationStartHandoffPreparationRpc
+  | typeof WsOrchestrationGetHandoffPreparationRpc
+  | typeof WsOrchestrationCancelHandoffPreparationRpc
+  | typeof WsOrchestrationListHandoffGrantsRpc
+  | typeof WsOrchestrationRevokeHandoffGrantRpc;
+
+const WsOrchestrationFeatureRpcGroup: RpcGroup.RpcGroup<WsOrchestrationFeatureRpc> = RpcGroup.make(
   WsOrchestrationDispatchCommandRpc,
   WsOrchestrationImportThreadRpc,
   WsOrchestrationGetSnapshotRpc,

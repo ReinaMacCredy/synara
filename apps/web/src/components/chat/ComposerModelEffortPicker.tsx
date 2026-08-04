@@ -19,13 +19,7 @@ import { ChevronDownIcon, FastModeIcon, SettingsIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { type ProviderModelOption } from "../../providerModelOptions";
 import { Button } from "../ui/button";
-import {
-  Menu,
-  MenuSeparator,
-  MenuSub,
-  MenuSubTrigger,
-  MenuTrigger,
-} from "../ui/menu";
+import { Menu, MenuSeparator, MenuSub, MenuSubTrigger, MenuTrigger } from "../ui/menu";
 import { ShortcutKbd } from "../ui/shortcut-kbd";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { PROVIDER_ICON_COMPONENT_BY_PROVIDER } from "../ProviderIcon";
@@ -138,9 +132,8 @@ export function ComposerModelEffortPicker(props: ComposerModelEffortPickerProps)
     : hasVisibleComposerTraitControls(traitSelection);
 
   const effortLabel = props.controlledEffort
-    ? (controlledEffortOptions.find(
-        (option) => option.value === props.controlledEffort?.value,
-      )?.label ?? props.controlledEffort.value)
+    ? (controlledEffortOptions.find((option) => option.value === props.controlledEffort?.value)
+        ?.label ?? props.controlledEffort.value)
     : effort
       ? (effortLevels.find((level) => level.value === effort)?.label ?? effort)
       : null;

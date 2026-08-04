@@ -28,6 +28,7 @@ import {
 } from "./codexProcessEnv";
 import {
   buildCodexInitializeParams,
+  buildCodexAppServerArgs,
   buildCodexOrchestratorThreadOpenOverrides,
   CODEX_ADVISOR_DEVELOPER_INSTRUCTIONS,
   CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
@@ -71,6 +72,36 @@ const autoTurnOverrides = {
 } as const;
 
 describe("Codex Synara harness policy", () => {
+  it("keeps request_user_input available in default-derived Synara modes", () => {
+    expect(CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS).toContain(
+      "The `request_user_input` tool is available in Default mode.",
+    );
+    expect(CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS).toContain(
+      "Ignore earlier transcript claims that `request_user_input` is Plan-only, unavailable, disabled, or named `ask_user_tool`.",
+    );
+    expect(CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS).toContain(
+      "invoke it instead of replying that the current mode blocks it",
+    );
+    expect(CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS).not.toContain(
+      "unavailable in Default mode",
+    );
+  });
+
+  it("enables default-mode request_user_input on every app-server process", () => {
+    expect(buildCodexAppServerArgs()).toEqual([
+      "app-server",
+      "--enable",
+      "default_mode_request_user_input",
+    ]);
+    expect(buildCodexAppServerArgs(["--enable", "multi_agent_v2"])).toEqual([
+      "app-server",
+      "--enable",
+      "default_mode_request_user_input",
+      "--enable",
+      "multi_agent_v2",
+    ]);
+  });
+
   it("keeps the same host policy exactly once in default and plan instructions", () => {
     for (const instructions of [
       CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,

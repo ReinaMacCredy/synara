@@ -13,11 +13,13 @@ import {
 import { normalizeCompactToolLabel as normalizeCompactToolLabelValue } from "../../lib/toolCallLabel";
 import {
   isSummarizableToolCallEntry,
-  MIN_COLLAPSIBLE_TOOL_GROUP_SIZE,
   summarizeToolCallGroup,
   type ToolCallGroupSummary,
 } from "./toolCallGroup.logic";
-import { isReasoningUpdateWorkEntry } from "./agentActivity.logic";
+import {
+  formatAgentActivityEntryPreview,
+  isReasoningUpdateWorkEntry,
+} from "./agentActivity.logic";
 import {
   type ChatMessage,
   type ProposedPlan,
@@ -67,7 +69,7 @@ export function chunkCollapsedTurnItems(
 
   const flushPendingRun = () => {
     if (pendingRun.length === 0) return;
-    if (pendingRun.length >= MIN_COLLAPSIBLE_TOOL_GROUP_SIZE) {
+    if (summarizeToolCallGroup(pendingRun.map((item) => item.entry))) {
       chunks.push({
         kind: "tool-group",
         id: pendingRun[0]!.id,
@@ -82,7 +84,10 @@ export function chunkCollapsedTurnItems(
   };
 
   for (const item of items) {
-    if (item.kind === "work" && isSummarizableToolCallEntry(item.entry)) {
+    if (
+      item.kind === "work" &&
+      (isSummarizableToolCallEntry(item.entry) || isReasoningUpdateWorkEntry(item.entry))
+    ) {
       pendingRun.push(item);
       continue;
     }
@@ -111,32 +116,38 @@ export interface WorkEntryRenderPlanChunk {
   id: string;
   entries: WorkLogEntry[];
   summary: ToolCallGroupSummary | null;
+  headline: string | null;
   live: boolean;
 }
 
-// Plans a work group's entries block by block. Boundaries are the entries a
-// summary can never absorb — thinking/info narration, errors, rich cards — so
-// each tool run between boundaries folds independently. A run stays expanded
-// only while it still has running work, or while it is the trailing block of
-// the live transcript tail (`tailIsLive`): the moment a new narration block
-// starts after it, it stops being the tail and collapses mid-turn.
+// Plans a work group's entries block by block. Reasoning updates ride with the
+// adjacent tool run so they can drive its headline; errors and rich cards stay
+// as boundaries. A run remains live while it has running work or owns the
+// transcript tail (`tailIsLive`).
 export function planWorkEntryRenderChunks(
   entries: ReadonlyArray<WorkLogEntry>,
   options: { tailIsLive: boolean },
 ): WorkEntryRenderPlanChunk[] {
-  const hasToolActivity = entries.some(isSummarizableToolCallEntry);
-  const purposeEntries = hasToolActivity
-    ? entries.filter((entry) => entry.tone !== "thinking")
-    : entries;
-  const chunks = chunkWorkEntries(purposeEntries);
+  const chunks = chunkWorkEntries(entries);
   return chunks.map((chunk, index) => {
     if (chunk.kind === "item") {
-      return { id: chunk.id, entries: [chunk.entry], summary: null, live: false };
+      return {
+        id: chunk.id,
+        entries: [chunk.entry],
+        summary: null,
+        headline: null,
+        live: false,
+      };
     }
     const summary = summarizeToolCallGroup(chunk.entries);
+    const tailEntry = chunk.entries.at(-1);
+    const headline =
+      tailEntry && isReasoningUpdateWorkEntry(tailEntry)
+        ? formatAgentActivityEntryPreview(tailEntry)
+        : null;
     const isLiveTail = options.tailIsLive && index === chunks.length - 1;
     const live = summary !== null && (summary.hasRunningEntry || isLiveTail);
-    return { id: chunk.id, entries: chunk.entries, summary, live };
+    return { id: chunk.id, entries: chunk.entries, summary, headline, live };
   });
 }
 
@@ -160,7 +171,7 @@ export function capOpenWorkEntryRenderChunks(
 ): CappedWorkEntryRenderPlan {
   const shouldCapEntry = options.shouldCapEntry ?? (() => true);
   const openEntries = chunks.flatMap((chunk) =>
-    chunk.summary === null || chunk.live ? chunk.entries.filter(shouldCapEntry) : [],
+    chunk.summary === null ? chunk.entries.filter(shouldCapEntry) : [],
   );
   const maxVisibleEntries = Math.max(0, options.maxVisibleEntries);
   const hiddenEntryCount = Math.max(0, openEntries.length - maxVisibleEntries);
@@ -230,7 +241,7 @@ interface TimelineDiffMessage {
 }
 
 export type MessagesTimelineRow =
-  | {
+    | {
       kind: "work";
       id: string;
       createdAt: string;
@@ -272,12 +283,18 @@ export type MessagesTimelineRow =
       id: string;
       createdAt: string | null;
       state: "working" | "settled";
-      showThinking?: boolean;
+      showReasoningStatus: boolean;
       reasoningEntries?: WorkLogEntry[];
-      collapsedTurnItems?: CollapsedTurnItem[];
-      collapsedWorkElapsed?: string | null;
-    }
-  | {
+        collapsedTurnItems?: CollapsedTurnItem[];
+        collapsedWorkElapsed?: string | null;
+      }
+    | {
+        kind: "reasoning-status";
+        id: string;
+        scopeKey: string;
+        reasoningEntries: WorkLogEntry[];
+      }
+    | {
       // Transient "Preparing worktree..." step card shown during the New
       // worktree first-send setup. `open` drives the shared disclosure close
       // animation while the presentation hook keeps the row mounted.
@@ -520,17 +537,48 @@ export function deriveMessagesTimelineRows(input: {
   revertTurnCountByUserMessageId: ReadonlyMap<MessageId, number>;
 }): MessagesTimelineRow[] {
   const nextRows: MessagesTimelineRow[] = [];
-  const activeReasoningEntries =
-    input.isWorking && input.activeTurnId
-      ? input.timelineEntries.flatMap((entry) =>
-          entry.kind === "work" &&
-          entry.entry.turnId === input.activeTurnId &&
-          isReasoningUpdateWorkEntry(entry.entry)
-            ? [entry.entry]
-            : [],
-        )
-      : [];
-  const activeReasoningEntryIds = new Set(activeReasoningEntries.map((entry) => entry.id));
+  let latestUserMessageEntryIndex = -1;
+  for (let index = input.timelineEntries.length - 1; index >= 0; index -= 1) {
+    const entry = input.timelineEntries[index];
+    if (entry?.kind === "message" && entry.message.role === "user") {
+      latestUserMessageEntryIndex = index;
+      break;
+    }
+  }
+  const activeReasoningEntries: WorkLogEntry[] = [];
+  if (input.isWorking && input.activeTurnId) {
+    for (let index = input.timelineEntries.length - 1; index > latestUserMessageEntryIndex; index -= 1) {
+      const entry = input.timelineEntries[index];
+      if (
+        entry?.kind !== "work" ||
+        entry.entry.turnId !== input.activeTurnId ||
+        !isReasoningUpdateWorkEntry(entry.entry)
+      ) {
+        break;
+      }
+      activeReasoningEntries.unshift(entry.entry);
+    }
+  }
+  const entryBeforeActiveReasoning =
+    activeReasoningEntries.length > 0
+      ? input.timelineEntries[input.timelineEntries.length - activeReasoningEntries.length - 1]
+      : undefined;
+  const activeReasoningBelongsToToolGroup =
+    entryBeforeActiveReasoning?.kind === "work" &&
+    isSummarizableToolCallEntry(entryBeforeActiveReasoning.entry);
+  const detachedActiveReasoningEntries = activeReasoningBelongsToToolGroup
+    ? []
+    : activeReasoningEntries;
+  const activeReasoningEntryIds = new Set(
+    detachedActiveReasoningEntries.map((entry) => entry.id),
+  );
+  const hasActiveTurnContentAfterUser = input.timelineEntries.some((entry, index) => {
+    if (index <= latestUserMessageEntryIndex) return false;
+    if (entry.kind === "message") {
+      return entry.message.role === "assistant" && entry.message.turnId === input.activeTurnId;
+    }
+    return entry.kind === "work" && entry.entry.turnId === input.activeTurnId;
+  });
   const timelineEntries =
     activeReasoningEntryIds.size === 0
       ? input.timelineEntries
@@ -542,14 +590,6 @@ export function deriveMessagesTimelineRows(input: {
   );
   const durationStartByMessageId = computeMessageDurationStart(timelineMessages);
   const terminalAssistantMessageIds = deriveTerminalAssistantMessageIds(timelineMessages);
-  let latestUserMessageEntryIndex = -1;
-  for (let index = timelineEntries.length - 1; index >= 0; index -= 1) {
-    const entry = timelineEntries[index];
-    if (entry?.kind === "message" && entry.message.role === "user") {
-      latestUserMessageEntryIndex = index;
-      break;
-    }
-  }
   let pendingWorkGroup: Extract<MessagesTimelineRow, { kind: "work" }> | null = null;
 
   const groupedEntriesEqual = (
@@ -694,40 +734,46 @@ export function deriveMessagesTimelineRows(input: {
   // T3-style live lifecycle: one row is present from optimistic Send onward.
   // The provider start timestamp only updates its label; it never changes row
   // topology or inserts a competing synthetic Thinking row.
-  if (input.isWorking && !(input.worktreeSetup && input.worktreeSetupOpen)) {
-    const insertIndex = findLiveTurnActivityInsertIndex(nextRows);
-    const boundaryRow = nextRows[insertIndex - 1];
-    const boundaryMessageId =
-      boundaryRow?.kind === "message" && boundaryRow.message.role === "user"
-        ? boundaryRow.message.id
-        : null;
-    nextRows.splice(insertIndex, 0, {
-      kind: "turn-activity",
-      id: turnActivityRowId(boundaryMessageId, input.activeTurnId ?? null),
-      createdAt: input.activeTurnStartedAt,
-      state: "working",
-      showThinking:
-        activeReasoningEntries.length === 0 &&
-        !rowsContainVisibleToolActivity(nextRows.slice(insertIndex)),
-      ...(activeReasoningEntries.length > 0 ? { reasoningEntries: activeReasoningEntries } : {}),
-    });
-  }
+    if (input.isWorking && !(input.worktreeSetup && input.worktreeSetupOpen)) {
+      const insertIndex = findLiveTurnActivityInsertIndex(nextRows);
+      const boundaryRow = nextRows[insertIndex - 1];
+      const boundaryMessageId =
+        boundaryRow?.kind === "message" && boundaryRow.message.role === "user"
+          ? boundaryRow.message.id
+          : null;
+      const activityId = turnActivityRowId(boundaryMessageId, input.activeTurnId ?? null);
+      const settledActivityAlreadyOwnsTurn = nextRows.some(
+        (row) => row.kind === "turn-activity" && row.id === activityId && row.state === "settled",
+      );
+      if (!settledActivityAlreadyOwnsTurn) {
+        nextRows.splice(insertIndex, 0, {
+          kind: "turn-activity",
+          id: activityId,
+          createdAt: input.activeTurnStartedAt,
+          state: "working",
+          showReasoningStatus: false,
+        });
+      }
+      if (
+        !settledActivityAlreadyOwnsTurn &&
+          (detachedActiveReasoningEntries.length > 0 || !hasActiveTurnContentAfterUser)
+      ) {
+        const phaseBoundaryId = findActiveReasoningPhaseBoundaryId(
+          timelineEntries,
+          latestUserMessageEntryIndex,
+          input.activeTurnId,
+        );
+        const scopeKey = `${activityId}:reasoning:${phaseBoundaryId}`;
+        nextRows.push({
+          kind: "reasoning-status",
+          id: scopeKey,
+          scopeKey,
+            reasoningEntries: detachedActiveReasoningEntries,
+        });
+      }
+    }
 
   return nextRows;
-}
-
-function rowsContainVisibleToolActivity(rows: ReadonlyArray<MessagesTimelineRow>): boolean {
-  return rows.some((row) => {
-    if (row.kind === "work") {
-      return row.groupedEntries.some(isSummarizableToolCallEntry);
-    }
-    if (row.kind !== "message" || row.message.role !== "assistant") {
-      return false;
-    }
-    return [...(row.leadingWorkEntries ?? []), ...(row.inlineWorkEntries ?? [])].some(
-      isSummarizableToolCallEntry,
-    );
-  });
 }
 
 // The live turn starts at the most recent user message, so its header slots in
@@ -741,6 +787,27 @@ function findLiveTurnActivityInsertIndex(rows: ReadonlyArray<MessagesTimelineRow
     }
   }
   return 0;
+}
+
+function findActiveReasoningPhaseBoundaryId(
+  timelineEntries: ReadonlyArray<TimelineEntry>,
+  latestUserMessageEntryIndex: number,
+  activeTurnId: TurnId | null | undefined,
+): string {
+  for (let index = timelineEntries.length - 1; index > latestUserMessageEntryIndex; index -= 1) {
+    const entry = timelineEntries[index];
+    if (!entry) continue;
+    if (entry.kind === "message") {
+      if (entry.message.role === "assistant" && entry.message.turnId === activeTurnId) {
+        return entry.id;
+      }
+      continue;
+    }
+    if (entry.kind === "work" && entry.entry.turnId === activeTurnId) {
+      return entry.id;
+    }
+  }
+  return timelineEntries[latestUserMessageEntryIndex]?.id ?? "initial";
 }
 
 function turnActivityRowId(boundaryMessageId: MessageId | null, turnId: TurnId | null): string {
@@ -899,6 +966,7 @@ function collapseSettledTurns(
       id: turnActivityRowId(boundaryMessageId, turnId),
       createdAt: collapsedStart,
       state: "settled",
+      showReasoningStatus: false,
       ...(collapsedItems.length > 0 ? { collapsedTurnItems: collapsedItems } : {}),
       collapsedWorkElapsed: elapsed ?? null,
     });
@@ -1196,17 +1264,25 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
   if (a.kind !== b.kind || a.id !== b.id) return false;
 
   switch (a.kind) {
-    case "turn-activity": {
+      case "turn-activity": {
       const ba = b as typeof a;
       return (
-        a.createdAt === ba.createdAt &&
-        a.state === ba.state &&
-        a.showThinking === ba.showThinking &&
+          a.createdAt === ba.createdAt &&
+          a.state === ba.state &&
+          a.showReasoningStatus === ba.showReasoningStatus &&
         workLogEntryArraysEqual(a.reasoningEntries, ba.reasoningEntries) &&
         a.collapsedWorkElapsed === ba.collapsedWorkElapsed &&
         collapsedTurnItemsEqual(a.collapsedTurnItems, ba.collapsedTurnItems)
-      );
-    }
+        );
+      }
+
+      case "reasoning-status": {
+        const br = b as typeof a;
+        return (
+          a.scopeKey === br.scopeKey &&
+          workLogEntryArraysEqual(a.reasoningEntries, br.reasoningEntries)
+        );
+      }
 
     case "worktree-setup": {
       const bw = b as typeof a;

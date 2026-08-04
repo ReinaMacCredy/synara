@@ -11,6 +11,7 @@ import {
 import {
   ChatAttachment,
   ModelSelection,
+  MessageDispatchOrigin,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   ProviderApprovalDecision,
@@ -25,6 +26,7 @@ import {
   RuntimeMode,
   ThreadOriginEnvelope,
 } from "./orchestration";
+import { ProviderSupervisionSessionContext } from "./supervision";
 import {
   OrchestratorCapabilities,
   OrchestratorProtocolVersion,
@@ -80,6 +82,7 @@ export const ProviderSessionStartInput = Schema.Struct({
   sandboxMode: Schema.optional(ProviderSandboxMode),
   providerOptions: Schema.optional(ProviderStartOptions),
   orchestratorContext: Schema.optional(Schema.NullOr(ProviderOrchestratorSessionContext)),
+  supervisionContext: Schema.optional(Schema.NullOr(ProviderSupervisionSessionContext)),
   handoffContext: Schema.optional(Schema.NullOr(AcceptedCrossModeHandoffV1)),
   runtimeMode: RuntimeMode,
 });
@@ -97,6 +100,7 @@ export const ProviderSendTurnInput = Schema.Struct({
   mentions: Schema.optional(Schema.Array(ProviderMentionReference)),
   modelSelection: Schema.optional(ModelSelection),
   interactionMode: Schema.optional(ProviderInteractionMode),
+  dispatchOrigin: Schema.optional(MessageDispatchOrigin),
   threadOrigin: Schema.optional(ThreadOriginEnvelope),
 });
 export type ProviderSendTurnInput = typeof ProviderSendTurnInput.Type;

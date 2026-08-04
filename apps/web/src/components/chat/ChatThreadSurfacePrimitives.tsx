@@ -126,6 +126,7 @@ export function DeferredChatView(props: {
     readonly onResetProject: () => void;
   };
   onOpenSessionProgressProcess?: () => void;
+  supervisionMissionStrips?: ReactNode;
   orchestratorMode?: boolean;
   inspectOnly?: boolean;
 }) {
@@ -193,6 +194,9 @@ export function DeferredChatView(props: {
         : {})}
       {...(props.onOpenSessionProgressProcess
         ? { onOpenSessionProgressProcess: props.onOpenSessionProgressProcess }
+        : {})}
+      {...(props.supervisionMissionStrips
+        ? { supervisionMissionStrips: props.supervisionMissionStrips }
         : {})}
       orchestratorMode={props.orchestratorMode ?? false}
       inspectOnly={props.inspectOnly ?? false}

@@ -33,6 +33,27 @@ describe("WebSocket compatibility bootstrap", () => {
     expect(result.serverInstanceId.length).toBeGreaterThan(0);
     expect(result.capabilities).toContain("orchestration.cursor-safe-streams");
     expect(result.capabilities).toContain("orchestration.thread-detail-snapshot");
+    expect(result.capabilities).toContain("orchestration.supervised-orchestration");
+  });
+
+  it("rejects revision-1 clients before they can receive supervision events", async () => {
+    const error = await Effect.runPromise(
+      negotiateWsCompatibility({
+        protocolEpoch: WS_PROTOCOL_EPOCH,
+        minRevision: 1,
+        maxRevision: 1,
+        clientBuild: "pre-supervision-client",
+        requiredCapabilities: [],
+      }).pipe(Effect.flip),
+    );
+
+    expect(error).toMatchObject({
+      code: "WS_PROTOCOL_INCOMPATIBLE",
+      retryable: false,
+      action: "update-client",
+      minRevision: WS_PROTOCOL_MIN_REVISION,
+      maxRevision: WS_PROTOCOL_MAX_REVISION,
+    });
   });
 
   it("returns terminal update guidance and rejects feature calls without negotiated query data", async () => {

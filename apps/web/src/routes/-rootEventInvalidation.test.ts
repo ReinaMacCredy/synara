@@ -3,7 +3,12 @@
 // Layer: Route utility unit tests
 // Depends on: rootEventInvalidation predicates and Vitest assertions.
 
-import { ProjectId, ThreadId, type OrchestrationEvent } from "@synara/contracts";
+import {
+  emptySupervisionSnapshot,
+  ProjectId,
+  ThreadId,
+  type OrchestrationEvent,
+} from "@synara/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -126,6 +131,7 @@ describe("root event invalidation", () => {
       worktreePath: "/repo/worktree",
     });
     const state: AppState = {
+      supervision: emptySupervisionSnapshot("2026-02-27T00:00:00.000Z"),
       spaces: [],
       projects: [{ id: projectId, cwd: "/repo/main" }] as AppState["projects"],
       sidebarThreadSummaryById: {},

@@ -1107,11 +1107,10 @@ describe("deriveMessagesTimelineRows", () => {
       id: "turn-activity:u1",
       state: "working",
       createdAt: "2026-01-01T00:00:00Z",
-      showThinking: false,
     });
   });
 
-  it("keeps one activity-row identity from optimistic send through provider start and settle", () => {
+    it("keeps one activity-row identity from optimistic send through provider start and settle", () => {
     const pending = deriveMessagesTimelineRows({
       ...baseInput,
       isWorking: true,
@@ -1149,20 +1148,45 @@ describe("deriveMessagesTimelineRows", () => {
       id: "turn-activity:u1",
       state: "working",
       createdAt: null,
-      showThinking: true,
     });
     expect(started.find((row) => row.kind === "turn-activity")).toMatchObject({
       id: "turn-activity:u1",
       state: "working",
       createdAt: "2026-01-01T00:00:01Z",
-      showThinking: false,
     });
     expect(settled.find((row) => row.kind === "turn-activity")).toMatchObject({
       id: "turn-activity:u1",
       state: "settled",
     });
-    expect(settled.at(-1)).toMatchObject({ kind: "message", message: { id: "a1", text: "Done" } });
-  });
+      expect(settled.at(-1)).toMatchObject({ kind: "message", message: { id: "a1", text: "Done" } });
+    });
+
+    it("does not insert a duplicate working row after the settled row already owns the turn", () => {
+      const rows = deriveMessagesTimelineRows({
+        ...baseInput,
+        isWorking: true,
+        activeTurnInProgress: false,
+        activeTurnId: TurnId.makeUnsafe("t1"),
+        activeTurnStartedAt: "2026-01-01T00:00:00Z",
+        timelineEntries: [
+          userEntry("u1", "2026-01-01T00:00:00Z"),
+          workEntry("w1", "2026-01-01T00:00:02Z", "read files"),
+          assistantEntry("a1", "2026-01-01T00:00:03Z", {
+            turnId: "t1",
+            text: "Done",
+            completedAt: "2026-01-01T00:00:03Z",
+          }),
+        ],
+      });
+
+      expect(rows.filter((row) => row.kind === "turn-activity")).toEqual([
+        expect.objectContaining({
+          id: "turn-activity:u1",
+          state: "settled",
+        }),
+      ]);
+      expect(rows.some((row) => row.kind === "reasoning-status")).toBe(false);
+    });
 
   it("keeps the settled activity row when a turn completes without tool details", () => {
     const rows = deriveMessagesTimelineRows({
@@ -1450,7 +1474,12 @@ describe("deriveMessagesTimelineRows", () => {
       timelineEntries: [userEntry("u1", "2026-01-01T00:00:00Z")],
     });
 
-    expect(rows.map((row) => row.kind)).toEqual(["message", "turn-activity", "worktree-setup"]);
+    expect(rows.map((row) => row.kind)).toEqual([
+      "message",
+      "turn-activity",
+      "worktree-setup",
+      "reasoning-status",
+    ]);
     expect(rows.find((row) => row.kind === "worktree-setup")).toMatchObject({ open: false });
   });
 
@@ -1461,13 +1490,17 @@ describe("deriveMessagesTimelineRows", () => {
       timelineEntries: [userEntry("u1", "2026-01-01T00:00:00Z")],
     });
 
-    expect(rows.map((row) => row.kind)).toEqual(["message", "turn-activity"]);
+    expect(rows.map((row) => row.kind)).toEqual([
+      "message",
+      "turn-activity",
+      "reasoning-status",
+    ]);
     expect(rows.find((row) => row.kind === "turn-activity")).toMatchObject({
-      showThinking: true,
+      state: "working",
     });
   });
 
-  it("suppresses generic Thinking while canonical tool activity is visible", () => {
+  it("keeps the stable activity row while canonical tool activity is visible", () => {
     const rows = deriveMessagesTimelineRows({
       ...baseInput,
       isWorking: true,
@@ -1482,11 +1515,11 @@ describe("deriveMessagesTimelineRows", () => {
     expect(rows.some((row) => row.kind === "work")).toBe(true);
     expect(rows.some((row) => row.kind === "working")).toBe(false);
     expect(rows.find((row) => row.kind === "turn-activity")).toMatchObject({
-      showThinking: false,
+      state: "working",
     });
   });
 
-  it("moves live provider reasoning into the stable turn activity row", () => {
+  it("freezes the last reasoning summary beside its tool run and resumes Swap for the next one", () => {
     const turnId = TurnId.makeUnsafe("t1");
     const reasoning = workEntry(
       "reasoning-live",
@@ -1517,17 +1550,49 @@ describe("deriveMessagesTimelineRows", () => {
     expect(rows.find((row) => row.kind === "turn-activity")).toMatchObject({
       id: "turn-activity:u1",
       state: "working",
-      showThinking: false,
-      reasoningEntries: [
-        expect.objectContaining({
-          id: "reasoning-live",
-          detail: "**Inspecting the current implementation**",
-        }),
-      ],
+      showReasoningStatus: false,
     });
     expect(
       rows.flatMap((row) => (row.kind === "work" ? row.groupedEntries : [])).map((entry) => entry.id),
-    ).toEqual(["tool-live"]);
+    ).toEqual(["reasoning-live", "tool-live"]);
+
+    const nextReasoning = workEntry(
+      "reasoning-next",
+      "2026-01-01T00:00:03Z",
+      "Reasoning summary",
+    );
+    if (nextReasoning.kind === "work") {
+      nextReasoning.entry = {
+        ...nextReasoning.entry,
+        turnId,
+        toolTitle: "Reasoning summary",
+        detail: "**Checking the tool result**",
+      };
+    }
+    const resumedRows = deriveMessagesTimelineRows({
+      ...baseInput,
+      isWorking: true,
+      activeTurnInProgress: true,
+      activeTurnId: turnId,
+      timelineEntries: [
+        userEntry("u1", "2026-01-01T00:00:00Z"),
+        reasoning,
+        tool,
+        nextReasoning,
+      ],
+    });
+
+    expect(resumedRows.find((row) => row.kind === "turn-activity")).toMatchObject({
+      id: "turn-activity:u1",
+      state: "working",
+      showReasoningStatus: false,
+    });
+      expect(resumedRows.some((row) => row.kind === "reasoning-status")).toBe(false);
+      expect(
+        resumedRows
+          .flatMap((row) => (row.kind === "work" ? row.groupedEntries : []))
+          .map((entry) => entry.id),
+      ).toEqual(["reasoning-live", "tool-live", "reasoning-next"]);
   });
 });
 
@@ -1630,30 +1695,63 @@ const planSignature = (
     return chunk.live ? `live:${ids}` : `collapsed:${ids}`;
   });
 
-describe("planWorkEntryRenderChunks", () => {
-  it("keeps generic thinking out of the purpose boundary while the live group streams", () => {
+  describe("planWorkEntryRenderChunks", () => {
+    it("keeps reasoning summaries inside one live tool disclosure", () => {
     expect(
       planSignature(
         [
-          toolItem("w1").entry,
+          toolItem("w1", { itemType: "command_execution" }).entry,
           toolItem("w2").entry,
-          toolItem("think", { tone: "thinking" }).entry,
+          toolItem("think", { tone: "thinking", toolTitle: "Reasoning summary" }).entry,
           toolItem("w3").entry,
           toolItem("w4").entry,
         ],
         { tailIsLive: true },
       ),
-    ).toEqual(["live:w1+w2+w3+w4"]);
+      ).toEqual(["live:w1+w2+think+w3+w4"]);
   });
 
-  it("collapses the purpose group when only generic thinking trails it", () => {
+    it("keeps trailing reasoning in the same live disclosure", () => {
     expect(
       planSignature(
-        [toolItem("w1").entry, toolItem("w2").entry, toolItem("think", { tone: "thinking" }).entry],
+          [
+            toolItem("w1").entry,
+            toolItem("w2").entry,
+            toolItem("think", { tone: "thinking", toolTitle: "Reasoning summary" }).entry,
+          ],
         { tailIsLive: true },
       ),
-    ).toEqual(["live:w1+w2"]);
-  });
+      ).toEqual(["live:w1+w2+think"]);
+    });
+
+    it("uses only a trailing reasoning summary as the disclosure headline", () => {
+      const reasoningTail = planWorkEntryRenderChunks(
+        [
+          toolItem("w1", { itemType: "command_execution" }).entry,
+          toolItem("think", {
+            tone: "thinking",
+            toolTitle: "Reasoning summary",
+            detail: "**Checking the tool result**",
+          }).entry,
+        ],
+        { tailIsLive: true },
+      )[0];
+      const toolTail = planWorkEntryRenderChunks(
+        [
+          toolItem("w1").entry,
+          toolItem("think", {
+            tone: "thinking",
+            toolTitle: "Reasoning summary",
+            detail: "**Checking the tool result**",
+          }).entry,
+          toolItem("w2").entry,
+        ],
+        { tailIsLive: true },
+      )[0];
+
+      expect(reasoningTail?.headline).toBe("Checking the tool result");
+      expect(toolTail?.headline).toBeNull();
+    });
 
   it("collapses the trailing run once the tail is no longer live", () => {
     expect(
@@ -1667,22 +1765,26 @@ describe("planWorkEntryRenderChunks", () => {
         [
           toolItem("w1", { toolStatus: "running" }).entry,
           toolItem("w2").entry,
-          toolItem("think", { tone: "thinking" }).entry,
+          toolItem("think", { tone: "thinking", toolTitle: "Reasoning summary" }).entry,
           toolItem("w3").entry,
           toolItem("w4").entry,
         ],
         { tailIsLive: false },
       ),
-    ).toEqual(["live:w1+w2+w3+w4"]);
+      ).toEqual(["live:w1+w2+think+w3+w4"]);
   });
 
   it("summarizes singleton purpose groups", () => {
     expect(
       planSignature(
-        [toolItem("w1").entry, toolItem("think", { tone: "thinking" }).entry, toolItem("w2").entry],
+          [
+            toolItem("w1").entry,
+            toolItem("think", { tone: "thinking", toolTitle: "Reasoning summary" }).entry,
+            toolItem("w2").entry,
+          ],
         { tailIsLive: false },
       ),
-    ).toEqual(["collapsed:w1+w2"]);
+      ).toEqual(["collapsed:w1+think+w2"]);
   });
 });
 
@@ -1692,7 +1794,7 @@ describe("capOpenWorkEntryRenderChunks", () => {
       [
         toolItem("w1").entry,
         toolItem("w2").entry,
-        toolItem("think", { tone: "thinking" }).entry,
+          toolItem("think", { tone: "thinking", toolTitle: "Reasoning summary" }).entry,
         toolItem("w3").entry,
         toolItem("w4").entry,
         toolItem("w5").entry,
@@ -1713,9 +1815,14 @@ describe("capOpenWorkEntryRenderChunks", () => {
         ids: chunk.entries.map((entry) => entry.id),
         collapsed: chunk.summary !== null,
       })),
-    ).toEqual([{ ids: ["w5", "w6", "w7"], collapsed: true }]);
-    expect(result.hasOverflow).toBe(true);
-    expect(result.hiddenEntryCount).toBe(4);
+      ).toEqual([
+        {
+          ids: ["w1", "w2", "think", "w3", "w4", "w5", "w6", "w7"],
+          collapsed: true,
+        },
+      ]);
+    expect(result.hasOverflow).toBe(false);
+    expect(result.hiddenEntryCount).toBe(0);
   });
 
   it("does not count separately rendered status boundaries against the tool cap", () => {
@@ -1723,7 +1830,7 @@ describe("capOpenWorkEntryRenderChunks", () => {
       [
         toolItem("w1").entry,
         toolItem("w2").entry,
-        toolItem("think", { tone: "thinking" }).entry,
+          toolItem("think", { tone: "thinking", toolTitle: "Reasoning summary" }).entry,
         toolItem("w3").entry,
         toolItem("w4").entry,
         toolItem("w5").entry,
@@ -1739,9 +1846,9 @@ describe("capOpenWorkEntryRenderChunks", () => {
     });
 
     expect(result.chunks.map((chunk) => chunk.entries.map((entry) => entry.id))).toEqual([
-      ["w1", "w2"],
+      ["w1", "w2", "think", "w3", "w4", "w5"],
     ]);
-    expect(result.hiddenEntryCount).toBe(3);
+    expect(result.hiddenEntryCount).toBe(0);
   });
 
   it("restores every open entry when expanded while retaining overflow state", () => {
@@ -1761,7 +1868,7 @@ describe("capOpenWorkEntryRenderChunks", () => {
       "w2",
       "w3",
     ]);
-    expect(result.hasOverflow).toBe(true);
+    expect(result.hasOverflow).toBe(false);
     expect(result.hiddenEntryCount).toBe(0);
   });
 });
@@ -1799,6 +1906,7 @@ const workingRow: MessagesTimelineRow = {
   id: "turn-activity:u1",
   createdAt: null,
   state: "working",
+  showReasoningStatus: true,
 };
 
 describe("findLastLiveWorkGroupId", () => {

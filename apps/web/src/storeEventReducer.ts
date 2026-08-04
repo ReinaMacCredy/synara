@@ -50,6 +50,7 @@ import {
 } from "./storeProjection";
 import type { AppState } from "./storeState";
 import type { ChatMessage, Thread } from "./types";
+import { projectSupervisionEvent } from "./lib/supervision";
 
 type ThreadMessageSentEvent = Extract<OrchestrationEvent, { type: "thread.message-sent" }>;
 type ThreadActivityAppendedEvent = Extract<
@@ -744,6 +745,33 @@ function applyOrchestrationEvent(
   options?: ApplyOrchestrationEventOptions,
 ): AppState {
   switch (event.type) {
+    case "supervision.profile-created":
+    case "supervision.profile-updated":
+    case "supervision.profile-archived":
+    case "supervision.profile-restored":
+    case "supervision.profile-cleared":
+    case "supervision.supervisor-created":
+    case "supervision.supervisor-updated":
+    case "supervision.supervisor-archived":
+    case "supervision.supervisor-restored":
+    case "supervision.lead-enrolled":
+    case "supervision.mission-created":
+    case "supervision.mission-updated":
+    case "supervision.mission-completed":
+    case "supervision.mission-cancelled":
+    case "supervision.workflow-applied":
+    case "supervision.workflow-conflicted":
+    case "supervision.workflow-resolved":
+    case "supervision.advice-sent":
+    case "supervision.observation-advanced":
+    case "supervision.lead-replacement-requested":
+    case "supervision.lead-replaced":
+    case "supervision.lead-replacement-failed":
+      return {
+        ...state,
+        supervision: projectSupervisionEvent(state.supervision, event),
+      };
+
     case "space.created":
       return upsertSpace(state, {
         id: event.payload.spaceId,

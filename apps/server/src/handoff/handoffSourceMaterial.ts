@@ -22,11 +22,11 @@ export function canonicalHandoffSourceItems(
         (message.role === "user" || message.role === "assistant") &&
         message.text.trim().length > 0 &&
         (sealedAt === undefined || message.createdAt <= sealedAt),
-      )
-      .map((message) => ({
-        ref: `message:${message.id}`,
-        role: message.role as "user" | "assistant",
-        text: message.text.slice(0, 32_768),
-        createdAt: message.createdAt,
-      }));
+    )
+    .map((message) => ({
+      ref: `message:${message.id}`,
+      role: message.role as "user" | "assistant",
+      text: message.text.slice(0, 32_768),
+      createdAt: message.createdAt,
+    }));
 }

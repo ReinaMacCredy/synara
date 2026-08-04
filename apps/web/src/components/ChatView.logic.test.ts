@@ -33,6 +33,7 @@ import {
   describeVoiceRecordingStartError,
   hasServerAcknowledgedLocalDispatch,
   hasTurnLifecycleAcknowledgedLocalDispatch,
+  hasTurnLifecycleSettledLocalDispatch,
   isVoiceAuthExpiredMessage,
   resolveActiveThreadTitle,
   resolveActiveTurnLiveDiffState,
@@ -1874,6 +1875,136 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
         threadError: null,
       }),
     ).toBe(true);
+  });
+
+  it("keeps a follow-up dispatch latched through provider start and stale reconciliation", () => {
+    const followUpDispatch: LocalDispatchSnapshot = {
+      ...localDispatch,
+      latestTurnTurnId: "turn-previous" as never,
+      latestTurnRequestedAt: "2026-04-13T00:00:00.000Z",
+      latestTurnStartedAt: "2026-04-13T00:00:00.100Z",
+      latestTurnCompletedAt: "2026-04-13T00:00:00.900Z",
+    };
+    const providerStartedInput = {
+      localDispatch: followUpDispatch,
+      phase: "running" as const,
+      latestTurn: {
+        turnId: "turn-follow-up" as never,
+        state: "running" as const,
+        requestedAt: "2026-04-13T00:00:01.000Z",
+        startedAt: "2026-04-13T00:00:01.100Z",
+        completedAt: null,
+        assistantMessageId: null,
+        sourceProposedPlan: undefined,
+      },
+      messages: [],
+      session: {
+        provider: "codex" as const,
+        status: "running" as const,
+        orchestrationStatus: "running" as const,
+        activeTurnId: "turn-follow-up" as never,
+        createdAt: "2026-04-13T00:00:00.000Z",
+        updatedAt: "2026-04-13T00:00:01.100Z",
+      },
+      hasPendingApproval: false,
+      hasPendingUserInput: false,
+      threadError: null,
+    };
+
+    expect(hasTurnLifecycleAcknowledgedLocalDispatch(providerStartedInput)).toBe(true);
+    expect(hasTurnLifecycleSettledLocalDispatch(providerStartedInput)).toBe(false);
+    expect(
+      hasTurnLifecycleSettledLocalDispatch({
+        ...providerStartedInput,
+        latestTurn: {
+          ...providerStartedInput.latestTurn,
+          state: "completed",
+          completedAt: "2026-04-13T00:00:08.000Z",
+        },
+      }),
+    ).toBe(false);
+    expect(
+      hasTurnLifecycleSettledLocalDispatch({
+        ...providerStartedInput,
+        phase: "ready",
+        latestTurn: {
+          turnId: "turn-previous" as never,
+          state: "completed",
+          requestedAt: followUpDispatch.latestTurnRequestedAt,
+          startedAt: followUpDispatch.latestTurnStartedAt,
+          completedAt: followUpDispatch.latestTurnCompletedAt,
+          assistantMessageId: null,
+          sourceProposedPlan: undefined,
+        },
+        session: {
+          ...providerStartedInput.session,
+          status: "ready",
+          orchestrationStatus: "idle",
+          activeTurnId: null,
+        },
+      }),
+    ).toBe(false);
+    expect(
+      hasTurnLifecycleSettledLocalDispatch({
+        ...providerStartedInput,
+        phase: "ready",
+        latestTurn: {
+          ...providerStartedInput.latestTurn,
+          state: "completed",
+          completedAt: "2026-04-13T00:00:02.000Z",
+        },
+        session: {
+          ...providerStartedInput.session,
+          status: "ready",
+          orchestrationStatus: "ready",
+          activeTurnId: null,
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps the dispatch latched at pending-interaction boundaries and settles errors", () => {
+    const baseInput = {
+      localDispatch,
+      phase: "ready" as const,
+      latestTurn: null,
+      messages: [],
+      session: null,
+      hasPendingApproval: false,
+      hasPendingUserInput: false,
+      threadError: null,
+    };
+
+    expect(
+      hasTurnLifecycleSettledLocalDispatch({ ...baseInput, hasPendingApproval: true }),
+    ).toBe(false);
+    expect(
+      hasTurnLifecycleSettledLocalDispatch({ ...baseInput, hasPendingUserInput: true }),
+    ).toBe(false);
+    expect(
+      hasTurnLifecycleSettledLocalDispatch({ ...baseInput, threadError: "provider failed" }),
+    ).toBe(true);
+  });
+
+  it("does not settle from a terminal session projection before the turn projection arrives", () => {
+    expect(
+      hasTurnLifecycleSettledLocalDispatch({
+        localDispatch,
+        phase: "ready",
+        latestTurn: null,
+        messages: [],
+        session: {
+          provider: "codex",
+          status: "ready",
+          orchestrationStatus: "interrupted",
+          createdAt: "2026-04-13T00:00:00.000Z",
+          updatedAt: "2026-04-13T00:00:01.000Z",
+        },
+        hasPendingApproval: false,
+        hasPendingUserInput: false,
+        threadError: null,
+      }),
+    ).toBe(false);
   });
 
   it("keeps the first-turn optimistic timer alive through a null-to-ready session bootstrap", () => {

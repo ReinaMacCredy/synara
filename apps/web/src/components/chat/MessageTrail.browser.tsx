@@ -80,20 +80,20 @@ describe("MessageTrail", () => {
       );
       await page.getByRole("button", { name: "Open conversation navigator" }).hover();
 
-        await vi.waitFor(() => {
-          expect(trigger?.getAttribute("aria-expanded")).toBe("true");
-          expect(mounted.container.querySelectorAll('[role="option"]')).toHaveLength(3);
+      await vi.waitFor(() => {
+        expect(trigger?.getAttribute("aria-expanded")).toBe("true");
+        expect(mounted.container.querySelectorAll('[role="option"]')).toHaveLength(3);
         expect(mounted.container.querySelector('input[aria-label="Search messages"]')).toBeNull();
         expect(
           mounted.container.querySelector('[role="option"][aria-current="location"]')?.textContent,
-          ).toContain("Second prompt");
-        });
+        ).toContain("Second prompt");
+      });
 
-        const firstTick = mounted.container.querySelector<HTMLElement>('span[aria-hidden="true"]');
-        const firstOption = mounted.container.querySelector<HTMLElement>('[role="option"]');
-        expect(getComputedStyle(firstTick!).transitionProperty).toContain("transform");
-        expect(getComputedStyle(firstTick!).transitionProperty).not.toContain("width");
-        expect(getComputedStyle(firstOption!).transitionDuration).toBe("0s");
+      const firstTick = mounted.container.querySelector<HTMLElement>('span[aria-hidden="true"]');
+      const firstOption = mounted.container.querySelector<HTMLElement>('[role="option"]');
+      expect(getComputedStyle(firstTick!).transitionProperty).toContain("transform");
+      expect(getComputedStyle(firstTick!).transitionProperty).not.toContain("width");
+      expect(getComputedStyle(firstOption!).transitionDuration).toBe("0s");
 
       const triggerRect = trigger?.getBoundingClientRect();
       trigger?.dispatchEvent(
@@ -103,13 +103,13 @@ describe("MessageTrail", () => {
           clientY: (triggerRect?.top ?? 0) + 1,
         }),
       );
-        await vi.waitFor(() => {
-          expect(
-            mounted.container.querySelector('[role="option"][data-active="true"]')?.textContent,
-          ).toContain("First question");
-          expect(firstTick?.style.transform).toContain("scaleX(");
-          expect(firstTick?.style.width).toBe("6px");
-        });
+      await vi.waitFor(() => {
+        expect(
+          mounted.container.querySelector('[role="option"][data-active="true"]')?.textContent,
+        ).toContain("First question");
+        expect(firstTick?.style.transform).toContain("scaleX(");
+        expect(firstTick?.style.width).toBe("6px");
+      });
 
       await page.getByText("Third request for final verification", { exact: true }).hover();
       await vi.waitFor(() => {
@@ -123,7 +123,7 @@ describe("MessageTrail", () => {
       expect(
         mounted.container
           .querySelector('[role="button"][aria-label="Open conversation navigator"]')
-        ?.getAttribute("aria-expanded"),
+          ?.getAttribute("aria-expanded"),
       ).toBe("true");
     } finally {
       await mounted.unmount();

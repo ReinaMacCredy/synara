@@ -2,7 +2,13 @@
 // Purpose: Constructs the ComposerDraftStoreState actions while preserving granular thread identity.
 // Exports: Zustand state creator consumed by the public facade.
 
-import { type ModelSelection, type ProviderKind, RuntimeMode, ThreadId } from "@synara/contracts";
+import {
+  DEFAULT_SUPERVISION_DRAFT_MODE,
+  type ModelSelection,
+  type ProviderKind,
+  RuntimeMode,
+  ThreadId,
+} from "@synara/contracts";
 import { getDefaultModel, normalizeModelSlug } from "@synara/shared/model";
 import * as Equal from "effect/Equal";
 import * as Schema from "effect/Schema";
@@ -207,6 +213,10 @@ export const createComposerDraftStoreState =
           runtimeMode: options.runtimeMode ?? DEFAULT_RUNTIME_MODE,
           interactionMode: options.interactionMode ?? DEFAULT_INTERACTION_MODE,
           entryPoint: options.entryPoint ?? "chat",
+          supervisionMode: options.supervisionMode ?? DEFAULT_SUPERVISION_DRAFT_MODE,
+          profilePresetId: options.profilePresetId ?? null,
+          supervisorSeatId: options.supervisorSeatId ?? null,
+          leadSeatId: options.leadSeatId ?? null,
           ...(options.orchestratorSourceThreadId !== undefined
             ? { orchestratorSourceThreadId: options.orchestratorSourceThreadId }
             : {}),

@@ -23,7 +23,9 @@ describe("Advisor consultation contract", () => {
     expect(
       isAdvisorConsultationPrompt(`Please explain ${ADVISOR_CONSULTATION_MARKER} to the user.`),
     ).toBe(false);
-    expect(extractAdvisorConsultationQuestion(`${ADVISOR_CONSULTATION_MARKER}\nmalformed`)).toBeNull();
+    expect(
+      extractAdvisorConsultationQuestion(`${ADVISOR_CONSULTATION_MARKER}\nmalformed`),
+    ).toBeNull();
   });
 
   it("recognizes durable Advisor identities without matching unrelated titles", () => {

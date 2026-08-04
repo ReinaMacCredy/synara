@@ -21,6 +21,7 @@ export const RIGHT_DOCK_PANE_KINDS = [
   "orchestratorTeam",
   "orchestratorProcess",
   "orchestratorRuns",
+  "supervision",
 ] as const;
 
 export type RightDockPaneKind = (typeof RIGHT_DOCK_PANE_KINDS)[number];

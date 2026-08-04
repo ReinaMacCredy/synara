@@ -110,12 +110,12 @@ describe("isSummarizableToolCallEntry", () => {
 });
 
 describe("summarizeToolCallGroup", () => {
-  it("keeps a single canonical tool call as its exact semantic row", () => {
+  it("summarizes a single ordinary command while leaving non-tool rows alone", () => {
     expect(summarizeToolCallGroup([])).toBeNull();
-    expect(summarizeToolCallGroup([command("c1")])).toBeNull();
+    expect(summarizeToolCallGroup([command("c1")])?.label).toBe("Ran a command");
     expect(
       summarizeToolCallGroup([command("c1"), workEntry({ id: "e", tone: "error" })])?.label,
-    ).toBeUndefined();
+    ).toBe("Ran a command");
   });
 
   it("labels a homogeneous command run", () => {

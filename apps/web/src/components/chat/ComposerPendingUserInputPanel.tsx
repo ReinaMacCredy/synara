@@ -1,18 +1,24 @@
-// Note: option rows render through the shared ComposerChoiceRow (number chip +
-// label + description) so this card and the pending-approval card stay identical;
-// the nav arrows stay raw <button> since they are compact icon controls. The card
-// is rendered detached, floating just above the composer (not fused into the
-// composer surface), so it reuses the composer surface chrome to stay in-tint.
+// FILE: ComposerPendingUserInputPanel.tsx
+// Purpose: Detached beUI-style question card for Codex request_user_input prompts.
+// Layer: Chat composer UI
+// Exports: ComposerPendingUserInputPanel
+
 import { useEffect, useEffectEvent, useRef } from "react";
 import { type PendingUserInput } from "../../session-logic";
 import {
   derivePendingUserInputProgress,
   type PendingUserInputDraftAnswer,
 } from "../../pendingUserInput";
-import { CheckIcon, ChevronLeftIcon, ChevronRightIcon } from "~/lib/icons";
+import { Button } from "~/components/ui/button";
+import { Input } from "~/components/ui/input";
+import {
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  CheckIcon,
+  CircleQuestionIcon,
+  LoaderCircleIcon,
+} from "~/lib/icons";
 import { cn } from "~/lib/utils";
-import { ComposerChoiceRow } from "./ComposerChoiceRow";
-import { COMPOSER_INPUT_SURFACE_CLASS_NAME } from "./composerPickerStyles";
 
 interface PendingUserInputPanelProps {
   pendingUserInputs: PendingUserInput[];
@@ -20,26 +26,21 @@ interface PendingUserInputPanelProps {
   answers: Record<string, PendingUserInputDraftAnswer>;
   questionIndex: number;
   onToggleOption: (questionId: string, optionLabel: string) => PendingUserInputDraftAnswer | null;
+  onCustomAnswerChange: (questionId: string, value: string) => void;
   onAdvance: (answerOverrides?: Record<string, PendingUserInputDraftAnswer>) => void;
   onPrevious: () => void;
-  onCancel: () => void;
 }
 
-const NAV_BUTTON_CLASS_NAME =
-  "flex size-5 items-center justify-center rounded-md text-[var(--color-text-foreground-tertiary)] transition-colors duration-150 hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)] disabled:pointer-events-none disabled:opacity-30";
-
-// Keep pending-input choices neutral so they read like Codex list controls instead of accent buttons.
 export function ComposerPendingUserInputPanel({
   pendingUserInputs,
   isResponding,
   answers,
   questionIndex,
   onToggleOption,
+  onCustomAnswerChange,
   onAdvance,
   onPrevious,
-  onCancel,
 }: PendingUserInputPanelProps) {
-  if (pendingUserInputs.length === 0) return null;
   const activePrompt = pendingUserInputs[0];
   if (!activePrompt) return null;
 
@@ -51,9 +52,9 @@ export function ComposerPendingUserInputPanel({
       answers={answers}
       questionIndex={questionIndex}
       onToggleOption={onToggleOption}
+      onCustomAnswerChange={onCustomAnswerChange}
       onAdvance={onAdvance}
       onPrevious={onPrevious}
-      onCancel={onCancel}
     />
   );
 }
@@ -64,31 +65,29 @@ function ComposerPendingUserInputCard({
   answers,
   questionIndex,
   onToggleOption,
+  onCustomAnswerChange,
   onAdvance,
   onPrevious,
-  onCancel,
 }: {
   prompt: PendingUserInput;
   isResponding: boolean;
   answers: Record<string, PendingUserInputDraftAnswer>;
   questionIndex: number;
   onToggleOption: (questionId: string, optionLabel: string) => PendingUserInputDraftAnswer | null;
+  onCustomAnswerChange: (questionId: string, value: string) => void;
   onAdvance: (answerOverrides?: Record<string, PendingUserInputDraftAnswer>) => void;
   onPrevious: () => void;
-  onCancel: () => void;
 }) {
   const progress = derivePendingUserInputProgress(prompt.questions, answers, questionIndex);
   const activeQuestion = progress.activeQuestion;
   const selectedOptionLabelSet = new Set(progress.selectedOptionLabels);
   const autoAdvanceTimerRef = useRef<number | null>(null);
   const onAdvanceRef = useRef(onAdvance);
+
   useEffect(() => {
     onAdvanceRef.current = onAdvance;
   }, [onAdvance]);
 
-  // Cancel a pending auto-advance on unmount, and whenever the active question
-  // changes or a response goes in flight — otherwise a manual Next/Submit landing
-  // inside the 200ms window leaves a stale timer that advances or submits again.
   useEffect(() => {
     return () => {
       if (autoAdvanceTimerRef.current !== null) {
@@ -100,7 +99,12 @@ function ComposerPendingUserInputCard({
 
   const handleOptionSelection = (questionId: string, optionLabel: string) => {
     const nextDraftAnswer = onToggleOption(questionId, optionLabel);
-    if (activeQuestion?.multiSelect) {
+    if (
+      activeQuestion?.multiSelect ||
+      progress.isLastQuestion ||
+      isResponding ||
+      !nextDraftAnswer
+    ) {
       return;
     }
     if (autoAdvanceTimerRef.current !== null) {
@@ -108,23 +112,17 @@ function ComposerPendingUserInputCard({
     }
     autoAdvanceTimerRef.current = window.setTimeout(() => {
       autoAdvanceTimerRef.current = null;
-      onAdvanceRef.current(nextDraftAnswer ? { [questionId]: nextDraftAnswer } : undefined);
-    }, 200);
+      onAdvanceRef.current({ [questionId]: nextDraftAnswer });
+    }, 240);
   };
   const handleEffectOptionSelection = useEffectEvent(handleOptionSelection);
 
-  // Keyboard shortcut: digits toggle options for multi-select prompts and preserve
-  // the current auto-advance behavior for single-select questions.
   useEffect(() => {
     if (!activeQuestion || isResponding) return;
     const handler = (event: globalThis.KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       const target = event.target;
-      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
-        return;
-      }
-      // Let digit input pass through whenever focus is inside an editable region,
-      // including nested contenteditable descendants inside the composer.
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return;
       if (
         target instanceof HTMLElement &&
         target.closest('[contenteditable]:not([contenteditable="false"])')
@@ -133,9 +131,7 @@ function ComposerPendingUserInputCard({
       }
       const digit = Number.parseInt(event.key, 10);
       if (Number.isNaN(digit) || digit < 1 || digit > 9) return;
-      const optionIndex = digit - 1;
-      if (optionIndex >= activeQuestion.options.length) return;
-      const option = activeQuestion.options[optionIndex];
+      const option = activeQuestion.options[digit - 1];
       if (!option) return;
       event.preventDefault();
       handleEffectOptionSelection(activeQuestion.id, option.label);
@@ -144,88 +140,177 @@ function ComposerPendingUserInputCard({
     return () => document.removeEventListener("keydown", handler);
   }, [activeQuestion, isResponding]);
 
-  if (!activeQuestion) {
-    return null;
-  }
+  if (!activeQuestion) return null;
 
   const questionCount = prompt.questions.length;
-  const showNavigation = questionCount > 1;
-  const canGoBack = progress.questionIndex > 0;
-  const canGoForward = !progress.isLastQuestion && progress.canAdvance;
+  const canGoBack = progress.questionIndex > 0 && !isResponding;
+  const canContinue = progress.canAdvance && !isResponding;
 
   return (
-    <div className={cn(COMPOSER_INPUT_SURFACE_CLASS_NAME, "overflow-hidden px-3.5 py-3")}>
-      <div className="flex items-start justify-between gap-3">
-        <p className="min-w-0 text-[13px] font-medium leading-snug text-foreground/90">
-          {activeQuestion.question}
-        </p>
-        {showNavigation ? (
-          <div className="flex shrink-0 items-center gap-0.5 pt-px text-muted-foreground/70">
-            <button
-              type="button"
-              disabled={!canGoBack || isResponding}
-              onClick={onPrevious}
-              className={NAV_BUTTON_CLASS_NAME}
-              aria-label="Previous question"
-            >
-              <ChevronLeftIcon className="size-3.5" />
-            </button>
-            <span className="px-0.5 text-[11px] tabular-nums">
-              {progress.questionIndex + 1} of {questionCount}
+    <section
+      data-state={isResponding ? "submitting" : "pending"}
+      aria-busy={isResponding}
+      aria-labelledby={`user-input-question-${activeQuestion.id}`}
+      className="w-full overflow-hidden rounded-2xl bg-muted p-4 text-sm"
+    >
+      <div className="flex items-start gap-3">
+        <span
+          aria-hidden="true"
+          className="grid size-5 shrink-0 place-items-center text-muted-foreground"
+        >
+          {isResponding ? (
+            <LoaderCircleIcon className="size-4 animate-spin motion-reduce:animate-none" />
+          ) : (
+            <CircleQuestionIcon className="size-4" />
+          )}
+        </span>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="mb-0.5 text-[11px] font-medium text-muted-foreground/70">
+                {activeQuestion.header}
+              </p>
+              <h3
+                id={`user-input-question-${activeQuestion.id}`}
+                className="text-base font-medium leading-5 text-foreground"
+              >
+                {activeQuestion.question}
+              </h3>
+            </div>
+            <span className="shrink-0 text-xs tabular-nums text-muted-foreground/65">
+              {progress.questionIndex + 1}/{questionCount}
             </span>
-            <button
-              type="button"
-              disabled={!canGoForward || isResponding}
-              onClick={() => onAdvance()}
-              className={NAV_BUTTON_CLASS_NAME}
-              aria-label="Next question"
-            >
-              <ChevronRightIcon className="size-3.5" />
-            </button>
           </div>
-        ) : null}
-      </div>
-      {activeQuestion.multiSelect ? (
-        <p className="mt-1 text-[11px] text-muted-foreground/55">Select one or more.</p>
-      ) : null}
-      {activeQuestion.options.length > 0 ? (
-        <div className="mt-2.5 space-y-0.5">
-          {activeQuestion.options.map((option, index) => {
-            const isSelected = selectedOptionLabelSet.has(option.label);
-            const shortcutKey = index < 9 ? index + 1 : null;
-            return (
-              <ComposerChoiceRow
-                key={`${activeQuestion.id}:${option.label}`}
-                shortcut={shortcutKey}
-                label={option.label}
-                description={option.description}
-                selected={isSelected}
-                disabled={isResponding}
-                onSelect={() => handleOptionSelection(activeQuestion.id, option.label)}
-                trailing={
-                  isSelected ? (
-                    <CheckIcon className="mt-0.5 size-3.5 shrink-0 text-[var(--color-text-foreground)]" />
-                  ) : null
-                }
-              />
-            );
-          })}
-        </div>
-      ) : (
-        <div className="mt-2.5 flex justify-end">
-          <button
-            type="button"
+
+          {activeQuestion.multiSelect ? (
+            <p className="mt-1 leading-5 text-muted-foreground">
+              Select every option that applies.
+            </p>
+          ) : null}
+
+          {activeQuestion.options.length > 0 ? (
+            <div className="mt-3 grid gap-0.5">
+              {activeQuestion.options.map((option) => {
+                const selected = selectedOptionLabelSet.has(option.label);
+                return (
+                  <label
+                    key={`${activeQuestion.id}:${option.label}`}
+                    className={cn(
+                      "group flex min-h-9 cursor-pointer items-start gap-2.5 rounded-lg px-1.5 py-1.5 outline-none transition-colors",
+                      selected
+                        ? "bg-[var(--color-background-button-secondary)]"
+                        : "hover:bg-[var(--color-background-button-secondary-hover)]",
+                      isResponding && "cursor-not-allowed opacity-50",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "mt-0.5 grid size-4 shrink-0 place-items-center border transition-colors",
+                        activeQuestion.multiSelect ? "rounded-[4px]" : "rounded-full",
+                        selected
+                          ? "border-foreground bg-foreground text-background"
+                          : "border-border bg-background",
+                      )}
+                    >
+                      {selected ? (
+                        activeQuestion.multiSelect ? (
+                          <CheckIcon className="size-3" />
+                        ) : (
+                          <span className="size-1.5 rounded-full bg-current" />
+                        )
+                      ) : null}
+                    </span>
+                    <input
+                      type={activeQuestion.multiSelect ? "checkbox" : "radio"}
+                      name={`user-input-${activeQuestion.id}`}
+                      checked={selected}
+                      disabled={isResponding}
+                      onChange={() => handleOptionSelection(activeQuestion.id, option.label)}
+                      className="sr-only"
+                    />
+                    <span className="min-w-0 flex-1 leading-snug">
+                      <span className="block text-[13px] text-foreground/90">{option.label}</span>
+                      {option.description ? (
+                        <span className="mt-0.5 block text-[11.5px] text-muted-foreground/65">
+                          {option.description}
+                        </span>
+                      ) : null}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          ) : null}
+
+          <Input
+            nativeInput
+            value={progress.customAnswer}
             disabled={isResponding}
-            onClick={onCancel}
+            aria-label={`Custom answer for ${activeQuestion.question}`}
+            placeholder="Type another answer…"
+            onChange={(event) => onCustomAnswerChange(activeQuestion.id, event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" || !canContinue) return;
+              event.preventDefault();
+              onAdvance();
+            }}
             className={cn(
-              "rounded-md px-2 py-1 text-[12px] text-[var(--color-text-foreground-secondary)] transition-colors duration-150 hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)]",
-              isResponding && "cursor-not-allowed opacity-50",
+              "h-10 rounded-xl border-0 bg-background/70 focus-within:bg-background",
+              activeQuestion.options.length > 0 && "mt-2",
             )}
-          >
-            Cancel
-          </button>
+          />
+
+          <div className="mt-4 flex items-center gap-3">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              shape="capsule"
+              aria-label="Previous question"
+              disabled={!canGoBack}
+              onClick={onPrevious}
+            >
+              <ArrowLeftIcon className="size-4" />
+            </Button>
+
+            <span className="flex gap-1.5" aria-hidden="true">
+              {prompt.questions.map((question, index) => (
+                <span
+                  key={question.id}
+                  className={cn(
+                    "size-1.5 rounded-full bg-foreground transition-[opacity,transform] duration-220 ease-out motion-reduce:transition-none",
+                    index === progress.questionIndex ? "scale-100 opacity-100" : "scale-75",
+                    index <= progress.questionIndex ? "opacity-100" : "opacity-35",
+                  )}
+                />
+              ))}
+            </span>
+            <span className="sr-only">
+              Question {progress.questionIndex + 1} of {questionCount}
+            </span>
+
+            <Button
+              size={progress.isLastQuestion ? "sm" : "icon-sm"}
+              shape="capsule"
+              aria-label={progress.isLastQuestion ? "Submit response" : "Next question"}
+              disabled={!canContinue}
+              onClick={() => onAdvance()}
+              className="ml-auto"
+            >
+              {isResponding ? (
+                <LoaderCircleIcon className="size-4 animate-spin motion-reduce:animate-none" />
+              ) : progress.isLastQuestion ? (
+                <>
+                  Submit response
+                  <ArrowRightIcon className="size-3.5" />
+                </>
+              ) : (
+                <ArrowRightIcon className="size-4" />
+              )}
+            </Button>
+          </div>
         </div>
-      )}
-    </div>
+      </div>
+    </section>
   );
 }

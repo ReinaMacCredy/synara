@@ -1189,9 +1189,8 @@ describe("MessagesTimeline", () => {
 
     expect(markup).toContain("Tasks updated");
     expect(markup).toContain("Working for");
-    expect(markup).toContain(">Thinking<");
-    expect(markup).toContain('data-reasoning-text-swap="true"');
-    expect(markup).toContain("Working through the details…");
+    expect(markup).not.toContain('data-reasoning-text-swap="true"');
+    expect(markup).not.toContain("Thinking…");
     expect(markup).not.toContain(formatShortTimestamp(assistantCreatedAt, "locale"));
     expect(markup).toMatch(/class="[^"]*\bpb-1\b[^"]*" data-timeline-row-kind="message"/);
   });
@@ -1647,7 +1646,7 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("+2 more tool calls");
   });
 
-  it("streams live reasoning inside the stable turn activity row", async () => {
+    it("hands the stable tool headline directly to the latest live reasoning summary", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const activeTurnId = TurnId.makeUnsafe("turn-reasoning-live");
     const markup = renderToStaticMarkup(
@@ -1688,31 +1687,31 @@ describe("MessagesTimeline", () => {
             },
           },
           {
-            id: "entry-reasoning-summary",
+            id: "entry-command-execution",
             kind: "work",
             createdAt: "2026-03-17T19:12:28.300Z",
             entry: {
-              id: "reasoning-summary",
-              createdAt: "2026-03-17T19:12:28.300Z",
-              turnId: activeTurnId,
-              label: "Reasoning summary",
-              toolTitle: "Reasoning summary",
-              preview: "Updating the adapter",
-              tone: "tool",
-            },
-          },
-          {
-            id: "entry-command-execution",
-            kind: "work",
-            createdAt: "2026-03-17T19:12:28.400Z",
-            entry: {
               id: "command-execution",
-              createdAt: "2026-03-17T19:12:28.400Z",
+              createdAt: "2026-03-17T19:12:28.300Z",
               turnId: activeTurnId,
               label: "Ran command",
               toolTitle: "Ran command",
               itemType: "command_execution",
               preview: "Running the focused tests",
+              tone: "tool",
+            },
+          },
+          {
+            id: "entry-reasoning-summary",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:28.400Z",
+            entry: {
+              id: "reasoning-summary",
+              createdAt: "2026-03-17T19:12:28.400Z",
+              turnId: activeTurnId,
+              label: "Reasoning summary",
+              toolTitle: "Reasoning summary",
+              preview: "Updating the adapter",
               tone: "tool",
             },
           },
@@ -1732,16 +1731,19 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain('data-reasoning-activity-stream="true"');
+      expect(markup).not.toContain('data-reasoning-text-swap="true"');
+      expect(markup).not.toContain('data-reasoning-source="provider"');
     expect(markup).toContain(
       'data-turn-work-region="turn-activity:turn-reasoning-live"',
     );
-    expect(markup).toContain("Inspecting apps/web/src/store.ts");
-    expect(markup).toContain("Updating the adapter");
-    expect(markup).not.toContain('data-reasoning-text-swap="true"');
+      expect(markup).toContain("Updating the adapter");
+      expect(markup).not.toContain("Inspecting apps/web/src/store.ts");
+      expect(markup).toContain('data-tool-summary-swap="true"');
+    expect(markup).not.toContain('data-reasoning-activity-stream="true"');
+    expect(markup).not.toContain("Thinking…");
   });
 
-  it("keeps a stable working header when a new local send has no server turn id yet", async () => {
+  it("does not reuse the previous summary while a new local send still has the old turn id", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const previousTurnId = TurnId.makeUnsafe("turn-previous");
     const markup = renderToStaticMarkup(
@@ -1749,7 +1751,7 @@ describe("MessagesTimeline", () => {
         hasMessages
         isWorking
         activeTurnInProgress
-        activeTurnId={null}
+        activeTurnId={previousTurnId}
         activeTurnStartedAt={null}
         timelineEntries={[
           {
@@ -1774,6 +1776,7 @@ describe("MessagesTimeline", () => {
               turnId: previousTurnId,
               label: "Reasoning",
               toolTitle: "Reasoning",
+              preview: "Reading package.json",
               tone: "info",
             },
           },
@@ -1820,9 +1823,12 @@ describe("MessagesTimeline", () => {
     );
 
     expect(markup).toContain("Working...");
-    expect(markup).toContain(">Thinking<");
-    expect(markup).toContain('data-reasoning-text-swap="true"');
-    expect(markup).toContain("Working through the details…");
+    expect(markup).toContain(
+      'data-turn-work-region="turn-activity:message-user-current"',
+    );
+    expect(markup).not.toContain("Reading package.json");
+    expect(markup).toContain('data-reasoning-source="synthetic"');
+    expect(markup).toContain("Thinking…");
   });
 
   it("attaches trailing tool rows to the last assistant reply after completion", async () => {
@@ -1990,8 +1996,9 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain("Tool 5");
-    expect(markup).toContain("Show less");
+      expect(markup).toContain("tool 5");
+      expect(markup).toContain('aria-expanded="true"');
+      expect(markup).not.toContain("Show less");
   });
 
   it("renders inline file-change tool calls as edited rows with diff stats", async () => {
@@ -2084,7 +2091,7 @@ describe("MessagesTimeline", () => {
     );
   });
 
-  it("marks visible file-change rows with captured details as clickable", async () => {
+  it("keeps file-change details concise inside the tool summary", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -2115,7 +2122,7 @@ describe("MessagesTimeline", () => {
         ]}
         turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
+        expandedWorkGroups={{ "entry-file-change-details": true }}
         onToggleWorkGroup={() => {}}
         onOpenTurnDiff={() => {}}
         revertTurnCountByUserMessageId={new Map()}
@@ -2129,14 +2136,15 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain('data-tool-detail-trigger="true"');
-    expect(markup).toContain(TOOLTIP_TRIGGER_MARKER);
+    expect(markup).toContain("Edited a file");
+    expect(markup).toContain("MessagesTimeline.test.tsx");
+    expect(markup).not.toContain('data-tool-detail-trigger="true"');
     expect(markup).not.toContain('data-tool-details-inline="true"');
     expect(markup).not.toContain("Diff");
     expect(markup).not.toContain("Details");
   });
 
-  it("renders command rows with a readable summary and styled hover tooltip trigger", async () => {
+  it("renders a concise command detail inside its collapsed summary", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -2163,7 +2171,7 @@ describe("MessagesTimeline", () => {
         ]}
         turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
+        expandedWorkGroups={{ "entry-inline-command": true }}
         onToggleWorkGroup={() => {}}
         onOpenTurnDiff={() => {}}
         revertTurnCountByUserMessageId={new Map()}
@@ -2180,7 +2188,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("Searched");
     expect(markup).toContain("for ProjectionSnapshotQuery in server/src");
     expect(markup).not.toContain("data-work-entry-action-word");
-    expect(markup).toContain(TOOLTIP_TRIGGER_MARKER);
+    expect(markup).not.toContain(TOOLTIP_TRIGGER_MARKER);
     expect(markup).not.toContain(
       `title="/bin/zsh -lc &#x27;rg -n &quot;ProjectionSnapshotQuery&quot; apps/server/src&#x27;"`,
     );
@@ -2229,7 +2237,7 @@ describe("MessagesTimeline", () => {
         ]}
         turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
+        expandedWorkGroups={{ "entry-git-command": true }}
         onToggleWorkGroup={() => {}}
         onOpenTurnDiff={() => {}}
         revertTurnCountByUserMessageId={new Map()}
@@ -2247,7 +2255,7 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("/central-icons-reversed/git.svg");
   });
 
-  it("marks command rows with captured details as clickable", async () => {
+  it("hides verbose command output behind the concise group detail", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -2281,7 +2289,7 @@ describe("MessagesTimeline", () => {
         ]}
         turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
+        expandedWorkGroups={{ "entry-command-details": true }}
         onToggleWorkGroup={() => {}}
         onOpenTurnDiff={() => {}}
         revertTurnCountByUserMessageId={new Map()}
@@ -2295,7 +2303,7 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain('data-tool-detail-trigger="true"');
+    expect(markup).not.toContain('data-tool-detail-trigger="true"');
     expect(markup).not.toContain('data-tool-details-inline="true"');
     expect(markup).not.toContain("Shell");
     expect(markup).not.toContain("rounded-lg border border-border/45 bg-background/62");
@@ -2334,7 +2342,7 @@ describe("MessagesTimeline", () => {
         ]}
         turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-05-09T10:07:00.000Z"
-        expandedWorkGroups={{}}
+        expandedWorkGroups={{ "entry-inline-command-actions": true }}
         onToggleWorkGroup={() => {}}
         onOpenTurnDiff={() => {}}
         revertTurnCountByUserMessageId={new Map()}
@@ -2348,10 +2356,10 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain("Listed");
+    expect(markup).toContain("Searched");
     expect(markup).not.toContain("data-work-entry-action-word");
     expect(markup).toContain("web/src");
-    expect(markup).toContain(TOOLTIP_TRIGGER_MARKER);
+    expect(markup).not.toContain(TOOLTIP_TRIGGER_MARKER);
     expect(markup).not.toContain(">Listed web<");
   });
 
@@ -2419,6 +2427,7 @@ describe("MessagesTimeline", () => {
               label: "Read",
               tone: "tool",
               itemType: "dynamic_tool_call",
+              requestKind: "file-read",
               toolTitle: "Read",
               changedFiles: ["apps/web/src/session-logic.ts"],
             },
@@ -2426,7 +2435,7 @@ describe("MessagesTimeline", () => {
         ]}
         turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
+        expandedWorkGroups={{ "entry-read-target": true }}
         onToggleWorkGroup={() => {}}
         revertTurnCountByUserMessageId={new Map()}
         onRevertUserMessage={() => {}}
@@ -2471,7 +2480,7 @@ describe("MessagesTimeline", () => {
         ]}
         turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
+        expandedWorkGroups={{ "entry-inline-web-search": true }}
         onToggleWorkGroup={() => {}}
         onOpenTurnDiff={() => {}}
         revertTurnCountByUserMessageId={new Map()}
@@ -2486,7 +2495,7 @@ describe("MessagesTimeline", () => {
     );
 
     expect(markup).toContain("Searched the web");
-    expect(markup).toContain("48 files found");
+    expect(markup).not.toContain("48 files found");
     expect(markup).toContain("lucide-globe");
     expect(markup).not.toContain("/central-icons-reversed/globe.svg");
     expect(markup).not.toContain("tabler-icon-world");
@@ -2618,6 +2627,7 @@ describe("MessagesTimeline", () => {
     const codexMarkup = renderToStaticMarkup(
       <MessagesTimeline
         {...baseProps}
+        expandedWorkGroups={{ "entry-inline-synara-codex": true }}
         timelineEntries={[
           {
             id: "entry-inline-synara-codex",

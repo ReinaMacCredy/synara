@@ -14,6 +14,8 @@ import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor"
 import { OrchestrationReactorLive } from "./orchestration/Layers/OrchestrationReactor";
 import { OrchestratorMailboxLive } from "./orchestration/Layers/OrchestratorMailbox";
 import { OrchestratorMonitorLive } from "./orchestration/Layers/OrchestratorMonitor";
+import { SupervisionWakeReactorLive } from "./orchestration/Layers/SupervisionWakeReactor";
+import { LeadRotationReactorLive } from "./orchestration/Layers/LeadRotationReactor";
 import { OrchestratorToolRuntimeConfiguredLive } from "./orchestration/Layers/OrchestratorToolRuntime";
 import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderCommandReactor";
 import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRuntimeIngestion";
@@ -112,6 +114,13 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(ProjectionOrchestratorRepositoryLive),
     Layer.provideMerge(QueuedTurnPromotionRepositoryLive),
   );
+  const supervisionWakeReactorLayer = SupervisionWakeReactorLive.pipe(
+    Layer.provideMerge(runtimeServicesLayer),
+  );
+  const leadRotationReactorLayer = LeadRotationReactorLive.pipe(
+    Layer.provideMerge(runtimeServicesLayer),
+    Layer.provideMerge(ProjectionOrchestratorRepositoryLive),
+  );
   const profileStatsArchiveLayer = ProfileStatsArchiveLive.pipe(
     Layer.provideMerge(checkpointStoreLayer),
   );
@@ -121,6 +130,8 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(checkpointReactorLayer),
     Layer.provideMerge(orchestratorMailboxLayer),
     Layer.provideMerge(orchestratorMonitorLayer),
+    Layer.provideMerge(supervisionWakeReactorLayer),
+    Layer.provideMerge(leadRotationReactorLayer),
   );
   const taskProcessQueryLayer = TaskProcessQueryLive.pipe(
     Layer.provideMerge(runtimeServicesLayer),
@@ -231,6 +242,8 @@ export function makeServerRuntimeServicesLayer(
     orchestrationReactorLayer,
     orchestratorMailboxLayer,
     orchestratorMonitorLayer,
+    supervisionWakeReactorLayer,
+    leadRotationReactorLayer,
     taskProcessQueryLayer,
     handoffPreparationLayer,
     providerCommandReactorLayer,

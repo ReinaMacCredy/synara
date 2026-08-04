@@ -28,6 +28,15 @@ export const ORCHESTRATOR_TOOL_DISPLAY_NAMES: Readonly<Record<OrchestratorToolNa
   list_handoff_sources: "List handoff sources",
   read_handoff_source: "Read handoff source",
   search_handoff_source: "Search handoff source",
+  read_supervision_state: "Read supervision state",
+  create_supervision_mission: "Create supervision mission",
+  update_supervision_mission: "Update supervision mission",
+  complete_supervision_mission: "Complete supervision mission",
+  cancel_supervision_mission: "Cancel supervision mission",
+  send_supervision_advice: "Send supervision advice",
+  apply_supervision_workflow: "Apply supervision workflow",
+  revoke_supervision_workflow: "Revoke supervision workflow",
+  request_lead_replacement: "Request Lead replacement",
 };
 
 export function orchestratorToolDisplayName(name: string): string | null {

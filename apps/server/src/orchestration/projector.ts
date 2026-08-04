@@ -4,6 +4,8 @@ import {
   OrchestrationMessage,
   OrchestrationSession,
   OrchestrationThread,
+  emptySupervisionSnapshot,
+  SupervisionDomainEvent,
 } from "@synara/contracts";
 import {
   addPinnedMessage,
@@ -55,6 +57,7 @@ import {
 import { resolveStableMessageTurnId } from "./messageTurnId.ts";
 import { settleTurnStateFromSession } from "./turnLifecycle.ts";
 import { deriveTurnStartModelSelection, deriveTurnStartSession } from "./turnStartSession.ts";
+import { projectSupervisionEvent } from "./supervision/projector.ts";
 
 type ThreadPatch = Partial<Omit<OrchestrationThread, "id" | "projectId">>;
 const MAX_THREAD_MESSAGES = 2_000;
@@ -302,6 +305,7 @@ export function createEmptyReadModel(nowIso: string): OrchestrationReadModel {
     spaces: [],
     projects: [],
     threads: [],
+    supervision: emptySupervisionSnapshot(nowIso),
     updatedAt: nowIso,
   };
 }
@@ -317,6 +321,40 @@ export function projectEvent(
   };
 
   switch (event.type) {
+    case "supervision.profile-created":
+    case "supervision.profile-updated":
+    case "supervision.profile-archived":
+    case "supervision.profile-restored":
+    case "supervision.profile-cleared":
+    case "supervision.supervisor-created":
+    case "supervision.supervisor-updated":
+    case "supervision.supervisor-archived":
+    case "supervision.supervisor-restored":
+    case "supervision.lead-enrolled":
+    case "supervision.peer-bound":
+    case "supervision.mission-created":
+    case "supervision.mission-updated":
+    case "supervision.mission-completed":
+    case "supervision.mission-cancelled":
+    case "supervision.workflow-applied":
+    case "supervision.workflow-conflicted":
+    case "supervision.workflow-resolved":
+    case "supervision.workflow-reverted":
+    case "supervision.advice-sent":
+    case "supervision.observation-advanced":
+    case "supervision.wake-enqueued":
+    case "supervision.wake-updated":
+    case "supervision.lead-replacement-requested":
+    case "supervision.lead-rotation-advanced":
+    case "supervision.lead-replaced":
+    case "supervision.lead-replacement-failed":
+      return Effect.succeed({
+        ...nextBase,
+        supervision: projectSupervisionEvent(
+          nextBase.supervision,
+          event as typeof SupervisionDomainEvent.Type,
+        ),
+      });
     case "space.created":
       return decodeForEvent(SpaceCreatedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => {

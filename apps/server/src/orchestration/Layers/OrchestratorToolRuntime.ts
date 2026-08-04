@@ -13,6 +13,7 @@ import { OrchestratorArtifactRepositoryLive } from "../../persistence/Layers/Orc
 import { ProjectionOrchestratorRepositoryLive } from "../../persistence/Layers/ProjectionOrchestrator.ts";
 import { ProjectionTaskProcessRepositoryLive } from "../../persistence/Layers/ProjectionTaskProcess.ts";
 import { makeHandoffDestinationTools } from "../../handoff/handoffDestinationToolRegistry.ts";
+import { makeSupervisionTools } from "../supervision/toolRegistry.ts";
 
 const makeOrchestratorToolRuntime = Effect.gen(function* () {
   const snapshotQuery = yield* ProjectionSnapshotQuery;
@@ -25,6 +26,10 @@ const makeOrchestratorToolRuntime = Effect.gen(function* () {
       snapshotQuery,
     }),
     ...makeHandoffDestinationTools({ snapshotQuery }),
+    ...makeSupervisionTools({
+      orchestrationEngine: yield* OrchestrationEngineService,
+      snapshotQuery,
+    }),
   ];
   const byName = new Map(entries.map((entry) => [entry.definition.name, entry]));
 
