@@ -191,7 +191,7 @@ export function createDevRunnerEnv({
       PORT: String(webPort),
       ELECTRON_RENDERER_PORT: String(webPort),
       VITE_WS_URL: `ws://${formattedClientHost}:${serverPort}`,
-      VITE_DEV_SERVER_URL: devUrl?.toString() ?? `http://localhost:${webPort}`,
+      VITE_DEV_SERVER_URL: devUrl?.toString() ?? `http://${formattedClientHost}:${webPort}`,
       SYNARA_HOME: resolvedBaseDir,
       SYNARA_HOST: serverHost,
     };

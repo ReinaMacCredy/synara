@@ -151,6 +151,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         assert.equal(env.SYNARA_HOME, resolve(homedir(), ".synara"));
         assert.equal(env.SYNARA_HOST, "127.0.0.1");
         assert.equal(env.VITE_WS_URL, "ws://127.0.0.1:3773");
+        assert.equal(env.VITE_DEV_SERVER_URL, "http://127.0.0.1:5733");
       }),
     );
 
