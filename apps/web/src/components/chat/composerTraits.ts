@@ -180,6 +180,8 @@ export function getComposerTraitSelection(
   };
 }
 
+// Human label for the currently selected reasoning/thinking trait, shared by the
+// composer trigger and any surface that summarizes a thread's model selection.
 export function resolveComposerTraitStatusLabel(
   selection: Pick<
     ReturnType<typeof getComposerTraitSelection>,
@@ -201,12 +203,15 @@ export function resolveComposerTraitStatusLabel(
     : null;
 }
 
+// A model exposes a speed control either through an explicit descriptor or the
+// legacy capability flag; every surface must agree on that test.
 export function supportsComposerFastModeControl(
   selection: Pick<ReturnType<typeof getComposerTraitSelection>, "caps" | "fastModeDescriptor">,
 ): boolean {
   return selection.fastModeDescriptor !== null || selection.caps.supportsFastMode;
 }
 
+// Fast mode is only worth surfacing when the model exposes the control and it is on.
 export function showsComposerFastModeBadge(
   selection: Pick<
     ReturnType<typeof getComposerTraitSelection>,

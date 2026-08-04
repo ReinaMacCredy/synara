@@ -6,7 +6,7 @@ import { useSyncExternalStore } from "react";
 
 import type { WorkLogEntry, WorkLogLiveActivity } from "../workLog";
 import { formatClockDuration } from "../session-logic";
-import { deriveReadableCommandDisplay } from "./toolCallLabel";
+import { deriveFriendlyCommandTarget } from "./toolCallLabel";
 
 const NO_ACTIVITY_THRESHOLD_MS = 30_000;
 const LIVE_ACTIVITY_TICK_MS = 1_000;
@@ -68,61 +68,6 @@ export function useLiveActivityNow(activity: WorkLogLiveActivity | undefined): n
   return inProgress ? nowMs : Date.now();
 }
 
-function parseTimestamp(value: string | undefined): number | null {
-  if (!value) {
-    return null;
-  }
-  const timestamp = Date.parse(value);
-  return Number.isNaN(timestamp) ? null : timestamp;
-}
-
-export function liveActivityElapsedMs(activity: WorkLogLiveActivity, nowMs: number): number | null {
-  const startedAtMs = parseTimestamp(activity.startedAt);
-  const lastActivityAtMs = parseTimestamp(activity.lastActivityAt);
-  const reportedElapsedMs =
-    activity.elapsedSeconds !== undefined && activity.elapsedSeconds >= 0
-      ? activity.elapsedSeconds * 1_000
-      : null;
-
-  if (isLiveActivityInProgress(activity)) {
-    if (reportedElapsedMs !== null && lastActivityAtMs !== null) {
-      return reportedElapsedMs + Math.max(0, nowMs - lastActivityAtMs);
-    }
-    return startedAtMs === null ? null : Math.max(0, nowMs - startedAtMs);
-  }
-
-  if (reportedElapsedMs !== null) return reportedElapsedMs;
-  if (startedAtMs === null || lastActivityAtMs === null || lastActivityAtMs < startedAtMs) {
-    return null;
-  }
-  return lastActivityAtMs - startedAtMs;
-}
-
-function firstCommandExecutable(rawCommand: string): string {
-  const trimmed = rawCommand.trim();
-  const match = /^(?:"([^"]+)"|'([^']+)'|(\S+))/u.exec(trimmed);
-  const executable = match?.[1] ?? match?.[2] ?? match?.[3] ?? "";
-  return executable.split(/[\\/]/u).at(-1)?.toLowerCase() ?? "";
-}
-
-export function friendlyLiveCommandTarget(rawCommand: string): string {
-  const executable = firstCommandExecutable(rawCommand);
-  if (
-    executable === "pwsh" ||
-    executable === "pwsh.exe" ||
-    executable === "powershell" ||
-    executable === "powershell.exe"
-  ) {
-    return "PowerShell";
-  }
-  if (executable === "cmd" || executable === "cmd.exe") {
-    return "Command Prompt";
-  }
-
-  const target = deriveReadableCommandDisplay(rawCommand, true).target.trim();
-  return target.length <= 72 ? target : `${target.slice(0, 69).trimEnd()}…`;
-}
-
 function activitySubject(entry: Pick<WorkLogEntry, "itemType" | "requestKind">): string {
   if (entry.requestKind === "command" || entry.itemType === "command_execution") return "command";
   if (entry.requestKind === "file-read") return "file read";
@@ -163,9 +108,39 @@ export function formatLiveActivityPrimary(input: {
   const subject = activitySubject(input.entry);
   const lead = activityStateLead(input.activity, subject);
   const target = input.rawCommand
-    ? friendlyLiveCommandTarget(input.rawCommand)
+    ? deriveFriendlyCommandTarget(input.rawCommand)
     : (input.displayTarget || input.activity.label || input.heading).trim();
   return target ? `${lead} · ${target}` : lead;
+}
+
+function parseTimestamp(value: string | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? null : timestamp;
+}
+
+export function liveActivityElapsedMs(activity: WorkLogLiveActivity, nowMs: number): number | null {
+  const startedAtMs = parseTimestamp(activity.startedAt);
+  const lastActivityAtMs = parseTimestamp(activity.lastActivityAt);
+  const reportedElapsedMs =
+    activity.elapsedSeconds !== undefined && activity.elapsedSeconds >= 0
+      ? activity.elapsedSeconds * 1_000
+      : null;
+
+  if (isLiveActivityInProgress(activity)) {
+    if (reportedElapsedMs !== null && lastActivityAtMs !== null) {
+      return reportedElapsedMs + Math.max(0, nowMs - lastActivityAtMs);
+    }
+    return startedAtMs === null ? null : Math.max(0, nowMs - startedAtMs);
+  }
+
+  if (reportedElapsedMs !== null) return reportedElapsedMs;
+  if (startedAtMs === null || lastActivityAtMs === null || lastActivityAtMs < startedAtMs) {
+    return null;
+  }
+  return lastActivityAtMs - startedAtMs;
 }
 
 export function formatLiveActivityProgress(progress: number): string {
@@ -202,10 +177,18 @@ export function formatLiveActivityElapsed(
   return elapsedMs === null ? null : formatClockDuration(elapsedMs);
 }
 
+// Live meta only exists to explain work the row can't state on its own: how long
+// something in flight has been running, or that it ended badly. A tool call that
+// simply succeeded already reads as a finished sentence ("Searched for foo in
+// src"), so it gets no status/elapsed tail — that detail lives in the disclosure.
 export function formatLiveActivityMeta(
   activity: WorkLogLiveActivity,
   nowMs: number,
 ): string | null {
+  if (activity.state === "completed") {
+    return null;
+  }
+
   const parts: string[] = [];
   const elapsed = formatLiveActivityElapsed(activity, nowMs);
   const lastActivityAtMs = parseTimestamp(activity.lastActivityAt);
@@ -222,20 +205,7 @@ export function formatLiveActivityMeta(
       );
     }
   } else {
-    switch (activity.state) {
-      case "completed":
-        parts.push(formatLiveActivityStateLabel(activity.state));
-        break;
-      case "failed":
-        parts.push(formatLiveActivityStateLabel(activity.state));
-        break;
-      case "cancelled":
-        parts.push(formatLiveActivityStateLabel(activity.state));
-        break;
-      default:
-        parts.push(activityStateLead(activity, "tool"));
-        break;
-    }
+    parts.push(formatLiveActivityStateLabel(activity.state));
   }
 
   if (elapsed !== null) {

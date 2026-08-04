@@ -55,6 +55,10 @@ interface ChatTranscriptPaneProps {
   onTogglePinMessage?: (messageId: MessageId) => void;
   threadMarkers?: readonly ThreadMarker[];
   enteringUserMessageIds?: ComponentProps<typeof MessagesTimeline>["enteringUserMessageIds"];
+  tailAnchorMessageId?: ComponentProps<typeof MessagesTimeline>["tailAnchorMessageId"];
+  tailAnchorScrollInFlightRef?: ComponentProps<
+    typeof MessagesTimeline
+  >["tailAnchorScrollInFlightRef"];
   crossTaskOrigin?: ComponentProps<typeof MessagesTimeline>["crossTaskOrigin"];
   markdownCwd: string | undefined;
   onExpandTimelineImage: (preview: ExpandedImagePreview) => void;
@@ -114,6 +118,8 @@ export function ChatTranscriptPane({
   onTogglePinMessage,
   threadMarkers,
   enteringUserMessageIds,
+  tailAnchorMessageId,
+  tailAnchorScrollInFlightRef,
   crossTaskOrigin,
   markdownCwd,
   onExpandTimelineImage,
@@ -202,6 +208,8 @@ export function ChatTranscriptPane({
             {...(onTogglePinMessage ? { onTogglePinMessage } : {})}
             {...(threadMarkers ? { threadMarkers } : {})}
             {...(enteringUserMessageIds ? { enteringUserMessageIds } : {})}
+            tailAnchorMessageId={tailAnchorMessageId ?? null}
+            {...(tailAnchorScrollInFlightRef ? { tailAnchorScrollInFlightRef } : {})}
             {...(crossTaskOrigin ? { crossTaskOrigin } : {})}
             timelineEntries={timelineEntries}
             turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}

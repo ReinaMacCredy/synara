@@ -123,6 +123,7 @@ import {
 } from "../keybindings";
 import {
   createAllThreadsSelector,
+  createProjectLastActivityAtSelector,
   createSidebarDisplayThreadsSelector,
   createSidebarThreadSummariesSelector,
   createSidebarTreeThreadsSelector,
@@ -214,6 +215,7 @@ import {
   visibleOrchestratorSidebarChildren,
   type OrchestratorSidebarChild,
 } from "./orchestrator/orchestratorSidebarProjection";
+import { createSidebarThreadRowGestures } from "./sidebarThreadRowGestures";
 import {
   SidebarThreadRowContent,
   type SidebarThreadTerminalStatus,
@@ -1663,13 +1665,15 @@ export default function Sidebar() {
   const visualActiveSidebarThreadId = optimisticActiveThreadId ?? routeThreadId;
   const selectSidebarThreads = useMemo(() => createSidebarThreadSummariesSelector(), []);
   const selectSidebarTreeThreads = useMemo(() => createSidebarTreeThreadsSelector(), []);
-  const sidebarThreads = useStore(selectSidebarThreads);
-  const sidebarTreeThreads = useStore(selectSidebarTreeThreads);
-  const orchestratorRootsQuery = useQuery(orchestratorRootsQueryOptions({ limit: 100 }));
-  const orchestratorRoots = useMemo(
-    () => sortOrchestratorRoots(orchestratorRootsQuery.data?.items ?? []),
-    [orchestratorRootsQuery.data?.items],
-  );
+const sidebarThreads = useStore(selectSidebarThreads);
+const sidebarTreeThreads = useStore(selectSidebarTreeThreads);
+const orchestratorRootsQuery = useQuery(orchestratorRootsQueryOptions({ limit: 100 }));
+const orchestratorRoots = useMemo(
+  () => sortOrchestratorRoots(orchestratorRootsQuery.data?.items ?? []),
+  [orchestratorRootsQuery.data?.items],
+);
+const selectProjectLastActivityAt = useMemo(() => createProjectLastActivityAtSelector(), []);
+const projectLastActivityAt = useStore(selectProjectLastActivityAt);
   const orchestratorThreadIds = useMemo(
     () => collectOrchestratorThreadIds(orchestratorRoots, sidebarTreeThreads),
     [orchestratorRoots, sidebarTreeThreads],
@@ -1682,11 +1686,11 @@ export default function Sidebar() {
     () => new Map(orchestratorRoots.map((root) => [root.rootThreadId, root] as const)),
     [orchestratorRoots],
   );
-  const orchestratorRootIdByThreadId = useMemo(() => {
+const orchestratorRootIdByThreadId = useMemo(() => {
     const roots = new Map<ThreadId, ThreadId>(
       orchestratorRoots.map((root) => [root.rootThreadId, root.rootThreadId] as const),
     );
-    let changed = true;
+  let changed = true;
     while (changed) {
       changed = false;
       for (const thread of sidebarTreeThreads) {
@@ -2709,8 +2713,13 @@ export default function Sidebar() {
     [activeSpaceProjects, focusedProjectId],
   );
   const latestUsableProjectId = useMemo(
-    () => resolveLatestProjectTargetIdWithFallback(activeSpaceProjects, latestProjectId),
-    [activeSpaceProjects, latestProjectId],
+    () =>
+      resolveLatestProjectTargetIdWithFallback(
+        activeSpaceProjects,
+        latestProjectId,
+        projectLastActivityAt,
+      ),
+    [activeSpaceProjects, latestProjectId, projectLastActivityAt],
   );
   const primaryNewThreadTarget = useMemo(
     () =>
@@ -3116,10 +3125,16 @@ export default function Sidebar() {
       const isPinned = pinnedThreadIdSet.has(threadId);
       const hasPendingApprovals =
         threadSummary?.hasPendingApprovals ??
-        derivePendingApprovals(thread.activities, thread.pendingInteractions).length > 0;
+        derivePendingApprovals(thread.activities, thread.pendingInteractions, {
+          authoritativeHasPending: thread.hasPendingApprovals,
+          latestTurnId: thread.latestTurn?.turnId,
+        }).length > 0;
       const hasPendingUserInput =
         threadSummary?.hasPendingUserInput ??
-        derivePendingUserInputs(thread.activities, thread.pendingInteractions).length > 0;
+        derivePendingUserInputs(thread.activities, thread.pendingInteractions, {
+          authoritativeHasPending: thread.hasPendingUserInput,
+          latestTurnId: thread.latestTurn?.turnId,
+        }).length > 0;
       const canHandoff = canCreateThreadHandoff({
         thread,
         hasPendingApprovals,
@@ -4286,12 +4301,12 @@ export default function Sidebar() {
       }
     }
 
-    for (const threadId of orchestratorRootThreadIds) {
+  for (const threadId of orchestratorRootThreadIds) {
       addVisibleThreadId(threadId);
-    }
+  }
 
-    return [...visibleThreadIdSet];
-  }, [
+  return [...visibleThreadIdSet];
+}, [
     isOnOrchestrator,
     orchestratorRootThreadIds,
     pinnedThreads,
@@ -4309,7 +4324,7 @@ export default function Sidebar() {
           : [...visibleSidebarThreadIds, ...visibleChatThreadIds, ...orchestratorRootThreadIds],
       ),
     [activityViewEnabled, orchestratorRootThreadIds, visibleChatThreadIds, visibleSidebarThreadIds],
-  );
+);
   const visibleSidebarThreads = useMemo(
     // Tree source so an active subagent row also gets PR badges and git targets.
     () => sidebarTreeThreads.filter((thread) => visibleSidebarThreadIdSet.has(thread.id)),
@@ -4483,25 +4498,25 @@ export default function Sidebar() {
   }
 
   // Keep hover actions in the same trailing slot used by the timestamp they replace.
-  function renderThreadArchiveAction(
+function renderThreadArchiveAction(
     threadId: ThreadId,
     toneClassName: string,
-    options?: {
+  options?: {
       compact?: boolean;
-    },
-  ) {
-    const orchestratorRoot = orchestratorRootByThreadId.get(threadId) ?? null;
+  },
+) {
+  const orchestratorRoot = orchestratorRootByThreadId.get(threadId) ?? null;
 
-    return (
+  return (
       <ThreadArchiveActionButton
         threadId={threadId}
-        toneClassName={toneClassName}
-        compact={options?.compact === true}
-        onArchive={() =>
+      toneClassName={toneClassName}
+      compact={options?.compact === true}
+      onArchive={() =>
           orchestratorRoot
             ? void archiveOrchestratorRoot(orchestratorRoot, { confirm: false })
-            : void archiveThreadWithUndo(threadId)
-        }
+          : void archiveThreadWithUndo(threadId)
+      }
       />
     );
   }
@@ -4770,25 +4785,20 @@ export default function Sidebar() {
             )}
             onPointerDown={(event) => primeThreadActivation(event, thread.id)}
             onClick={() => activateThreadFromSidebarIntent(thread.id)}
-            onDoubleClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              openRenameThreadDialog(thread.id);
-            }}
-            onPointerUp={(event) => handleThreadRenamePointerUp(event, thread.id)}
             onKeyDown={(event) => {
               if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
                 activateThreadFromSidebarIntent(thread.id);
               }
             }}
-            onContextMenu={(event) => {
-              event.preventDefault();
-              void handleThreadContextMenu(thread.id, {
-                x: event.clientX,
-                y: event.clientY,
-              });
-            }}
+            {...createSidebarThreadRowGestures({
+              threadId: thread.id,
+              onRename: openRenameThreadDialog,
+              onRenamePointerUp: handleThreadRenamePointerUp,
+              onContextMenu: (threadId, position) => {
+                void handleThreadContextMenu(threadId, position);
+              },
+            })}
           >
             <SidebarThreadRowContent
               thread={thread}
@@ -4954,34 +4964,28 @@ export default function Sidebar() {
                   handleThreadClick(event, thread.id, orderedProjectThreadIds);
                 }}
                 onPointerDown={(event) => primeThreadActivation(event, thread.id)}
-                onDoubleClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  openRenameThreadDialog(thread.id);
-                }}
-                onPointerUp={(event) => handleThreadRenamePointerUp(event, thread.id)}
                 onKeyDown={(event) => {
                   if (event.key !== "Enter" && event.key !== " ") return;
                   event.preventDefault();
                   activateThreadFromSidebarIntent(thread.id);
                 }}
-                onContextMenu={(event) => {
-                  event.preventDefault();
-                  if (selectedThreadIds.size > 0 && selectedThreadIds.has(thread.id)) {
-                    void handleMultiSelectContextMenu({
-                      x: event.clientX,
-                      y: event.clientY,
-                    });
-                  } else {
+                {...createSidebarThreadRowGestures({
+                  threadId: thread.id,
+                  onRename: openRenameThreadDialog,
+                  onRenamePointerUp: handleThreadRenamePointerUp,
+                  onContextMenu: (threadId, position) => {
+                    // A right-click inside an active multi-selection acts on the whole
+                    // selection; anywhere else it drops the selection and targets the row.
+                    if (selectedThreadIds.size > 0 && selectedThreadIds.has(threadId)) {
+                      void handleMultiSelectContextMenu(position);
+                      return;
+                    }
                     if (selectedThreadIds.size > 0) {
                       clearSelection();
                     }
-                    void handleThreadContextMenu(thread.id, {
-                      x: event.clientX,
-                      y: event.clientY,
-                    });
-                  }
-                }}
+                    void handleThreadContextMenu(threadId, position);
+                  },
+                })}
               />
             }
           >
@@ -5780,9 +5784,9 @@ export default function Sidebar() {
       if (command === "sidebar.activity") {
         event.preventDefault();
         event.stopPropagation();
-        const shouldOpenActivity = isOnSettings || isOnStudio || !activityViewEnabled;
+        const shouldOpenActivity = isOnSettings || !activityViewEnabled;
         setActivityViewEnabledSmoothly(shouldOpenActivity);
-        if (shouldOpenActivity && (isOnSettings || isOnStudio)) {
+        if (shouldOpenActivity && isOnSettings) {
           handleSidebarViewChange("threads");
         }
         return;
@@ -6517,7 +6521,7 @@ export default function Sidebar() {
                     setSearchPaletteOpen(true);
                   }}
                 />
-                <SidebarActivityBellButton
+              <SidebarActivityBellButton
                   active={activityViewEnabled}
                   showUnreadDot={
                     isOnOrchestrator ? hasUnreadOrchestratorActivity : hasUnreadOrdinaryActivity
@@ -6537,7 +6541,7 @@ export default function Sidebar() {
                     : "activity"
                   : isOnOrchestrator
                     ? "orchestrator"
-                    : "threads"
+                  : "threads"
               }
               className="sidebar-surface-enter"
             >
@@ -6546,10 +6550,10 @@ export default function Sidebar() {
                 <SidebarMenu className="gap-0.5">
                   {isOnOrchestrator ? (
                     <>
-                      <SidebarPrimaryAction
-                        icon={NewThreadIcon}
-                        iconClassName="size-3.5"
-                        label="New Orchestrator Root"
+                  <SidebarPrimaryAction
+                    icon={NewThreadIcon}
+                    iconClassName="size-3.5"
+                    label="New Orchestrator Root"
                         onClick={handleCreateOrchestrator}
                       />
                       <SidebarPrimaryAction
@@ -6563,9 +6567,9 @@ export default function Sidebar() {
                         label="Tasks"
                         active={isOnTasks}
                         badge={taskNavigationSignal.badge}
-                        activity={taskNavigationSignal.running}
-                        onClick={handleOpenTasks}
-                      />
+                    activity={taskNavigationSignal.running}
+                    onClick={handleOpenTasks}
+                  />
                     </>
                   ) : (
                     <>
@@ -6577,13 +6581,13 @@ export default function Sidebar() {
                         onMouseEnter={prefetchModelsForPrimaryNewThread}
                         onFocus={prefetchModelsForPrimaryNewThread}
                       />
-                      <SidebarPrimaryAction
-                        icon={ProcessIcon}
+                  <SidebarPrimaryAction
+                    icon={ProcessIcon}
                         label="Tasks"
                         active={isOnTasks}
                         badge={taskNavigationSignal.badge}
-                        activity={taskNavigationSignal.running}
-                        onClick={handleOpenTasks}
+                    activity={taskNavigationSignal.running}
+                    onClick={handleOpenTasks}
                       />
                       <SidebarPrimaryAction
                         icon={IoIosGitCompare}
@@ -6644,6 +6648,12 @@ export default function Sidebar() {
                       void archiveThreadWithUndo(threadId);
                     }}
                     onMarkThreadRead={markThreadVisited}
+                    onRenameThread={openRenameThreadDialog}
+                    onThreadRenamePointerUp={handleThreadRenamePointerUp}
+                    onThreadContextMenu={(threadId, position) => {
+                      void handleThreadContextMenu(threadId, position);
+                    }}
+                    onProjectContextMenu={handleProjectContextMenu}
                     prByThreadId={prByThreadId}
                     onVisibleThreadIdsChange={handleActivityVisibleThreadIdsChange}
                     renderThreadHoverCard={(thread, anchorId) =>
@@ -6738,8 +6748,8 @@ export default function Sidebar() {
                       {orchestratorRootsQuery.isPending ? "Loading projects..." : "No projects yet"}
                     </div>
                   ) : null}
-                </SidebarGroup>
-              ) : (
+                  </SidebarGroup>
+                ) : (
                 <SidebarGroup className="px-1.5 py-1.5">
                   <SpaceSwitcher
                     spaces={spaces}
@@ -6839,8 +6849,8 @@ export default function Sidebar() {
             </div>
           </>
         )}
-        {!isOnSettings && !isOnOrchestrator && !activityViewEnabled && chatsSectionVisible ? (
-          // sidebar-surface-enter: mounts on the Orchestrator -> Projects switch, so it
+      {!isOnSettings && !isOnOrchestrator && !activityViewEnabled && chatsSectionVisible ? (
+        // sidebar-surface-enter: mounts on the Orchestrator -> Projects switch, so it
           // animates in step with the keyed surface wrapper above.
           <SidebarGroup className="sidebar-surface-enter px-1.5 pt-1 pb-2">
             <div className="group/collapsible">

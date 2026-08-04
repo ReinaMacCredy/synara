@@ -4177,8 +4177,8 @@ describe("ProviderCommandReactor", () => {
         (await readHarnessThread(harness))?.activities.some(
           (activity) =>
             activity.kind === "provider.turn.start.failed" &&
-            (activity.payload as { readonly settlementStatus?: unknown } | undefined)
-              ?.settlementStatus === "uncertain",
+              (activity.payload as { readonly settlementStatus?: unknown } | undefined)
+                ?.settlementStatus === "uncertain",
         ),
       ),
     );
@@ -5871,7 +5871,7 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
-  it("falls back to interrupt plus priority queue for claude steering", async () => {
+  it("steers a running claude turn natively without interrupting it", async () => {
     const harness = await createHarness({
       threadModelSelection: {
         provider: "claudeAgent",
@@ -5925,6 +5925,70 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
+    await waitFor(() => harness.steerTurn.mock.calls.length === 1);
+    expect(harness.sendTurn).not.toHaveBeenCalled();
+    expect(harness.interruptTurn).not.toHaveBeenCalled();
+    expect(harness.steerTurn.mock.calls[0]?.[0]).toMatchObject({
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      input: "switch directions",
+      interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+    });
+  });
+
+  it("falls back to interrupt plus priority queue for steering without native support", async () => {
+    const harness = await createHarness({
+      threadModelSelection: {
+        provider: "cursor",
+        model: "composer-1",
+      },
+    });
+    const now = new Date().toISOString();
+
+    harness.setRuntimeSessionTurnState({
+      threadId: "thread-1",
+      status: "running",
+      activeTurnId: asTurnId("turn-running"),
+    });
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-session-running-steer-cursor"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        session: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          status: "running",
+          providerName: "cursor",
+          runtimeMode: "approval-required",
+          activeTurnId: asTurnId("turn-running"),
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    harness.sendTurn.mockClear();
+    harness.steerTurn.mockClear();
+    harness.interruptTurn.mockClear();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-steer-cursor"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("msg-steer-cursor"),
+          role: "user",
+          text: "switch directions",
+          attachments: [],
+        },
+        dispatchMode: "steer",
+        runtimeMode: "approval-required",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        createdAt: now,
+      }),
+    );
+
     await harness.drain();
     expect(harness.steerTurn).not.toHaveBeenCalled();
     expect(harness.sendTurn).not.toHaveBeenCalled();
@@ -5933,8 +5997,8 @@ describe("ProviderCommandReactor", () => {
     harness.setRuntimeSessionTurnState({ threadId: "thread-1", status: "ready" });
     await harness.emitRuntimeEvent({
       type: "turn.completed",
-      eventId: asEventId("evt-turn-completed-steer-claude"),
-      provider: "claudeAgent",
+      eventId: asEventId("evt-turn-completed-steer-cursor"),
+      provider: "cursor",
       threadId: ThreadId.makeUnsafe("thread-1"),
       createdAt: new Date().toISOString(),
       turnId: asTurnId("turn-running"),
@@ -8097,6 +8161,102 @@ describe("ProviderCommandReactor", () => {
         (activity.payload as Record<string, unknown>).requestId === "approval-request-1",
     );
     expect(resolvedActivity).toBeUndefined();
+  });
+
+  it("keeps OpenCode permission acknowledgement failures retryable", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    harness.respondToRequest.mockImplementation(() =>
+      Effect.fail(
+        new ProviderAdapterRequestError({
+          provider: "opencode",
+          method: "permission.reply.acknowledge",
+          detail: "OpenCode still reports permission approval-request-ack as pending.",
+        }),
+      ),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-session-set-for-approval-ack-error"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        session: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          status: "running",
+          providerName: "opencode",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.activity.append",
+        commandId: CommandId.makeUnsafe("cmd-approval-ack-requested"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        activity: {
+          id: EventId.makeUnsafe("activity-approval-ack-requested"),
+          tone: "approval",
+          kind: "approval.requested",
+          summary: "Permission approval requested",
+          payload: {
+            requestId: "approval-request-ack",
+            requestKind: "permissions",
+          },
+          turnId: null,
+          createdAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.approval.respond",
+        commandId: CommandId.makeUnsafe("cmd-approval-ack-respond"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        requestId: asApprovalRequestId("approval-request-ack"),
+        decision: "accept",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(
+      async () =>
+        (await readHarnessThread(harness))?.activities.some(
+          (activity) => activity.kind === "provider.approval.respond.failed",
+        ) === true,
+    );
+
+    const thread = await readHarnessThread(harness);
+    const failureActivity = thread?.activities.find(
+      (activity) => activity.kind === "provider.approval.respond.failed",
+    );
+    expect(failureActivity?.payload).toMatchObject({
+      requestId: "approval-request-ack",
+      responseCommandId: "cmd-approval-ack-respond",
+      settlementStatus: "retryable",
+      detail: expect.stringContaining("permission.reply.acknowledge"),
+    });
+
+    const retryableApproval = await Effect.runPromise(
+      harness.pendingInteractionRepository.getByIdentity({
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        interactionKind: "approval",
+        requestId: asApprovalRequestId("approval-request-ack"),
+      }),
+    );
+    expect(Option.getOrUndefined(retryableApproval)).toMatchObject({
+      status: "retryable",
+      responseCommandId: "cmd-approval-ack-respond",
+      decision: "accept",
+      resolvedAt: null,
+    });
   });
 
   it("surfaces stale provider user-input failures without faking user-input resolution", async () => {

@@ -10,53 +10,34 @@ import { render } from "vitest-browser-react";
 
 import { WorkspaceFileOpenerContext } from "../../lib/workspaceFileOpener";
 import { formatTimestamp } from "../../timestampFormat";
-import { MessagesTimeline } from "./MessagesTimeline";
 import { TimelineWorkEntryRow } from "./TimelineWorkEntryRow";
 
 function ToolDetailsTimeline() {
   return (
-    <MessagesTimeline
-      hasMessages
-      isWorking={false}
-      activeTurnInProgress={false}
-      activeTurnStartedAt={null}
-      timelineEntries={[
-        {
-          id: "entry-command-details",
-          kind: "work",
-          createdAt: "2026-03-17T19:12:28.000Z",
-          entry: {
-            id: "work-command-details",
-            createdAt: "2026-03-17T19:12:28.000Z",
-            label: "Ran command",
-            tone: "tool",
-            itemType: "command_execution",
-            toolTitle: "Searched",
-            command: `rg -n "toolDetails" apps/web/src`,
-            toolDetails: {
-              kind: "command",
-              title: "Searched",
-              command: `rg -n "toolDetails" apps/web/src`,
-              output: {
-                stdout: "apps/web/src/session-logic.ts:55: toolDetails",
-              },
-            },
+    <TimelineWorkEntryRow
+      workEntry={{
+        id: "work-command-details",
+        createdAt: "2026-03-17T19:12:28.000Z",
+        label: "Ran command",
+        tone: "tool",
+        itemType: "command_execution",
+        toolTitle: "Searched",
+        command: `rg -n "toolDetails" apps/web/src`,
+        toolDetails: {
+          kind: "command",
+          title: "Searched",
+          command: `rg -n "toolDetails" apps/web/src`,
+          output: {
+            stdout: "apps/web/src/session-logic.ts:55: toolDetails",
           },
         },
-      ]}
-      turnDiffSummaryByAssistantMessageId={new Map()}
-      nowIso="2026-03-17T19:12:30.000Z"
-      expandedWorkGroups={{}}
-      onToggleWorkGroup={() => {}}
-      onOpenTurnDiff={() => {}}
-      revertTurnCountByUserMessageId={new Map()}
-      onRevertUserMessage={() => {}}
-      isRevertingCheckpoint={false}
+      }}
+      chatMetaFontSizePx={12}
+      textFontSizePx={13}
+      density="compact"
       onImageExpand={() => {}}
       markdownCwd={undefined}
-      resolvedTheme="dark"
       timestampFormat="locale"
-      workspaceRoot={undefined}
     />
   );
 }
@@ -71,7 +52,7 @@ function LiveActivityTimeline() {
         label: "Bash",
         tone: "tool",
         itemType: "command_execution",
-        toolTitle: "Running command",
+        toolTitle: "Running",
         command: "bun install",
         liveActivity: {
           state: "running_tool",
@@ -321,6 +302,49 @@ describe("MessagesTimeline tool details", () => {
     }
   });
 
+  it("states settled tool calls as a sentence without a lifecycle tail", async () => {
+    const host = createTimelineHost();
+    const screen = await render(
+      <TimelineWorkEntryRow
+        workEntry={{
+          id: "work-settled-command",
+          createdAt: "2026-03-17T19:12:28.000Z",
+          label: "Ran command",
+          tone: "tool",
+          itemType: "command_execution",
+          toolTitle: "Searched",
+          command: `rg -n "toolDetails" apps/web/src`,
+          liveActivity: {
+            state: "completed",
+            label: "Searched",
+            startedAt: "2026-03-17T19:12:28.000Z",
+            lastActivityAt: "2026-03-17T19:12:29.000Z",
+            elapsedSeconds: 1,
+          },
+        }}
+        chatMetaFontSizePx={12}
+        textFontSizePx={13}
+        density="compact"
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        timestampFormat="locale"
+      />,
+      { container: host },
+    );
+
+    try {
+      const rowText = document.querySelector("[data-work-entry-display-text='true']")?.textContent;
+      expect(rowText).toBe("Searched for toolDetails in web/src");
+      expect(document.querySelector("[data-live-activity-meta='true']")).toBeNull();
+      expect(document.body.textContent ?? "").not.toContain("Completed");
+      expect(document.body.textContent ?? "").not.toContain("elapsed");
+    } finally {
+      await screen.unmount();
+      host.remove();
+      await settleLayout();
+    }
+  });
+
   it("keeps agent activity as the primary action when live metadata is present", async () => {
     const onOpenAgentActivity = vi.fn();
     const nowMs = Date.now();
@@ -357,7 +381,7 @@ describe("MessagesTimeline tool details", () => {
       document.querySelector<HTMLButtonElement>("button")?.click();
       expect(onOpenAgentActivity).toHaveBeenCalledWith("agent-live-activity");
       expect(document.querySelector("[data-tool-details-inline='true']")).toBeNull();
-      expect(document.body.textContent ?? "").toContain("Running agent · Agent task");
+      expect(document.body.textContent ?? "").toContain("Agent task");
       expect(document.body.textContent ?? "").toContain("Active");
     } finally {
       await screen.unmount();
@@ -445,7 +469,7 @@ describe("MessagesTimeline tool details", () => {
       document.querySelector<HTMLButtonElement>("button")?.click();
       expect(openFile).toHaveBeenCalledWith("src/app.ts");
       expect(document.querySelector("[data-tool-details-inline='true']")).toBeNull();
-      expect(document.body.textContent ?? "").toContain("Completed file read · Read file app.ts");
+      expect(document.body.textContent ?? "").toContain("Read file app.ts");
     } finally {
       await screen.unmount();
       host.remove();

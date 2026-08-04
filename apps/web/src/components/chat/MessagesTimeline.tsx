@@ -106,6 +106,7 @@ import {
 } from "./MessagesTimeline.logic";
 import { isSummarizableToolCallEntry, summarizeToolCallGroup } from "./toolCallGroup.logic";
 import { ToolCallGroupSummaryRow } from "./ToolCallGroupSummaryRow";
+import { useTailAnchorScroll } from "./useTailAnchorScroll";
 import {
   deriveDisplayedUserMessageState,
   type ParsedTerminalContextEntry,
@@ -379,6 +380,17 @@ interface MessagesTimelineProps {
   threadMarkers?: readonly ThreadMarker[];
   /** User messages inserted locally by send actions, eligible for the subtle enter affordance. */
   enteringUserMessageIds?: ReadonlySet<MessageId>;
+  /**
+   * Just-sent user message to anchor at the top of the viewport for the live turn.
+   * While set, the tail spacer reserves the space below it so the streaming response
+   * fills the remaining viewport; null collapses the reserve (turn finished).
+   */
+  tailAnchorMessageId?: MessageId | null;
+  /**
+   * Shared flag set by ChatView on send and cleared by the tail-anchor hook once
+   * the anchored slide settles; ChatView's auto-follow re-snaps pause while set.
+   */
+  tailAnchorScrollInFlightRef?: RefObject<boolean> | undefined;
   /** Provenance for a conversation created from another Synara task. */
   crossTaskOrigin?: CrossTaskOrigin | null;
   timelineEntries: ReturnType<typeof deriveTimelineEntries>;
@@ -438,6 +450,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onTogglePinMessage,
   threadMarkers: threadMarkersProp,
   enteringUserMessageIds: enteringUserMessageIdsProp,
+  tailAnchorMessageId: tailAnchorMessageIdProp,
+  tailAnchorScrollInFlightRef,
   crossTaskOrigin: crossTaskOriginProp,
   timelineEntries,
   turnDiffSummaryByAssistantMessageId,
@@ -484,6 +498,25 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const followLiveOutput = followLiveOutputProp ?? false;
   const threadMarkers = threadMarkersProp ?? EMPTY_MESSAGE_MARKERS;
   const enteringUserMessageIds = enteringUserMessageIdsProp ?? EMPTY_MESSAGE_ID_SET;
+  const tailAnchorMessageId = tailAnchorMessageIdProp ?? null;
+  // The timeline remounts per thread (and when the agent-activity detail view
+  // closes), but the anchor lives above it and survives those remounts. An
+  // anchor that is already set at mount time therefore describes a slide that
+  // has *already* played — re-entry must land at the anchored end directly
+  // rather than replaying the glide from the top of the whole conversation.
+  const [inheritedTailAnchorMessageId] = useState<MessageId | null>(
+    () => tailAnchorMessageIdProp ?? null,
+  );
+  const hasInheritedTailAnchor =
+    inheritedTailAnchorMessageId !== null && tailAnchorMessageId === inheritedTailAnchorMessageId;
+  const [settledTailAnchorMessageId, setSettledTailAnchorMessageId] = useState<MessageId | null>(
+    () => inheritedTailAnchorMessageId,
+  );
+  const tailAnchorSlideInFlight =
+    tailAnchorMessageId !== null && tailAnchorMessageId !== settledTailAnchorMessageId;
+  const handleTailAnchorSlideFinished = useCallback((messageId: MessageId) => {
+    setSettledTailAnchorMessageId((current) => (current === messageId ? current : messageId));
+  }, []);
   const crossTaskOrigin = crossTaskOriginProp ?? null;
   const normalizedChatFontSizePx = normalizeChatFontSizePx(
     chatFontSizePxProp ?? DEFAULT_CHAT_FONT_SIZE_PX,
@@ -581,15 +614,35 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const fallbackListRef = useRef<LegendListRef | null>(null);
   const resolvedListRef = listRef ?? fallbackListRef;
   const timelineRootRef = useRef<HTMLDivElement | null>(null);
+  // Fixed bottom content inset. The variable space that lets a just-sent
+  // message anchor at the viewport top is reserved natively by LegendList's
+  // `anchoredEndSpace` below, not by resizing this footer — resizing the footer
+  // from outside fights the list's own footer-layout and initial-scroll
+  // machinery (visible as send-time scroll jumps).
   const listFooter = useMemo(
     () => (
       <div>
         {footerContent}
-        <div aria-hidden="true" style={{ height: BOTTOM_CONTENT_INSET_PX }} />
+        <div
+          aria-hidden="true"
+          data-tail-anchor-spacer="true"
+          style={{ height: BOTTOM_CONTENT_INSET_PX }}
+        />
       </div>
     ),
     [footerContent],
   );
+  useTailAnchorScroll({
+    listRef: resolvedListRef,
+    timelineRootRef,
+    // An inherited anchor already reached its resting position before this
+    // mount; the list bootstraps there via `initialScrollAtEnd` instead.
+    anchorMessageId: hasInheritedTailAnchor ? null : tailAnchorMessageId,
+    anchorScrollInFlightRef: tailAnchorScrollInFlightRef,
+    onAnchorSlideFinished: handleTailAnchorSlideFinished,
+    contentChangeSignal: timelineEntries,
+    animateAnchorSlide: !followLiveOutput,
+  });
 
   const presentedWorktreeSetup = useWorktreeSetupPresentation(worktreeSetup);
   const rawRows = useMemo(
@@ -625,6 +678,54 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }
     return { keys };
   }, [rows]);
+  // Native reserve for the anchored send: LegendList sizes an end space so the
+  // anchor row can sit at the viewport top when scrolled to the end, keeps that
+  // reserve in sync with measured tail sizes inside its own layout pass, and
+  // shrinks it to zero as the streaming response grows (automatic hand-off to
+  // follow-the-tail). `anchorOffset` carries the container's own CSS vertical
+  // padding, which the list cannot see (it only reads style props), so that
+  // "at end" lands the anchor exactly one top-inset below the viewport top.
+  const tailAnchorRowIndex = useMemo(() => {
+    if (tailAnchorMessageId === null) {
+      return -1;
+    }
+    return rows.findIndex(
+      (row) => row.kind === "message" && row.message.id === tailAnchorMessageId,
+    );
+  }, [rows, tailAnchorMessageId]);
+  const [anchorVerticalInsetPx, setAnchorVerticalInsetPx] = useState(0);
+  useLayoutEffect(() => {
+    if (tailAnchorMessageId === null) {
+      return;
+    }
+    const node: unknown = resolvedListRef.current?.getScrollableNode?.();
+    if (!(node instanceof HTMLElement)) {
+      return;
+    }
+    const style = getComputedStyle(node);
+    const inset =
+      (Number.parseFloat(style.paddingTop) || 0) + (Number.parseFloat(style.paddingBottom) || 0);
+    setAnchorVerticalInsetPx((current) => (Math.abs(current - inset) > 0.5 ? inset : current));
+  }, [resolvedListRef, tailAnchorMessageId]);
+  const anchoredEndSpace = useMemo(
+    () =>
+      tailAnchorRowIndex < 0
+        ? undefined
+        : {
+            anchorIndex: tailAnchorRowIndex,
+            anchorOffset: anchorVerticalInsetPx,
+          },
+    [anchorVerticalInsetPx, tailAnchorRowIndex],
+  );
+  // Surface the live reserve for tests/diagnostics without re-rendering. The
+  // signal (unlike `onSizeChanged`) also reports the collapse to zero after the
+  // anchor is cleared, when no config object exists to receive a callback.
+  useEffect(() => {
+    const state = resolvedListRef.current?.getState?.();
+    return state?.listen?.("anchoredEndSpaceSize", (size) => {
+      timelineRootRef.current?.setAttribute("data-anchored-end-space", String(Math.round(size)));
+    });
+    }, [resolvedListRef]);
   // The newest work group renders its rows inline while the turn is live; every
   // older run of tool calls folds into a "Ran N commands..." summary row.
   const lastLiveWorkGroupId = useMemo(() => findLastLiveWorkGroupId(rows), [rows]);
@@ -2116,17 +2217,20 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         // LegendList caches rendered rows, so every local expansion map that changes row content
         // has to be surfaced through extraData.
         extraData={timelineExtraData}
-        initialScrollAtEnd
-        maintainScrollAtEnd={
-          followLiveOutput
-            ? {
-                animated: false,
-                on: { dataChange: true, itemLayout: true, layout: true },
-              }
-            : false
-        }
+        // Deliberately keyed off the *inherited* anchor rather than
+        // `tailAnchorSlideInFlight`: LegendList re-targets the end on every data
+        // change while this is true, which would yank a live post-send anchor
+        // out of its hold. A remount that inherits an already-settled anchor has
+        // no slide to preserve, so bootstrapping at the end is what we want.
+        initialScrollAtEnd={tailAnchorMessageId === null || hasInheritedTailAnchor}
+        {...(anchoredEndSpace ? { anchoredEndSpace } : {})}
+        maintainScrollAtEnd={followLiveOutput && !tailAnchorSlideInFlight}
         maintainScrollAtEndThreshold={0.1}
-        maintainVisibleContentPosition={{ data: true, size: false }}
+        {...(tailAnchorMessageId !== null
+          ? { maintainVisibleContentPosition: false }
+          : !followLiveOutput
+            ? { maintainVisibleContentPosition: true }
+            : {})}
         onClickCapture={onMessagesClickCapture}
         onMouseUp={onMessagesMouseUp}
         onPointerCancel={onMessagesPointerCancel}
@@ -2366,9 +2470,9 @@ function TurnActivityRegion(props: {
   fontSize: CSSProperties["fontSize"];
   onToggle: (open: boolean) => void;
   renderChildren: () => ReactNode;
-  }) {
-    const live = props.state === "working";
-    const [keepChildrenMounted, setKeepChildrenMounted] = useState(props.open);
+}) {
+  const live = props.state === "working";
+  const [keepChildrenMounted, setKeepChildrenMounted] = useState(props.open);
 
   useEffect(() => {
     if (props.open) {
@@ -2495,8 +2599,205 @@ function TurnWorkRegionLabel(props: {
       >
         Worked for {settledElapsed}
       </span>
-    </span>
+      </span>
+    );
+}
+
+// Keeps newly folded turn details mounted for one shared-disclosure close
+// animation, so settled turns do not disappear in one height recalculation.
+function useSettledTurnCollapseTransitions(
+  rows: readonly MessagesTimelineRow[],
+): Readonly<Record<string, SettledTurnCollapseTransition>> {
+  const [transitions, setTransitions] = useState<Record<string, SettledTurnCollapseTransition>>({});
+  const previousAssistantMessageIdsRef = useRef<ReadonlySet<string>>(new Set());
+  const previousCollapsedSignaturesRef = useRef<ReadonlyMap<string, string>>(new Map());
+  const watchedLiveMessageIdsRef = useRef(new Set<string>());
+  const timersRef = useRef(new Map<string, SettledTurnCollapseTimer>());
+
+  const clearTransitionTimer = useCallback((messageId: string) => {
+    const timer = timersRef.current.get(messageId);
+    if (!timer) {
+      return;
+    }
+    if (timer.closeFrame !== null) {
+      window.cancelAnimationFrame(timer.closeFrame);
+    }
+    if (timer.cleanupTimeout !== null) {
+      window.clearTimeout(timer.cleanupTimeout);
+    }
+    timersRef.current.delete(messageId);
+  }, []);
+
+  const scheduleTransitionClose = useCallback(
+    (messageId: string) => {
+      clearTransitionTimer(messageId);
+      const closeFrame = window.requestAnimationFrame(() => {
+        const timer = timersRef.current.get(messageId);
+        if (!timer) {
+          return;
+        }
+        timersRef.current.set(messageId, { ...timer, closeFrame: null });
+        setTransitions((current) => {
+          const transition = current[messageId];
+          if (!transition || !transition.open) {
+            return current;
+          }
+          return {
+            ...current,
+            [messageId]: { ...transition, open: false },
+          };
+        });
+
+        const cleanupTimeout = window.setTimeout(() => {
+          timersRef.current.delete(messageId);
+          setTransitions((current) => {
+            if (!current[messageId]) {
+              return current;
+            }
+            const next = { ...current };
+            delete next[messageId];
+            return next;
+          });
+        }, DISCLOSURE_TRANSITION_MS + DISCLOSURE_CLEANUP_BUFFER_MS);
+        timersRef.current.set(messageId, { closeFrame: null, cleanupTimeout });
+      });
+      timersRef.current.set(messageId, { closeFrame, cleanupTimeout: null });
+    },
+    [clearTransitionTimer],
   );
+
+  useLayoutEffect(() => {
+    applySettledTurnCollapseTransitions({
+      rows,
+      previousAssistantMessageIdsRef,
+      previousCollapsedSignaturesRef,
+      watchedLiveMessageIdsRef,
+      clearTransitionTimer,
+      scheduleTransitionClose,
+      setTransitions,
+    });
+  }, [clearTransitionTimer, rows, scheduleTransitionClose]);
+
+  useEffect(
+    () => () => {
+      for (const messageId of Array.from(timersRef.current.keys())) {
+        clearTransitionTimer(messageId);
+      }
+    },
+    [clearTransitionTimer],
+  );
+
+  return transitions;
+}
+
+// Detects turns that just folded and drives their close animation. Kept in a module
+// helper (not compiled) so the synchronous open setState stays out of the hook while
+// its ordering against scheduleTransitionClose — which needs the open state committed
+// before it schedules the closing rAF — is preserved exactly.
+function applySettledTurnCollapseTransitions(params: {
+  rows: readonly MessagesTimelineRow[];
+  previousAssistantMessageIdsRef: RefObject<ReadonlySet<string>>;
+  previousCollapsedSignaturesRef: RefObject<ReadonlyMap<string, string>>;
+  watchedLiveMessageIdsRef: RefObject<Set<string>>;
+  clearTransitionTimer: (messageId: string) => void;
+  scheduleTransitionClose: (messageId: string) => void;
+  setTransitions: Dispatch<SetStateAction<Record<string, SettledTurnCollapseTransition>>>;
+}): void {
+  const {
+    rows,
+    previousAssistantMessageIdsRef,
+    previousCollapsedSignaturesRef,
+    watchedLiveMessageIdsRef,
+    clearTransitionTimer,
+    scheduleTransitionClose,
+    setTransitions,
+  } = params;
+  const currentAssistantMessageIds = new Set<string>();
+  const currentCollapsed = new Map<
+    string,
+    { signature: string; items: readonly CollapsedTurnItem[] }
+  >();
+  const watchedLiveMessageIds = watchedLiveMessageIdsRef.current;
+
+  for (const row of rows) {
+    if (row.kind !== "message" || row.message.role !== "assistant") {
+      continue;
+    }
+    const messageId = row.message.id;
+    currentAssistantMessageIds.add(messageId);
+    // Only the assistant row belonging to the live turn has an expanded layout
+    // on screen worth animating away. Thread-wide working state also covers
+    // reconnects, approvals, and newer turns, so it must not qualify history.
+    if (row.assistantTurnInProgress || row.message.streaming) {
+      watchedLiveMessageIds.add(messageId);
+    }
+    if (row.collapsedTurnItems && row.collapsedTurnItems.length > 0) {
+      currentCollapsed.set(messageId, {
+        signature: collapsedTurnItemsSignature(row.collapsedTurnItems),
+        items: row.collapsedTurnItems,
+      });
+    }
+  }
+
+  for (const messageId of watchedLiveMessageIds) {
+    if (!currentAssistantMessageIds.has(messageId)) {
+      watchedLiveMessageIds.delete(messageId);
+    }
+  }
+
+  const previousAssistantMessageIds = previousAssistantMessageIdsRef.current;
+  const previousCollapsedSignatures = previousCollapsedSignaturesRef.current;
+  const startedTransitions: Array<{
+    messageId: string;
+    items: readonly CollapsedTurnItem[];
+  }> = [];
+
+  for (const [messageId, collapsed] of currentCollapsed) {
+    if (
+      watchedLiveMessageIds.has(messageId) &&
+      previousAssistantMessageIds.has(messageId) &&
+      !previousCollapsedSignatures.has(messageId)
+    ) {
+      startedTransitions.push({ messageId, items: collapsed.items });
+    }
+  }
+
+  previousAssistantMessageIdsRef.current = currentAssistantMessageIds;
+  previousCollapsedSignaturesRef.current = new Map(
+    Array.from(currentCollapsed, ([messageId, collapsed]) => [messageId, collapsed.signature]),
+  );
+
+  setTransitions((current) => {
+    let next: Record<string, SettledTurnCollapseTransition> | null = null;
+    const ensureNext = () => {
+      next ??= { ...current };
+      return next;
+    };
+
+    for (const messageId of Object.keys(current)) {
+      if (!currentCollapsed.has(messageId)) {
+        clearTransitionTimer(messageId);
+        delete ensureNext()[messageId];
+      }
+    }
+
+    for (const transition of startedTransitions) {
+      ensureNext()[transition.messageId] = {
+        open: true,
+        items: transition.items,
+      };
+    }
+
+    return next ?? current;
+  });
+
+  for (const transition of startedTransitions) {
+    scheduleTransitionClose(transition.messageId);
+  }
+}
+
+function collapsedTurnItemsSignature(items: readonly CollapsedTurnItem[]): string {
+  return items.map((item) => `${item.kind}:${item.id}`).join("|");
 }
 
 // Keep the live clock scoped to tiny leaf components so active Claude turns do

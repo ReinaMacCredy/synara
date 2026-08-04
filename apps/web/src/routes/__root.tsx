@@ -1061,6 +1061,16 @@ function EventRouter() {
     let nextThreadSubscriptionGeneration = 0;
     let reconcileThreadSubscriptionsChain = Promise.resolve();
 
+    const isDraftThreadAwaitingProjection = (threadId: ThreadId): boolean => {
+      if (useComposerDraftStore.getState().draftThreadsByThreadId[threadId] === undefined) {
+        return false;
+      }
+      return (
+        !threadSnapshotSequenceById.has(threadId) ||
+        getThreadFromState(useStore.getState(), threadId) === undefined
+      );
+    };
+
     const beginThreadSubscription = (threadId: ThreadId) => {
       // Cursor resume delivers no snapshot: the stream replays only the gap on
       // top of the cached detail. Seed the live cursor so gap/live events apply
@@ -1220,49 +1230,80 @@ function EventRouter() {
       );
     };
 
+    function collectSubscribedDraftsInShell(
+      threads: ReadonlyArray<OrchestrationShellSnapshot["threads"][number]>,
+    ): ThreadId[] {
+      const draftsByThreadId = useComposerDraftStore.getState().draftThreadsByThreadId;
+      return threads
+        .map((thread) => thread.id)
+        .filter((threadId) => subscribedThreadIds.has(threadId) && threadId in draftsByThreadId);
+    }
+
+    function reconcileMissingSubscribedThreadProjections(threadIds: readonly ThreadId[]) {
+      for (const threadId of threadIds) {
+        if (!threadSnapshotSequenceById.has(threadId)) {
+          void reconcileThreadProjection(threadId).catch(() => undefined);
+        }
+      }
+    }
+
     const loadShellSnapshotOnce = async () => {
       const snapshot = await api.orchestration.getShellSnapshot();
       if (!shouldApplyBootstrapShellSnapshot(snapshot)) {
         return;
       }
+      const promotedDraftThreadIds = collectSubscribedDraftsInShell(snapshot.threads);
       shellSnapshotSequence = snapshot.snapshotSequence;
       syncServerShellSnapshot(snapshot);
       reconcilePromotedDraftsFromShellThreads(snapshot.threads);
       removeOrphanedTerminalsForCurrentState();
       flushShellBuffer(snapshot.snapshotSequence);
+      reconcileMissingSubscribedThreadProjections(promotedDraftThreadIds);
     };
 
-    const ensureScopedSubscriptions = async () => {
-      shellSnapshotSequence = -1;
-      pendingShellEvents = [];
-      await api.orchestration.subscribeShell().catch(() => loadShellSnapshotOnce());
-      await enqueueThreadSubscriptionOperation(async () => {
-        threadSnapshotSequenceById.clear();
-        pendingThreadEventsById.clear();
-        threadSnapshotRequestInFlight.clear();
-        threadSnapshotRefreshPending.clear();
-        threadReplayRequestInFlight.clear();
-        threadProjectionReconcileInFlight.clear();
-        threadProjectionTerminalFencePending.clear();
-        threadSubscriptionGenerationById.clear();
-        nextThreadProjectionReconcileAtById.clear();
-        const previousThreadIds = [...subscribedThreadIds];
-        subscribedThreadIds.clear();
-        // Reconnect drops every lease at once, so the reconcile below sees no
-        // removals to clean up. Free detail for threads that retention does not
-        // own and the reconcile will not re-lease, while leaving the threads it
-        // does re-lease untouched so a reconnect never blanks the open chat.
-        releaseOrphanedThreadDetail({
-          releasedThreadIds: previousThreadIds,
-          keptThreadIds: new Set(visibleThreadIdsRef.current),
+    let scopedSubscriptionRefresh: Promise<void> | null = null;
+    const ensureScopedSubscriptions = () => {
+      if (scopedSubscriptionRefresh) {
+        return scopedSubscriptionRefresh;
+      }
+      const refresh = (async () => {
+        shellSnapshotSequence = -1;
+        pendingShellEvents = [];
+        await api.orchestration.subscribeShell().catch(() => loadShellSnapshotOnce());
+        await enqueueThreadSubscriptionOperation(async () => {
+          threadSnapshotSequenceById.clear();
+          pendingThreadEventsById.clear();
+          threadSnapshotRequestInFlight.clear();
+          threadSnapshotRefreshPending.clear();
+          threadReplayRequestInFlight.clear();
+          threadProjectionReconcileInFlight.clear();
+          threadProjectionTerminalFencePending.clear();
+          threadSubscriptionGenerationById.clear();
+          nextThreadProjectionReconcileAtById.clear();
+          const previousThreadIds = [...subscribedThreadIds];
+          subscribedThreadIds.clear();
+          // Reconnect drops every lease at once, so the reconcile below sees no
+          // removals to clean up. Free detail for threads that retention does not
+          // own and the reconcile will not re-lease, while leaving the threads it
+          // does re-lease untouched so a reconnect never blanks the open chat.
+          releaseOrphanedThreadDetail({
+            releasedThreadIds: previousThreadIds,
+            keptThreadIds: new Set(visibleThreadIdsRef.current),
+          });
+          await Promise.all(
+            previousThreadIds.map((threadId) =>
+              api.orchestration.unsubscribeThread({ threadId }).catch(() => undefined),
+            ),
+          );
+          await reconcileThreadSubscriptions(visibleThreadIdsRef.current);
         });
-        await Promise.all(
-          previousThreadIds.map((threadId) =>
-            api.orchestration.unsubscribeThread({ threadId }).catch(() => undefined),
-          ),
-        );
-        await reconcileThreadSubscriptions(visibleThreadIdsRef.current);
+      })().finally(() => {
+        if (scopedSubscriptionRefresh === refresh) {
+          scopedSubscriptionRefresh = null;
+        }
       });
+      scopedSubscriptionRefresh = refresh;
+      return refresh;
     };
 
     const removeOrphanedTerminalsForCurrentState = () => {
@@ -1481,7 +1522,8 @@ function EventRouter() {
           }
           if (
             threadProjectionTerminalFencePending.has(threadId) ||
-            shouldReconcileThreadProjection(threadId)
+            shouldReconcileThreadProjection(threadId) ||
+            isDraftThreadAwaitingProjection(threadId)
           ) {
             nextThreadProjectionReconcileAtById.set(
               threadId,
@@ -1516,11 +1558,13 @@ function EventRouter() {
 
     const unsubShellEvent = api.orchestration.onShellEvent((item) => {
       if (item.kind === "snapshot") {
+        const promotedDraftThreadIds = collectSubscribedDraftsInShell(item.snapshot.threads);
         shellSnapshotSequence = item.snapshot.snapshotSequence;
         syncServerShellSnapshot(item.snapshot);
         reconcilePromotedDraftsFromShellThreads(item.snapshot.threads);
         removeOrphanedTerminalsForCurrentState();
         flushShellBuffer(item.snapshot.snapshotSequence);
+        reconcileMissingSubscribedThreadProjections(promotedDraftThreadIds);
         return;
       }
 
@@ -1859,6 +1903,7 @@ function EventRouter() {
         THREAD_DETAIL_PROJECTION_RECONCILE_MAX_CONCURRENCY - threadProjectionReconcileInFlight.size,
       );
       for (const threadId of subscribedThreadIds) {
+        const draftThreadAwaitingProjection = isDraftThreadAwaitingProjection(threadId);
         if (shouldPollThreadDetailCatchup(threadId)) {
           if (!threadSnapshotSequenceById.has(threadId)) {
             void reconcileThreadProjection(threadId).catch(() => undefined);
@@ -1868,16 +1913,16 @@ function EventRouter() {
         }
         if (
           !threadProjectionTerminalFencePending.has(threadId) &&
-          !shouldReconcileThreadProjection(threadId)
+          !shouldReconcileThreadProjection(threadId) &&
+          !draftThreadAwaitingProjection
         ) {
           nextThreadProjectionReconcileAtById.delete(threadId);
           continue;
         }
-        const nextProjectionReconcileAt = nextThreadProjectionReconcileAtById.get(threadId);
+        const nextProjectionReconcileAt = nextThreadProjectionReconcileAtById.get(threadId) ?? now;
         if (
           availableProjectionReconcileSlots > 0 &&
           !threadProjectionReconcileInFlight.has(threadId) &&
-          nextProjectionReconcileAt !== undefined &&
           now >= nextProjectionReconcileAt
         ) {
           availableProjectionReconcileSlots -= 1;

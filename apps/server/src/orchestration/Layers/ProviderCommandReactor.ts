@@ -54,6 +54,7 @@ import {
 } from "@synara/shared/conversationEdit";
 import { isTemporaryWorktreeBranch, WORKTREE_BRANCH_PREFIX } from "@synara/shared/git";
 import { claudeSelectionRequiresRestart } from "@synara/shared/model";
+import { providerSupportsNativeTurnSteering } from "@synara/shared/providerMetadata";
 import {
   formatProviderDeliveryBlockDetail,
   PROVIDER_DELIVERY_BLOCK_SUMMARY,
@@ -372,12 +373,19 @@ function interactionFailureSettlementStatus(
 ): "retryable" | "uncertain" {
   return Option.match(Cause.findErrorOption(cause), {
     onNone: () => "uncertain" as const,
-    onSome: (error) =>
-      isUnknownPendingRequest ||
-      error._tag === "ProviderAdapterRequestError" ||
-      error._tag === "ProviderAdapterProcessError"
+    onSome: (error) => {
+      if (
+        error._tag === "ProviderAdapterRequestError" &&
+        error.method === "permission.reply.acknowledge"
+      ) {
+        return "retryable" as const;
+      }
+      return isUnknownPendingRequest ||
+        error._tag === "ProviderAdapterRequestError" ||
+        error._tag === "ProviderAdapterProcessError"
         ? ("uncertain" as const)
-        : ("retryable" as const),
+        : ("retryable" as const);
+    },
   });
 }
 
@@ -1276,11 +1284,10 @@ const make = Effect.gen(function* () {
 
     // Only reuse projected session state when the runtime still has a live session to attach to.
     const activeSessionBeforeEnsure = yield* resolveActiveSession(threadId);
-    const existingSessionThreadId =
-      thread.session && thread.session.status !== "stopped" && activeSessionBeforeEnsure
-        ? thread.id
-        : null;
-    if (existingSessionThreadId) {
+    const reusableSession =
+      thread.session && thread.session.status !== "stopped" ? activeSessionBeforeEnsure : undefined;
+    if (reusableSession) {
+      const existingSessionThreadId = thread.id;
       const runtimeModeChanged = desiredRuntimeMode !== thread.session?.runtimeMode;
       const providerChanged =
         requestedModelSelection !== undefined &&
@@ -1326,11 +1333,11 @@ const make = Effect.gen(function* () {
         !orchestratorContextChanged &&
         !supervisionContextChanged
       ) {
-        return {
-          activeSessionBeforeEnsure,
-          activeSession: activeSessionBeforeEnsure,
-          modelSelection: desiredModelSelection,
-        };
+          return {
+            activeSessionBeforeEnsure,
+            activeSession: activeSessionBeforeEnsure,
+            modelSelection: desiredModelSelection,
+          };
       }
 
       const resumeCursor =
@@ -2324,19 +2331,21 @@ const make = Effect.gen(function* () {
       // The decider routes turn starts from the projected session, which can lag
       // the runtime: a message dispatched right as another turn begins (e.g. the
       // gap between a steer interrupt and the steered turn's start) would race a
-      // live provider turn. Codex steers ride the live turn natively; everything
-      // else re-queues and is promoted when the live turn settles.
+      // live provider turn. Steer-capable providers ride the live turn natively;
+      // everything else re-queues and is promoted when the live turn settles.
       const providerName = thread.session?.providerName ?? thread.modelSelection.provider;
       const liveTurnId = yield* resolveLiveProviderTurnId(event.payload.threadId);
       const hasLiveTurn = liveTurnId !== undefined;
       // Steering is only meaningful against a live turn. The projection can
       // lag the runtime in the other direction too (turn already settled but
       // still projected as running), so recheck live state and dispatch a
-      // settled codex "steer" as a normal queued turn — the native steer path
+      // settled "steer" as a normal queued turn — the native steer path
       // would skip the turn-start checkpoint.
-      const isCodexSteer =
-        event.payload.dispatchMode === "steer" && providerName === "codex" && hasLiveTurn;
-      if (!isCodexSteer && hasLiveTurn) {
+      const isNativeSteer =
+        event.payload.dispatchMode === "steer" &&
+        providerSupportsNativeTurnSteering(providerName) &&
+        hasLiveTurn;
+      if (!isNativeSteer && hasLiveTurn) {
         yield* enqueueQueuedTurnStart(event);
         // The promotion raced another live turn and was re-queued. Release
         // only when that exact blocking turn settles, not on any late
@@ -2356,7 +2365,7 @@ const make = Effect.gen(function* () {
       // Surface the upcoming work immediately: provider session init can take
       // seconds (e.g. Cursor), and without an early status the thread reads as
       // idle until the runtime's first event. Mirrors the message-edit-resend
-      // path. Never touches a live session — a steer turn on a running Codex
+      // path. Never touches a live session — a steer turn on a running provider
       // session must keep its running state and activeTurnId. Keeps the existing
       // session's runtimeMode: ensureSessionForThread detects mode changes by
       // comparing against it, and adopting the requested mode here would mask
@@ -2386,7 +2395,7 @@ const make = Effect.gen(function* () {
         operation: "thread.turn.start",
       });
 
-      if (message.role === "user") {
+        if (message.role === "user") {
         yield* maybeGenerateAndRenameWorktreeBranchForFirstTurn({
           threadId: event.payload.threadId,
           branch: thread.branch,
@@ -2413,12 +2422,12 @@ const make = Effect.gen(function* () {
             ? { providerOptions: event.payload.providerOptions }
             : {}),
         }).pipe(Effect.forkScoped);
-      }
-      // Only a codex steer against a genuinely live turn keeps steer
+        }
+        // Only a native steer against a genuinely live turn keeps steer
       // semantics; anything else that reaches direct dispatch runs as a
       // normal queued turn (with its turn-start checkpoint).
       const immediateDispatchMode =
-        event.payload.dispatchMode === "steer" && !isCodexSteer
+        event.payload.dispatchMode === "steer" && !isNativeSteer
           ? "queue"
           : event.payload.dispatchMode;
       const editResendKey = editResendTurnStartKey(event.payload.threadId, event.payload.messageId);

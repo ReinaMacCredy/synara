@@ -9,7 +9,7 @@ import {
   TurnId,
   type OrchestrationEvent,
   type OrchestrationReadModel,
-  type OrchestrationShellStreamEvent,
+  type OrchestrationShellStreamItem,
   type OrchestrationThread,
   type ServerConfig,
   type WsWelcomePayload,
@@ -431,7 +431,7 @@ function sendPendingThreadDetailSnapshotResponse() {
   sendEffectRpcExit(pending.client, pending.requestId, pending.result);
 }
 
-function sendShellEventPush(event: OrchestrationShellStreamEvent) {
+function sendShellEventPush(event: OrchestrationShellStreamItem) {
   if (!shellStreamRequestId || !shellStreamClient) {
     throw new Error("Shell stream is not connected");
   }
@@ -503,6 +503,16 @@ describe("EventRouter scoped orchestration sync", () => {
 
   afterEach(() => {
     document.body.innerHTML = "";
+  });
+
+  it("coalesces the replayed welcome with the initial subscription bootstrap", async () => {
+    const mounted = await mountApp();
+
+    try {
+      expect(subscribeShellRequestCount).toBe(1);
+    } finally {
+      await mounted.cleanup();
+    }
   });
 
   it("drops duplicate thread events after the thread snapshot sequence advances", async () => {
@@ -1425,6 +1435,101 @@ describe("EventRouter scoped orchestration sync", () => {
     }
   });
 
+  it("recovers a promoted draft when both live promotion paths are missed", async () => {
+    const draftThreadId = ThreadId.makeUnsafe("thread-draft-missed-live-promotion");
+    useComposerDraftStore.setState({
+      draftsByThreadId: {},
+      draftThreadsByThreadId: {
+        [draftThreadId]: {
+          projectId: PROJECT_ID,
+          createdAt: NOW_ISO,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          entryPoint: "chat",
+          branch: null,
+          worktreePath: null,
+          envMode: "local",
+          isTemporary: false,
+        },
+      },
+      projectDraftThreadIdByProjectId: {
+        [PROJECT_ID]: draftThreadId,
+      },
+    });
+    const mounted = await mountApp({ routeThreadId: draftThreadId, waitForThreadId: null });
+
+    try {
+      await vi.waitFor(
+        () => {
+          expect(subscribeThreadRequestCountById.get(draftThreadId)).toBeGreaterThanOrEqual(1);
+        },
+        { timeout: 4_000, interval: 16 },
+      );
+      const subscribeCountBeforeMaterialization =
+        subscribeThreadRequestCountById.get(draftThreadId) ?? 0;
+      const detailReadsBeforeMaterialization = getThreadDetailSnapshotRequestCount;
+      const baseThread = fixture.snapshot.threads[0]!;
+      fixture.snapshot = {
+        ...fixture.snapshot,
+        snapshotSequence: 2,
+        threads: [
+          ...fixture.snapshot.threads,
+          {
+            ...baseThread,
+            id: draftThreadId,
+            title: "Recovered missed promotion",
+            messages: [
+              {
+                id: MessageId.makeUnsafe("msg-draft-missed-live-promotion"),
+                role: "assistant",
+                text: "recovered without a reload",
+                turnId: TurnId.makeUnsafe("turn-draft-missed-live-promotion"),
+                streaming: false,
+                source: "native",
+                createdAt: "2026-03-04T12:00:09.000Z",
+                updatedAt: "2026-03-04T12:00:09.000Z",
+              },
+            ],
+            activities: [],
+            proposedPlans: [],
+            checkpoints: [],
+            latestTurn: {
+              turnId: TurnId.makeUnsafe("turn-draft-missed-live-promotion"),
+              state: "completed",
+              requestedAt: "2026-03-04T12:00:08.000Z",
+              startedAt: "2026-03-04T12:00:08.100Z",
+              completedAt: "2026-03-04T12:00:09.000Z",
+              assistantMessageId: MessageId.makeUnsafe("msg-draft-missed-live-promotion"),
+            },
+            updatedAt: "2026-03-04T12:00:09.000Z",
+          } satisfies OrchestrationReadModel["threads"][number],
+        ],
+      };
+
+      // Deliberately do not push either a shell upsert or a thread stream item.
+      // The periodic direct projection read must promote the visible draft.
+      await vi.waitFor(
+        () => {
+          expect(getThreadDetailSnapshotRequestCount).toBeGreaterThan(
+            detailReadsBeforeMaterialization,
+          );
+          expect(subscribeThreadRequestCountById.get(draftThreadId)).toBe(
+            subscribeCountBeforeMaterialization,
+          );
+          expect(
+            getThreadFromState(useStore.getState(), draftThreadId)?.messages.at(-1)?.text,
+          ).toBe("recovered without a reload");
+          expect(
+            useComposerDraftStore.getState().draftThreadsByThreadId[draftThreadId],
+          ).toBeUndefined();
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("requests a thread snapshot again when a subscribed draft thread becomes real", async () => {
     const draftThreadId = ThreadId.makeUnsafe("thread-draft-promoted");
     delayNextThreadSnapshot = true;
@@ -1548,6 +1653,95 @@ describe("EventRouter scoped orchestration sync", () => {
             subscribeCountAfterMaterialization + 1,
           );
           expect(useStore.getState().threadDetailSyncById?.[draftThreadId]).toBe("synced");
+        },
+        { timeout: 4_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("hydrates a promoted draft when it first appears in a shell snapshot", async () => {
+    const draftThreadId = ThreadId.makeUnsafe("thread-draft-promoted-by-snapshot");
+    delayNextThreadSnapshot = true;
+    useComposerDraftStore.setState({
+      draftsByThreadId: {},
+      draftThreadsByThreadId: {
+        [draftThreadId]: {
+          projectId: PROJECT_ID,
+          createdAt: NOW_ISO,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          entryPoint: "chat",
+          branch: null,
+          worktreePath: null,
+          envMode: "local",
+          isTemporary: false,
+        },
+      },
+      projectDraftThreadIdByProjectId: {
+        [PROJECT_ID]: draftThreadId,
+      },
+    });
+    const mounted = await mountApp({ routeThreadId: draftThreadId, waitForThreadId: null });
+
+    try {
+      await vi.waitFor(
+        () => {
+          expect(subscribeThreadRequestCountById.get(draftThreadId)).toBeGreaterThanOrEqual(1);
+        },
+        { timeout: 4_000, interval: 16 },
+      );
+      const subscribeCountBeforeMaterialization =
+        subscribeThreadRequestCountById.get(draftThreadId) ?? 0;
+      const detailReadsBeforeMaterialization = getThreadDetailSnapshotRequestCount;
+      const baseThread = fixture.snapshot.threads[0]!;
+      fixture.snapshot = {
+        ...fixture.snapshot,
+        snapshotSequence: 2,
+        threads: [
+          ...fixture.snapshot.threads,
+          {
+            ...baseThread,
+            id: draftThreadId,
+            title: "Snapshot-promoted thread",
+            messages: [
+              {
+                id: MessageId.makeUnsafe("msg-snapshot-promoted"),
+                role: "assistant",
+                text: "hydrated from promoted snapshot",
+                turnId: TurnId.makeUnsafe("turn-snapshot-promoted"),
+                streaming: true,
+                source: "native",
+                createdAt: "2026-03-04T12:00:09.000Z",
+                updatedAt: "2026-03-04T12:00:09.000Z",
+              },
+            ],
+            activities: [],
+            proposedPlans: [],
+            checkpoints: [],
+            updatedAt: "2026-03-04T12:00:09.000Z",
+          } satisfies OrchestrationReadModel["threads"][number],
+        ],
+      };
+
+      sendShellEventPush({
+        kind: "snapshot",
+        snapshot: createShellSnapshotFromReadModel(fixture.snapshot),
+      });
+
+      await vi.waitFor(
+        () => {
+          expect(getThreadDetailSnapshotRequestCount).toBeGreaterThan(
+            detailReadsBeforeMaterialization,
+          );
+          expect(subscribeThreadRequestCountById.get(draftThreadId)).toBe(
+            subscribeCountBeforeMaterialization,
+          );
+          expect(useStore.getState().threadDetailSyncById?.[draftThreadId]).toBe("synced");
+          expect(
+            getThreadFromState(useStore.getState(), draftThreadId)?.messages.at(-1)?.text,
+          ).toBe("hydrated from promoted snapshot");
         },
         { timeout: 4_000, interval: 16 },
       );

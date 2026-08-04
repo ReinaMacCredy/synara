@@ -64,6 +64,11 @@ export const ServerProviderStatus = Schema.Struct({
       status: Schema.Literals(["unknown", "current", "behind_latest"]),
       currentVersion: Schema.NullOr(TrimmedNonEmptyString),
       latestVersion: Schema.NullOr(TrimmedNonEmptyString),
+      // False when Synara has no registry to learn the latest version from (a
+      // self-updating CLI like `cursor-agent`), so `status` can never leave
+      // "unknown" no matter how current the install is. Absent on older servers,
+      // where callers must assume a source exists and keep the legacy behavior.
+      latestVersionKnowable: Schema.optional(Schema.Boolean),
       updateCommand: Schema.NullOr(TrimmedNonEmptyString),
       canUpdate: Schema.Boolean,
       checkedAt: Schema.NullOr(IsoDateTime),
@@ -250,6 +255,18 @@ export const ServerDiagnosticsResult = Schema.Struct({
   }),
 });
 export type ServerDiagnosticsResult = typeof ServerDiagnosticsResult.Type;
+
+export const ServerVoicePrewarmInput = Schema.Struct({
+  provider: ProviderKind,
+  cwd: TrimmedNonEmptyString,
+  threadId: Schema.optional(ThreadId),
+});
+export type ServerVoicePrewarmInput = typeof ServerVoicePrewarmInput.Type;
+
+export const ServerVoicePrewarmResult = Schema.Struct({
+  ready: Schema.Boolean,
+});
+export type ServerVoicePrewarmResult = typeof ServerVoicePrewarmResult.Type;
 
 export const ServerVoiceTranscriptionInput = Schema.Struct({
   provider: ProviderKind,

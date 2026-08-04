@@ -29,7 +29,12 @@ import {
   COMPOSER_PICKER_TRIGGER_TEXT_CLASS_NAME,
 } from "./composerPickerStyles";
 import { ComposerPickerMenuPopup, ComposerPickerMenuSubPopup } from "./ComposerPickerMenuPopup";
-import { getComposerTraitSelection, hasVisibleComposerTraitControls } from "./composerTraits";
+import {
+  getComposerTraitSelection,
+  hasVisibleComposerTraitControls,
+  resolveComposerTraitStatusLabel,
+  showsComposerFastModeBadge,
+} from "./composerTraits";
 import {
   getProviderIconClassName,
   ProviderModelMenuItems,
@@ -109,18 +114,7 @@ export function ComposerModelEffortPicker(props: ComposerModelEffortPickerProps)
     props.runtimeModel,
   );
 
-  const {
-    caps,
-    defaultEffort,
-    effort,
-    effortLevels,
-    thinkingEnabled,
-    fastModeEnabled,
-    fastModeDescriptor,
-    ultrathinkPromptControlled,
-  } = traitSelection;
-
-  const supportsFastModeControl = fastModeDescriptor !== null || caps.supportsFastMode;
+  const { defaultEffort, effortLevels } = traitSelection;
   const controlledEffortOptions =
     props.controlledEffort?.options ??
     effortLevels.map((option) => ({
@@ -131,20 +125,12 @@ export function ComposerModelEffortPicker(props: ComposerModelEffortPickerProps)
     ? controlledEffortOptions.length > 0
     : hasVisibleComposerTraitControls(traitSelection);
 
-  const effortLabel = props.controlledEffort
+  const controlledEffortLabel = props.controlledEffort
     ? (controlledEffortOptions.find((option) => option.value === props.controlledEffort?.value)
         ?.label ?? props.controlledEffort.value)
-    : effort
-      ? (effortLevels.find((level) => level.value === effort)?.label ?? effort)
-      : null;
-  const triggerStatusLabel = ultrathinkPromptControlled
-    ? "Ultrathink"
-    : effortLabel
-      ? effortLabel
-      : thinkingEnabled !== null
-        ? `Thinking ${thinkingEnabled ? "On" : "Off"}`
-        : null;
-  const showsFastBadge = supportsFastModeControl && fastModeEnabled;
+    : null;
+  const triggerStatusLabel = controlledEffortLabel ?? resolveComposerTraitStatusLabel(traitSelection);
+  const showsFastBadge = showsComposerFastModeBadge(traitSelection);
 
   const handleAfterModelSelection = () => {
     setMenuOpen(false);

@@ -14,12 +14,14 @@ import {
   type OrchestrationThreadActivity,
   type OrchestrationThread,
   type OrchestrationThreadShell,
+  type ProviderKind,
   type ProviderRuntimeEvent,
   type RuntimeMode,
 } from "@synara/contracts";
 import { Cache, Cause, Deferred, Duration, Effect, Layer, Option, Ref, Stream } from "effect";
 import * as Semaphore from "effect/Semaphore";
 import { makeDrainableWorker, startDrainableWorkerProducers } from "@synara/shared/DrainableWorker";
+import { providerSupportsNativeTurnSteering } from "@synara/shared/providerMetadata";
 import {
   ADVISOR_NICKNAME,
   ADVISOR_ROLE,
@@ -54,6 +56,10 @@ import {
 } from "../../persistence/Services/ProviderRuntimeEvents.ts";
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { isGitRepository } from "../../git/isRepo.ts";
+import {
+  OrchestrationCommandIdentityCollisionError,
+  OrchestrationCommandPreviouslyRejectedError,
+} from "../Errors.ts";
 import { makeRuntimeJournalPoisonGate } from "../runtimeJournalPoisonGate.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import {
@@ -1667,15 +1673,34 @@ const make = Effect.gen(function* () {
                 yield* projectionSnapshotQuery.getThreadShellById(childThreadId),
                 threadDetailFromShell,
               );
-          const resolvedModelSelection =
-            resolvedIdentity?.model && resolvedIdentity.modelIsRequestedHint !== true
-              ? {
-                  provider: parentThread.modelSelection.provider,
-                  model: resolvedIdentity.model,
-                }
-              : undefined;
+          // Reuse the parent's full selection when the models match so capability
+          // flags (e.g. supportsAutoMode) survive; a diverging subagent model gets
+            // a bare selection because the parent's flags don't describe it.
+            const resolvedModelSelection =
+              resolvedIdentity?.model && resolvedIdentity.modelIsRequestedHint !== true
+                ? resolvedIdentity.model === parentThread.modelSelection.model
+                  ? parentThread.modelSelection
+                  : {
+                      provider: parentThread.modelSelection.provider,
+                      model: resolvedIdentity.model,
+                    }
+                : undefined;
 
           if (Option.isNone(existingThread)) {
+            // The read above hides soft-deleted threads, but `thread.create` is
+            // decided against a tombstone-inclusive read model, so re-creating a
+            // deleted child is rejected — durably, by command id. Replaying that
+            // event (startup open-turn rebuild, journal retry) would then keep
+            // failing on the stored rejection. A deleted subagent thread stays
+            // deleted: drop this child's projection instead of resurrecting it.
+            if (yield* projectionSnapshotQuery.threadIdExistsIncludingDeleted(childThreadId)) {
+              yield* Effect.logDebug("provider runtime ingestion skipped deleted subagent thread", {
+                eventId: event.eventId,
+                eventType: event.type,
+                threadId: childThreadId,
+              });
+              return undefined;
+            }
             const slot = yield* claimNativeChildSlot(parentThread.id, sourceTurnId, childThreadId);
             if (!slot.admitted) {
               const overflowId = EventId.makeUnsafe(
@@ -2441,11 +2466,16 @@ const make = Effect.gen(function* () {
       const thread = Option.getOrUndefined(
         yield* projectionSnapshotQuery.getThreadShellById(event.payload.threadId),
       );
-      const isCodexSteer =
+      // A native steer rides the live turn, so no later turn.started will
+      // arrive to match a pending delivery-mode request — bind to the live
+      // turn immediately instead.
+      const steerProvider = thread?.session?.providerName ?? thread?.modelSelection.provider;
+      const isNativeSteer =
         event.payload.dispatchMode === "steer" &&
-        (thread?.session?.providerName ?? thread?.modelSelection.provider) === "codex";
+        steerProvider !== undefined &&
+        providerSupportsNativeTurnSteering(steerProvider);
       let deliveryTurnId: TurnId | undefined;
-      if (isCodexSteer) {
+      if (isNativeSteer) {
         let activeTurnId = thread?.session?.activeTurnId ?? undefined;
         if (!activeTurnId) {
           const runtimeSession = (yield* providerService.listSessions()).find(
@@ -2475,8 +2505,7 @@ const make = Effect.gen(function* () {
       const flushEvent: ProviderRuntimeEvent = {
         type: "turn.started",
         eventId: event.eventId,
-        provider:
-          isCodexSteer || thread?.session?.providerName !== "claudeAgent" ? "codex" : "claudeAgent",
+        provider: (steerProvider ?? "codex") as ProviderKind,
         createdAt: event.payload.createdAt,
         threadId: event.payload.threadId,
         turnId: deliveryTurnId,
@@ -2517,6 +2546,73 @@ const make = Effect.gen(function* () {
   // inputs still drain, and the durable poll retries from the exact cursor.
   let runtimeJournalPageBlocked = false;
 
+  const quarantineUnreplayableCommand = Effect.fnUntraced(function* (
+    input: Extract<RuntimeIngestionInput, { source: "runtime" }>,
+    error: OrchestrationCommandIdentityCollisionError | OrchestrationCommandPreviouslyRejectedError,
+  ) {
+    // A command receipt permanently binds one command id to one fingerprint,
+    // and a stored rejection permanently binds one command id to its refusal.
+    // Retrying the same runtime row can therefore never make an identity
+    // collision or a previously rejected command succeed. This most commonly
+    // happens when a crash or upgrade leaves a partially projected event whose
+    // remaining command is rebuilt from newer thread state, or when a command
+    // was durably rejected by an invariant on first dispatch.
+    //
+    // The runtime journal has one global cursor, so waiting for the generic
+    // poison gate here drops every later event for every provider — including
+    // assistant output — for at least a minute. Quarantine this deterministically
+    // unreplayable row immediately, exactly as the poison gate eventually would,
+    // and keep the accepted event available in the retained diagnostic tail.
+    const advanced = yield* runtimeEvents
+      .advanceConsumerCursor({
+        consumerName: PROVIDER_RUNTIME_INGESTION_CONSUMER,
+        eventSequence: input.sequence,
+        updatedAt: new Date().toISOString(),
+      })
+      .pipe(
+        Effect.catchCause((cause) => {
+          runtimeJournalPageBlocked = true;
+          return Effect.logWarning("provider runtime unreplayable command quarantine failed", {
+            sequence: input.sequence,
+            eventId: input.event.eventId,
+            eventType: input.event.type,
+            threadId: input.event.threadId,
+            provider: input.event.provider,
+            commandId: error.commandId,
+            cause: Cause.pretty(cause),
+          }).pipe(Effect.as(null));
+        }),
+      );
+    if (advanced === null) {
+      return;
+    }
+    if (!advanced) {
+      runtimeJournalPageBlocked = true;
+      yield* Effect.logWarning("provider runtime unreplayable command could not be quarantined", {
+        sequence: input.sequence,
+        eventId: input.event.eventId,
+        eventType: input.event.type,
+        threadId: input.event.threadId,
+        provider: input.event.provider,
+        commandId: error.commandId,
+        detail: error.detail,
+      });
+      return;
+    }
+    yield* Effect.logError(
+      "provider runtime unreplayable command quarantined without blocking the journal",
+      {
+        sequence: input.sequence,
+        eventId: input.event.eventId,
+        eventType: input.event.type,
+        threadId: input.event.threadId,
+        provider: input.event.provider,
+        commandId: error.commandId,
+        detail: error.detail,
+      },
+    );
+  });
+
   const processInputSafely = (input: RuntimeIngestionInput) =>
     input.source === "runtime" && runtimeJournalPageBlocked
       ? Effect.void
@@ -2524,6 +2620,14 @@ const make = Effect.gen(function* () {
           Effect.catchCause((cause) => {
             if (Cause.hasInterruptsOnly(cause)) {
               return Effect.failCause(cause);
+            }
+            const error = Option.getOrUndefined(Cause.findErrorOption(cause));
+            if (
+              input.source === "runtime" &&
+              (error instanceof OrchestrationCommandIdentityCollisionError ||
+                error instanceof OrchestrationCommandPreviouslyRejectedError)
+            ) {
+              return quarantineUnreplayableCommand(input, error);
             }
             if (input.source === "runtime") {
               runtimeJournalPageBlocked = true;
@@ -2673,6 +2777,28 @@ const make = Effect.gen(function* () {
     );
   });
 
+  // This rebuild only restores bounded process-local caches — the durable
+  // effects it re-derives are already committed and deduplicated by command
+  // receipt. It also runs inside `start`, which is on the server's boot path
+  // and dies on failure, so a single unreplayable row (a stored command
+  // rejection, a decode failure) must degrade this thread's caches rather than
+  // make the backend unbootable: the state is rebuildable, the boot loop is not
+  // recoverable without deleting user data.
+  const rebuildAcceptedOpenTurnStateForEvent = (event: ProviderRuntimeEvent) =>
+    prepareAcceptedRuntimeEventReplay(event).pipe(
+      Effect.andThen(processRuntimeEvent(event)),
+      Effect.catchCause((cause) =>
+        Cause.hasInterruptsOnly(cause)
+          ? Effect.failCause(cause)
+          : Effect.logWarning("provider runtime ingestion failed to rebuild open-turn state", {
+              eventId: event.eventId,
+              eventType: event.type,
+              threadId: event.threadId,
+              cause: Cause.pretty(cause),
+            }),
+      ),
+    );
+
   // Accepted open-turn rows may have updated only bounded process-local
   // aggregation state. Re-run them before new output; stable command receipts
   // deduplicate durable effects while the caches are rebuilt in event order.
@@ -2686,8 +2812,7 @@ const make = Effect.gen(function* () {
       });
       if (page.length === 0) return;
       for (const entry of page) {
-        yield* prepareAcceptedRuntimeEventReplay(entry.event);
-        yield* processRuntimeEvent(entry.event);
+        yield* rebuildAcceptedOpenTurnStateForEvent(entry.event);
         sequence = entry.sequence;
       }
       if (page.length < PROVIDER_RUNTIME_REPLAY_PAGE_SIZE) return;

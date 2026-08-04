@@ -133,7 +133,7 @@ export function sanitizeRightDockThreadState(value: unknown): RightDockThreadSta
       ? candidate.activePaneId
       : (panes[0]?.id ?? null);
   return {
-    open: panes.length > 0 && candidate.open === true,
+    open: candidate.open === true,
     panes,
     activePaneId,
   };
@@ -324,7 +324,9 @@ export function closePaneInState(
     paneId,
   );
   return {
-    open: nextPanes.length > 0 ? state.open : false,
+    // An open dock with no panes is the launcher state. Closing the final tab
+    // returns to that launcher instead of collapsing the entire dock.
+    open: state.open,
     panes: nextPanes,
     activePaneId: nextActiveId,
   };
@@ -344,9 +346,6 @@ export function setDockOpenInState(
   state: RightDockThreadState,
   open: boolean,
 ): RightDockThreadState {
-  if (open && state.panes.length === 0) {
-    return state;
-  }
   if (state.open === open) {
     return state;
   }

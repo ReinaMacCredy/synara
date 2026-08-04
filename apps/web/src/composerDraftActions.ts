@@ -6,6 +6,7 @@ import {
   DEFAULT_SUPERVISION_DRAFT_MODE,
   type ModelSelection,
   type ProviderKind,
+  PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   RuntimeMode,
   ThreadId,
 } from "@synara/contracts";
@@ -72,6 +73,11 @@ import {
   normalizeBrowserAnnotations,
 } from "./lib/browserAnnotations";
 import { ensureInlineTerminalContextPlaceholders } from "./lib/terminalContext";
+import {
+  availableComposerAttachmentSlots,
+  composerImageConsumesAttachmentSlot,
+  effectiveComposerAttachmentCount,
+} from "./lib/composerAttachmentCapacity";
 import { buildModelSelection } from "./providerModelOptions";
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE } from "./types";
 
@@ -727,7 +733,11 @@ export const createComposerDraftStoreState =
       });
     },
     addPromptHistorySavedDraftImage: (threadId, image) => {
-      if (threadId.length === 0) return;
+      if (threadId.length === 0) {
+        revokeObjectPreviewUrl(image.previewUrl);
+        return false;
+      }
+      let inserted = false;
       set((state) => {
         const current = state.draftsByThreadId[threadId];
         const savedDraft = current?.promptHistorySavedDraft ?? null;
@@ -735,8 +745,14 @@ export const createComposerDraftStoreState =
           revokeObjectPreviewUrl(image.previewUrl);
           return state;
         }
+        const consumesSlot = composerImageConsumesAttachmentSlot(savedDraft, image.id);
+        if (consumesSlot && availableComposerAttachmentSlots(savedDraft) === 0) {
+          revokeObjectPreviewUrl(image.previewUrl);
+          return state;
+        }
         const images = mergeComposerImages(savedDraft.images, [image]);
         if (!images) return state;
+        inserted = true;
         return {
           draftsByThreadId: {
             ...state.draftsByThreadId,
@@ -750,6 +766,7 @@ export const createComposerDraftStoreState =
           },
         };
       });
+      return inserted;
     },
     syncPromptHistorySavedDraftPersistedAttachments: (threadId, attachments) =>
       syncPersistedAttachmentsForSlot(
@@ -1161,18 +1178,34 @@ export const createComposerDraftStoreState =
     },
     addImage: (threadId, image) => {
       if (threadId.length === 0) {
-        return;
+        revokeObjectPreviewUrl(image.previewUrl);
+        return false;
       }
-      get().addImages(threadId, [image]);
+      return get().addImages(threadId, [image]) === 1;
     },
     addImages: (threadId, images) => {
       if (threadId.length === 0 || images.length === 0) {
-        return;
+        for (const image of images) revokeObjectPreviewUrl(image.previewUrl);
+        return 0;
       }
+      let insertedCount = 0;
       set((state) => {
         const existing = state.draftsByThreadId[threadId] ?? createEmptyThreadDraft();
-        const mergedImages = mergeComposerImages(existing.images, images);
-        if (!mergedImages) return state;
+        let mergedImages = existing.images;
+        let attachmentCount = effectiveComposerAttachmentCount(existing);
+        for (const image of images) {
+          const consumesSlot = composerImageConsumesAttachmentSlot(existing, image.id);
+          if (consumesSlot && attachmentCount >= PROVIDER_SEND_TURN_MAX_ATTACHMENTS) {
+            revokeObjectPreviewUrl(image.previewUrl);
+            continue;
+          }
+          const nextImages = mergeComposerImages(mergedImages, [image]);
+          if (!nextImages) continue;
+          mergedImages = nextImages;
+          insertedCount += 1;
+          if (consumesSlot) attachmentCount += 1;
+        }
+        if (insertedCount === 0) return state;
         return {
           draftsByThreadId: {
             ...state.draftsByThreadId,
@@ -1183,6 +1216,7 @@ export const createComposerDraftStoreState =
           },
         };
       });
+      return insertedCount;
     },
     removeImage: (threadId, imageId) => {
       if (threadId.length === 0) {
@@ -1316,25 +1350,30 @@ export const createComposerDraftStoreState =
     },
     addFiles: (threadId, files) => {
       if (threadId.length === 0 || files.length === 0) {
-        return;
+        return 0;
       }
+      let insertedCount = 0;
       set((state) => {
         const existing = state.draftsByThreadId[threadId] ?? createEmptyThreadDraft();
+        let availableSlots = availableComposerAttachmentSlots(existing);
         const existingIds = new Set(existing.files.map((file) => file.id));
         const existingDedupKeys = new Set(existing.files.map((file) => composerFileDedupKey(file)));
         const dedupedIncoming: ComposerFileAttachment[] = [];
         for (const file of files) {
+          if (availableSlots === 0) break;
           const dedupKey = composerFileDedupKey(file);
           if (existingIds.has(file.id) || existingDedupKeys.has(dedupKey)) {
             continue;
           }
           dedupedIncoming.push(file);
+          availableSlots -= 1;
           existingIds.add(file.id);
           existingDedupKeys.add(dedupKey);
         }
         if (dedupedIncoming.length === 0) {
           return state;
         }
+        insertedCount = dedupedIncoming.length;
         return {
           draftsByThreadId: {
             ...state.draftsByThreadId,
@@ -1345,6 +1384,7 @@ export const createComposerDraftStoreState =
           },
         };
       });
+      return insertedCount;
     },
     removeFile: (threadId, fileId) => {
       if (threadId.length === 0) {
@@ -1386,6 +1426,9 @@ export const createComposerDraftStoreState =
             (entry) => assistantSelectionDedupKey(entry) === dedupKey,
           )
         ) {
+          return state;
+        }
+        if (availableComposerAttachmentSlots(existing) === 0) {
           return state;
         }
         inserted = true;

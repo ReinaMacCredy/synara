@@ -3,12 +3,14 @@ import { describe, expect, it } from "vitest";
 import {
   RIGHT_DOCK_PANE_KINDS,
   SINGLETON_PANE_KINDS,
+  closePaneInState,
   createDefaultRightDockState,
   ensurePanesInState,
   isRightDockPaneKind,
   openPaneInState,
   sanitizeRightDockStateByThreadId,
   sanitizeRightDockThreadState,
+  setDockOpenInState,
   updatePaneInState,
 } from "./rightDockStore.logic";
 
@@ -169,7 +171,7 @@ describe("sanitizeRightDockThreadState", () => {
     expect(state.open).toBe(true);
   });
 
-  it("forces the dock closed when no valid panes survive", () => {
+  it("preserves an open empty dock when no valid panes survive", () => {
     const state = sanitizeRightDockThreadState({
       open: true,
       activePaneId: "legacy",
@@ -179,7 +181,7 @@ describe("sanitizeRightDockThreadState", () => {
     });
     expect(state.panes).toEqual([]);
     expect(state.activePaneId).toBeNull();
-    expect(state.open).toBe(false);
+    expect(state.open).toBe(true);
   });
 
   it("returns the default state for malformed input", () => {
@@ -190,6 +192,29 @@ describe("sanitizeRightDockThreadState", () => {
     });
     expect(sanitizeRightDockThreadState({ panes: "nope" })).toEqual({
       open: false,
+      panes: [],
+      activePaneId: null,
+    });
+  });
+});
+
+describe("empty launcher state", () => {
+  it("opens the dock without creating a pane", () => {
+    expect(setDockOpenInState(createDefaultRightDockState(), true)).toEqual({
+      open: true,
+      panes: [],
+      activePaneId: null,
+    });
+  });
+
+  it("returns to the launcher after the final pane closes", () => {
+    const open = openPaneInState(createDefaultRightDockState(), {
+      paneId: "browser-1",
+      kind: "browser",
+    });
+
+    expect(closePaneInState(open, "browser-1")).toEqual({
+      open: true,
       panes: [],
       activePaneId: null,
     });

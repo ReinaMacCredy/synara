@@ -24,6 +24,7 @@ import {
 import { doThreadMarkerRangesOverlap } from "@synara/shared/threadMarkers";
 import { collectSubagentDescendants } from "@synara/shared/threadHierarchy";
 import { autoRuntimeModeSelectionIssue } from "@synara/shared/runtimeMode";
+import { providerSupportsNativeTurnSteering } from "@synara/shared/providerMetadata";
 import {
   collectTailTurnIds,
   resolveTailUserMessageEditTarget,
@@ -811,7 +812,13 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
-      yield* validateAutoRuntimeMode(command, command.modelSelection, command.runtimeMode);
+      // Provider-native threads mirror subagents the provider already runs;
+      // Synara never starts a session for them, so the Auto-mode capability
+      // check can only reject the projection (and durably poison the runtime
+      // journal replaying it), never prevent an unverified Auto session.
+      if (command.creationSource !== "provider_native") {
+        yield* validateAutoRuntimeMode(command, command.modelSelection, command.runtimeMode);
+      }
       return {
         ...withEventBase({
           aggregateKind: "thread",
@@ -1144,8 +1151,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
-      if (command.modelSelection !== undefined) {
-        yield* validateAutoRuntimeMode(command, command.modelSelection, thread.runtimeMode);
+        // Provider-native threads: see thread.create — the selection mirrors the
+        // provider's own subagent, so the Auto-mode capability check doesn't apply.
+        if (command.modelSelection !== undefined && thread.creationSource !== "provider_native") {
+          yield* validateAutoRuntimeMode(command, command.modelSelection, thread.runtimeMode);
       }
       const occurredAt = nowIso();
       return {
@@ -1602,10 +1611,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       // Subagent threads never queue: their messages steer the running child task
       // through the parent session, so deferring until the turn settles would
       // deliver the message only after the subagent already finished.
+      // Steers ride the live turn natively only on providers whose runtime can
+      // inject mid-turn input; everywhere else they queue and interrupt below.
       const shouldQueue =
         targetThread.parentThreadId === null &&
         isThreadRunning &&
-        (dispatchMode === "queue" || activeProvider !== "codex");
+        (dispatchMode === "queue" || !providerSupportsNativeTurnSteering(activeProvider));
       const queuedEvent: Omit<OrchestrationEvent, "sequence"> = {
         ...withEventBase({
           aggregateKind: "thread",
