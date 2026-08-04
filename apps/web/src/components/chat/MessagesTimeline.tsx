@@ -2352,35 +2352,52 @@ function TurnWorkRegionLabel(props: {
   nowIso?: string;
 }) {
   const live = props.state === "working";
-  const elapsed =
-    live && props.startedAt ? (
-      props.nowIso ? (
-        (formatClockElapsed(props.startedAt, props.nowIso) ?? "0s")
-      ) : (
-        <WorkingTimer createdAt={props.startedAt} />
-      )
-    ) : (
-      (props.settledElapsed ?? "0s")
-    );
+  const liveElapsedSnapshotRef = useRef<WorkingElapsedSnapshot>({ seconds: 0, label: "0s" });
+  const fixedLiveElapsed =
+    props.startedAt && props.nowIso
+      ? readWorkingElapsedSnapshot(props.startedAt, props.nowIso)
+      : null;
+  if (live && fixedLiveElapsed) {
+    liveElapsedSnapshotRef.current = fixedLiveElapsed;
+  }
+  const liveElapsed = props.startedAt
+    ? live
+      ? fixedLiveElapsed?.label ?? (
+          <WorkingTimer
+            createdAt={props.startedAt}
+            elapsedSnapshotRef={liveElapsedSnapshotRef}
+          />
+        )
+      : liveElapsedSnapshotRef.current.label
+    : null;
+  const providerSettledElapsed = props.settledElapsed ?? "0s";
+  const providerSettledSeconds = parseClockDurationSeconds(providerSettledElapsed);
+  const settledElapsed =
+    providerSettledSeconds !== null &&
+    providerSettledSeconds >= liveElapsedSnapshotRef.current.seconds
+      ? providerSettledElapsed
+      : liveElapsedSnapshotRef.current.label;
   return (
-    <span className="inline-grid" aria-live="polite">
+    <span className="inline-grid overflow-hidden" aria-live="polite">
       <span
+        data-work-status-text="working"
         className={cn(
-          "[grid-area:1/1] transition-opacity duration-160 ease-out motion-reduce:transition-none",
-          live ? "opacity-100" : "opacity-0",
+          "work-status-swap__phrase [grid-area:1/1]",
+          live ? "work-status-swap__phrase--visible" : "work-status-swap__phrase--exit",
         )}
         aria-hidden={!live}
       >
-        {props.startedAt ? <>Working for {elapsed}</> : "Working..."}
+        {props.startedAt ? <>Working for {liveElapsed}</> : "Working..."}
       </span>
       <span
+        data-work-status-text="settled"
         className={cn(
-          "[grid-area:1/1] transition-opacity duration-160 ease-out motion-reduce:transition-none",
-          live ? "opacity-0" : "opacity-100",
+          "work-status-swap__phrase [grid-area:1/1]",
+          live ? "work-status-swap__phrase--enter" : "work-status-swap__phrase--visible",
         )}
         aria-hidden={live}
       >
-        Worked for {props.settledElapsed ?? "0s"}
+        Worked for {settledElapsed}
       </span>
     </span>
   );
@@ -2388,14 +2405,25 @@ function TurnWorkRegionLabel(props: {
 
 // Keep the live clock scoped to tiny leaf components so active Claude turns do
 // not force the full transcript tree to re-render every second.
-function WorkingTimer({ createdAt }: { createdAt: string }) {
+type WorkingElapsedSnapshot = { seconds: number; label: string };
+
+function WorkingTimer({
+  createdAt,
+  elapsedSnapshotRef,
+}: {
+  createdAt: string;
+  elapsedSnapshotRef: { current: WorkingElapsedSnapshot };
+}) {
   const textRef = useRef<HTMLSpanElement>(null);
-  const initialText = formatWorkingTimerNow(createdAt);
+  const initialSnapshot = readWorkingElapsedSnapshot(createdAt, new Date().toISOString());
+  elapsedSnapshotRef.current = initialSnapshot;
 
   useEffect(() => {
     const updateText = () => {
+      const snapshot = readWorkingElapsedSnapshot(createdAt, new Date().toISOString());
+      elapsedSnapshotRef.current = snapshot;
       if (textRef.current) {
-        textRef.current.textContent = formatWorkingTimerNow(createdAt);
+        textRef.current.textContent = snapshot.label;
       }
     };
     updateText();
@@ -2403,13 +2431,32 @@ function WorkingTimer({ createdAt }: { createdAt: string }) {
     return () => {
       window.clearInterval(id);
     };
-  }, [createdAt]);
+  }, [createdAt, elapsedSnapshotRef]);
 
-  return <span ref={textRef}>{initialText}</span>;
+  return <span ref={textRef}>{initialSnapshot.label}</span>;
 }
 
-function formatWorkingTimerNow(startIso: string): string {
-  return formatClockElapsed(startIso, new Date().toISOString()) ?? "0s";
+function readWorkingElapsedSnapshot(startIso: string, endIso: string): WorkingElapsedSnapshot {
+  const startedAt = Date.parse(startIso);
+  const endedAt = Date.parse(endIso);
+  const seconds =
+    Number.isNaN(startedAt) || Number.isNaN(endedAt) || endedAt < startedAt
+      ? 0
+      : Math.floor((endedAt - startedAt) / 1_000);
+  return {
+    seconds,
+    label: formatClockElapsed(startIso, endIso) ?? "0s",
+  };
+}
+
+function parseClockDurationSeconds(label: string): number | null {
+  const hours = label.match(/([\d.]+)h/)?.[1];
+  const minutes = label.match(/([\d.]+)m/)?.[1];
+  const seconds = label.match(/([\d.]+)s/)?.[1];
+  if (!hours && !minutes && !seconds) return null;
+  return (
+    Number(hours ?? 0) * 3_600 + Number(minutes ?? 0) * 60 + Number(seconds ?? 0)
+  );
 }
 
 const UserImageAttachmentThumbnail = memo(function UserImageAttachmentThumbnail(props: {

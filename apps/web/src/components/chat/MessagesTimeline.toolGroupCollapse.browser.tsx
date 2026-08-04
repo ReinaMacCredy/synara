@@ -268,7 +268,39 @@ describe("MessagesTimeline tool group collapse", () => {
       );
 
       await expect.poll(() => document.body.textContent ?? "").toContain("Worked for");
+      expect(document.querySelectorAll("[data-turn-work-region]")).toHaveLength(1);
       expect(document.querySelector<HTMLElement>("[data-turn-work-region]")).toBe(liveRegion);
+      expect(
+        liveRegion?.querySelector("[data-work-status-text='working']")?.className,
+      ).toContain("work-status-swap__phrase--exit");
+      expect(
+        liveRegion?.querySelector("[data-work-status-text='settled']")?.className,
+      ).toContain("work-status-swap__phrase--visible");
+      expect(
+        liveRegion?.querySelector("[data-work-status-text='settled']")?.textContent,
+      ).toContain("Worked for 10s");
+      expect(
+        liveRegion?.querySelector("[data-work-status-text='working']")?.textContent,
+      ).toContain("Working for 10s");
+
+      const workingLayer = liveRegion?.querySelector<HTMLElement>(
+        "[data-work-status-text='working']",
+      );
+      const settledLayer = liveRegion?.querySelector<HTMLElement>(
+        "[data-work-status-text='settled']",
+      );
+      expect(getComputedStyle(workingLayer!).transitionDuration.split(", ")).toEqual([
+        "0.15s",
+        "0.15s",
+        "0.15s",
+      ]);
+      expect(getComputedStyle(workingLayer!).transitionProperty).toContain("transform");
+      expect(getComputedStyle(workingLayer!).transitionProperty).toContain("opacity");
+      expect(getComputedStyle(workingLayer!).transform).not.toBe("none");
+      const transitioningOpacity = Number.parseFloat(getComputedStyle(settledLayer!).opacity);
+      expect(transitioningOpacity).toBeGreaterThan(0);
+      expect(transitioningOpacity).toBeLessThan(1);
+      await expect.poll(() => getComputedStyle(settledLayer!).opacity).toBe("1");
     } finally {
       await mounted.unmount();
       host.remove();

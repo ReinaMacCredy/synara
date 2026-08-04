@@ -2468,6 +2468,35 @@ label:has(> select#reasoning-effort) select {
   animation: reasoning-text-swap-out 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+.work-status-swap__phrase {
+  opacity: 1;
+  transform: translateY(0);
+  filter: blur(0);
+  transition:
+    transform 150ms ease-in-out,
+    filter 150ms ease-in-out,
+    opacity 150ms ease-in-out;
+  will-change: transform, filter, opacity;
+}
+
+.work-status-swap__phrase--visible {
+  opacity: 1;
+  transform: translateY(0);
+  filter: blur(0);
+}
+
+.work-status-swap__phrase--exit {
+  opacity: 0;
+  transform: translateY(-4px);
+  filter: blur(2px);
+}
+
+.work-status-swap__phrase--enter {
+  opacity: 0;
+  transform: translateY(4px);
+  filter: blur(2px);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .reasoning-text-swap__phrase--enter {
     animation-name: reasoning-text-swap-fade-in;
@@ -2477,6 +2506,12 @@ label:has(> select#reasoning-effort) select {
   .reasoning-text-swap__phrase--exit {
     animation-name: reasoning-text-swap-fade-out;
     animation-duration: 120ms;
+  }
+
+  .work-status-swap__phrase {
+    transform: none;
+    filter: none;
+    transition: none;
   }
 }
 
