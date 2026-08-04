@@ -1324,7 +1324,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       model?: string;
       serviceTier?: string | null;
       effort?: string;
-      summary: "auto" | "none";
+      summary: "detailed" | "none";
       approvalPolicy?: CodexApprovalPolicy;
       approvalsReviewer?: CodexApprovalsReviewer;
       sandboxPolicy?: CodexTurnSandboxPolicy;
@@ -1339,7 +1339,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     } = {
       threadId: providerThreadId,
       input: turnInput,
-      summary: "auto",
+      summary: "detailed",
       ...resolveCodexTurnOverrides(context),
     };
     const normalizedModel = resolveCodexModelForAccount(
