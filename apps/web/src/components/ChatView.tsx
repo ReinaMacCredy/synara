@@ -281,9 +281,11 @@ import {
   hasCompletePendingUserInputAnswers,
   omitNullPendingUserInputAnswers,
   setPendingUserInputCustomAnswer,
+  setPendingUserInputOptionNote,
   togglePendingUserInputOptionSelection,
   type PendingUserInputDraftAnswer,
 } from "../pendingUserInput";
+import { isPendingUserInputAdvisorQuestion } from "../pendingUserInputAdvisor";
 import { selectRightDockState, useRightDockStore } from "../rightDockStore";
 import { useStore } from "../store";
 import { RenameThreadDialog } from "./RenameThreadDialog";
@@ -8806,6 +8808,32 @@ export default function ChatView({
     [activePendingUserInputKey],
   );
 
+  const onChangeActivePendingUserInputOptionNote = useCallback(
+    (questionId: string, optionLabel: string, value: string) => {
+      if (!activePendingUserInputKey) {
+        return;
+      }
+      const nextDraftAnswer = setPendingUserInputOptionNote(
+        pendingUserInputAnswersByRequestIdRef.current[activePendingUserInputKey]?.[questionId],
+        optionLabel,
+        value,
+      );
+      const nextRequestAnswers = {
+        ...pendingUserInputAnswersByRequestIdRef.current[activePendingUserInputKey],
+        [questionId]: nextDraftAnswer,
+      };
+      pendingUserInputAnswersByRequestIdRef.current = {
+        ...pendingUserInputAnswersByRequestIdRef.current,
+        [activePendingUserInputKey]: nextRequestAnswers,
+      };
+      setPendingUserInputAnswersByRequestId((existing) => ({
+        ...existing,
+        [activePendingUserInputKey]: nextRequestAnswers,
+      }));
+    },
+    [activePendingUserInputKey],
+  );
+
   const onAdvanceActivePendingUserInput = useCallback(
     (answerOverrides?: Record<string, PendingUserInputDraftAnswer>): boolean => {
       if (!activePendingUserInput || !activePendingUserInputKey || !activePendingProgress) {
@@ -9443,7 +9471,11 @@ export default function ChatView({
   ]);
 
   const onAskAdvisor = useCallback(
-    async (question: string, advisorModelSelection: ModelSelection): Promise<boolean> => {
+    async (
+      question: string,
+      advisorModelSelection: ModelSelection,
+      titleOverride?: string,
+    ): Promise<boolean> => {
       const api = readNativeApi();
       const advisorIsRunning = advisorConsultation?.status === "running";
       if (
@@ -9495,7 +9527,7 @@ export default function ChatView({
           threadId: nextThreadId,
           sourceThreadId: activeThread.id,
           projectId: activeProject.id,
-          title: buildAdvisorThreadTitle(normalizedQuestion),
+          title: titleOverride?.trim() || buildAdvisorThreadTitle(normalizedQuestion),
           modelSelection: advisorModelSelection,
           runtimeMode: "approval-required",
           interactionMode: "default",
@@ -9604,6 +9636,16 @@ export default function ChatView({
       rememberCustomBinaryPathForDispatch,
       syncServerShellSnapshot,
     ],
+  );
+
+  const onAskActivePendingUserInputAdvisor = useCallback(
+    (question: string) =>
+      onAskAdvisor(
+        question,
+        settings.advisorModelSelection,
+        `Advisor: ${activePendingQuestion?.header ?? "Choose response"}`,
+      ),
+    [activePendingQuestion?.header, onAskAdvisor, settings.advisorModelSelection],
   );
 
   const setPromptFromTraits = useCallback(
@@ -11286,7 +11328,9 @@ export default function ChatView({
   );
   const showComposerWorkflowRunCard = workflowRunState !== null;
   const showComposerSubagentStrip = composerSubagentStripItems.length > 0;
-  const showComposerAdvisorCard = advisorConsultation !== null;
+  const showComposerAdvisorCard =
+    advisorConsultation !== null &&
+    !isPendingUserInputAdvisorQuestion(advisorConsultation.question);
   // The workflow card already lists its run and member agents, so the generic
   // "N background agents" footer only counts tasks outside the workflow.
   const composerBackgroundTaskCount = workflowRunState
@@ -11368,7 +11412,7 @@ export default function ChatView({
                   }
                 />
               ) : null}
-              {advisorConsultation ? (
+              {showComposerAdvisorCard && advisorConsultation ? (
                 <ComposerAdvisorCard
                   consultation={advisorConsultation}
                   onOpenThread={onNavigateToThread}
@@ -11495,7 +11539,11 @@ export default function ChatView({
                     isResponding={activePendingIsResponding}
                     answers={activePendingDraftAnswers}
                     questionIndex={activePendingQuestionIndex}
+                    advisorConsultation={advisorConsultation}
+                    advisorDisabled={advisorDisabled}
+                    advisorDisabledReason={advisorDisabledReason}
                     onToggleOption={onToggleActivePendingUserInputOption}
+                    onOptionNoteChange={onChangeActivePendingUserInputOptionNote}
                     onCustomAnswerChange={(questionId, value) =>
                       onChangeActivePendingUserInputCustomAnswer(
                         questionId,
@@ -11505,6 +11553,7 @@ export default function ChatView({
                         false,
                       )
                     }
+                    onAskAdvisor={onAskActivePendingUserInputAdvisor}
                     onAdvance={onAdvanceActivePendingUserInput}
                     onPrevious={onPreviousActivePendingUserInputQuestion}
                   />

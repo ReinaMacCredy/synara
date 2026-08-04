@@ -1,4 +1,5 @@
 import type { ThreadId } from "@synara/contracts";
+import { isAdvisorIdentity } from "@synara/shared/advisor";
 import { Effect, Option } from "effect";
 
 import type { ProjectionSnapshotQueryShape } from "./Services/ProjectionSnapshotQuery.ts";
@@ -16,6 +17,15 @@ export function resolveProviderSessionThread(
     const thread = Option.getOrNull(yield* projectionSnapshotQuery.getThreadDetailById(threadId));
     if (thread === null) {
       return null;
+    }
+    if (
+      isAdvisorIdentity({
+        nickname: thread.subagentNickname,
+        role: thread.subagentRole,
+        title: thread.title,
+      })
+    ) {
+      return thread;
     }
     if (thread.parentThreadId) {
       return (

@@ -125,3 +125,32 @@ final result: passed
 1. Await owner approval of D8; do not edit production code before that approval.
 2. If approved, reuse the production profile card/editor paths and implement drag state with the shared icon and reduced-motion behavior.
 3. Re-run visual QA at both the current 685px Settings width and a wide desktop Settings width.
+
+## Advisor option note follow-up
+
+Date: 2026-08-04
+
+final result: passed
+
+### Compared states
+
+- Oversized owner capture: `/var/folders/63/s3x44l1935l9dkthd410t7mr0000gn/T/codex-clipboard-0de0f878-e477-4902-b9de-ced9a0b92e0a.png`.
+- Final in-app capture: `/Users/reinamaccredy/.codex/visualizations/2026/08/04/019fcc76-8fe1-7d23-bc99-e43d271688e6/advisor-note-final.png`.
+- Combined comparison: `/Users/reinamaccredy/.codex/visualizations/2026/08/04/019fcc76-8fe1-7d23-bc99-e43d271688e6/advisor-note-comparison.png`.
+
+### Visual and interaction review
+
+- The pending-input card is back on the canonical composer column and measured 736px wide, matching its existing `46rem` maximum instead of expanding across the viewport.
+- The selected option, attached note, Advisor result, and submit action stay inside the compact card without horizontal overflow or clipped copy.
+- The connector starts on the selected radio's vertical axis and ends at the attached note card's centerline.
+- Tab opens and focuses the selected option note. Tab or Escape closes it through the shared disclosure motion, and reopening preserves the draft.
+- Advisor can recommend and select an option without submitting it. A user click on Submit response remains the only final action.
+- The real response `A simple choice` now resolves to the available label `A simple choice (Recommended)` without weakening matching for unrelated labels.
+
+### Automated evidence
+
+- Web unit checks: 2 files passed, 20 tests passed.
+- Browser component checks: 1 file passed, 4 tests passed in Chromium.
+- Server Advisor-session checks: 2 focused tests passed.
+- Web production bundle completed successfully; its existing chunk-size notice remained a warning only.
+- Full `bun fmt`, `bun lint`, and `bun typecheck` were not run because current repository policy requires explicit user authorization for those heavyweight checks.

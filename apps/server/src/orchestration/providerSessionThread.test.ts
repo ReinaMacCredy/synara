@@ -8,6 +8,30 @@ import { TurnCheckpointCoordinator } from "./Services/TurnCheckpointCoordinator.
 import { resolveProviderSessionThread } from "./providerSessionThread.ts";
 
 describe("resolveProviderSessionThread", () => {
+  it("keeps Advisor children on an independent provider session", async () => {
+    const parentId = "thread-parent" as ThreadId;
+    const advisorId = "thread-advisor" as ThreadId;
+    const advisor = {
+      id: advisorId,
+      parentThreadId: parentId,
+      subagentNickname: "Advisor",
+      subagentRole: "advisor",
+      title: "Advisor: Test choice",
+    } as OrchestrationThread;
+    const getThreadDetailById = vi.fn(() => Effect.succeed(Option.some(advisor)));
+    const projectionSnapshotQuery = {
+      getThreadDetailById,
+      findSyntheticSubagentParentThread: () => Effect.succeed(Option.none()),
+    } as unknown as ProjectionSnapshotQueryShape;
+
+    await expect(
+      Effect.runPromise(resolveProviderSessionThread(projectionSnapshotQuery, advisorId)),
+    ).resolves.toBe(advisor);
+
+    expect(getThreadDetailById).toHaveBeenCalledTimes(1);
+    expect(getThreadDetailById).not.toHaveBeenCalledWith(parentId);
+  });
+
   it("propagates lookup failure, then recovers onto the parent lease key", async () => {
     const parentId = "thread-parent" as ThreadId;
     const childId = "subagent:thread-parent:child" as ThreadId;

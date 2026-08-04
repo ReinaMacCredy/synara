@@ -8,6 +8,7 @@ import {
   hasCompletePendingUserInputAnswers,
   resolvePendingUserInputAnswer,
   setPendingUserInputCustomAnswer,
+  setPendingUserInputOptionNote,
   togglePendingUserInputOptionSelection,
 } from "./pendingUserInput";
 
@@ -74,6 +75,26 @@ describe("resolvePendingUserInputAnswer", () => {
       ),
     ).toEqual(["CLI", "Desktop"]);
   });
+
+  it("attaches notes only to their selected option answers", () => {
+    expect(
+      resolvePendingUserInputAnswer(
+        {
+          id: "scope",
+          header: "Scope",
+          question: "Which path should we use?",
+          options: [],
+        },
+        {
+          selectedOptionLabels: ["Option A"],
+          optionNotes: {
+            "Option A": "Prefer the safer default",
+            "Option B": "Keep this draft for later",
+          },
+        },
+      ),
+    ).toBe("Option A\nNote for agent: Prefer the safer default");
+  });
 });
 
 describe("togglePendingUserInputOptionSelection", () => {
@@ -99,9 +120,29 @@ describe("togglePendingUserInputOptionSelection", () => {
         { selectedOptionLabels: ["CLI", "Desktop"] },
         "CLI",
       ),
-    ).toEqual({
+      ).toEqual({
+        customAnswer: "",
+        selectedOptionLabels: ["Desktop"],
+      });
+  });
+
+  it("preserves per-option note drafts while the selected option changes", () => {
+    const question = {
+      id: "scope",
+      header: "Scope",
+      question: "Which path should we use?",
+      options: [],
+    } as const;
+    const noted = setPendingUserInputOptionNote(
+      { selectedOptionLabels: ["Option A"] },
+      "Option A",
+      "Prefer the safer default",
+    );
+
+    expect(togglePendingUserInputOptionSelection(question, noted, "Option B")).toEqual({
       customAnswer: "",
-      selectedOptionLabels: ["Desktop"],
+      selectedOptionLabels: ["Option B"],
+      optionNotes: { "Option A": "Prefer the safer default" },
     });
   });
 });

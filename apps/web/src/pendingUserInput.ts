@@ -8,6 +8,7 @@ import type { ProviderUserInputAnswers, UserInputQuestion } from "@synara/contra
 export interface PendingUserInputDraftAnswer {
   selectedOptionLabels?: string[];
   customAnswer?: string;
+  optionNotes?: Record<string, string>;
 }
 
 export interface PendingUserInputProgress {
@@ -47,6 +48,53 @@ function normalizeSelectedOptionLabels(value: string[] | undefined): string[] {
   return Array.from(new Set(normalized));
 }
 
+function normalizeOptionNotes(value: Record<string, string> | undefined): Record<string, string> {
+  if (!value) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [string, string] =>
+        entry[0].trim().length > 0 && typeof entry[1] === "string" && entry[1].trim().length > 0,
+    ),
+  );
+}
+
+function resolveOptionAnswer(label: string, optionNotes: Record<string, string>): string {
+  const note = normalizeDraftAnswer(optionNotes[label]);
+  return note ? `${label}\nNote for agent: ${note}` : label;
+}
+
+export function getPendingUserInputOptionNote(
+  draft: PendingUserInputDraftAnswer | undefined,
+  optionLabel: string,
+): string {
+  return draft?.optionNotes?.[optionLabel] ?? "";
+}
+
+export function setPendingUserInputOptionNote(
+  draft: PendingUserInputDraftAnswer | undefined,
+  optionLabel: string,
+  note: string,
+): PendingUserInputDraftAnswer {
+  const normalizedLabel = optionLabel.trim();
+  const optionNotes = normalizeOptionNotes(draft?.optionNotes);
+  if (normalizedLabel.length > 0 && note.trim().length > 0) {
+    optionNotes[normalizedLabel] = note;
+  } else if (normalizedLabel.length > 0) {
+    delete optionNotes[normalizedLabel];
+  }
+
+  const nextDraft = { ...draft };
+  if (Object.keys(optionNotes).length > 0) {
+    nextDraft.optionNotes = optionNotes;
+  } else {
+    delete nextDraft.optionNotes;
+  }
+  return nextDraft;
+}
+
 export function resolvePendingUserInputAnswer(
   question: UserInputQuestion,
   draft: PendingUserInputDraftAnswer | undefined,
@@ -57,11 +105,15 @@ export function resolvePendingUserInputAnswer(
   }
 
   const selectedOptionLabels = normalizeSelectedOptionLabels(draft?.selectedOptionLabels);
+  const optionNotes = normalizeOptionNotes(draft?.optionNotes);
   if (question.multiSelect) {
-    return selectedOptionLabels.length > 0 ? selectedOptionLabels : null;
+    return selectedOptionLabels.length > 0
+      ? selectedOptionLabels.map((label) => resolveOptionAnswer(label, optionNotes))
+      : null;
   }
 
-  return selectedOptionLabels[0] ?? null;
+  const selectedOptionLabel = selectedOptionLabels[0];
+  return selectedOptionLabel ? resolveOptionAnswer(selectedOptionLabel, optionNotes) : null;
 }
 
 export function setPendingUserInputCustomAnswer(
@@ -72,10 +124,12 @@ export function setPendingUserInputCustomAnswer(
     customAnswer.trim().length > 0
       ? undefined
       : normalizeSelectedOptionLabels(draft?.selectedOptionLabels);
+  const optionNotes = normalizeOptionNotes(draft?.optionNotes);
 
   return {
     customAnswer,
     ...(selectedOptionLabels && selectedOptionLabels.length > 0 ? { selectedOptionLabels } : {}),
+    ...(Object.keys(optionNotes).length > 0 ? { optionNotes } : {}),
   };
 }
 
@@ -85,6 +139,7 @@ export function togglePendingUserInputOptionSelection(
   draft: PendingUserInputDraftAnswer | undefined,
   optionLabel: string,
 ): PendingUserInputDraftAnswer {
+  const optionNotes = normalizeOptionNotes(draft?.optionNotes);
   if (question.multiSelect) {
     const selectedOptionLabels = normalizeSelectedOptionLabels(draft?.selectedOptionLabels);
     const nextSelectedOptionLabels = selectedOptionLabels.includes(optionLabel)
@@ -96,12 +151,14 @@ export function togglePendingUserInputOptionSelection(
       ...(nextSelectedOptionLabels.length > 0
         ? { selectedOptionLabels: nextSelectedOptionLabels }
         : {}),
+      ...(Object.keys(optionNotes).length > 0 ? { optionNotes } : {}),
     };
   }
 
   return {
     customAnswer: "",
     selectedOptionLabels: [optionLabel],
+    ...(Object.keys(optionNotes).length > 0 ? { optionNotes } : {}),
   };
 }
 

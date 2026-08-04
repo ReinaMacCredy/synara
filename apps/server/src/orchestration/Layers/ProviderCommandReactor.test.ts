@@ -5292,6 +5292,66 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
+  it("starts an Advisor child while its parent session is waiting on a live turn", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    const advisorThreadId = ThreadId.makeUnsafe("thread-advisor");
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.makeUnsafe("cmd-advisor-thread-create"),
+        threadId: advisorThreadId,
+        projectId: asProjectId("project-1"),
+        parentThreadId: ThreadId.makeUnsafe("thread-1"),
+        title: "Advisor: Test choice",
+        modelSelection: { provider: "codex", model: "gpt-5-codex" },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        branch: null,
+        worktreePath: null,
+        subagentNickname: "Advisor",
+        subagentRole: "advisor",
+        createdAt: now,
+      }),
+    );
+
+    harness.setRuntimeSessionTurnState({
+      threadId: "thread-1",
+      status: "running",
+      activeTurnId: asTurnId("turn-parent-waiting-for-input"),
+    });
+    harness.startSession.mockClear();
+    harness.sendTurn.mockClear();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-advisor-turn-start"),
+        threadId: advisorThreadId,
+        message: {
+          messageId: asMessageId("msg-advisor-choice"),
+          role: "user",
+          text: "Choose the best option.",
+          attachments: [],
+        },
+        runtimeMode: "approval-required",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
+      threadId: advisorThreadId,
+    });
+    expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
+      threadId: advisorThreadId,
+      input: "Choose the best option.",
+    });
+  });
+
   it("discards queued child turns when the shared parent session stops", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

@@ -2,9 +2,9 @@
 // Purpose: Browser regression coverage for the inline request_user_input question flow.
 // Layer: Chat composer UI browser test
 
-import { ApprovalRequestId, type UserInputQuestion } from "@synara/contracts";
+import { ApprovalRequestId, ThreadId, type UserInputQuestion } from "@synara/contracts";
 import { useState } from "react";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
@@ -12,9 +12,12 @@ import { type PendingUserInput } from "../../session-logic";
 import {
   buildPendingUserInputAnswers,
   setPendingUserInputCustomAnswer,
+  setPendingUserInputOptionNote,
   togglePendingUserInputOptionSelection,
   type PendingUserInputDraftAnswer,
 } from "../../pendingUserInput";
+import { buildPendingUserInputAdvisorQuestion } from "../../pendingUserInputAdvisor";
+import type { AdvisorConsultation } from "~/lib/advisorConsultation";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 
 const QUESTIONS: UserInputQuestion[] = [
@@ -52,7 +55,11 @@ const PROMPT: PendingUserInput = {
   questions: QUESTIONS,
 };
 
-function QuestionFlow({ onSubmit }: { onSubmit: (answers: Record<string, string | string[]>) => void }) {
+function QuestionFlow({
+  onSubmit,
+}: {
+  onSubmit: (answers: Record<string, string | string[]>) => void;
+}) {
   const [answers, setAnswers] = useState<Record<string, PendingUserInputDraftAnswer>>({});
   const [questionIndex, setQuestionIndex] = useState(0);
 
@@ -62,6 +69,9 @@ function QuestionFlow({ onSubmit }: { onSubmit: (answers: Record<string, string 
       isResponding={false}
       answers={answers}
       questionIndex={questionIndex}
+      advisorConsultation={null}
+      advisorDisabled
+      advisorDisabledReason="Advisor is unavailable in this flow"
       onToggleOption={(questionId, optionLabel) => {
         const question = QUESTIONS.find((entry) => entry.id === questionId);
         if (!question) return null;
@@ -73,12 +83,23 @@ function QuestionFlow({ onSubmit }: { onSubmit: (answers: Record<string, string 
         setAnswers((current) => ({ ...current, [questionId]: next }));
         return next;
       }}
+      onOptionNoteChange={(questionId, optionLabel, value) => {
+        setAnswers((current) => ({
+          ...current,
+          [questionId]: setPendingUserInputOptionNote(
+            current[questionId],
+            optionLabel,
+            value,
+          ),
+        }));
+      }}
       onCustomAnswerChange={(questionId, value) => {
         setAnswers((current) => ({
           ...current,
           [questionId]: setPendingUserInputCustomAnswer(current[questionId], value),
         }));
       }}
+      onAskAdvisor={async () => false}
       onAdvance={(answerOverrides) => {
         const nextAnswers = { ...answers, ...answerOverrides };
         setAnswers(nextAnswers);
@@ -94,6 +115,81 @@ function QuestionFlow({ onSubmit }: { onSubmit: (answers: Record<string, string 
   );
 }
 
+function AdvisorQuestionFlow({
+  onSubmit,
+}: {
+  onSubmit: (answers: Record<string, string | string[]>) => void;
+}) {
+  const question = QUESTIONS[0];
+  const prompt: PendingUserInput = { ...PROMPT, questions: [question] };
+  const [answers, setAnswers] = useState<Record<string, PendingUserInputDraftAnswer>>({});
+  const [advisorConsultation, setAdvisorConsultation] = useState<AdvisorConsultation | null>(null);
+
+  return (
+    <ComposerPendingUserInputPanel
+      pendingUserInputs={[prompt]}
+      isResponding={false}
+      answers={answers}
+      questionIndex={0}
+      advisorConsultation={advisorConsultation}
+      advisorDisabled={advisorConsultation?.status === "running"}
+      advisorDisabledReason="Advisor is already choosing"
+      onToggleOption={(questionId, optionLabel) => {
+        const next = togglePendingUserInputOptionSelection(
+          question,
+          answers[questionId],
+          optionLabel,
+        );
+        setAnswers((current) => ({ ...current, [questionId]: next }));
+        return next;
+      }}
+      onOptionNoteChange={(questionId, optionLabel, value) => {
+        setAnswers((current) => ({
+          ...current,
+          [questionId]: setPendingUserInputOptionNote(
+            current[questionId],
+            optionLabel,
+            value,
+          ),
+        }));
+      }}
+      onCustomAnswerChange={(questionId, value) => {
+        setAnswers((current) => ({
+          ...current,
+          [questionId]: setPendingUserInputCustomAnswer(current[questionId], value),
+        }));
+      }}
+      onAskAdvisor={async (advisorQuestion) => {
+        const threadId = ThreadId.makeUnsafe("advisor-user-input-test");
+        setAdvisorConsultation({
+          threadId,
+          question: advisorQuestion,
+          answer: null,
+          answerStreaming: false,
+          error: null,
+          status: "running",
+        });
+        window.setTimeout(() => {
+          setAdvisorConsultation({
+            threadId,
+            question: advisorQuestion,
+            answer: "A focused starter set\nIt avoids the higher-risk path.",
+            answerStreaming: false,
+            error: null,
+            status: "complete",
+          });
+        }, 50);
+        return true;
+      }}
+      onAdvance={() => {
+        const resolved = buildPendingUserInputAnswers([question], answers);
+        if (resolved) onSubmit(resolved);
+      }}
+      onPrevious={() => undefined}
+    />
+  );
+}
+
 describe("ComposerPendingUserInputPanel", () => {
   it("runs the supplied single-select, multi-select, and custom-answer flow", async () => {
     const onSubmit = vi.fn();
@@ -105,12 +201,12 @@ describe("ComposerPendingUserInputPanel", () => {
         .toBeInTheDocument();
       await expect.element(page.getByText("1/3")).toBeInTheDocument();
 
-      await page.getByText("A focused starter set").click();
+      await page.getByRole("radio", { name: "A focused starter set" }).click();
       await expect
         .element(page.getByRole("heading", { name: "Which checks should block publishing?" }))
         .toBeInTheDocument();
 
-      await page.getByText("Type safety").click();
+      await page.getByRole("checkbox", { name: "Type safety" }).click();
       await page.getByRole("button", { name: "Next question" }).click();
       await expect
         .element(page.getByRole("heading", { name: "Anything the agent should preserve?" }))
@@ -138,8 +234,13 @@ describe("ComposerPendingUserInputPanel", () => {
         isResponding
         answers={{ scope: { selectedOptionLabels: ["A focused starter set"] } }}
         questionIndex={0}
+        advisorConsultation={null}
+        advisorDisabled
+        advisorDisabledReason="Advisor is unavailable while submitting"
         onToggleOption={() => null}
+        onOptionNoteChange={() => undefined}
         onCustomAnswerChange={() => undefined}
+        onAskAdvisor={async () => false}
         onAdvance={() => undefined}
         onPrevious={() => undefined}
       />,
@@ -147,8 +248,95 @@ describe("ComposerPendingUserInputPanel", () => {
 
     try {
       await expect.element(page.getByRole("region")).toHaveAttribute("aria-busy", "true");
-      await expect.element(page.getByRole("radio", { name: "A focused starter set" })).toBeDisabled();
+      await expect
+        .element(page.getByRole("radio", { name: "A focused starter set" }))
+        .toBeDisabled();
       await expect.element(page.getByRole("button", { name: "Next question" })).toBeDisabled();
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("restores the visible state of an in-flight Advisor choice", async () => {
+    const question = QUESTIONS[0];
+    const screen = await render(
+      <ComposerPendingUserInputPanel
+        pendingUserInputs={[{ ...PROMPT, questions: [question] }]}
+        isResponding={false}
+        answers={{ scope: { selectedOptionLabels: ["A focused starter set"] } }}
+        questionIndex={0}
+        advisorConsultation={{
+          threadId: ThreadId.makeUnsafe("advisor-user-input-restored"),
+          question: buildPendingUserInputAdvisorQuestion(question, {
+            selectedOptionLabels: ["A focused starter set"],
+          }),
+          answer: null,
+          answerStreaming: false,
+          error: null,
+          status: "running",
+        }}
+        advisorDisabled
+        advisorDisabledReason="Advisor is already choosing"
+        onToggleOption={() => null}
+        onOptionNoteChange={() => undefined}
+        onCustomAnswerChange={() => undefined}
+        onAskAdvisor={async () => false}
+        onAdvance={() => undefined}
+        onPrevious={() => undefined}
+      />,
+    );
+
+    try {
+      await expect
+        .element(page.getByRole("button", { name: "Advisor is choosing an option" }))
+        .toBeDisabled();
+      await expect
+        .element(page.getByText("Advisor is comparing the available options…"))
+        .toBeVisible();
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("opens an attached note with Tab and keeps a late Advisor result user-controlled", async () => {
+    const onSubmit = vi.fn();
+    const screen = await render(<AdvisorQuestionFlow onSubmit={onSubmit} />);
+
+    try {
+      const optionARadio = page.getByRole("radio", { name: "A focused starter set" });
+      await optionARadio.click();
+      await userEvent.keyboard("{Tab}");
+      const noteInput = page.getByRole("textbox", { name: "Note for A focused starter set" });
+      const noteRegion = page.getByTestId("option-note-scope-0");
+      await expect.element(noteInput).toHaveFocus();
+      await expect.element(noteRegion).toHaveAttribute("data-note-open", "true");
+      await noteInput.fill("Keep rollback simple");
+      await userEvent.keyboard("{Tab}");
+      await expect.element(noteRegion).toHaveAttribute("data-note-open", "false");
+      await expect.element(optionARadio).toHaveFocus();
+      await userEvent.keyboard("{Tab}");
+      await expect.element(noteInput).toHaveFocus();
+      await expect.element(noteRegion).toHaveAttribute("data-note-open", "true");
+      await expect.element(noteInput).toHaveValue("Keep rollback simple");
+
+      await page.getByRole("button", { name: "Let Advisor choose" }).click();
+      await page.getByRole("radio", { name: "A broader collection" }).click();
+
+      await expect
+        .element(page.getByRole("button", { name: "Use A focused starter set" }))
+        .toBeInTheDocument();
+      await expect
+        .element(page.getByRole("radio", { name: "A broader collection" }))
+        .toBeChecked();
+      expect(onSubmit).not.toHaveBeenCalled();
+
+      await page.getByRole("button", { name: "Use A focused starter set" }).click();
+      await expect.element(noteInput).toHaveValue("Keep rollback simple");
+      await page.getByRole("button", { name: "Submit response" }).click();
+
+      expect(onSubmit).toHaveBeenCalledWith({
+        scope: "A focused starter set\nNote for agent: Keep rollback simple",
+      });
     } finally {
       await screen.unmount();
     }
