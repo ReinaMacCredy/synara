@@ -1192,7 +1192,7 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain('data-reasoning-text-swap="true"');
     expect(markup).not.toContain("Thinking…");
     expect(markup).not.toContain(formatShortTimestamp(assistantCreatedAt, "locale"));
-    expect(markup).toMatch(/class="[^"]*\bpb-1\b[^"]*" data-timeline-row-kind="message"/);
+    expect(markup).toMatch(/class="[^"]*\bpb-2\b[^"]*" data-timeline-row-kind="message"/);
   });
 
   it("folds work log summaries above the next assistant message footer", async () => {

@@ -967,17 +967,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       className={cn(
         CHAT_COLUMN_FRAME_CLASS_NAME,
         "px-1 transition-colors duration-500",
-          (row.kind === "turn-activity" && row.state === "working") ||
-            (row.kind === "message" &&
-            row.message.role === "assistant" &&
-            row.assistantTurnInProgress)
-          ? "pb-1"
-            : row.kind === "work" ||
-                row.kind === "reasoning-status" ||
-                row.kind === "turn-activity" ||
-              (row.kind === "message" && row.message.role === "assistant")
-            ? "pb-2"
-            : "pb-4",
+        row.kind === "work" ||
+          row.kind === "reasoning-status" ||
+          row.kind === "turn-activity" ||
+          (row.kind === "message" && row.message.role === "assistant")
+          ? "pb-2"
+          : "pb-4",
         row.kind === "message" && row.message.role === "assistant" ? "group/assistant" : null,
         row.kind === "message" && row.message.id === highlightedMessageId
           ? "rounded-xl bg-[var(--color-background-elevated-secondary)]"
@@ -1437,6 +1432,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             messageCanPin &&
             Boolean(onTogglePinMessage) &&
             (assistantCopyState.visible || messagePinned);
+          // Keep the terminal controls in layout while the turn is live so settlement only
+          // reveals them; changing this row's measured height makes LegendList jump the viewport.
+          const reserveTerminalAssistantFooter =
+            row.showAssistantCopyButton &&
+            (assistantCopyState.text !== null || row.message.streaming);
+          const reservePinToggle =
+            messageCanPin &&
+            Boolean(onTogglePinMessage) &&
+            (assistantCopyState.text !== null || messagePinned);
           const turnSummary = row.assistantTurnDiffSummary;
           const fileDiffStatByPath = new Map(
             (turnSummary?.files ?? []).map((file) => [
@@ -1686,39 +1690,69 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                     ))}
                   </div>
                 )}
-                {(showPinToggle || assistantCopyState.visible || assistantMeta.length > 0) && (
+                {(reserveTerminalAssistantFooter ||
+                  showPinToggle ||
+                  assistantCopyState.visible ||
+                  assistantMeta.length > 0) && (
                   <div
                     className="mt-0.5 flex items-center gap-2 font-system-ui font-normal text-muted-foreground/45"
+                    data-assistant-message-footer={
+                      isTerminalAssistantMessage ? "settled" : "reserved"
+                    }
                     style={chatMessageFooterStyle}
                   >
-                    {showPinToggle ? (
+                    {reservePinToggle ? (
                       // Pin sits at the left edge of the footer, before the copy action. It stays
                       // visible when pinned so it reads as a persistent "this is pinned" marker; an
                       // unpinned message only reveals it on hover, like the other footer actions.
                       // Same Central pin glyph in both states — persistence signals the pinned state.
-                      <MessageActionButton
-                        label={pinActionLabel("message", messagePinned)}
-                        tooltip={messagePinned ? "Unpin from panel" : "Pin to panel"}
-                        aria-pressed={messagePinned}
-                        className={
-                          messagePinned
-                            ? "text-muted-foreground/80"
-                            : MESSAGE_HOVER_REVEAL_CLASS_NAME
-                        }
-                        onClick={() => onTogglePinMessage?.(row.message.id)}
+                      <span
+                        aria-hidden={showPinToggle ? undefined : true}
+                        className={cn(
+                          "contents",
+                          !showPinToggle && "invisible pointer-events-none",
+                        )}
                       >
-                        <PinIcon className={MESSAGE_ACTION_ICON_CLASS_NAME} />
-                      </MessageActionButton>
+                        <MessageActionButton
+                          label={pinActionLabel("message", messagePinned)}
+                          tooltip={messagePinned ? "Unpin from panel" : "Pin to panel"}
+                          aria-pressed={messagePinned}
+                          className={
+                            messagePinned
+                              ? "text-muted-foreground/80"
+                              : MESSAGE_HOVER_REVEAL_CLASS_NAME
+                          }
+                          onClick={() => onTogglePinMessage?.(row.message.id)}
+                        >
+                          <PinIcon className={MESSAGE_ACTION_ICON_CLASS_NAME} />
+                        </MessageActionButton>
+                      </span>
                     ) : null}
-                    {assistantCopyState.visible ? (
-                      <MessageCopyButton
-                        text={assistantCopyState.text ?? ""}
-                        className={MESSAGE_HOVER_REVEAL_CLASS_NAME}
-                      />
+                    {assistantCopyState.text !== null ? (
+                      <span
+                        aria-hidden={assistantCopyState.visible ? undefined : true}
+                        className={cn(
+                          "contents",
+                          !assistantCopyState.visible && "invisible pointer-events-none",
+                        )}
+                      >
+                        <MessageCopyButton
+                          text={assistantCopyState.text}
+                          className={MESSAGE_HOVER_REVEAL_CLASS_NAME}
+                        />
+                      </span>
                     ) : null}
-                    {assistantMeta.length > 0 ? (
-                      <p className={cn("tabular-nums", MESSAGE_HOVER_REVEAL_CLASS_NAME)}>
-                        {assistantMeta}
+                    {row.showAssistantCopyButton ? (
+                      <p
+                        aria-hidden={assistantMeta.length > 0 ? undefined : true}
+                        className={cn(
+                          "tabular-nums",
+                          MESSAGE_HOVER_REVEAL_CLASS_NAME,
+                          assistantMeta.length === 0 && "invisible",
+                        )}
+                      >
+                        {assistantMeta ||
+                          formatShortTimestamp(row.message.createdAt, timestampFormat)}
                       </p>
                     ) : null}
                   </div>

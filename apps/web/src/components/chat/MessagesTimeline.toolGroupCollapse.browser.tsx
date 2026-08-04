@@ -92,6 +92,7 @@ function ToolGroupCollapseTimeline(props: {
   isWorking?: boolean;
   activeTurnInProgress?: boolean;
   activeTurnStartedAt?: string;
+  followLiveOutput?: boolean;
 }) {
   return (
     <MessagesTimeline
@@ -100,6 +101,7 @@ function ToolGroupCollapseTimeline(props: {
       activeTurnInProgress={props.activeTurnInProgress ?? true}
       activeTurnId={TurnId.makeUnsafe("turn-live")}
       activeTurnStartedAt={props.activeTurnStartedAt ?? "2026-03-17T19:12:20.000Z"}
+      followLiveOutput={props.followLiveOutput}
       timelineEntries={props.timelineEntries}
       turnDiffSummaryByAssistantMessageId={new Map()}
       nowIso="2026-03-17T19:12:30.000Z"
@@ -408,6 +410,7 @@ describe("MessagesTimeline tool group collapse", () => {
       expect(getComputedStyle(workingLayer!).transitionProperty).toContain("transform");
       expect(getComputedStyle(workingLayer!).transitionProperty).toContain("opacity");
       expect(getComputedStyle(workingLayer!).transform).not.toBe("none");
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       const transitioningOpacity = Number.parseFloat(getComputedStyle(settledLayer!).opacity);
       expect(transitioningOpacity).toBeGreaterThan(0);
       expect(transitioningOpacity).toBeLessThan(1);
@@ -427,6 +430,154 @@ describe("MessagesTimeline tool group collapse", () => {
       expect(document.querySelector<HTMLElement>("[data-turn-work-region]")).toBe(liveRegion);
     } finally {
       await mounted.unmount();
+      host.remove();
+    }
+  });
+
+  it("keeps first and follow-up settlement frames free of row and scroll jumps", async () => {
+    const host = createTimelineHost();
+    host.style.height = "190px";
+    let timelineEntries: TimelineEntry[] = [];
+    let mounted: Awaited<ReturnType<typeof render>> | null = null;
+
+    const waitForFrames = async (count: number) => {
+      for (let index = 0; index < count; index += 1) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      }
+    };
+    const footerHeight = (assistantRow: HTMLElement) => {
+      const footer = assistantRow.querySelector<HTMLElement>("[data-assistant-message-footer]");
+      return footer?.getBoundingClientRect().height ?? 0;
+    };
+
+    try {
+      for (let turn = 1; turn <= 3; turn += 1) {
+        const userId = `motion-user-${turn}`;
+        const assistantId = `motion-assistant-${turn}`;
+        timelineEntries = [
+          ...timelineEntries,
+          userEntry(userId, `Prompt ${turn}`),
+          // Provider text has already completed here; only the turn lifecycle
+          // changes on the Working -> Worked settlement frame.
+          assistantEntry(assistantId, `Answer ${turn}`, false),
+        ];
+        const liveTimeline = (
+          <ToolGroupCollapseTimeline
+            timelineEntries={timelineEntries}
+            isWorking
+            activeTurnInProgress
+            followLiveOutput
+          />
+        );
+        if (mounted) {
+          await mounted.rerender(liveTimeline);
+        } else {
+          mounted = await render(liveTimeline, { container: host });
+        }
+
+        const activityId = `turn-activity:${userId}`;
+        await expect
+          .poll(() =>
+            host
+              .querySelector<HTMLElement>(`[data-turn-work-region='${activityId}']`)
+              ?.querySelector<HTMLElement>("[data-work-status-text='working']")
+              ?.getAttribute("aria-hidden"),
+          )
+          .toBe("false");
+        await waitForFrames(8);
+
+        const liveRegion = host.querySelector<HTMLElement>(
+          `[data-turn-work-region='${activityId}']`,
+        )!;
+        const liveActivityRow = liveRegion.closest<HTMLElement>(
+          "[data-timeline-row-kind='turn-activity']",
+        )!;
+        const liveAssistantRow = host.querySelector<HTMLElement>(
+          `[data-message-id='${assistantId}']`,
+        )!;
+        const scrollContainer = host.querySelector<HTMLElement>(
+          "[data-chat-scroll-container='true']",
+        )!;
+        scrollContainer.scrollTop = scrollContainer.scrollHeight;
+        scrollContainer.dispatchEvent(new Event("scroll"));
+        await waitForFrames(3);
+
+        const before = {
+          activityHeight: liveActivityRow.getBoundingClientRect().height,
+          assistantHeight: liveAssistantRow.getBoundingClientRect().height,
+          footerHeight: footerHeight(liveAssistantRow),
+          scrollHeight: scrollContainer.scrollHeight,
+        };
+        timelineEntries = timelineEntries.map((entry) =>
+          entry.kind === "message" && entry.message.id === assistantId
+            ? assistantEntry(assistantId, `Answer ${turn}`, false)
+            : entry,
+        );
+        await mounted.rerender(
+          <ToolGroupCollapseTimeline
+            timelineEntries={timelineEntries}
+            isWorking={false}
+            activeTurnInProgress={false}
+            followLiveOutput
+          />,
+        );
+
+        const frames: Array<{
+          activityY: number;
+          settledOpacity: number;
+          scrollTop: number;
+        }> = [];
+        for (let frame = 0; frame < 36; frame += 1) {
+          await waitForFrames(1);
+          frames.push({
+            activityY: liveRegion.getBoundingClientRect().y,
+            settledOpacity: Number.parseFloat(
+              getComputedStyle(
+                liveRegion.querySelector<HTMLElement>("[data-work-status-text='settled']")!,
+              ).opacity,
+            ),
+            scrollTop: scrollContainer.scrollTop,
+          });
+        }
+
+        const settledRegion = host.querySelector<HTMLElement>(
+          `[data-turn-work-region='${activityId}']`,
+        )!;
+        const settledActivityRow = settledRegion.closest<HTMLElement>(
+          "[data-timeline-row-kind='turn-activity']",
+        )!;
+        const settledAssistantRow = host.querySelector<HTMLElement>(
+          `[data-message-id='${assistantId}']`,
+        )!;
+        const after = {
+          activityHeight: settledActivityRow.getBoundingClientRect().height,
+          assistantHeight: settledAssistantRow.getBoundingClientRect().height,
+          footerHeight: footerHeight(settledAssistantRow),
+          scrollHeight: scrollContainer.scrollHeight,
+        };
+        const maximumFrameJump = frames.slice(1).reduce((maximum, frame, index) => {
+          const previous = frames[index]!;
+          return Math.max(
+            maximum,
+            Math.abs(frame.activityY - previous.activityY),
+            Math.abs(frame.scrollTop - previous.scrollTop),
+          );
+        }, 0);
+
+        expect(settledRegion).toBe(liveRegion);
+        expect(settledActivityRow).toBe(liveActivityRow);
+        expect(Math.abs(after.activityHeight - before.activityHeight)).toBeLessThan(0.75);
+        expect(Math.abs(after.footerHeight - before.footerHeight)).toBeLessThan(0.75);
+        expect(Math.abs(after.assistantHeight - before.assistantHeight)).toBeLessThan(0.75);
+        expect(Math.abs(after.scrollHeight - before.scrollHeight)).toBeLessThan(1);
+        expect(maximumFrameJump).toBeLessThan(1.5);
+        expect(frames.some((frame) => frame.settledOpacity > 0 && frame.settledOpacity < 1)).toBe(
+          true,
+        );
+        expect(frames.at(-1)?.settledOpacity).toBe(1);
+      }
+    } finally {
+      await mounted?.unmount();
       host.remove();
     }
   });
