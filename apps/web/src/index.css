@@ -2416,6 +2416,70 @@ label:has(> select#reasoning-effort) select {
   }
 }
 
+@keyframes reasoning-text-swap-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes reasoning-text-swap-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes reasoning-text-swap-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes reasoning-text-swap-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.reasoning-text-swap__phrase {
+  will-change: opacity, transform;
+}
+
+.reasoning-text-swap__phrase--enter {
+  animation: reasoning-text-swap-in 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.reasoning-text-swap__phrase--exit {
+  animation: reasoning-text-swap-out 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reasoning-text-swap__phrase--enter {
+    animation-name: reasoning-text-swap-fade-in;
+    animation-duration: 120ms;
+  }
+
+  .reasoning-text-swap__phrase--exit {
+    animation-name: reasoning-text-swap-fade-out;
+    animation-duration: 120ms;
+  }
+}
+
 .chat-generated-image__overlay {
   position: absolute;
   inset: 0;

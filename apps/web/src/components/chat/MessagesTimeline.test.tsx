@@ -1190,6 +1190,8 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("Tasks updated");
     expect(markup).toContain("Working for");
     expect(markup).toContain(">Thinking<");
+    expect(markup).toContain('data-reasoning-text-swap="true"');
+    expect(markup).toContain("Working through the details…");
     expect(markup).not.toContain(formatShortTimestamp(assistantCreatedAt, "locale"));
     expect(markup).toMatch(/class="[^"]*\bpb-1\b[^"]*" data-timeline-row-kind="message"/);
   });
@@ -1816,6 +1818,8 @@ describe("MessagesTimeline", () => {
 
     expect(markup).toContain("Working...");
     expect(markup).toContain(">Thinking<");
+    expect(markup).toContain('data-reasoning-text-swap="true"');
+    expect(markup).toContain("Working through the details…");
   });
 
   it("attaches trailing tool rows to the last assistant reply after completion", async () => {

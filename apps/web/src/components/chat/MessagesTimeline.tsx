@@ -71,6 +71,7 @@ import { InlineSkillChip } from "./InlineSkillChip";
 import { InlineAgentChip } from "./InlineAgentChip";
 import { MessageActionButton, MESSAGE_ACTION_ICON_CLASS_NAME } from "./MessageActionButton";
 import { MessageCopyButton } from "./MessageCopyButton";
+import { ReasoningTextSwap } from "./ReasoningTextSwap";
 import { AssistantSelectionsSummaryChip } from "./AssistantSelectionsSummaryChip";
 import { FileAttachmentChip } from "./FileAttachmentChip";
 import { FileCommentsSummaryChip } from "./FileCommentsSummaryChip";
@@ -2318,10 +2319,10 @@ function TurnActivityRegion(props: {
       <DisclosureRegion open={live && props.showThinking}>
         <div
           data-turn-thinking="true"
-          className="shimmer pt-3 text-muted-foreground/70 motion-reduce:animate-none"
+          className="pt-3 text-muted-foreground/70"
           style={{ fontSize: props.fontSize }}
         >
-          Thinking
+          <ReasoningTextSwap active={live && props.showThinking} />
         </div>
       </DisclosureRegion>
     </div>
