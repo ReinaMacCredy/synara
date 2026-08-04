@@ -1101,6 +1101,7 @@ describe("deriveMessagesTimelineRows", () => {
     expect(messageRow(rows, "a1")).toBeDefined();
     const terminal = messageRow(rows, "a3");
     expect(terminal).toBeDefined();
+    expect(terminal!.assistantTurnInProgress).toBe(true);
     expect(terminal!.collapsedTurnItems).toBeUndefined();
     expect(rows.find((row) => row.kind === "turn-activity")).toMatchObject({
       id: "turn-activity:u1",
@@ -1264,6 +1265,9 @@ describe("deriveMessagesTimelineRows", () => {
 
     const previousAssistant = messageRow(rows, "a1");
     expect(previousAssistant).toBeDefined();
+    expect(previousAssistant!.showAssistantCopyButton).toBe(true);
+    expect(previousAssistant!.assistantCopyStreaming).toBe(false);
+    expect(previousAssistant!.assistantTurnInProgress).toBe(false);
     expect(collapsedSignature(previousAssistant!)).toEqual(["work:w1"]);
     expect(previousAssistant!.inlineWorkEntries).toBeUndefined();
     expect(messageRow(rows, "u2")).toBeDefined();

@@ -523,6 +523,14 @@ export function deriveMessagesTimelineRows(input: {
   );
   const durationStartByMessageId = computeMessageDurationStart(timelineMessages);
   const terminalAssistantMessageIds = deriveTerminalAssistantMessageIds(timelineMessages);
+  let latestUserMessageEntryIndex = -1;
+  for (let index = input.timelineEntries.length - 1; index >= 0; index -= 1) {
+    const entry = input.timelineEntries[index];
+    if (entry?.kind === "message" && entry.message.role === "user") {
+      latestUserMessageEntryIndex = index;
+      break;
+    }
+  }
   let pendingWorkGroup: Extract<MessagesTimelineRow, { kind: "work" }> | null = null;
 
   const groupedEntriesEqual = (
@@ -621,7 +629,8 @@ export function deriveMessagesTimelineRows(input: {
       message.role === "assistant" &&
       input.activeTurnInProgress === true &&
       input.activeTurnId != null &&
-      message.turnId === input.activeTurnId;
+      message.turnId === input.activeTurnId &&
+      index > latestUserMessageEntryIndex;
 
     nextRows.push({
       kind: "message",
