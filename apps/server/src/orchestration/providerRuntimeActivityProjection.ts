@@ -474,13 +474,15 @@ export function projectProviderRuntimeActivities(
       ? { sequence }
       : {};
   })();
-  // Codex and Antigravity only render completed reasoning items with a readable summary.
-  // Empty starts/completions are private/encrypted reasoning boundaries, not
-  // transcript rows. Waiting for the authoritative completion also avoids
-  // per-token activity writes and transcript height churn.
+  // Only provider-authored, explicitly displayable reasoning reaches this branch.
+  // Codex raw reasoning_text never gets promoted by ingestion; only its summary
+  // stream does. Claude thinking_delta and narrated Antigravity reasoning are
+  // provider-visible content and use the same stable activity identity.
   if (
-    (event.provider === "codex" || event.provider === "antigravity") &&
-    event.type === "item.completed" &&
+    (event.provider === "codex" ||
+      event.provider === "antigravity" ||
+      event.provider === "claudeAgent") &&
+    (event.type === "item.updated" || event.type === "item.completed") &&
     event.payload.itemType === "reasoning" &&
     event.itemId !== undefined &&
     readableReasoningDetail(event.payload.detail) !== undefined
@@ -1135,7 +1137,8 @@ export function providerActivityUpdateDedupeKey(
 
   const payload = asObject(activity.payload);
   if (activity.kind === "task.progress") {
-    const taskId = asString(payload?.taskId);
+    const data = asObject(payload?.data);
+    const taskId = asString(payload?.taskId) ?? asString(data?.toolCallId);
     return taskId ? `${prefix}:${taskId}` : undefined;
   }
   if (activity.kind !== "tool.updated") {

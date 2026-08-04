@@ -238,7 +238,7 @@ describe("provider runtime activity projection", () => {
     expect(events.map(projectProviderRuntimeActivities)).toEqual([[], [], []]);
   });
 
-  it("projects only readable completed Codex-family reasoning summaries", () => {
+  it("projects readable live and completed provider reasoning summaries", () => {
     const absent = [
       runtimeEvent({
         type: "content.delta",
@@ -270,6 +270,31 @@ describe("provider runtime activity projection", () => {
     expect(absent.map(projectProviderRuntimeActivities)).toEqual([[], [], []]);
 
     for (const provider of ["codex", "antigravity"] as const) {
+      const [liveActivity] = projectProviderRuntimeActivities(
+        runtimeEvent({
+          type: "item.updated",
+          eventId: `reasoning-${provider}-live`,
+          provider,
+          turnId: TURN_ID,
+          itemId: RuntimeItemId.makeUnsafe(`reasoning-${provider}`),
+          payload: {
+            itemType: "reasoning",
+            status: "inProgress",
+            detail: "Inspect the protocol mapping",
+          },
+        }),
+      );
+      expect(liveActivity).toMatchObject({
+        id: `provider-reasoning:${THREAD_ID}:reasoning-${provider}`,
+        kind: "task.progress",
+        summary: "Reasoning trace",
+        payload: {
+          status: "inProgress",
+          detail: "Inspect the protocol mapping",
+          data: { toolCallId: `reasoning-${provider}` },
+        },
+      });
+
       const [activity] = projectProviderRuntimeActivities(
         runtimeEvent({
           type: "item.completed",
@@ -295,6 +320,28 @@ describe("provider runtime activity projection", () => {
         },
       });
     }
+
+    const [claudeActivity] = projectProviderRuntimeActivities(
+      runtimeEvent({
+        type: "item.updated",
+        eventId: "reasoning-claude-live",
+        provider: "claudeAgent",
+        turnId: TURN_ID,
+        itemId: RuntimeItemId.makeUnsafe("claude-reasoning"),
+        payload: {
+          itemType: "reasoning",
+          status: "inProgress",
+          detail: "Check the current implementation",
+        },
+      }),
+    );
+    expect(claudeActivity).toMatchObject({
+      id: `provider-reasoning:${THREAD_ID}:claude-reasoning`,
+      payload: {
+        status: "inProgress",
+        detail: "Check the current implementation",
+      },
+    });
   });
 
   it("maps tool progress without losing call identity", () => {

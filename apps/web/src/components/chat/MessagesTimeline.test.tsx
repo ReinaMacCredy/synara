@@ -1647,7 +1647,7 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("+2 more tool calls");
   });
 
-  it("renders reasoning activity as iconless tool text without synthetic Thinking", async () => {
+  it("streams live reasoning inside the stable turn activity row", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const activeTurnId = TurnId.makeUnsafe("turn-reasoning-live");
     const markup = renderToStaticMarkup(
@@ -1732,10 +1732,13 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup.match(/data-codex-status-row="true"/g) ?? []).toHaveLength(3);
-    expect(markup.match(/data-work-entry-icon="true"/g) ?? []).toHaveLength(1);
+    expect(markup).toContain('data-reasoning-activity-stream="true"');
+    expect(markup).toContain(
+      'data-turn-work-region="turn-activity:turn-reasoning-live"',
+    );
     expect(markup).toContain("Inspecting apps/web/src/store.ts");
-    expect(markup).not.toContain("Reasoning trace Inspecting");
+    expect(markup).toContain("Updating the adapter");
+    expect(markup).not.toContain('data-reasoning-text-swap="true"');
   });
 
   it("keeps a stable working header when a new local send has no server turn id yet", async () => {

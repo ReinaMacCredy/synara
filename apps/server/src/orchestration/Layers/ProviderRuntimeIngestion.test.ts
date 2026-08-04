@@ -1504,7 +1504,129 @@ describe("ProviderRuntimeIngestion", () => {
     expect(thread.messages).toHaveLength(0);
   });
 
-  it("projects only completed Codex reasoning with a readable summary", async () => {
+  it("streams accumulated Codex reasoning summaries before completion", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    const baseEvent = {
+      provider: "codex" as const,
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-live-reasoning"),
+      itemId: asItemId("reasoning-live-1"),
+    };
+
+    harness.emit({
+      ...baseEvent,
+      type: "content.delta",
+      eventId: asEventId("evt-live-reasoning-delta-1"),
+      payload: {
+        streamKind: "reasoning_summary_text",
+        summaryIndex: 0,
+        delta: "**Inspect",
+      },
+    });
+    harness.emit({
+      ...baseEvent,
+      type: "content.delta",
+      eventId: asEventId("evt-live-reasoning-delta-2"),
+      payload: {
+        streamKind: "reasoning_summary_text",
+        summaryIndex: 0,
+        delta: " the protocol**",
+      },
+    });
+
+    const stableActivityId = "provider-reasoning:thread-1:reasoning-live-1";
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some((activity: ProviderRuntimeTestActivity) => {
+        if (activity.id !== stableActivityId || typeof activity.payload !== "object") {
+          return false;
+        }
+        return (
+          (activity.payload as { status?: unknown; detail?: unknown }).status === "inProgress" &&
+          (activity.payload as { detail?: unknown }).detail === "**Inspect the protocol**"
+        );
+      }),
+    );
+
+    expect(thread.activities.filter((activity) => activity.id === stableActivityId)).toHaveLength(
+      1,
+    );
+  });
+
+  it("streams Claude thinking deltas and settles them with the turn", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    const turnId = asTurnId("turn-claude-reasoning");
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-claude-reasoning-delta-1"),
+      provider: "claudeAgent",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      payload: {
+        streamKind: "reasoning_text",
+        delta: "Reading the request. ",
+      },
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-claude-reasoning-delta-2"),
+      provider: "claudeAgent",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      payload: {
+        streamKind: "reasoning_text",
+        delta: "Checking the implementation.",
+      },
+    });
+
+    const stableActivityId =
+      "provider-reasoning:thread-1:claudeAgent-reasoning-turn-claude-reasoning";
+    const liveThread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some((activity: ProviderRuntimeTestActivity) => {
+        if (activity.id !== stableActivityId || typeof activity.payload !== "object") return false;
+        const payload = activity.payload as { status?: unknown; detail?: unknown };
+        return (
+          payload.status === "inProgress" &&
+          payload.detail === "Reading the request. Checking the implementation."
+        );
+      }),
+    );
+    expect(liveThread.activities.filter((activity) => activity.id === stableActivityId)).toHaveLength(
+      1,
+    );
+
+    harness.emit({
+      type: "turn.completed",
+      eventId: asEventId("evt-claude-reasoning-completed"),
+      provider: "claudeAgent",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      payload: { state: "completed" },
+    });
+
+    const settledThread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some((activity: ProviderRuntimeTestActivity) => {
+        if (activity.id !== stableActivityId || typeof activity.payload !== "object") return false;
+        return (activity.payload as { status?: unknown }).status === "completed";
+      }),
+    );
+    expect(
+      settledThread.activities.find((activity) => activity.id === stableActivityId),
+    ).toMatchObject({
+      payload: {
+        status: "completed",
+        detail: "Reading the request. Checking the implementation.",
+      },
+    });
+  });
+
+  it("projects completed Codex reasoning with a readable summary", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
     const detail = `**${"Verify the protocol mapping ".repeat(12).trim()}**\n\n<!-- -->\n\n**Update the adapter**\n\n<!-- -->`;

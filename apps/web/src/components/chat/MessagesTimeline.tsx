@@ -71,6 +71,7 @@ import { InlineSkillChip } from "./InlineSkillChip";
 import { InlineAgentChip } from "./InlineAgentChip";
 import { MessageActionButton, MESSAGE_ACTION_ICON_CLASS_NAME } from "./MessageActionButton";
 import { MessageCopyButton } from "./MessageCopyButton";
+import { ReasoningActivityStream } from "./ReasoningActivityStream";
 import { ReasoningTextSwap } from "./ReasoningTextSwap";
 import { AssistantSelectionsSummaryChip } from "./AssistantSelectionsSummaryChip";
 import { FileAttachmentChip } from "./FileAttachmentChip";
@@ -1966,12 +1967,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               state={row.state}
               startedAt={row.createdAt}
               showThinking={row.showThinking ?? false}
+              reasoningEntries={row.reasoningEntries ?? []}
               settledElapsed={row.collapsedWorkElapsed ?? null}
               nowIso={nowIso}
               open={expanded}
               hasDetails={detailItems.length > 0}
               fontSize={chatTypographyStyle.fontSize}
               onToggle={(open) => setCollapsedWorkExpanded(row.id, open)}
+              markdownCwd={markdownCwd}
+              onImageExpand={onImageExpand}
               renderChildren={() => (
                 <div className="mb-2.5 space-y-1.5">
                   {chunkCollapsedTurnItems(detailItems).map(renderChunk)}
@@ -2262,6 +2266,7 @@ function TurnActivityRegion(props: {
   state: "working" | "settled";
   startedAt: string | null;
   showThinking: boolean;
+  reasoningEntries: ReadonlyArray<WorkLogEntry>;
   settledElapsed: string | null;
   nowIso?: string;
   open: boolean;
@@ -2269,6 +2274,8 @@ function TurnActivityRegion(props: {
   fontSize: CSSProperties["fontSize"];
   onToggle: (open: boolean) => void;
   renderChildren: () => ReactNode;
+  markdownCwd: string | undefined;
+  onImageExpand: (preview: ExpandedImagePreview) => void;
 }) {
   const live = props.state === "working";
   const [keepChildrenMounted, setKeepChildrenMounted] = useState(props.open);
@@ -2316,14 +2323,23 @@ function TurnActivityRegion(props: {
         </CollapsiblePanel>
       </Collapsible>
       <div className="h-px w-full bg-border" />
-      <DisclosureRegion open={live && props.showThinking}>
-        <div
-          data-turn-thinking="true"
-          className="pt-3 text-muted-foreground/70"
-          style={{ fontSize: props.fontSize }}
-        >
-          <ReasoningTextSwap active={live && props.showThinking} />
-        </div>
+      <DisclosureRegion open={live && (props.showThinking || props.reasoningEntries.length > 0)}>
+        {props.reasoningEntries.length > 0 ? (
+          <ReasoningActivityStream
+            entries={props.reasoningEntries}
+            fontSize={props.fontSize}
+            markdownCwd={props.markdownCwd}
+            onImageExpand={props.onImageExpand}
+          />
+        ) : (
+          <div
+            data-turn-thinking="true"
+            className="pt-3 text-muted-foreground/70"
+            style={{ fontSize: props.fontSize }}
+          >
+            <ReasoningTextSwap active={live && props.showThinking} />
+          </div>
+        )}
       </DisclosureRegion>
     </div>
   );

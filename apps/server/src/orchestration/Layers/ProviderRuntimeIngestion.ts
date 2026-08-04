@@ -3,6 +3,7 @@ import {
   CommandId,
   EventId,
   MessageId,
+  RuntimeItemId,
   type OrchestrationCheckpointFile,
   type OrchestrationEvent,
   type OrchestrationProjectShell,
@@ -143,6 +144,7 @@ type BufferedToolOutput = {
 type BufferedReasoningSummary = {
   readonly parts: ReadonlyMap<number, string>;
   readonly sourceEvent: Extract<ProviderRuntimeEvent, { readonly type: "content.delta" }>;
+  readonly itemId: RuntimeItemId;
 };
 type AssistantDeliveryModeBindingState = {
   readonly pendingModesByThreadId: ReadonlyMap<ThreadId, ReadonlyArray<AssistantDeliveryMode>>;
@@ -277,27 +279,45 @@ export function appendCappedBufferedText(existing: string, delta: string, limit:
   )}${BUFFERED_TEXT_TRUNCATION_MARKER}`;
 }
 
+function isProviderVisibleReasoningDelta(
+  event: ProviderRuntimeEvent,
+): event is Extract<ProviderRuntimeEvent, { readonly type: "content.delta" }> {
+  if (event.type !== "content.delta") return false;
+  if (event.provider === "codex") {
+    return event.payload.streamKind === "reasoning_summary_text";
+  }
+  if (event.provider === "antigravity") {
+    return (
+      event.payload.streamKind === "reasoning_summary_text" ||
+      event.payload.streamKind === "reasoning_text"
+    );
+  }
+  return event.provider === "claudeAgent" && event.payload.streamKind === "reasoning_text";
+}
+
+function reasoningActivityItemId(event: ProviderRuntimeEvent): RuntimeItemId | null {
+  if (event.itemId) return event.itemId;
+  if (event.provider !== "claudeAgent" || !event.turnId) return null;
+  return RuntimeItemId.makeUnsafe(`${event.provider}-reasoning-${event.turnId}`);
+}
+
 function reasoningSummaryBufferKey(
   event: ProviderRuntimeEvent,
   threadId = event.threadId,
 ): string | null {
-  if ((event.provider !== "codex" && event.provider !== "antigravity") || !event.itemId) {
-    return null;
+  const itemId = reasoningActivityItemId(event);
+  if (!itemId) return null;
+  if (isProviderVisibleReasoningDelta(event)) {
+    return [threadId, event.turnId ?? "no-turn", itemId].join(":");
   }
   if (
-    event.type === "content.delta" &&
-    (event.payload.streamKind === "reasoning_summary_text" ||
-      (event.provider === "antigravity" && event.payload.streamKind === "reasoning_text"))
-  ) {
-    return [threadId, event.turnId ?? "no-turn", event.itemId].join(":");
-  }
-  if (
+    (event.provider === "codex" || event.provider === "antigravity") &&
     (event.type === "item.started" ||
       event.type === "item.updated" ||
       event.type === "item.completed") &&
     event.payload.itemType === "reasoning"
   ) {
-    return [threadId, event.turnId ?? "no-turn", event.itemId].join(":");
+    return [threadId, event.turnId ?? "no-turn", itemId].join(":");
   }
   return null;
 }
@@ -336,6 +356,27 @@ function withBufferedReasoningSummary(
     payload: {
       ...event.payload,
       detail: bufferedDetail,
+    },
+  };
+}
+
+function bufferedReasoningLifecycleEvent(
+  event: Extract<ProviderRuntimeEvent, { readonly type: "content.delta" }>,
+  summary: BufferedReasoningSummary,
+  lifecycle: "item.updated" | "item.completed",
+  status: "inProgress" | "completed" | "failed",
+): ProviderRuntimeEvent | null {
+  const detail = joinedBufferedReasoningSummary(summary);
+  if (!detail) return null;
+  return {
+    ...event,
+    itemId: summary.itemId,
+    type: lifecycle,
+    payload: {
+      itemType: "reasoning",
+      status,
+      title: "Reasoning",
+      detail,
     },
   };
 }
@@ -996,6 +1037,10 @@ const make = Effect.gen(function* () {
   ) =>
     Cache.getOption(bufferedReasoningSummaryByKey, key).pipe(
       Effect.flatMap((existingEntry) => {
+        const itemId = reasoningActivityItemId(event);
+        if (!itemId) {
+          return Effect.void;
+        }
         const summaryIndex = event.payload.summaryIndex ?? 0;
         const delta = event.payload.delta;
         if (
@@ -1020,8 +1065,14 @@ const make = Effect.gen(function* () {
         return Cache.set(bufferedReasoningSummaryByKey, key, {
           parts,
           sourceEvent: event,
+          itemId,
         });
       }),
+    );
+
+  const getBufferedReasoningSummary = (key: string) =>
+    Cache.getOption(bufferedReasoningSummaryByKey, key).pipe(
+      Effect.map((existingEntry) => Option.getOrUndefined(existingEntry)),
     );
 
   const takeBufferedReasoningSummary = (key: string) =>
@@ -1048,15 +1099,16 @@ const make = Effect.gen(function* () {
             takeBufferedReasoningSummary(key).pipe(
               Effect.flatMap((summary) => {
                 const detail = joinedBufferedReasoningSummary(summary);
-                if (!summary || !detail || !summary.sourceEvent.itemId) {
+                if (!summary || !detail) {
                   return Effect.void;
                 }
                 const completionEvent: ProviderRuntimeEvent = {
                   ...summary.sourceEvent,
                   eventId: EventId.makeUnsafe(
-                    `${terminalEvent.eventId}:reasoning:${summary.sourceEvent.itemId}`,
+                    `${terminalEvent.eventId}:reasoning:${summary.itemId}`,
                   ),
                   threadId,
+                  itemId: summary.itemId,
                   type: "item.completed",
                   payload: {
                     itemType: "reasoning",
@@ -1975,12 +2027,19 @@ const make = Effect.gen(function* () {
       const reasoningSummaryKey = reasoningSummaryBufferKey(event, thread.id);
       if (
         reasoningSummaryKey &&
-        event.type === "content.delta" &&
-        (event.payload.streamKind === "reasoning_summary_text" ||
-          (event.provider === "antigravity" && event.payload.streamKind === "reasoning_text")) &&
+        isProviderVisibleReasoningDelta(event) &&
         event.payload.delta.length > 0
       ) {
         yield* appendBufferedReasoningSummary(reasoningSummaryKey, event);
+        const bufferedSummary = yield* getBufferedReasoningSummary(reasoningSummaryKey);
+        const liveReasoningEvent = bufferedSummary
+          ? bufferedReasoningLifecycleEvent(event, bufferedSummary, "item.updated", "inProgress")
+          : null;
+        if (liveReasoningEvent) {
+          yield* Effect.forEach(projectProviderRuntimeActivities(liveReasoningEvent), (activity) =>
+            dispatchActivityUpdate(liveReasoningEvent, thread.id, activity),
+          );
+        }
       }
 
       const assistantDelta =

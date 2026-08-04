@@ -1485,6 +1485,50 @@ describe("deriveMessagesTimelineRows", () => {
       showThinking: false,
     });
   });
+
+  it("moves live provider reasoning into the stable turn activity row", () => {
+    const turnId = TurnId.makeUnsafe("t1");
+    const reasoning = workEntry(
+      "reasoning-live",
+      "2026-01-01T00:00:01Z",
+      "Reasoning trace",
+    );
+    const tool = workEntry("tool-live", "2026-01-01T00:00:02Z", "Read files");
+    if (reasoning.kind === "work") {
+      reasoning.entry = {
+        ...reasoning.entry,
+        turnId,
+        toolTitle: "Reasoning trace",
+        detail: "**Inspecting the current implementation**",
+      };
+    }
+    if (tool.kind === "work") {
+      tool.entry = { ...tool.entry, turnId, itemType: "command_execution" };
+    }
+
+    const rows = deriveMessagesTimelineRows({
+      ...baseInput,
+      isWorking: true,
+      activeTurnInProgress: true,
+      activeTurnId: turnId,
+      timelineEntries: [userEntry("u1", "2026-01-01T00:00:00Z"), reasoning, tool],
+    });
+
+    expect(rows.find((row) => row.kind === "turn-activity")).toMatchObject({
+      id: "turn-activity:u1",
+      state: "working",
+      showThinking: false,
+      reasoningEntries: [
+        expect.objectContaining({
+          id: "reasoning-live",
+          detail: "**Inspecting the current implementation**",
+        }),
+      ],
+    });
+    expect(
+      rows.flatMap((row) => (row.kind === "work" ? row.groupedEntries : [])).map((entry) => entry.id),
+    ).toEqual(["tool-live"]);
+  });
 });
 
 const toolItem = (

@@ -17,6 +17,7 @@ import {
   summarizeToolCallGroup,
   type ToolCallGroupSummary,
 } from "./toolCallGroup.logic";
+import { isReasoningUpdateWorkEntry } from "./agentActivity.logic";
 import {
   type ChatMessage,
   type ProposedPlan,
@@ -272,6 +273,7 @@ export type MessagesTimelineRow =
       createdAt: string | null;
       state: "working" | "settled";
       showThinking?: boolean;
+      reasoningEntries?: WorkLogEntry[];
       collapsedTurnItems?: CollapsedTurnItem[];
       collapsedWorkElapsed?: string | null;
     }
@@ -518,14 +520,31 @@ export function deriveMessagesTimelineRows(input: {
   revertTurnCountByUserMessageId: ReadonlyMap<MessageId, number>;
 }): MessagesTimelineRow[] {
   const nextRows: MessagesTimelineRow[] = [];
-  const timelineMessages = input.timelineEntries.flatMap((entry) =>
+  const activeReasoningEntries =
+    input.isWorking && input.activeTurnId
+      ? input.timelineEntries.flatMap((entry) =>
+          entry.kind === "work" &&
+          entry.entry.turnId === input.activeTurnId &&
+          isReasoningUpdateWorkEntry(entry.entry)
+            ? [entry.entry]
+            : [],
+        )
+      : [];
+  const activeReasoningEntryIds = new Set(activeReasoningEntries.map((entry) => entry.id));
+  const timelineEntries =
+    activeReasoningEntryIds.size === 0
+      ? input.timelineEntries
+      : input.timelineEntries.filter(
+          (entry) => entry.kind !== "work" || !activeReasoningEntryIds.has(entry.entry.id),
+        );
+  const timelineMessages = timelineEntries.flatMap((entry) =>
     entry.kind === "message" ? [entry.message] : [],
   );
   const durationStartByMessageId = computeMessageDurationStart(timelineMessages);
   const terminalAssistantMessageIds = deriveTerminalAssistantMessageIds(timelineMessages);
   let latestUserMessageEntryIndex = -1;
-  for (let index = input.timelineEntries.length - 1; index >= 0; index -= 1) {
-    const entry = input.timelineEntries[index];
+  for (let index = timelineEntries.length - 1; index >= 0; index -= 1) {
+    const entry = timelineEntries[index];
     if (entry?.kind === "message" && entry.message.role === "user") {
       latestUserMessageEntryIndex = index;
       break;
@@ -576,8 +595,8 @@ export function deriveMessagesTimelineRows(input: {
     pendingWorkGroup = null;
   };
 
-  for (let index = 0; index < input.timelineEntries.length; index += 1) {
-    const timelineEntry = input.timelineEntries[index];
+  for (let index = 0; index < timelineEntries.length; index += 1) {
+    const timelineEntry = timelineEntries[index];
     if (!timelineEntry) {
       continue;
     }
@@ -585,8 +604,8 @@ export function deriveMessagesTimelineRows(input: {
     if (timelineEntry.kind === "work") {
       const groupedEntries = [timelineEntry.entry];
       let cursor = index + 1;
-      while (cursor < input.timelineEntries.length) {
-        const nextEntry = input.timelineEntries[cursor];
+      while (cursor < timelineEntries.length) {
+        const nextEntry = timelineEntries[cursor];
         if (!nextEntry || nextEntry.kind !== "work") break;
         groupedEntries.push(nextEntry.entry);
         cursor += 1;
@@ -687,7 +706,10 @@ export function deriveMessagesTimelineRows(input: {
       id: turnActivityRowId(boundaryMessageId, input.activeTurnId ?? null),
       createdAt: input.activeTurnStartedAt,
       state: "working",
-      showThinking: !rowsContainVisibleToolActivity(nextRows.slice(insertIndex)),
+      showThinking:
+        activeReasoningEntries.length === 0 &&
+        !rowsContainVisibleToolActivity(nextRows.slice(insertIndex)),
+      ...(activeReasoningEntries.length > 0 ? { reasoningEntries: activeReasoningEntries } : {}),
     });
   }
 
@@ -1131,6 +1153,7 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.createdAt === ba.createdAt &&
         a.state === ba.state &&
         a.showThinking === ba.showThinking &&
+        workLogEntryArraysEqual(a.reasoningEntries, ba.reasoningEntries) &&
         a.collapsedWorkElapsed === ba.collapsedWorkElapsed &&
         collapsedTurnItemsEqual(a.collapsedTurnItems, ba.collapsedTurnItems)
       );
