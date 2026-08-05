@@ -200,6 +200,7 @@ import { hasUnreadActivity as hasUnreadActivityOutsideActiveThread } from "./Sid
 import { SidebarActivityView } from "./SidebarActivityView";
 import { SidebarIconButton, sidebarIconButtonSlotClass } from "./SidebarIconButton";
 import { SidebarLeadingIcon } from "./SidebarLeadingIcon";
+import { MorphIcon, type IconNode } from "morphicons/react";
 import { SidebarMetaChipStack } from "./SidebarMetaChip";
 import { SidebarRowHoverActions } from "./SidebarRowHoverActions";
 import { SidebarSectionToolbar } from "./SidebarSectionToolbar";
@@ -1246,6 +1247,89 @@ const SIDEBAR_SURFACE_PICKER_COPY: Record<SidebarView, { title: string; descript
   threads: { title: "Synara", description: "Build, debug, and ship" },
   orchestrator: { title: "Orchestrator", description: "Coordinate agents and review work" },
 };
+
+/** Lucide LayoutGrid as IconNode data (stroke, 24×24) for morphicons. */
+const SURFACE_MODE_LAYOUT_GRID_ICON = [
+  ["rect", { width: "7", height: "7", x: "3", y: "3", rx: "1" }],
+  ["rect", { width: "7", height: "7", x: "14", y: "3", rx: "1" }],
+  ["rect", { width: "7", height: "7", x: "14", y: "14", rx: "1" }],
+  ["rect", { width: "7", height: "7", x: "3", y: "14", rx: "1" }],
+] as const satisfies IconNode;
+
+/** Lucide Sparkles as IconNode data (stroke, 24×24) for morphicons. */
+const SURFACE_MODE_SPARKLES_ICON = [
+  [
+    "path",
+    {
+      d: "M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z",
+    },
+  ],
+  ["path", { d: "M20 3v4" }],
+  ["path", { d: "M22 5h-4" }],
+  ["path", { d: "M4 17v2" }],
+  ["path", { d: "M5 18H3" }],
+] as const satisfies IconNode;
+
+/**
+ * Quick Projects ↔ Orchestrator toggle in the sidebar header (beside Search).
+ * Morphs layout-grid ↔ sparkles via morphicons.
+ */
+function SidebarSurfaceModeToggle({
+  activeView,
+  onSelectView,
+  onPrewarmView,
+}: {
+  activeView: SidebarView;
+  onSelectView: (view: SidebarView) => void;
+  onPrewarmView?: (view: SidebarView) => void;
+}) {
+  const isOrchestrator = activeView === "orchestrator";
+  const nextView: SidebarView = isOrchestrator ? "threads" : "orchestrator";
+  const label = isOrchestrator ? "Switch to Projects" : "Switch to Orchestrator";
+  const tooltip = isOrchestrator ? "Projects (chat mode)" : "Orchestrator";
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-label={label}
+            aria-pressed={isOrchestrator}
+            data-testid="sidebar-surface-mode-toggle"
+            onClick={() => {
+              onPrewarmView?.(nextView);
+              onSelectView(nextView);
+            }}
+            onPointerEnter={() => {
+              onPrewarmView?.(nextView);
+            }}
+            className={cn(
+              "relative inline-flex shrink-0 cursor-pointer items-center justify-center transition-colors",
+              sidebarIconButtonSlotClass("header"),
+              SIDEBAR_ROW_FOCUS_CLASS_NAME,
+              isOrchestrator
+                ? "bg-[color-mix(in_srgb,var(--color-text-accent)_15%,transparent)] text-[var(--color-text-accent)]"
+                : "sidebar-icon-button text-muted-foreground/75 hover:text-foreground",
+            )}
+          />
+        }
+      >
+        <MorphIcon
+          icon={isOrchestrator ? SURFACE_MODE_SPARKLES_ICON : SURFACE_MODE_LAYOUT_GRID_ICON}
+          spring="snappy"
+          size={14}
+          strokeWidth={2}
+          className="size-3.5"
+          aria-hidden
+        />
+      </TooltipTrigger>
+      <TooltipPopup side="bottom" align="center" sideOffset={4}>
+        {tooltip}
+      </TooltipPopup>
+    </Tooltip>
+  );
+}
 
 /**
  * App-switcher style surface picker: a compact pill with the active surface
@@ -6516,6 +6600,11 @@ function renderThreadArchiveAction(
                 onPrewarmView={prewarmSidebarViewTarget}
               />
               <div className="ml-auto flex items-center gap-1.5">
+                <SidebarSurfaceModeToggle
+                  activeView={isOnOrchestrator ? "orchestrator" : "threads"}
+                  onSelectView={handleSidebarViewChange}
+                  onPrewarmView={prewarmSidebarViewTarget}
+                />
                 <SidebarIconButton
                   icon={SearchIcon}
                   label="Search"
@@ -6527,7 +6616,7 @@ function renderThreadArchiveAction(
                     setSearchPaletteOpen(true);
                   }}
                 />
-              <SidebarActivityBellButton
+                <SidebarActivityBellButton
                   active={activityViewEnabled}
                   showUnreadDot={
                     isOnOrchestrator ? hasUnreadOrchestratorActivity : hasUnreadOrdinaryActivity
