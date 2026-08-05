@@ -1,5 +1,5 @@
 import type { ThreadId } from "@synara/contracts";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { DISCLOSURE_CLEANUP_BUFFER_MS, DISCLOSURE_TRANSITION_MS } from "~/lib/disclosureMotion";
 import type { AdvisorConsultation } from "~/lib/advisorConsultation";
@@ -147,6 +147,11 @@ interface ComposerAdvisorCardPresenceProps extends Omit<ComposerAdvisorCardProps
   open: boolean;
 }
 
+/**
+ * Shared disclosure presence (option A): bottom-origin 220ms open/close.
+ * Presence is driven by `open` only — consultation identity/status ticks must
+ * update card content in place without replaying enter or hard-cutting exit.
+ */
 export function ComposerAdvisorCardPresence({
   consultation,
   open,
@@ -156,32 +161,56 @@ export function ComposerAdvisorCardPresence({
     null,
   );
   const [regionOpen, setRegionOpen] = useState(false);
+  const wasOpenRef = useRef(false);
+  const snapshotRef = useRef<AdvisorConsultation | null>(null);
 
   useEffect(() => {
     if (open && consultation) {
+      snapshotRef.current = consultation;
       setRenderedConsultation(consultation);
-      const frame = window.requestAnimationFrame(() => setRegionOpen(true));
+      if (wasOpenRef.current) {
+        // Already visible: status/answer ticks only refresh content.
+        return;
+      }
+      wasOpenRef.current = true;
+      // First paint stays closed; next frame opens so height/opacity can ease in.
+      setRegionOpen(false);
+      const frame = window.requestAnimationFrame(() => {
+        setRegionOpen(true);
+      });
       return () => window.cancelAnimationFrame(frame);
     }
 
+    if (!wasOpenRef.current) {
+      setRegionOpen(false);
+      setRenderedConsultation(null);
+      snapshotRef.current = null;
+      return;
+    }
+
+    wasOpenRef.current = false;
+    // Freeze the last live consultation for the close paint (prop may already be null).
+    setRenderedConsultation(snapshotRef.current);
     setRegionOpen(false);
-    const cleanup = window.setTimeout(
-      () => setRenderedConsultation(null),
-      DISCLOSURE_TRANSITION_MS + DISCLOSURE_CLEANUP_BUFFER_MS,
-    );
+    const cleanup = window.setTimeout(() => {
+      setRenderedConsultation(null);
+      snapshotRef.current = null;
+    }, DISCLOSURE_TRANSITION_MS + DISCLOSURE_CLEANUP_BUFFER_MS);
     return () => window.clearTimeout(cleanup);
-  }, [consultation, open]);
+  }, [open, consultation]);
 
   if (!renderedConsultation) {
     return null;
   }
 
   return (
-    <DisclosureRegion open={regionOpen} contentOrigin="bottom">
-      <ComposerAdvisorCard
-        {...cardProps}
-        consultation={open && consultation ? consultation : renderedConsultation}
-      />
-    </DisclosureRegion>
+    <div data-composer-advisor-card-presence={regionOpen ? "open" : "closed"}>
+      <DisclosureRegion open={regionOpen} contentOrigin="bottom">
+        <ComposerAdvisorCard
+          {...cardProps}
+          consultation={open && consultation ? consultation : renderedConsultation}
+        />
+      </DisclosureRegion>
+    </div>
   );
 }

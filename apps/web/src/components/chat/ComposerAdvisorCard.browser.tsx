@@ -83,4 +83,56 @@ describe("ComposerAdvisorCard", () => {
     );
     expect(mounted.container.querySelector('[data-testid="composer-advisor-card"]')).toBeNull();
   });
+
+  it("keeps the presence region open across consultation status ticks", async () => {
+    const renderPresence = (next: AdvisorConsultation) => (
+      <ComposerColumnFrame>
+        <ComposerAdvisorCardPresence
+          consultation={next}
+          open
+          onOpenThread={vi.fn()}
+          onUseInTask={vi.fn()}
+        />
+      </ComposerColumnFrame>
+    );
+
+    const mounted = await render(renderPresence(consultation({ status: "running" })));
+
+    await expect.element(page.getByTestId("composer-advisor-card")).toBeVisible();
+    await expect
+      .poll(
+        () =>
+          mounted.container
+            .querySelector("[data-composer-advisor-card-presence]")
+            ?.getAttribute("data-composer-advisor-card-presence"),
+      )
+      .toBe("open");
+
+    const shellBefore = mounted.container.querySelector("[data-composer-advisor-card-presence]");
+    await mounted.rerender(
+      renderPresence(
+        consultation({
+          status: "complete",
+          answer: "Option A\nIt keeps rollback simple.",
+        }),
+      ),
+    );
+
+    // Same presence host — content updates, no close/remount from status tick.
+    expect(mounted.container.querySelector("[data-composer-advisor-card-presence]")).toBe(
+      shellBefore,
+    );
+    expect(
+      mounted.container
+        .querySelector("[data-composer-advisor-card-presence]")
+        ?.getAttribute("data-composer-advisor-card-presence"),
+    ).toBe("open");
+    await expect.element(page.getByText("Option A")).toBeVisible();
+    // Disclosure shell must stay open (icons may still use aria-hidden).
+    expect(
+      mounted.container
+        .querySelector("[data-composer-advisor-card-presence]")
+        ?.querySelector('[aria-hidden="true"].grid'),
+    ).toBeNull();
+  });
 });
