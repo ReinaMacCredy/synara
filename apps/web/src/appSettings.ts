@@ -51,6 +51,7 @@ const APP_SETTINGS_STORAGE_KEY = "synara:app-settings:v1";
 const SERVER_SETTINGS_MIGRATION_STORAGE_KEY = "synara:server-settings-migrated:v1";
 const MAX_CUSTOM_MODEL_COUNT = 32;
 export const MAX_CUSTOM_MODEL_LENGTH = 256;
+export const MAX_ADVISOR_CUSTOM_INSTRUCTIONS_LENGTH = 12_000;
 export const MIN_CHAT_FONT_SIZE_PX = 11;
 export const MAX_CHAT_FONT_SIZE_PX = 18;
 export const DEFAULT_CHAT_FONT_SIZE_PX = 12;
@@ -270,6 +271,9 @@ export const AppSettingsSchema = Schema.Struct({
   advisorModelSelection: ModelSelection.pipe(
     withDefaults(() => ({ ...DEFAULT_ADVISOR_MODEL_SELECTION })),
   ),
+  advisorCustomInstructions: Schema.String.check(
+    Schema.isMaxLength(MAX_ADVISOR_CUSTOM_INSTRUCTIONS_LENGTH),
+  ).pipe(withDefaults(() => "")),
   // Local-only UI preference: providers explicitly hidden from the composer picker.
   // The active/locked provider for a thread is always shown regardless, so users
   // never get stuck on a thread whose provider they later chose to hide.

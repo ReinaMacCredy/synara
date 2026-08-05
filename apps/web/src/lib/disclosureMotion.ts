@@ -26,6 +26,9 @@ export const DISCLOSURE_CONTENT_MOTION_CLASS =
 
 export const DISCLOSURE_CONTENT_OPEN_CLASS = "translate-y-0 opacity-100";
 export const DISCLOSURE_CONTENT_CLOSED_CLASS = "-translate-y-1 opacity-0 pointer-events-none";
+export const DISCLOSURE_CONTENT_CLOSED_FROM_BOTTOM_CLASS =
+  "translate-y-3 opacity-0 pointer-events-none";
+export type DisclosureContentOrigin = "top" | "bottom";
 
 /** Chevron rotation paired with the shell motion. */
 export const DISCLOSURE_CHEVRON_MOTION_CLASS =
@@ -59,10 +62,18 @@ export function disclosureShellClassName(open: boolean, className?: string) {
   );
 }
 
-export function disclosureContentClassName(open: boolean, className?: string) {
+export function disclosureContentClassName(
+  open: boolean,
+  className?: string,
+  origin: DisclosureContentOrigin = "top",
+) {
   return cn(
     DISCLOSURE_CONTENT_MOTION_CLASS,
-    open ? DISCLOSURE_CONTENT_OPEN_CLASS : DISCLOSURE_CONTENT_CLOSED_CLASS,
+    open
+      ? DISCLOSURE_CONTENT_OPEN_CLASS
+      : origin === "bottom"
+        ? DISCLOSURE_CONTENT_CLOSED_FROM_BOTTOM_CLASS
+        : DISCLOSURE_CONTENT_CLOSED_CLASS,
     className,
   );
 }

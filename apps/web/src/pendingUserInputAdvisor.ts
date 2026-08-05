@@ -20,15 +20,32 @@ export function isPendingUserInputAdvisorQuestion(value: string | null | undefin
   return value?.split(/\r?\n/, 1)[0]?.trim() === PENDING_USER_INPUT_ADVISOR_MARKER;
 }
 
+export function extractPendingUserInputAdvisorQuestion(
+  value: string | null | undefined,
+): string | null {
+  if (!isPendingUserInputAdvisorQuestion(value)) {
+    return null;
+  }
+  const match = value?.match(/(?:^|\r?\n)Question:\s*([\s\S]*?)\r?\nAvailable options:/);
+  const question = match?.[1]?.trim() ?? "";
+  return question.length > 0 ? question : null;
+}
+
 export function isPendingUserInputAdvisorQuestionFor(
   value: string | null | undefined,
   question: string,
 ): boolean {
-  if (!isPendingUserInputAdvisorQuestion(value)) {
-    return false;
-  }
-  const expectedQuestionLine = `Question: ${question.trim()}`;
-  return value?.split(/\r?\n/).some((line) => line.trim() === expectedQuestionLine) ?? false;
+  return extractPendingUserInputAdvisorQuestion(value) === question.trim();
+}
+
+export function shouldShowPendingUserInputAdvisorConsultation(
+  value: string | null | undefined,
+  pendingQuestions: ReadonlyArray<string>,
+): boolean {
+  return (
+    !isPendingUserInputAdvisorQuestion(value) ||
+    pendingQuestions.some((question) => isPendingUserInputAdvisorQuestionFor(value, question))
+  );
 }
 
 export function pendingUserInputAdvisorContextFingerprint(
@@ -104,7 +121,7 @@ export function parsePendingUserInputAdvisorRecommendation(
     return null;
   }
 
-  const firstLine = stripRecommendationDecoration(lines[0]);
+  const firstLine = stripRecommendationDecoration(lines[0]!);
   const candidates = [...optionLabels]
     .map((optionLabel) => ({ optionLabel, matchedLabel: optionLabel.trim() }))
     .sort((left, right) => right.matchedLabel.length - left.matchedLabel.length);
@@ -125,9 +142,7 @@ export function parsePendingUserInputAdvisorRecommendation(
     return null;
   }
 
-  const inlineReason = firstLine
-    .slice(match.matchedLabel.length)
-    .replace(/^\s*(?::|-|—)\s*/, "");
+  const inlineReason = firstLine.slice(match.matchedLabel.length).replace(/^\s*(?::|-|—)\s*/, "");
   const reason = [inlineReason, ...lines.slice(1)].filter(Boolean).join(" ").replace(/\s+/g, " ");
   return {
     optionLabel: match.optionLabel,

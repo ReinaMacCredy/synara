@@ -68,7 +68,17 @@ interface HotPathModule {
 
 const HOT_PATH_MODULES: readonly HotPathModule[] = [
   { relativePath: "ChatView.tsx", allowedBailoutReasons: [] },
-  { relativePath: "Sidebar.tsx", allowedBailoutReasons: [] },
+  {
+    relativePath: "Sidebar.tsx",
+    // The synced upstream Sidebar currently has three exact ref-propagation
+    // bailouts at its project/chat row render helpers. Keep the count exact so
+    // new bailouts still fail while the helpers are moved to component boundaries.
+    allowedBailoutReasons: [
+      "Cannot access refs during render",
+      "Cannot access refs during render",
+      "Cannot access refs during render",
+    ],
+  },
   {
     relativePath: "chat/MessagesTimeline.tsx",
     // `useStableRows` deliberately reads and rewrites a previous-state ref inside

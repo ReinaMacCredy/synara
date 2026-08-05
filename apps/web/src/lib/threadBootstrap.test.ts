@@ -66,6 +66,7 @@ function makeComposerDraftState(
     activeProvider: "claudeAgent",
     runtimeMode: null,
     interactionMode: null,
+    handoffDraft: null,
     ...partial,
   };
 }

@@ -120,7 +120,7 @@ function AdvisorQuestionFlow({
 }: {
   onSubmit: (answers: Record<string, string | string[]>) => void;
 }) {
-  const question = QUESTIONS[0];
+  const question = QUESTIONS[0]!;
   const prompt: PendingUserInput = { ...PROMPT, questions: [question] };
   const [answers, setAnswers] = useState<Record<string, PendingUserInputDraftAnswer>>({});
   const [advisorConsultation, setAdvisorConsultation] = useState<AdvisorConsultation | null>(null);
@@ -258,7 +258,7 @@ describe("ComposerPendingUserInputPanel", () => {
   });
 
   it("restores the visible state of an in-flight Advisor choice", async () => {
-    const question = QUESTIONS[0];
+    const question = QUESTIONS[0]!;
     const screen = await render(
       <ComposerPendingUserInputPanel
         pendingUserInputs={[{ ...PROMPT, questions: [question] }]}

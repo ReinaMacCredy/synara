@@ -40,6 +40,14 @@ describe("rankSettingsSearchEntries", () => {
     expect(results.some((entry) => entry.id === "notifications:activity-toasts")).toBe(true);
   });
 
+  it("indexes Advisor model and custom-instruction settings", () => {
+    const results = rankSettingsSearchEntries("advisor", 12);
+
+    expect(results.map((entry) => entry.id)).toEqual(
+      expect.arrayContaining(["models:advisor-model", "models:advisor-instructions"]),
+    );
+  });
+
   it("indexes environment instructions and the system UI font row", () => {
     expect(SETTINGS_SEARCH_ENTRIES.map((entry) => entry.id)).toEqual(
       expect.arrayContaining(["general:environment-instructions", "appearance:system-ui-font"]),

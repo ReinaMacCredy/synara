@@ -14,7 +14,6 @@ const parentThreadId = ThreadId.makeUnsafe("thread-parent");
 
 function shell(input: Partial<ThreadShell> & Pick<ThreadShell, "id" | "createdAt">): ThreadShell {
   return {
-    id: input.id,
     codexThreadId: null,
     projectId: "project-1" as ThreadShell["projectId"],
     title: input.title ?? "Advisor",
@@ -142,6 +141,42 @@ describe("Advisor consultation presentation", () => {
 
     expect(deriveAdvisorConsultation(thread)).toMatchObject({
       question: "Which validation should we run?",
+      answer: null,
+      status: "running",
+    });
+  });
+
+  it("does not reuse an imported parent answer before the Advisor prompt hydrates", () => {
+    const thread = {
+      ...shell({
+        id: ThreadId.makeUnsafe("advisor-hydrating"),
+        createdAt: "2026-08-03T01:00:00Z",
+      }),
+      messages: [
+        {
+          id: MessageId.makeUnsafe("imported-answer"),
+          role: "assistant",
+          text: "I will invoke the user-input prompt now.",
+          createdAt: "2026-08-03T00:00:00Z",
+          streaming: false,
+        },
+      ],
+      session: null,
+      proposedPlans: [],
+      latestTurn: {
+        turnId: TurnId.makeUnsafe("turn-hydrating"),
+        state: "running",
+        requestedAt: "2026-08-03T01:00:00Z",
+        startedAt: "2026-08-03T01:00:01Z",
+        completedAt: null,
+        assistantMessageId: null,
+      },
+      turnDiffSummaries: [],
+      activities: [],
+    } as unknown as Thread;
+
+    expect(deriveAdvisorConsultation(thread)).toMatchObject({
+      question: "Agent requested a second opinion.",
       answer: null,
       status: "running",
     });

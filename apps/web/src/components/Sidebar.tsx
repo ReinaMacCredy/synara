@@ -1756,7 +1756,7 @@ const orchestratorRootIdByThreadId = useMemo(() => {
         orchestratorRootThreads,
         activeSidebarThreadId
           ? (orchestratorRootIdByThreadId.get(activeSidebarThreadId) ?? activeSidebarThreadId)
-          : undefined,
+          : null,
       ),
     [activeSidebarThreadId, orchestratorRootIdByThreadId, orchestratorRootThreads],
   );
@@ -3928,10 +3928,12 @@ const orchestratorRootIdByThreadId = useMemo(() => {
               candidate.id !== thread.id &&
               orchestratorRootIdByThreadId.get(candidate.id) === thread.id,
           )
-          .map((candidate) => ({
-            ...candidate,
-            parentThreadId: orchestratorContainmentParentId(candidate),
-          }));
+          .map(
+            (candidate): SidebarThreadSummary => ({
+              ...candidate,
+              parentThreadId: orchestratorContainmentParentId(candidate),
+            }),
+          );
         const children = projectOrchestratorSidebarChildren({
           rootThreadId: thread.id,
           threads: descendantThreads,
@@ -3993,10 +3995,12 @@ const orchestratorRootIdByThreadId = useMemo(() => {
               candidate.id !== rootThread.id &&
               orchestratorRootIdByThreadId.get(candidate.id) === rootThread.id,
           )
-          .map((candidate) => ({
-            ...candidate,
-            parentThreadId: orchestratorContainmentParentId(candidate),
-          }));
+          .map(
+            (candidate): SidebarThreadSummary => ({
+              ...candidate,
+              parentThreadId: orchestratorContainmentParentId(candidate),
+            }),
+          );
         const children = projectOrchestratorSidebarChildren({
           rootThreadId: rootThread.id,
           threads: descendants,
@@ -4856,11 +4860,11 @@ function renderThreadArchiveAction(
   function renderThreadRow(
     thread: SidebarThreadSummary,
     orderedProjectThreadIds: readonly ThreadId[],
-    depth = 0,
+    depth: number,
     // Chat rows sit directly under the "Chats" header (no project nesting), so
     // their top-level rows align flush like pinned rows instead of the indented
     // column used for project-nested threads.
-    topLevel = false,
+    topLevel: boolean,
   ) {
     const threadTerminalState = selectThreadTerminalState(terminalStateByThreadId, thread.id);
     const threadEntryPoint = threadTerminalState.entryPoint;
@@ -5309,7 +5313,7 @@ function renderThreadArchiveAction(
   function renderProjectItem(
     project: (typeof sortedProjects)[number],
     dragHandleProps: SortableProjectHandleProps | null,
-    surface: "project" | "orchestrator" = "project",
+    surface: "project" | "orchestrator",
   ) {
     const isOrchestratorProject = surface === "orchestrator";
     const orchestratorRootEntries = orchestratorRootPresentationsByProjectId.get(project.id) ?? [];
@@ -5587,7 +5591,7 @@ function renderThreadArchiveAction(
                 )
               ) : (
                 visibleEntries.map((entry) =>
-                  renderThreadRow(entry.thread, orderedProjectThreadIds, entry.depth),
+                  renderThreadRow(entry.thread, orderedProjectThreadIds, entry.depth, false),
                 )
               )}
 

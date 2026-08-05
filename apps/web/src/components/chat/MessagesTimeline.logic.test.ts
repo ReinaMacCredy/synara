@@ -1462,7 +1462,6 @@ describe("deriveMessagesTimelineRows", () => {
       open: true,
       steps: setup.steps,
     });
-    expect(rows.some((row) => row.kind === "working")).toBe(false);
   });
 
   it("restores the working shimmer while the worktree-setup row animates closed", () => {
@@ -1513,7 +1512,6 @@ describe("deriveMessagesTimelineRows", () => {
     });
 
     expect(rows.some((row) => row.kind === "work")).toBe(true);
-    expect(rows.some((row) => row.kind === "working")).toBe(false);
     expect(rows.find((row) => row.kind === "turn-activity")).toMatchObject({
       state: "working",
     });

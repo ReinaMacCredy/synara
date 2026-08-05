@@ -9,6 +9,7 @@ import {
   DISCLOSURE_SHELL_MOTION_CLASS,
   DISCLOSURE_SHELL_CLOSED_CLASS,
   DISCLOSURE_SHELL_OPEN_CLASS,
+  DISCLOSURE_CONTENT_CLOSED_FROM_BOTTOM_CLASS,
 } from "./disclosureMotion";
 
 describe("disclosureMotion", () => {
@@ -25,6 +26,13 @@ describe("disclosureMotion", () => {
   it("disables interaction on closed content", () => {
     expect(disclosureContentClassName(false)).toContain("pointer-events-none");
     expect(disclosureContentClassName(true)).not.toContain("pointer-events-none");
+  });
+
+  it("supports a bottom-origin panel that rises on open and descends on close", () => {
+    expect(disclosureContentClassName(false, undefined, "bottom")).toContain(
+      DISCLOSURE_CONTENT_CLOSED_FROM_BOTTOM_CLASS,
+    );
+    expect(disclosureContentClassName(true, undefined, "bottom")).toContain("translate-y-0");
   });
 
   it("keeps every disclosure path on the shared 220ms reduced-motion contract", () => {

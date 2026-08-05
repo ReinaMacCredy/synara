@@ -67,6 +67,7 @@ describe("threadCreatePromotion", () => {
           id: "message-promoted-detail" as never,
           role: "user",
           text: "first Orchestrator message",
+          turnId: null,
           createdAt: "2026-05-06T20:00:01.000Z",
           updatedAt: "2026-05-06T20:00:01.000Z",
           streaming: false,

@@ -900,6 +900,7 @@ describe("AppSettingsSchema", () => {
         provider: "codex",
         model: "gpt-5.5",
       },
+      advisorCustomInstructions: "",
     });
   });
 
@@ -919,6 +920,19 @@ describe("AppSettingsSchema", () => {
       provider: "claudeAgent",
       model: "claude-sonnet-5",
     });
+  });
+
+  it("persists Advisor custom instructions", () => {
+    const decode = Schema.decodeSync(Schema.fromJsonString(AppSettingsSchema));
+
+    expect(
+      decode(
+        JSON.stringify({
+          advisorCustomInstructions:
+            "Challenge assumptions and finish with one concrete recommendation.",
+        }),
+      ).advisorCustomInstructions,
+    ).toBe("Challenge assumptions and finish with one concrete recommendation.");
   });
 
   it("migrates the former AppSnap feature flag", () => {

@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 
 import {
   DISCLOSURE_INNER_CLASS,
+  type DisclosureContentOrigin,
   disclosureContentClassName,
   disclosureShellClassName,
 } from "~/lib/disclosureMotion";
@@ -17,8 +18,9 @@ export function DisclosureRegion(props: {
   children: ReactNode;
   className?: string;
   contentClassName?: string;
+  contentOrigin?: DisclosureContentOrigin;
 }) {
-  const { open, children, className, contentClassName } = props;
+  const { open, children, className, contentClassName, contentOrigin } = props;
 
   return (
     <div
@@ -27,7 +29,9 @@ export function DisclosureRegion(props: {
       inert={!open}
     >
       <div className={DISCLOSURE_INNER_CLASS}>
-        <div className={disclosureContentClassName(open, contentClassName)}>{children}</div>
+        <div className={disclosureContentClassName(open, contentClassName, contentOrigin)}>
+          {children}
+        </div>
       </div>
     </div>
   );

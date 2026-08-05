@@ -58,6 +58,12 @@ function serverSettings(overrides: Partial<ServerSettings["providers"]> = {}): S
     defaultThreadEnvMode: "local",
     addProjectBaseDirectory: "",
     textGenerationModelSelection: { provider: "codex", model: "gpt-5.4-mini" },
+    handoffAgent: {
+      provider: "codex",
+      model: "gpt-5.6-luna",
+      effort: "high",
+      customGuidance: "",
+    },
     providers: {
       codex: { ...provider, binaryPath: "codex", homePath: "" },
       claudeAgent: { ...provider, binaryPath: "claude", launchArgs: "" },

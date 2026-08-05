@@ -113,7 +113,7 @@ export function useCrossModeHandoff(input: {
         envMode: sourceThread.envMode ?? "local",
         branch: sourceThread.branch,
         worktreePath: sourceThread.worktreePath,
-        workingDirectory: sourceThread.workingDirectory,
+        workingDirectory: sourceThread.workingDirectory ?? null,
         runtimeMode: sourceThread.runtimeMode,
         interactionMode: sourceThread.interactionMode,
       });

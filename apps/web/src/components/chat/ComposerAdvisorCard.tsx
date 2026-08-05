@@ -1,9 +1,11 @@
 import type { ThreadId } from "@synara/contracts";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
+import { DISCLOSURE_CLEANUP_BUFFER_MS, DISCLOSURE_TRANSITION_MS } from "~/lib/disclosureMotion";
 import type { AdvisorConsultation } from "~/lib/advisorConsultation";
 import { AdvisorIcon, LoaderIcon, PanelCollapseIcon, PanelExpandIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
+import { extractPendingUserInputAdvisorQuestion } from "~/pendingUserInputAdvisor";
 import ChatMarkdown from "../ChatMarkdown";
 import { Button } from "../ui/button";
 import { DisclosureRegion } from "../ui/DisclosureRegion";
@@ -48,6 +50,8 @@ export function ComposerAdvisorCard({
 }: ComposerAdvisorCardProps) {
   const [compact, setCompact] = useState(false);
   const attachedToPrevious = attachedToPreviousProp ?? false;
+  const pendingUserInputQuestion = extractPendingUserInputAdvisorQuestion(consultation.question);
+  const displayedQuestion = pendingUserInputQuestion ?? consultation.question;
   return (
     <ComposerStackedPanel
       attachedToPrevious={attachedToPrevious}
@@ -103,16 +107,17 @@ export function ComposerAdvisorCard({
             <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/60">
               Question
             </div>
-            <p className="text-xs leading-relaxed text-foreground/80">{consultation.question}</p>
+            <p className="text-xs leading-relaxed text-foreground/80">{displayedQuestion}</p>
           </div>
           {consultation.answer ? (
             <div className="space-y-1.5 border-t border-border/50 pt-2">
               <ChatMarkdown
                 text={consultation.answer}
+                cwd={undefined}
                 isStreaming={consultation.answerStreaming}
                 className="text-xs leading-relaxed text-foreground/90"
               />
-              {consultation.status === "complete" ? (
+              {consultation.status === "complete" && pendingUserInputQuestion === null ? (
                 <Button
                   type="button"
                   size="sm"
@@ -134,5 +139,49 @@ export function ComposerAdvisorCard({
         </div>
       </DisclosureRegion>
     </ComposerStackedPanel>
+  );
+}
+
+interface ComposerAdvisorCardPresenceProps extends Omit<ComposerAdvisorCardProps, "consultation"> {
+  consultation: AdvisorConsultation | null;
+  open: boolean;
+}
+
+export function ComposerAdvisorCardPresence({
+  consultation,
+  open,
+  ...cardProps
+}: ComposerAdvisorCardPresenceProps) {
+  const [renderedConsultation, setRenderedConsultation] = useState<AdvisorConsultation | null>(
+    null,
+  );
+  const [regionOpen, setRegionOpen] = useState(false);
+
+  useEffect(() => {
+    if (open && consultation) {
+      setRenderedConsultation(consultation);
+      const frame = window.requestAnimationFrame(() => setRegionOpen(true));
+      return () => window.cancelAnimationFrame(frame);
+    }
+
+    setRegionOpen(false);
+    const cleanup = window.setTimeout(
+      () => setRenderedConsultation(null),
+      DISCLOSURE_TRANSITION_MS + DISCLOSURE_CLEANUP_BUFFER_MS,
+    );
+    return () => window.clearTimeout(cleanup);
+  }, [consultation, open]);
+
+  if (!renderedConsultation) {
+    return null;
+  }
+
+  return (
+    <DisclosureRegion open={regionOpen} contentOrigin="bottom">
+      <ComposerAdvisorCard
+        {...cardProps}
+        consultation={open && consultation ? consultation : renderedConsultation}
+      />
+    </DisclosureRegion>
   );
 }

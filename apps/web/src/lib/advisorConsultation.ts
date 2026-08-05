@@ -58,9 +58,12 @@ export function deriveAdvisorConsultation(thread: Thread | undefined): AdvisorCo
   const question =
     extractAdvisorConsultationQuestion(questionMessage?.text) ??
     "Agent requested a second opinion.";
-  const answerMessage = thread.messages
-    .slice(questionMessageIndex + 1)
-    .findLast((message) => message.role === "assistant");
+  const answerMessage =
+    questionMessageIndex >= 0
+      ? thread.messages
+          .slice(questionMessageIndex + 1)
+          .findLast((message) => message.role === "assistant")
+      : undefined;
   const answer = answerMessage?.text.trim() || null;
   const latestTurnState = thread.latestTurn?.state;
   const sessionError =

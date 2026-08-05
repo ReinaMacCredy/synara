@@ -15,6 +15,7 @@ import { useCallback, useMemo, useState } from "react";
 import {
   CUSTOM_MODEL_EDITOR_PROVIDER_SETTINGS,
   type AppSettingsBinding,
+  MAX_ADVISOR_CUSTOM_INSTRUCTIONS_LENGTH,
   MAX_CUSTOM_MODEL_LENGTH,
   getCustomModelsForProvider,
   getDefaultCustomModelsForProvider,
@@ -40,6 +41,7 @@ import { resolveRuntimeModelDescriptor } from "../chat/runtimeModelCapabilities"
 import { DisclosureRegion } from "../ui/DisclosureRegion";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
+import { Textarea } from "../ui/textarea";
 import {
   SettingResetButton,
   SettingsSelectControl,
@@ -179,6 +181,8 @@ export function ModelsSettingsPanel({
   const isAdvisorModelDirty =
     JSON.stringify(settings.advisorModelSelection) !==
     JSON.stringify(defaults.advisorModelSelection);
+  const isAdvisorInstructionsDirty =
+    settings.advisorCustomInstructions !== defaults.advisorCustomInstructions;
   const selectedGitTextGenerationModelLabel =
     gitTextGenerationModelOptions.find(
       (option) =>
@@ -328,6 +332,42 @@ export function ModelsSettingsPanel({
             />
           }
         />
+        <SettingsRow
+          title="Advisor instructions"
+          description="Extra guidance for every Advisor consultation. Built-in advice-only boundaries still take precedence."
+          resetAction={
+            isAdvisorInstructionsDirty ? (
+              <SettingResetButton
+                label="Advisor instructions"
+                onClick={() =>
+                  updateSettings({
+                    advisorCustomInstructions: defaults.advisorCustomInstructions,
+                  })
+                }
+              />
+            ) : null
+          }
+        >
+          <div className={cn("mt-4 pt-4", SETTINGS_CARD_ROW_DIVIDER_CLASS_NAME)}>
+            <Textarea
+              value={settings.advisorCustomInstructions}
+              maxLength={MAX_ADVISOR_CUSTOM_INSTRUCTIONS_LENGTH}
+              aria-label="Advisor custom instructions"
+              placeholder="For example: challenge assumptions, call out product tradeoffs, and end with one clear recommendation."
+              onChange={(event) =>
+                updateSettings({ advisorCustomInstructions: event.currentTarget.value })
+              }
+              className="min-h-28 resize-y text-sm leading-relaxed"
+            />
+            <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+              <span>Saved automatically</span>
+              <span className="shrink-0 tabular-nums">
+                {settings.advisorCustomInstructions.length.toLocaleString()} /{" "}
+                {MAX_ADVISOR_CUSTOM_INSTRUCTIONS_LENGTH.toLocaleString()}
+              </span>
+            </div>
+          </div>
+        </SettingsRow>
         <SettingsRow
           title="Git writing model"
           description="Used for generated commit messages, PR titles, and branch names."

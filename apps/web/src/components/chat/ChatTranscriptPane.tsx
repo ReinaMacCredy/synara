@@ -293,7 +293,9 @@ export function ChatTranscriptPane({
             items={trailItems}
             activeStore={activeTrailStore}
             onSelect={handleTrailSelect}
-            focusRequest={messageNavigatorFocusRequest}
+            {...(messageNavigatorFocusRequest !== undefined
+              ? { focusRequest: messageNavigatorFocusRequest }
+              : {})}
           />
         ) : null}
       </div>

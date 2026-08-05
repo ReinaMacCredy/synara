@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildPendingUserInputAdvisorQuestion,
+  extractPendingUserInputAdvisorQuestion,
   isPendingUserInputAdvisorQuestion,
   isPendingUserInputAdvisorQuestionFor,
   parsePendingUserInputAdvisorRecommendation,
   pendingUserInputAdvisorContextFingerprint,
+  shouldShowPendingUserInputAdvisorConsultation,
 } from "./pendingUserInputAdvisor";
 
 const question = {
@@ -26,11 +28,34 @@ describe("pending user-input Advisor contract", () => {
     });
 
     expect(isPendingUserInputAdvisorQuestion(prompt)).toBe(true);
+    expect(extractPendingUserInputAdvisorQuestion(prompt)).toBe(question.question);
     expect(isPendingUserInputAdvisorQuestionFor(prompt, question.question)).toBe(true);
     expect(isPendingUserInputAdvisorQuestionFor(prompt, "A different question?")).toBe(false);
     expect(prompt).toContain("1. Option A — Prefer the safer default.");
     expect(prompt).toContain("- Option A: Keep rollback simple");
     expect(prompt).toContain("first non-empty line must be exactly one option label");
+  });
+
+  it("extracts multiline questions without leaking the internal prompt contract", () => {
+    const multilineQuestion = {
+      ...question,
+      question: "Which path should the agent use?\nInclude the rollout constraint.",
+    };
+    const prompt = buildPendingUserInputAdvisorQuestion(multilineQuestion, undefined);
+
+    expect(extractPendingUserInputAdvisorQuestion(prompt)).toBe(multilineQuestion.question);
+    expect(isPendingUserInputAdvisorQuestionFor(prompt, multilineQuestion.question)).toBe(true);
+  });
+
+  it("keeps the internal Advisor card visible only while its matching question is pending", () => {
+    const prompt = buildPendingUserInputAdvisorQuestion(question, undefined);
+
+    expect(shouldShowPendingUserInputAdvisorConsultation(prompt, [question.question])).toBe(true);
+    expect(shouldShowPendingUserInputAdvisorConsultation(prompt, ["A newer question?"])).toBe(false);
+    expect(shouldShowPendingUserInputAdvisorConsultation(prompt, [])).toBe(false);
+    expect(
+      shouldShowPendingUserInputAdvisorConsultation("Should we keep the adapter?", []),
+    ).toBe(true);
   });
 
   it("parses an exact allowed option and its short reason", () => {

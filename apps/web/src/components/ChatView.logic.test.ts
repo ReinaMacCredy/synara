@@ -1168,7 +1168,6 @@ describe("resolveActiveTurnLiveDiffState", () => {
             status: "ready",
             completedAt: "2026-01-01T00:00:10Z",
             files: [{ path: "src/unrelated.ts", kind: "modified", additions: 1, deletions: 0 }],
-            assistantMessageId: null,
           },
         ],
         workLogEntries: [],
@@ -1956,6 +1955,11 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
       hasPendingUserInput: false,
       threadError: null,
     };
+    const settledSession = {
+      provider: providerStartedInput.session.provider,
+      createdAt: providerStartedInput.session.createdAt,
+      updatedAt: providerStartedInput.session.updatedAt,
+    };
 
     expect(hasTurnLifecycleAcknowledgedLocalDispatch(providerStartedInput)).toBe(true);
     expect(hasTurnLifecycleSettledLocalDispatch(providerStartedInput)).toBe(false);
@@ -1976,17 +1980,16 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
         latestTurn: {
           turnId: "turn-previous" as never,
           state: "completed",
-          requestedAt: followUpDispatch.latestTurnRequestedAt,
+          requestedAt: followUpDispatch.latestTurnRequestedAt!,
           startedAt: followUpDispatch.latestTurnStartedAt,
           completedAt: followUpDispatch.latestTurnCompletedAt,
           assistantMessageId: null,
           sourceProposedPlan: undefined,
         },
         session: {
-          ...providerStartedInput.session,
+          ...settledSession,
           status: "ready",
           orchestrationStatus: "idle",
-          activeTurnId: null,
         },
       }),
     ).toBe(false);
@@ -2000,10 +2003,9 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
           completedAt: "2026-04-13T00:00:02.000Z",
         },
         session: {
-          ...providerStartedInput.session,
+          ...settledSession,
           status: "ready",
           orchestrationStatus: "ready",
-          activeTurnId: null,
         },
       }),
     ).toBe(true);

@@ -1182,6 +1182,7 @@ function recordThreadTurnStartCommand(command: unknown): boolean {
         id: message.messageId,
         role: "user" as const,
         text: message.text,
+        turnId,
         ...(message.attachments ? { attachments: message.attachments } : {}),
         ...(message.skills ? { skills: message.skills } : {}),
         ...(message.mentions ? { mentions: message.mentions } : {}),
@@ -6761,6 +6762,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           activeProvider: "claudeAgent",
           runtimeMode: null,
           interactionMode: null,
+          handoffDraft: null,
         },
       },
       draftThreadsByThreadId: {
@@ -7384,6 +7386,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
                     id: sentMessage.messageId,
                     role: "user" as const,
                     text: sentMessage.text,
+                    turnId: null,
                     createdAt: echoedAt,
                     updatedAt: echoedAt,
                     streaming: false,
@@ -7456,7 +7459,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         snapshotSequence: fixture.snapshot.snapshotSequence + 1,
       });
 
-      // T3-style lifecycle projection has no fixed settle timer. The authoritative
+      // The lifecycle projection has no fixed settle timer. The authoritative
       // completed snapshot updates the existing activity and final-message rows in
       // the same render instead of exposing a second, delayed layout state.
       await vi.waitFor(

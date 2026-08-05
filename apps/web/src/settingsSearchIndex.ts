@@ -307,6 +307,19 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
 
   // ── Models ────────────────────────────────────────────────────────────────────
   {
+    id: "models:advisor-model",
+    section: "models",
+    title: "Advisor model",
+    keywords: "Default provider and model for Advisor consultations second opinion agent",
+  },
+  {
+    id: "models:advisor-instructions",
+    section: "models",
+    title: "Advisor instructions",
+    keywords:
+      "Extra custom guidance for every Advisor consultation response style tradeoffs recommendation",
+  },
+  {
     id: "models:git-writing-model",
     section: "models",
     title: "Git writing model",

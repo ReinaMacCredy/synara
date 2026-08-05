@@ -731,7 +731,7 @@ export function deriveMessagesTimelineRows(input: {
     activeTurnId: input.activeTurnId ?? null,
   });
 
-  // T3-style live lifecycle: one row is present from optimistic Send onward.
+  // Live lifecycle: one row is present from optimistic Send onward.
   // The provider start timestamp only updates its label; it never changes row
   // topology or inserts a competing synthetic Thinking row.
     if (input.isWorking && !(input.worktreeSetup && input.worktreeSetupOpen)) {

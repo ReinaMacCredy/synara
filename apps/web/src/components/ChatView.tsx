@@ -285,7 +285,7 @@ import {
   togglePendingUserInputOptionSelection,
   type PendingUserInputDraftAnswer,
 } from "../pendingUserInput";
-import { isPendingUserInputAdvisorQuestion } from "../pendingUserInputAdvisor";
+import { shouldShowPendingUserInputAdvisorConsultation } from "../pendingUserInputAdvisor";
 import { selectRightDockState, useRightDockStore } from "../rightDockStore";
 import { useStore } from "../store";
 import { RenameThreadDialog } from "./RenameThreadDialog";
@@ -538,7 +538,7 @@ import { SessionProgressCheckpoint } from "./process/SessionProgress";
 import { deriveSessionProgressActivity } from "./process/sessionProgressPresentation";
 import { ComposerSubagentStrip } from "./chat/ComposerSubagentStrip";
 import { AdvisorPopoverButton } from "./chat/AdvisorPopoverButton";
-import { ComposerAdvisorCard } from "./chat/ComposerAdvisorCard";
+import { ComposerAdvisorCardPresence } from "./chat/ComposerAdvisorCard";
 import { ComposerAdvisorReturnBar } from "./chat/ComposerAdvisorReturnBar";
 import {
   collectForegroundRunningSubagentStripItems,
@@ -7739,13 +7739,6 @@ export default function ChatView({
     const createSupervisorSeat = isSupervisorDraft;
     const supervisionProfileForSend =
       promoteToLead || createSupervisorSeat ? selectedSupervisionProfile : null;
-    if (promoteToLead && targetProjectKindForSend !== "project") {
-      setStoreThreadError(
-        activeThread.id,
-        "Supervise can create a Lead only inside a real Project workspace.",
-      );
-      return false;
-    }
     if ((promoteToLead || createSupervisorSeat) && supervisionProfileForSend === null) {
       setStoreThreadError(activeThread.id, "Choose an active supervision profile before sending.");
       return false;
@@ -7918,7 +7911,7 @@ export default function ChatView({
       targetProjectCwd: targetProjectCwdForSend,
       targetProjectScripts: targetProjectScriptsForSend,
       targetProjectDefaultModelSelection: targetProjectDefaultModelSelectionForSend,
-    } = firstSendTarget.kind === "create-project"
+      } = firstSendTarget.kind === "create-project"
       ? {
           targetProjectId: activeProject.id,
           targetProjectKind: activeProject.kind,
@@ -7926,8 +7919,15 @@ export default function ChatView({
           targetProjectScripts: activeProject.kind === "project" ? activeProject.scripts : [],
           targetProjectDefaultModelSelection: activeProject.defaultModelSelection ?? null,
         }
-      : firstSendTarget.target;
-    let nextRuntimeModeForSend = runtimeModeForSend;
+        : firstSendTarget.target;
+      if (promoteToLead && targetProjectKindForSend !== "project") {
+        setStoreThreadError(
+          activeThread.id,
+          "Supervise can create a Lead only inside a real Project workspace.",
+        );
+        return false;
+      }
+      let nextRuntimeModeForSend = runtimeModeForSend;
     let nextThreadEnvMode = envModeForSend;
     let nextThreadBranch = activeThread.branch;
     let nextThreadWorktreePath = activeThread.worktreePath;
@@ -9621,7 +9621,10 @@ export default function ChatView({
         provider: advisorModelSelection.provider,
         model: advisorModelSelection.model,
         effort: resolvePromptEffortFromModelSelection(advisorModelSelection),
-        text: buildAdvisorConsultationPrompt(normalizedQuestion),
+        text: buildAdvisorConsultationPrompt(
+          normalizedQuestion,
+          settings.advisorCustomInstructions,
+        ),
       });
       let forkCreated = false;
 
@@ -9755,6 +9758,7 @@ export default function ChatView({
       isServerThread,
       providerOptionsForDispatch,
       rememberCustomBinaryPathForDispatch,
+      settings.advisorCustomInstructions,
       syncServerShellSnapshot,
     ],
   );
@@ -11499,7 +11503,12 @@ export default function ChatView({
   const showComposerSubagentStrip = composerSubagentStripItems.length > 0;
   const showComposerAdvisorCard =
     advisorConsultation !== null &&
-    !isPendingUserInputAdvisorQuestion(advisorConsultation.question);
+    shouldShowPendingUserInputAdvisorConsultation(
+      advisorConsultation.question,
+      pendingUserInputs.flatMap((request) =>
+        request.questions.map((question) => question.question),
+      ),
+    );
   // The workflow card already lists its run and member agents, so the generic
   // "N background agents" footer only counts tasks outside the workflow.
   const composerBackgroundTaskCount = workflowRunState
@@ -11581,19 +11590,18 @@ export default function ChatView({
                   }
                 />
               ) : null}
-              {showComposerAdvisorCard && advisorConsultation ? (
-                <ComposerAdvisorCard
-                  consultation={advisorConsultation}
-                  onOpenThread={onNavigateToThread}
-                  onUseInTask={onUseAdvisorInTask}
-                  attachedToPrevious={
-                    showComposerLiveChangesHeader ||
-                    showComposerActiveTaskListCard ||
-                    showComposerWorkflowRunCard ||
-                    showComposerSubagentStrip
-                  }
-                />
-              ) : null}
+              <ComposerAdvisorCardPresence
+                consultation={advisorConsultation}
+                open={showComposerAdvisorCard}
+                onOpenThread={onNavigateToThread}
+                onUseInTask={onUseAdvisorInTask}
+                attachedToPrevious={
+                  showComposerLiveChangesHeader ||
+                  showComposerActiveTaskListCard ||
+                  showComposerWorkflowRunCard ||
+                  showComposerSubagentStrip
+                }
+              />
               {composerDraft.handoffDraft ? (
                 <ComposerHandoffPacketRail
                   handoff={composerDraft.handoffDraft}

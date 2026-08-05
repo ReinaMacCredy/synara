@@ -60,7 +60,7 @@ export function projectOrchestratorSidebarChildren<
     readonly id: ThreadId;
     readonly parentThreadId?: ThreadId | null;
     readonly createdAt: string;
-    readonly updatedAt?: string | null;
+    readonly updatedAt?: string | null | undefined;
   },
 >(input: {
   readonly rootThreadId: ThreadId;

@@ -13,7 +13,7 @@ export function ReasoningTextSwap(props: {
     <ReasoningTextSwapStateful
       key={props.scopeKey}
       active={props.active}
-      providerPhrase={props.providerPhrase}
+      {...(props.providerPhrase !== undefined ? { providerPhrase: props.providerPhrase } : {})}
     />
   );
 }

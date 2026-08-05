@@ -267,6 +267,10 @@ const PersistedComposerThreadDraftState = Schema.Struct({
 
 type PersistedComposerThreadDraftState = typeof PersistedComposerThreadDraftState.Type;
 
+function cloneHandoffDraftForPersistence(draft: HandoffDraftV1): DeepMutable<HandoffDraftV1> {
+  return structuredClone(draft) as DeepMutable<HandoffDraftV1>;
+}
+
 const LegacyThreadModelFields = Schema.Struct({
   provider: Schema.optionalKey(ProviderKind),
   model: Schema.optionalKey(Schema.String),
@@ -953,7 +957,7 @@ function normalizePersistedDraftsByThreadId(
         : null;
     const handoffDraft = Schema.is(HandoffDraftV1)(draftCandidate.handoffDraft)
       ? {
-          ...draftCandidate.handoffDraft,
+          ...cloneHandoffDraftForPersistence(draftCandidate.handoffDraft),
           ...(draftCandidate.handoffDraft.preparationState === "preparing"
             ? {
                 preparationState: "interrupted" as const,
@@ -1334,7 +1338,9 @@ export function partializeComposerDraftStoreState(
         : {}),
       ...(draft.runtimeMode ? { runtimeMode: draft.runtimeMode } : {}),
       ...(draft.interactionMode ? { interactionMode: draft.interactionMode } : {}),
-      ...(draft.handoffDraft ? { handoffDraft: draft.handoffDraft } : {}),
+      ...(draft.handoffDraft
+        ? { handoffDraft: cloneHandoffDraftForPersistence(draft.handoffDraft) }
+        : {}),
     };
     persistedDraftsByThreadId[threadId as ThreadId] = persistedDraft;
   }
