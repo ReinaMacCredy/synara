@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 import { TrimmedString } from "./baseSchemas";
-import { DEFAULT_GIT_TEXT_GENERATION_MODEL } from "./model";
+import { DEFAULT_GIT_TEXT_GENERATION_MODEL, DEFAULT_MODEL } from "./model";
 import { ModelSelection, ProviderKind, ThreadEnvironmentMode } from "./orchestration";
 
 const StringSetting = TrimmedString.check(Schema.isMaxLength(4096));
@@ -113,6 +113,16 @@ export const ServerSettings = Schema.Struct({
       model: DEFAULT_GIT_TEXT_GENERATION_MODEL,
     })),
   ),
+  // Default model for Advisor consultations (user tray, ask-user, and agent tool).
+  advisorModelSelection: ModelSelection.pipe(
+    Schema.withDecodingDefault(() => ({
+      provider: "codex" as const,
+      model: DEFAULT_MODEL,
+    })),
+  ),
+  advisorCustomInstructions: Schema.String.check(Schema.isMaxLength(12_000)).pipe(
+    Schema.withDecodingDefault(() => ""),
+  ),
   providers: Schema.Struct({
     codex: CodexServerProviderSettings.pipe(Schema.withDecodingDefault(() => ({}))),
     claudeAgent: ClaudeServerProviderSettings.pipe(Schema.withDecodingDefault(() => ({}))),
@@ -158,6 +168,10 @@ export const ServerSettingsPatch = Schema.Struct({
   defaultThreadEnvMode: Schema.optionalKey(ThreadEnvironmentMode),
   addProjectBaseDirectory: Schema.optionalKey(StringSetting),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
+  advisorModelSelection: Schema.optionalKey(ModelSelectionPatch),
+  advisorCustomInstructions: Schema.optionalKey(
+    Schema.String.check(Schema.isMaxLength(12_000)),
+  ),
   providers: Schema.optionalKey(
     Schema.Struct({
       codex: Schema.optionalKey(

@@ -2,7 +2,12 @@
 // Purpose: Derive durable Advisor UI state from projected child threads.
 
 import type { ThreadId } from "@synara/contracts";
-import { extractAdvisorConsultationQuestion, isAdvisorIdentity } from "@synara/shared/advisor";
+import {
+  extractAdvisorConsultationOrigin,
+  extractAdvisorConsultationQuestion,
+  isAdvisorIdentity,
+  type AdvisorOrigin,
+} from "@synara/shared/advisor";
 
 import type { Thread, ThreadShell } from "../types";
 
@@ -15,6 +20,7 @@ export interface AdvisorConsultation {
   answerStreaming: boolean;
   error: string | null;
   status: AdvisorConsultationStatus;
+  origin: AdvisorOrigin;
 }
 
 export function buildAdvisorThreadTitle(question: string): string {
@@ -58,6 +64,7 @@ export function deriveAdvisorConsultation(thread: Thread | undefined): AdvisorCo
   const question =
     extractAdvisorConsultationQuestion(questionMessage?.text) ??
     "Agent requested a second opinion.";
+  const origin = extractAdvisorConsultationOrigin(questionMessage?.text) ?? "user";
   const answerMessage =
     questionMessageIndex >= 0
       ? thread.messages
@@ -85,6 +92,7 @@ export function deriveAdvisorConsultation(thread: Thread | undefined): AdvisorCo
     answerStreaming: answerMessage?.streaming ?? false,
     error,
     status,
+    origin,
   };
 }
 

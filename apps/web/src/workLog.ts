@@ -21,6 +21,7 @@ import {
 import { summarizeToolRawOutput } from "@synara/shared/toolOutputSummary";
 import { pluralize } from "@synara/shared/text";
 import { PROVIDER_DESCRIPTORS } from "@synara/shared/providerMetadata";
+import { isAdvisorConsultationWorkEntry } from "./lib/advisorWorkEntry";
 import {
   deriveReadableToolTitle,
   deriveSynaraMcpToolTitle,
@@ -262,8 +263,19 @@ export function orderedActivities(
 // because providers stream the tool call first and attach receiver metadata on a
 // later lifecycle update that merges into the same entry. Generic OpenCode task
 // calls carry no receiver metadata and keep their ordinary chat row.
-export function isRoutedSubagentWorkEntry(entry: Pick<WorkLogEntry, "itemType" | "subagents">) {
-  return entry.itemType === "collab_agent_tool_call" && (entry.subagents?.length ?? 0) > 0;
+// Agent-invoked Advisor consultations are the exception: they stay in the
+// transcript as a dedicated live-strip → quiet-receipt row (type 3 Advisor UX).
+export function isRoutedSubagentWorkEntry(
+  entry: Pick<
+    WorkLogEntry,
+    "itemType" | "subagents" | "subagentAction" | "detail" | "preview" | "label"
+  >,
+) {
+  return (
+    entry.itemType === "collab_agent_tool_call" &&
+    (entry.subagents?.length ?? 0) > 0 &&
+    !isAdvisorConsultationWorkEntry(entry)
+  );
 }
 
 // Returns the same array when nothing is routed so memoized consumers keep their

@@ -1495,6 +1495,7 @@ describe("AgentGateway", () => {
         "synara_cancel_automation",
         "synara_update_automation_memory",
         "synara_report_automation_result",
+        "synara_consult_advisor",
       ]);
       const createThreadProperties = tools.find((tool) => tool.name === "synara_create_thread")
         ?.inputSchema.properties;

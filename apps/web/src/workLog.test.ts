@@ -2863,6 +2863,42 @@ describe("deriveWorkLogEntries", () => {
     expect(omitRoutedSubagentWorkEntries(entries)).toEqual([]);
   });
 
+  it("keeps agent-invoked Advisor collab rows in the transcript", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "advisor-spawn",
+        createdAt: "2026-08-05T00:00:01.000Z",
+        kind: "tool.updated",
+        summary: "Spawn Advisor",
+        payload: {
+          itemType: "collab_agent_tool_call",
+          title: "Spawn agent",
+          status: "inProgress",
+          data: {
+            item: {
+              prompt:
+                "SYNARA_ADVISOR_CONSULTATION_V1\nSYNARA_ADVISOR_QUESTION_JSON: \"Keep the adapter?\"\n\nYou are Advisor.",
+              receiverAgents: [
+                {
+                  threadId: "subagent:parent:advisor-1",
+                  agentNickname: "Advisor",
+                  agentRole: "advisor",
+                },
+              ],
+            },
+          },
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+    expect(entries).toHaveLength(1);
+    expect(omitRoutedSubagentWorkEntries(entries)).toHaveLength(1);
+    expect(omitRoutedSubagentWorkEntries(entries)[0]?.subagents?.[0]).toEqual(
+      expect.objectContaining({ nickname: "Advisor", role: "advisor" }),
+    );
+  });
+
   // Providers stream the agent tool call before its receivers, so the routed
   // entry only becomes recognizable once the later update merges into it.
   it("omits routed collab entries that gain their receivers from a merged update", () => {

@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   ADVISOR_CONSULTATION_MARKER,
+  ADVISOR_ORIGIN_PREFIX,
   buildAdvisorConsultationPrompt,
+  extractAdvisorConsultationOrigin,
   extractAdvisorConsultationQuestion,
   isAdvisorConsultationPrompt,
   isAdvisorIdentity,
@@ -16,6 +18,26 @@ describe("Advisor consultation contract", () => {
     expect(prompt).toContain(ADVISOR_CONSULTATION_MARKER);
     expect(prompt).toContain("Advice only");
     expect(extractAdvisorConsultationQuestion(prompt)).toBe(question);
+    expect(extractAdvisorConsultationOrigin(prompt)).toBe("user");
+  });
+
+  it("persists agent and pending-user-input origin in the prompt contract", () => {
+    const agentPrompt = buildAdvisorConsultationPrompt("Ship tonight?", null, "agent");
+    expect(agentPrompt).toContain(`${ADVISOR_ORIGIN_PREFIX} agent`);
+    expect(extractAdvisorConsultationOrigin(agentPrompt)).toBe("agent");
+    expect(extractAdvisorConsultationQuestion(agentPrompt)).toBe("Ship tonight?");
+
+    const pendingPrompt = buildAdvisorConsultationPrompt("Pick an option", null, "pending-user-input");
+    expect(extractAdvisorConsultationOrigin(pendingPrompt)).toBe("pending-user-input");
+  });
+
+  it("defaults missing origin lines to user for legacy consultations", () => {
+    const legacy = `${ADVISOR_CONSULTATION_MARKER}
+SYNARA_ADVISOR_QUESTION_JSON: "Legacy question?"
+
+You are Advisor.`;
+    expect(extractAdvisorConsultationOrigin(legacy)).toBe("user");
+    expect(extractAdvisorConsultationQuestion(legacy)).toBe("Legacy question?");
   });
 
   it("appends trimmed custom instructions beneath the immutable core contract", () => {

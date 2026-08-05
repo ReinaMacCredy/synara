@@ -120,18 +120,17 @@ describe("Codex Synara harness policy", () => {
     }
   });
 
-  it("offers one bounded Advisor consultation in default and plan modes", () => {
-    expect(CODEX_ADVISOR_DEVELOPER_INSTRUCTIONS).toContain("SYNARA_ADVISOR_CONSULTATION_V1");
-    expect(CODEX_ADVISOR_DEVELOPER_INSTRUCTIONS).toContain('task_name: "advisor"');
-    expect(CODEX_ADVISOR_DEVELOPER_INSTRUCTIONS).toContain("Omit `agent_type`");
-    expect(CODEX_ADVISOR_DEVELOPER_INSTRUCTIONS).toContain("not a spawnable agent role");
+  it("offers one bounded Advisor consultation via synara_consult_advisor in default and plan modes", () => {
+    expect(CODEX_ADVISOR_DEVELOPER_INSTRUCTIONS).toContain("synara_consult_advisor");
+    expect(CODEX_ADVISOR_DEVELOPER_INSTRUCTIONS).toContain("Do **not** use provider");
+    expect(CODEX_ADVISOR_DEVELOPER_INSTRUCTIONS).toContain("spawn_agent");
     expect(CODEX_ADVISOR_DEVELOPER_INSTRUCTIONS).toContain("advice-only");
-    expect(CODEX_ADVISOR_DEVELOPER_INSTRUCTIONS).toContain("one Advisor consultation");
+    expect(CODEX_ADVISOR_DEVELOPER_INSTRUCTIONS).not.toContain('task_name: "advisor"');
     for (const instructions of [
       CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
       CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS,
     ]) {
-      expect(instructions.split("SYNARA_ADVISOR_CONSULTATION_V1")).toHaveLength(2);
+      expect(instructions).toContain("synara_consult_advisor");
     }
   });
 

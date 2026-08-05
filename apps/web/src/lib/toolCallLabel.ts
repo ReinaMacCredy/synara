@@ -276,6 +276,11 @@ const SYNARA_MCP_TOOL_PRESENTATIONS = {
     completed: "Synara stopped an automation",
     failed: "Synara couldn't stop an automation",
   },
+  synara_consult_advisor: {
+    running: "Asking Advisor",
+    completed: "Got a second opinion",
+    failed: "Advisor could not complete",
+  },
   ...SYNARA_BROWSER_TOOL_PRESENTATIONS,
 } as const satisfies Record<string, SynaraMcpToolPresentation>;
 

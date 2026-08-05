@@ -3,7 +3,7 @@
 // Layer: Web chat presentation component
 // Exports: TimelineWorkEntryRow, EditedFileRowContent, prefersCompactWorkEntryRow
 
-import type { TurnId } from "@synara/contracts";
+import type { ThreadId, TurnId } from "@synara/contracts";
 import { BookOpen, Globe, Images, Pencil, Search, SquareTerminal, Wrench } from "lucide-react";
 import {
   createElement,
@@ -44,7 +44,9 @@ import {
   isCodexActivityStatusWorkEntry,
   isReasoningUpdateWorkEntry,
 } from "./agentActivity.logic";
+import { isAdvisorConsultationWorkEntry } from "~/lib/advisorWorkEntry";
 import { AutomationCreatedCard } from "./AutomationCreatedCard";
+import { AdvisorConsultationWorkRow } from "./AdvisorConsultationWorkRow";
 import ChatMarkdown from "../ChatMarkdown";
 import { DiffStatLabel } from "./DiffStatLabel";
 import { type ExpandedImagePreview } from "./ExpandedImagePreview";
@@ -454,6 +456,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
   onOpenTurnDiff?: (turnId: TurnId, filePath?: string) => void;
   onOpenAgentActivity?: (activityId: string) => void;
   onOpenAutomation?: (automationId: string) => void;
+  onOpenThread?: (threadId: ThreadId) => void;
   timestampFormat: TimestampFormat;
 }) {
   // Defaults are applied in the body (not in the destructuring pattern): a default
@@ -472,6 +475,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
     onOpenTurnDiff,
     onOpenAgentActivity,
     onOpenAutomation,
+    onOpenThread,
     timestampFormat,
   } = props;
   const textFontSizePx = textFontSizePxProp ?? chatMetaFontSizePx;
@@ -586,6 +590,17 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
           {...(onOpenAutomation ? { onOpen: () => onOpenAutomation(automation.id) } : {})}
         />
       </div>
+    );
+  }
+
+  // Agent-invoked Advisor (type 3): live strip → quiet expandable receipt.
+  if (isAdvisorConsultationWorkEntry(workEntry)) {
+    return (
+      <AdvisorConsultationWorkRow
+        workEntry={workEntry}
+        fontSizePx={textFontSizePx}
+        {...(onOpenThread ? { onOpenThread } : {})}
+      />
     );
   }
 

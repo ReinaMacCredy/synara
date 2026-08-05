@@ -144,6 +144,7 @@ import {
   deriveAdvisorConsultation,
   findLatestAdvisorThreadShell,
 } from "../lib/advisorConsultation";
+
 import { ensureHomeChatProject, isHomeChatContainerProject } from "../lib/chatProjects";
 import { resolveFirstSendTarget } from "../lib/chatFirstSend";
 import { readActiveSpaceId } from "../spacesUiStore";
@@ -9632,6 +9633,11 @@ export default function ChatView({
         text: buildAdvisorConsultationPrompt(
           normalizedQuestion,
           settings.advisorCustomInstructions,
+          // Pending-user-input questions carry their own marker inside the JSON
+          // payload; stamp origin so UI can distinguish type 2 from type 1/3.
+          normalizedQuestion.includes("SYNARA_PENDING_USER_INPUT_ADVISOR_V1")
+            ? "pending-user-input"
+            : "user",
         ),
       });
       let forkCreated = false;
@@ -11509,8 +11515,11 @@ export default function ChatView({
   );
   const showComposerWorkflowRunCard = workflowRunState !== null;
   const showComposerSubagentStrip = composerSubagentStripItems.length > 0;
+  // Type 3 agent-auto Advisor (origin=agent) renders as B strip/receipt in the
+  // transcript. Composer card stays type 1 (user) and type 2 (pending-user-input).
   const showComposerAdvisorCard =
     advisorConsultation !== null &&
+    advisorConsultation.origin !== "agent" &&
     shouldShowPendingUserInputAdvisorConsultation(
       advisorConsultation.question,
       pendingUserInputs.flatMap((request) =>

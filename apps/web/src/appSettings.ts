@@ -594,6 +594,8 @@ function serverSettingsToAppSettings(settings: ServerSettingsView): Partial<AppS
     customPiModels: settings.providers.pi.customModels,
     textGenerationProvider: settings.textGenerationModelSelection.provider,
     textGenerationModel: settings.textGenerationModelSelection.model,
+    advisorModelSelection: settings.advisorModelSelection,
+    advisorCustomInstructions: settings.advisorCustomInstructions,
   };
 }
 
@@ -649,6 +651,18 @@ function appSettingsPatchToServerSettingsPatch(patch: Partial<AppSettings>): Ser
       }),
       model,
     };
+  }
+  if (hasOwn(patch, "advisorModelSelection") && patch.advisorModelSelection) {
+    serverPatch.advisorModelSelection = {
+      provider: patch.advisorModelSelection.provider,
+      model: patch.advisorModelSelection.model,
+      ...(patch.advisorModelSelection.options !== undefined
+        ? { options: patch.advisorModelSelection.options }
+        : {}),
+    };
+  }
+  if (hasOwn(patch, "advisorCustomInstructions")) {
+    serverPatch.advisorCustomInstructions = patch.advisorCustomInstructions ?? "";
   }
 
   if (
@@ -797,10 +811,17 @@ function buildInitialServerSettingsMigrationPatch(settings: AppSettings): Server
     "piBinaryPath",
     "textGenerationModel",
     "textGenerationProvider",
+    "advisorCustomInstructions",
   ] as const) {
     if (normalizedSettings[key] !== defaults[key]) {
       patch[key] = normalizedSettings[key] as never;
     }
+  }
+  if (
+    JSON.stringify(normalizedSettings.advisorModelSelection) !==
+    JSON.stringify(defaults.advisorModelSelection)
+  ) {
+    patch.advisorModelSelection = normalizedSettings.advisorModelSelection;
   }
 
   // Migrate legacy browser-stored passwords once before normalizeAppSettings

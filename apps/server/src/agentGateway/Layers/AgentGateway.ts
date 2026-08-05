@@ -76,6 +76,7 @@ import { BrowserAutomationHost } from "../../browserAutomation/Services/BrowserA
 import { makeBrowserAutomationHost } from "../../browserAutomation/Layers/BrowserAutomationHost.ts";
 import { makeThreadReadTools } from "../threadReadTools.ts";
 import { makeThreadDiagnosticTools } from "../threadDiagnosticTools.ts";
+import { makeAgentGatewayAdvisorTools } from "../advisorTools.ts";
 import { pruneProjectedArchivedManagedWorktrees } from "../../managedWorktrees.ts";
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 
@@ -614,6 +615,12 @@ export const makeAgentGateway = Effect.gen(function* () {
         );
       }).pipe(Effect.orElseSucceed(() => null)),
   });
+  const advisorTools = makeAgentGatewayAdvisorTools({
+    orchestrationEngine,
+    snapshotQuery,
+    serverSettings,
+    requireThreadShell,
+  });
   const tools: ReadonlyArray<ToolEntry> = [
     ...readTools,
     ...diagnosticTools,
@@ -625,6 +632,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     setThreadArchived,
     ...automationTools,
     ...browserTools,
+    ...advisorTools,
   ];
   return {
     handleMcpPost: makeAgentGatewayMcpTransport({

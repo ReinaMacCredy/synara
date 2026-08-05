@@ -39,7 +39,7 @@ import {
   type UserInputQuestion,
   type AcceptedCrossModeHandoffV1,
 } from "@synara/contracts";
-import { ADVISOR_CONSULTATION_MARKER, ADVISOR_QUESTION_PREFIX } from "@synara/shared/advisor";
+
 import { prewarmChatGptVoiceTranscriptionConnection } from "@synara/shared/chatGptVoiceTranscription";
 import { getModelSelectionBooleanOptionValue, normalizeModelSlug } from "@synara/shared/model";
 import { decodeSubagentReceiverThreadIds } from "@synara/shared/subagents";
@@ -475,13 +475,9 @@ export const CODEX_ADVISOR_DEVELOPER_INSTRUCTIONS = `
 
 ## Advisor consultation
 
-When the collaboration \`spawn_agent\` tool is available, you may ask one Advisor for a second opinion only when material uncertainty blocks a sound answer or implementation decision. Do not invoke Advisor for routine work, and never have more than one Advisor consultation running at once.
+When material uncertainty blocks a sound answer or implementation decision, you may ask Synara Advisor for one second opinion via the gateway tool \`synara_consult_advisor\` (argument: \`question\`). Do not invoke Advisor for routine work, and never start a second consultation while one is still running.
 
-To consult Advisor, spawn exactly one child with \`task_name: "advisor"\`. Omit \`agent_type\` so the child uses the current supported provider runtime; Advisor is an identity assigned by Synara, not a spawnable agent role. Begin the child message with these two lines:
-\`${ADVISOR_CONSULTATION_MARKER}\`
-\`${ADVISOR_QUESTION_PREFIX} "<the concrete question as a JSON string>"\`
-
-Then instruct the child to inspect the inherited context and answer once. The child is advice-only: it must not edit files, run mutating commands, send external messages, request approvals, delegate, or take task ownership. Treat its answer as non-binding input, expose the consultation honestly, and make the final decision yourself.`;
+Do **not** use provider \`spawn_agent\` / collab spawn for Advisor. Synara creates the same durable consultation as the user tray (Settings default Advisor model, advice-only, approval-required). The tool blocks until advice is ready and returns it in the tool result. Treat the advice as non-binding input, expose the consultation honestly, and make the final decision yourself.`;
 
 export const CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS = `<collaboration_mode># Plan Mode (Conversational)
 
