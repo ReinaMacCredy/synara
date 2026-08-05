@@ -1461,9 +1461,11 @@ export default function ChatView({
   const pendingUserInputAnswersByRequestIdRef = useRef(pendingUserInputAnswersByRequestId);
   const [pendingUserInputQuestionIndexByRequestId, setPendingUserInputQuestionIndexByRequestId] =
     useState<Record<string, number>>({});
-  // Composer is hidden only while the ask-user disclosure is expanded — not
-  // merely when pending data exists — so open animation never leaves a blank
-  // gap where both the panel (closed) and the composer (hidden) are gone.
+  // Ask-user panel owns the dock only once Presence reports expanded.
+  // Gate shell hide *and* editor/footer unmount on this flag (not on
+  // pendingUserInputs.length) so t0 never strips composer guts while the
+  // panel is still closed — that hollow shell made the whole chat flick
+  // before the open animation.
   const [pendingUserInputPanelExpanded, setPendingUserInputPanelExpanded] = useState(false);
   const [planSidebarOpen, setPlanSidebarOpen] = useState(false);
   const [activeTaskListCompact, setActiveTaskListCompact] = useState(false);
@@ -11840,7 +11842,7 @@ export default function ChatView({
                     </div>
                   ) : null}
                   {!isComposerApprovalState &&
-                    pendingUserInputs.length === 0 &&
+                    !pendingUserInputPanelExpanded &&
                     isPreparingComposerImages && (
                       <div
                         className="flex items-center gap-1.5 px-1 text-xs text-muted-foreground"
@@ -11851,7 +11853,7 @@ export default function ChatView({
                       </div>
                     )}
                   {!isComposerApprovalState &&
-                    pendingUserInputs.length === 0 &&
+                    !pendingUserInputPanelExpanded &&
                     (composerAssistantSelections.length > 0 ||
                       composerBrowserAnnotations.length > 0 ||
                       composerFileComments.length > 0 ||
@@ -11876,7 +11878,7 @@ export default function ChatView({
                         onRemoveImage={removeComposerImage}
                       />
                     )}
-                  {pendingUserInputs.length === 0 ? (
+                  {!pendingUserInputPanelExpanded ? (
                     <ComposerPromptEditor
                       ref={composerEditorRef}
                       value={isComposerApprovalState ? "" : prompt}
@@ -11908,8 +11910,9 @@ export default function ChatView({
                   ) : null}
                 </div>
                 {/* Decision cards own their controls and inputs while active, so the normal
-                    composer footer stays hidden until the provider request settles. */}
-                {activePendingApproval || pendingUserInputs.length > 0 ? null : (
+                    composer footer stays hidden until the ask-user panel is expanded (not
+                    merely when pending data arrives — avoids a hollow shell flicker). */}
+                {activePendingApproval || pendingUserInputPanelExpanded ? null : (
                   <div
                     data-chat-composer-footer="true"
                     className={cn(

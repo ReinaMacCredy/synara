@@ -333,6 +333,134 @@
   }
 }
 
+/*
+ * Ask-user panel presence exit (ComposerPendingUserInputPanelPresence):
+ * 1) Card compresses into an "Answer sent" pill (story, not a hard vanish)
+ * 2) Ease-in snappy grid collapse so a tall multi-option card does not squash-flick
+ * Enter keeps bottom-origin 220ms ease-out; exit is intentionally asymmetric.
+ */
+.pending-user-input-presence-shell {
+  display: grid;
+  overflow: hidden;
+}
+
+.pending-user-input-presence-shell[data-open="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition:
+    grid-template-rows 220ms ease-out,
+    opacity 180ms ease-out 40ms;
+}
+
+.pending-user-input-presence-shell[data-open="false"] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  /* Option 14: ease-in snappy close — short so the curve does not feel sticky */
+  transition:
+    grid-template-rows 170ms cubic-bezier(0.4, 0, 1, 1),
+    opacity 120ms cubic-bezier(0.4, 0, 1, 1);
+}
+
+.pending-user-input-presence-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.pending-user-input-presence-content {
+  transition:
+    opacity 220ms ease-out,
+    transform 220ms ease-out;
+}
+
+.pending-user-input-presence-shell[data-open="true"] .pending-user-input-presence-content {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.pending-user-input-presence-shell[data-open="false"] .pending-user-input-presence-content {
+  opacity: 0;
+  transform: translateY(8px);
+  transition:
+    opacity 100ms cubic-bezier(0.4, 0, 1, 1),
+    transform 150ms cubic-bezier(0.4, 0, 1, 1);
+}
+
+.pending-user-input-presence-stack {
+  position: relative;
+  overflow: hidden;
+  /* Tall enough for multi-option cards; eases down to the pill on exit. */
+  max-height: 40rem;
+  transition: max-height 140ms cubic-bezier(0.4, 0, 1, 1);
+}
+
+.pending-user-input-presence-shell[data-exit-receipt="true"] .pending-user-input-presence-stack {
+  max-height: 2.5rem;
+}
+
+.pending-user-input-presence-card {
+  transform-origin: 50% 100%;
+  transition:
+    opacity 110ms cubic-bezier(0.4, 0, 1, 1),
+    transform 140ms cubic-bezier(0.4, 0, 1, 1);
+}
+
+.pending-user-input-presence-card[data-exit-receipt="true"] {
+  opacity: 0;
+  transform: scaleY(0.22) translateY(20%);
+  pointer-events: none;
+}
+
+.pending-user-input-presence-receipt {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  opacity: 0;
+  transform: translateY(6px) scale(0.97);
+  pointer-events: none;
+  transition:
+    opacity 100ms ease-out 20ms,
+    transform 130ms cubic-bezier(0.23, 1, 0.32, 1) 10ms;
+}
+
+.pending-user-input-presence-receipt[data-exit-receipt="true"] {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: none;
+}
+
+.pending-user-input-presence-receipt-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--color-success, #2f6b4f) 32%, var(--border));
+  background: color-mix(in oklab, var(--color-success, #2f6b4f) 12%, var(--muted));
+  color: var(--color-success, #2f6b4f);
+  padding: 0.4rem 0.85rem;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  box-shadow: 0 1px 0 color-mix(in oklab, var(--foreground) 4%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pending-user-input-presence-shell[data-open="true"],
+  .pending-user-input-presence-shell[data-open="false"],
+  .pending-user-input-presence-content,
+  .pending-user-input-presence-shell[data-open="false"] .pending-user-input-presence-content,
+  .pending-user-input-presence-stack,
+  .pending-user-input-presence-card,
+  .pending-user-input-presence-receipt {
+    transition: opacity 120ms ease !important;
+    transform: none !important;
+    filter: none !important;
+    max-height: none !important;
+  }
+}
+
 /* One-shot entry for the sidebar's segment surface swap (Orchestrator <-> Projects).
    Keyed remounts play this on the incoming surface so the switch reads
    as a movement instead of a hard cut. Enter-only by design: no exit or height

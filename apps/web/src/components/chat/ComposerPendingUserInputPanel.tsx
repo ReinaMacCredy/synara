@@ -29,8 +29,13 @@ import {
   CircleQuestionIcon,
   LoaderCircleIcon,
 } from "~/lib/icons";
-import { DISCLOSURE_CLEANUP_BUFFER_MS, DISCLOSURE_TRANSITION_MS } from "~/lib/disclosureMotion";
+import { DISCLOSURE_CLEANUP_BUFFER_MS } from "~/lib/disclosureMotion";
 import { cn } from "~/lib/utils";
+
+/** Card morphs into the Answer-sent pill before the slot collapses. */
+export const PENDING_USER_INPUT_EXIT_RECEIPT_MS = 140;
+/** Ease-in snappy grid collapse after the receipt pill is showing. */
+export const PENDING_USER_INPUT_EXIT_COLLAPSE_MS = 170;
 
 interface PendingUserInputPanelProps {
   pendingUserInputs: PendingUserInput[];
@@ -87,12 +92,12 @@ export function ComposerPendingUserInputPanel({
 }
 
 /**
- * Keeps the ask-user card mounted through one shared bottom-origin disclosure
- * close when the pending request clears.
+ * Keeps the ask-user card mounted through a two-phase exit when the request clears:
+ * 1) Card compresses into an "Answer sent" pill (story, not a hard vanish)
+ * 2) Ease-in snappy slot collapse so the tall panel does not squash-flick
  *
- * Enter opens immediately (no multi-frame closed gate) so the composer can stay
- * visible until this region is actually expanded — avoids a blank gap that felt
- * like the popup was “late”. Exit still eases closed with shared 220ms motion.
+ * Enter opens on the next paint (closed → open transition) without multi-frame
+ * delay so the composer can stay visible until this region is actually expanded.
  */
 export function ComposerPendingUserInputPanelPresence({
   open,
@@ -106,6 +111,7 @@ export function ComposerPendingUserInputPanelPresence({
 }) {
   const [presented, setPresented] = useState<PendingUserInputPanelProps | null>(null);
   const [regionOpen, setRegionOpen] = useState(false);
+  const [exitReceipt, setExitReceipt] = useState(false);
   const wasOpenRef = useRef(false);
   const onExpandedChangeRef = useRef(onExpandedChange);
   onExpandedChangeRef.current = onExpandedChange;
@@ -115,52 +121,109 @@ export function ComposerPendingUserInputPanelPresence({
   });
   latestPropsRef.current = { pendingUserInputs, ...panelProps };
 
-  useEffect(() => {
-    onExpandedChangeRef.current?.(regionOpen);
-  }, [regionOpen]);
+  // Stay "expanded" through receipt + collapse so composer guts/shell do not
+  // reappear under the pill. Notify the parent in the same turn as regionOpen
+  // flips so guts strip and shell hide land with the panel open paint (option B).
+  const notifyExpanded = (expanded: boolean) => {
+    onExpandedChangeRef.current?.(expanded);
+  };
 
   useEffect(() => {
     if (open) {
       if (latestPropsRef.current.pendingUserInputs[0]) {
         setPresented(latestPropsRef.current);
       }
+      setExitReceipt(false);
       wasOpenRef.current = true;
-      // Open on the next paint so CSS transitions still see closed → open, but
-      // never sit multi-frame closed while the composer is already hidden.
+      // Open on the next paint so CSS transitions still see closed → open.
+      // Composer guts stay mounted until this fires (gated on expanded in ChatView).
       const frame = window.requestAnimationFrame(() => {
         setRegionOpen(true);
+        notifyExpanded(true);
       });
       return () => window.cancelAnimationFrame(frame);
     }
 
     if (!wasOpenRef.current) {
       setRegionOpen(false);
+      setExitReceipt(false);
       setPresented(null);
+      notifyExpanded(false);
       return;
     }
 
     wasOpenRef.current = false;
-    setRegionOpen(false);
-    const cleanup = window.setTimeout(
-      () => setPresented(null),
-      DISCLOSURE_TRANSITION_MS + DISCLOSURE_CLEANUP_BUFFER_MS,
+    // Phase 1: morph to Answer-sent pill while the shell stays open.
+    setExitReceipt(true);
+    setRegionOpen(true);
+    notifyExpanded(true);
+
+    const collapseTimer = window.setTimeout(() => {
+      // Phase 2: ease-in snappy height collapse (keep expanded so guts stay gone).
+      setRegionOpen(false);
+    }, PENDING_USER_INPUT_EXIT_RECEIPT_MS);
+
+    const cleanupTimer = window.setTimeout(
+      () => {
+        setPresented(null);
+        setExitReceipt(false);
+        notifyExpanded(false);
+      },
+      PENDING_USER_INPUT_EXIT_RECEIPT_MS +
+        PENDING_USER_INPUT_EXIT_COLLAPSE_MS +
+        DISCLOSURE_CLEANUP_BUFFER_MS,
     );
-    return () => window.clearTimeout(cleanup);
+
+    return () => {
+      window.clearTimeout(collapseTimer);
+      window.clearTimeout(cleanupTimer);
+    };
   }, [open]);
 
   // Live props on the same frame open becomes true (no empty mount → flash).
   const live = open && pendingUserInputs[0] != null;
   const propsForPanel = live ? latestPropsRef.current : presented;
-  if (!propsForPanel?.pendingUserInputs[0]) {
+  if (!propsForPanel?.pendingUserInputs[0] && !exitReceipt) {
     return null;
   }
 
   return (
-    <DisclosureRegion open={regionOpen} contentOrigin="bottom">
-      <div className="pb-2" data-composer-pending-user-input-presence="true">
-        <ComposerPendingUserInputPanel {...propsForPanel} />
+    <div
+      className="pending-user-input-presence-shell"
+      data-open={regionOpen ? "true" : "false"}
+      data-exit-receipt={exitReceipt ? "true" : "false"}
+      data-composer-pending-user-input-presence="true"
+      aria-hidden={regionOpen || exitReceipt ? undefined : true}
+      inert={!regionOpen || exitReceipt}
+    >
+      <div className="pending-user-input-presence-inner">
+        <div className="pending-user-input-presence-content pb-2">
+          <div className="pending-user-input-presence-stack">
+            {propsForPanel?.pendingUserInputs[0] ? (
+              <div
+                className="pending-user-input-presence-card"
+                data-exit-receipt={exitReceipt ? "true" : "false"}
+                aria-hidden={exitReceipt ? true : undefined}
+              >
+                <ComposerPendingUserInputPanel {...propsForPanel} />
+              </div>
+            ) : null}
+            <div
+              className="pending-user-input-presence-receipt"
+              data-exit-receipt={exitReceipt ? "true" : "false"}
+              role={exitReceipt ? "status" : undefined}
+              aria-live={exitReceipt ? "polite" : undefined}
+              aria-hidden={exitReceipt ? undefined : true}
+            >
+              <span className="pending-user-input-presence-receipt-pill">
+                <CheckIcon className="size-3.5 shrink-0" aria-hidden="true" />
+                Answer sent
+              </span>
+            </div>
+          </div>
+        </div>
       </div>
-    </DisclosureRegion>
+    </div>
   );
 }
 

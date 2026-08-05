@@ -18,10 +18,12 @@ import {
 } from "../../pendingUserInput";
 import { buildPendingUserInputAdvisorQuestion } from "../../pendingUserInputAdvisor";
 import type { AdvisorConsultation } from "~/lib/advisorConsultation";
-import { DISCLOSURE_CLEANUP_BUFFER_MS, DISCLOSURE_TRANSITION_MS } from "~/lib/disclosureMotion";
+import { DISCLOSURE_CLEANUP_BUFFER_MS } from "~/lib/disclosureMotion";
 import {
   ComposerPendingUserInputPanel,
   ComposerPendingUserInputPanelPresence,
+  PENDING_USER_INPUT_EXIT_COLLAPSE_MS,
+  PENDING_USER_INPUT_EXIT_RECEIPT_MS,
 } from "./ComposerPendingUserInputPanel";
 
 const QUESTIONS: UserInputQuestion[] = [
@@ -346,7 +348,7 @@ describe("ComposerPendingUserInputPanel", () => {
     }
   });
 
-  it("retains the card through a bottom-origin close transition", async () => {
+  it("morphs to an Answer-sent pill then ease-in collapses the slot", async () => {
     const panelProps = {
       pendingUserInputs: [PROMPT],
       isResponding: false,
@@ -383,18 +385,47 @@ describe("ComposerPendingUserInputPanel", () => {
 
       await mounted.rerender(renderPresence(false));
 
-      await expect.poll(() => mounted.container.querySelector('[aria-hidden="true"]')).not.toBeNull();
-      const closingShell = mounted.container.querySelector('[aria-hidden="true"]');
-      expect(closingShell?.querySelector(".translate-y-3")).not.toBeNull();
+      // Phase 1: receipt morph while the card is still mounted under the shell.
+      await expect
+        .poll(
+          () =>
+            mounted.container.querySelector(
+              '[data-composer-pending-user-input-presence="true"][data-exit-receipt="true"]',
+            ),
+        )
+        .not.toBeNull();
+      await expect.element(page.getByRole("status")).toHaveTextContent("Answer sent");
       expect(
         mounted.container.querySelector('[data-testid="composer-pending-user-input-panel"]'),
       ).not.toBeNull();
+      expect(
+        mounted.container
+          .querySelector("[data-composer-pending-user-input-presence='true']")
+          ?.getAttribute("data-open"),
+      ).toBe("true");
+
+      // After receipt, shell starts the ease-in collapse.
+      await expect
+        .poll(
+          () =>
+            mounted.container
+              .querySelector("[data-composer-pending-user-input-presence='true']")
+              ?.getAttribute("data-open"),
+          { timeout: PENDING_USER_INPUT_EXIT_RECEIPT_MS + 120 },
+        )
+        .toBe("false");
 
       await new Promise((resolve) =>
-        window.setTimeout(resolve, DISCLOSURE_TRANSITION_MS + DISCLOSURE_CLEANUP_BUFFER_MS + 30),
+        window.setTimeout(
+          resolve,
+          PENDING_USER_INPUT_EXIT_COLLAPSE_MS + DISCLOSURE_CLEANUP_BUFFER_MS + 40,
+        ),
       );
       expect(
         mounted.container.querySelector('[data-testid="composer-pending-user-input-panel"]'),
+      ).toBeNull();
+      expect(
+        mounted.container.querySelector("[data-composer-pending-user-input-presence='true']"),
       ).toBeNull();
     } finally {
       await mounted.unmount();
