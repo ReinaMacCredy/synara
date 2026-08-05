@@ -90,6 +90,9 @@ export function ComposerPendingUserInputPanel({
  * Keeps the ask-user card mounted through one shared bottom-origin disclosure
  * close when the pending request clears, and rAF-opens on appear so enter is
  * not a hard cut (option A: shared 220ms disclosure motion).
+ *
+ * Motion depends on `open` only — prop/array identity churn must not cancel
+ * the enter rAF and leave the card at height 0.
  */
 export function ComposerPendingUserInputPanelPresence({
   open,
@@ -98,6 +101,7 @@ export function ComposerPendingUserInputPanelPresence({
 }: PendingUserInputPanelProps & { open: boolean }) {
   const [presented, setPresented] = useState<PendingUserInputPanelProps | null>(null);
   const [regionOpen, setRegionOpen] = useState(false);
+  const wasOpenRef = useRef(false);
   const latestPropsRef = useRef<PendingUserInputPanelProps>({
     pendingUserInputs,
     ...panelProps,
@@ -105,20 +109,29 @@ export function ComposerPendingUserInputPanelPresence({
   latestPropsRef.current = { pendingUserInputs, ...panelProps };
 
   useEffect(() => {
-    if (open && pendingUserInputs[0]) {
-      setPresented(latestPropsRef.current);
+    if (open) {
+      if (latestPropsRef.current.pendingUserInputs[0]) {
+        setPresented(latestPropsRef.current);
+      }
+      wasOpenRef.current = true;
       const frame = window.requestAnimationFrame(() => setRegionOpen(true));
       return () => window.cancelAnimationFrame(frame);
     }
 
-    // Keep the last open snapshot mounted while regionOpen eases closed.
+    if (!wasOpenRef.current) {
+      setRegionOpen(false);
+      setPresented(null);
+      return;
+    }
+
+    wasOpenRef.current = false;
     setRegionOpen(false);
     const cleanup = window.setTimeout(
       () => setPresented(null),
       DISCLOSURE_TRANSITION_MS + DISCLOSURE_CLEANUP_BUFFER_MS,
     );
     return () => window.clearTimeout(cleanup);
-  }, [open, pendingUserInputs]);
+  }, [open]);
 
   if (!presented) {
     return null;

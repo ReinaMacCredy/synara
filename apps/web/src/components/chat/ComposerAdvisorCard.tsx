@@ -149,8 +149,10 @@ interface ComposerAdvisorCardPresenceProps extends Omit<ComposerAdvisorCardProps
 
 /**
  * Shared disclosure presence (option A): bottom-origin 220ms open/close.
- * Presence is driven by `open` only — consultation identity/status ticks must
- * update card content in place without replaying enter or hard-cutting exit.
+ *
+ * Motion is driven only by `open`. Consultation identity/status ticks update
+ * card content in a separate effect so they cannot cancel the enter rAF and
+ * leave the region stuck at height 0 (invisible card).
  */
 export function ComposerAdvisorCardPresence({
   consultation,
@@ -163,18 +165,26 @@ export function ComposerAdvisorCardPresence({
   const [regionOpen, setRegionOpen] = useState(false);
   const wasOpenRef = useRef(false);
   const snapshotRef = useRef<AdvisorConsultation | null>(null);
+  const consultationRef = useRef(consultation);
+  consultationRef.current = consultation;
 
+  // Content only — never owns enter/exit timers.
   useEffect(() => {
     if (open && consultation) {
       snapshotRef.current = consultation;
       setRenderedConsultation(consultation);
-      if (wasOpenRef.current) {
-        // Already visible: status/answer ticks only refresh content.
-        return;
+    }
+  }, [open, consultation]);
+
+  // Presence motion — `open` alone. Status ticks must not re-run this effect.
+  useEffect(() => {
+    if (open) {
+      const current = consultationRef.current;
+      if (current) {
+        snapshotRef.current = current;
+        setRenderedConsultation(current);
       }
       wasOpenRef.current = true;
-      // First paint stays closed; next frame opens so height/opacity can ease in.
-      setRegionOpen(false);
       const frame = window.requestAnimationFrame(() => {
         setRegionOpen(true);
       });
@@ -189,7 +199,6 @@ export function ComposerAdvisorCardPresence({
     }
 
     wasOpenRef.current = false;
-    // Freeze the last live consultation for the close paint (prop may already be null).
     setRenderedConsultation(snapshotRef.current);
     setRegionOpen(false);
     const cleanup = window.setTimeout(() => {
@@ -197,7 +206,7 @@ export function ComposerAdvisorCardPresence({
       snapshotRef.current = null;
     }, DISCLOSURE_TRANSITION_MS + DISCLOSURE_CLEANUP_BUFFER_MS);
     return () => window.clearTimeout(cleanup);
-  }, [open, consultation]);
+  }, [open]);
 
   if (!renderedConsultation) {
     return null;

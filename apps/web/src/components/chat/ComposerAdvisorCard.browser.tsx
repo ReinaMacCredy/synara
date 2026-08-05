@@ -109,11 +109,25 @@ describe("ComposerAdvisorCard", () => {
       .toBe("open");
 
     const shellBefore = mounted.container.querySelector("[data-composer-advisor-card-presence]");
+
+    // Rapid identity churn (streaming / status) must not cancel enter or collapse.
+    for (let i = 0; i < 5; i += 1) {
+      await mounted.rerender(
+        renderPresence(
+          consultation({
+            status: "running",
+            answer: i % 2 === 0 ? "Option" : "Option A",
+            answerStreaming: true,
+          }),
+        ),
+      );
+    }
     await mounted.rerender(
       renderPresence(
         consultation({
           status: "complete",
           answer: "Option A\nIt keeps rollback simple.",
+          answerStreaming: false,
         }),
       ),
     );
@@ -134,5 +148,10 @@ describe("ComposerAdvisorCard", () => {
         .querySelector("[data-composer-advisor-card-presence]")
         ?.querySelector('[aria-hidden="true"].grid'),
     ).toBeNull();
+    // Card is not stuck at height 0.
+    const card = mounted.container.querySelector<HTMLElement>(
+      '[data-testid="composer-advisor-card"]',
+    );
+    expect(card?.getBoundingClientRect().height ?? 0).toBeGreaterThan(20);
   });
 });
