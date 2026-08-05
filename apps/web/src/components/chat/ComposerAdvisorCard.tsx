@@ -151,74 +151,82 @@ interface ComposerAdvisorCardPresenceProps extends Omit<ComposerAdvisorCardProps
  * Shared disclosure presence (option A): bottom-origin 220ms open/close.
  *
  * Motion is driven only by `open`. Consultation identity/status ticks update
- * card content in a separate effect so they cannot cancel the enter rAF and
- * leave the region stuck at height 0 (invisible card).
+ * card content without re-running enter. Enter uses double-rAF so the closed
+ * styles paint once before opening (avoids a 1-frame full-height flicker).
  */
 export function ComposerAdvisorCardPresence({
   consultation,
   open,
   ...cardProps
 }: ComposerAdvisorCardPresenceProps) {
-  const [renderedConsultation, setRenderedConsultation] = useState<AdvisorConsultation | null>(
-    null,
-  );
+  const [frozenConsultation, setFrozenConsultation] = useState<AdvisorConsultation | null>(null);
   const [regionOpen, setRegionOpen] = useState(false);
   const wasOpenRef = useRef(false);
   const snapshotRef = useRef<AdvisorConsultation | null>(null);
   const consultationRef = useRef(consultation);
   consultationRef.current = consultation;
 
-  // Content only — never owns enter/exit timers.
+  // Freeze snapshot while open so exit still has content after open flips false.
   useEffect(() => {
     if (open && consultation) {
       snapshotRef.current = consultation;
-      setRenderedConsultation(consultation);
+      setFrozenConsultation(consultation);
     }
   }, [open, consultation]);
 
-  // Presence motion — `open` alone. Status ticks must not re-run this effect.
+  // Presence motion — `open` alone.
   useEffect(() => {
     if (open) {
       const current = consultationRef.current;
       if (current) {
         snapshotRef.current = current;
-        setRenderedConsultation(current);
+        setFrozenConsultation(current);
       }
       wasOpenRef.current = true;
-      const frame = window.requestAnimationFrame(() => {
-        setRegionOpen(true);
+      // Closed paint → open. Double rAF: first frame commits closed styles so the
+      // height/opacity transition has a real "from" state (no flash of full card).
+      setRegionOpen(false);
+      let innerFrame = 0;
+      const outerFrame = window.requestAnimationFrame(() => {
+        innerFrame = window.requestAnimationFrame(() => {
+          setRegionOpen(true);
+        });
       });
-      return () => window.cancelAnimationFrame(frame);
+      return () => {
+        window.cancelAnimationFrame(outerFrame);
+        window.cancelAnimationFrame(innerFrame);
+      };
     }
 
     if (!wasOpenRef.current) {
       setRegionOpen(false);
-      setRenderedConsultation(null);
+      setFrozenConsultation(null);
       snapshotRef.current = null;
       return;
     }
 
     wasOpenRef.current = false;
-    setRenderedConsultation(snapshotRef.current);
+    setFrozenConsultation(snapshotRef.current);
     setRegionOpen(false);
     const cleanup = window.setTimeout(() => {
-      setRenderedConsultation(null);
+      setFrozenConsultation(null);
       snapshotRef.current = null;
     }, DISCLOSURE_TRANSITION_MS + DISCLOSURE_CLEANUP_BUFFER_MS);
     return () => window.clearTimeout(cleanup);
   }, [open]);
 
-  if (!renderedConsultation) {
+  // Prefer live consultation on the same frame open becomes true (no empty mount).
+  const displayConsultation =
+    open && consultation ? consultation : frozenConsultation;
+
+  if (!displayConsultation) {
     return null;
   }
 
   return (
     <div data-composer-advisor-card-presence={regionOpen ? "open" : "closed"}>
       <DisclosureRegion open={regionOpen} contentOrigin="bottom">
-        <ComposerAdvisorCard
-          {...cardProps}
-          consultation={open && consultation ? consultation : renderedConsultation}
-        />
+        <ComposerAdvisorCard {...cardProps} consultation={displayConsultation} />
       </DisclosureRegion>
     </div>
   );

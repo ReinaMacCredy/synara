@@ -88,11 +88,8 @@ export function ComposerPendingUserInputPanel({
 
 /**
  * Keeps the ask-user card mounted through one shared bottom-origin disclosure
- * close when the pending request clears, and rAF-opens on appear so enter is
- * not a hard cut (option A: shared 220ms disclosure motion).
- *
- * Motion depends on `open` only — prop/array identity churn must not cancel
- * the enter rAF and leave the card at height 0.
+ * close when the pending request clears. Enter uses double-rAF so closed styles
+ * paint before open (same anti-flicker path as Advisor presence).
  */
 export function ComposerPendingUserInputPanelPresence({
   open,
@@ -114,8 +111,17 @@ export function ComposerPendingUserInputPanelPresence({
         setPresented(latestPropsRef.current);
       }
       wasOpenRef.current = true;
-      const frame = window.requestAnimationFrame(() => setRegionOpen(true));
-      return () => window.cancelAnimationFrame(frame);
+      setRegionOpen(false);
+      let innerFrame = 0;
+      const outerFrame = window.requestAnimationFrame(() => {
+        innerFrame = window.requestAnimationFrame(() => {
+          setRegionOpen(true);
+        });
+      });
+      return () => {
+        window.cancelAnimationFrame(outerFrame);
+        window.cancelAnimationFrame(innerFrame);
+      };
     }
 
     if (!wasOpenRef.current) {
@@ -133,14 +139,12 @@ export function ComposerPendingUserInputPanelPresence({
     return () => window.clearTimeout(cleanup);
   }, [open]);
 
-  if (!presented) {
-    return null;
-  }
-
-  // Live path uses current props (answers/index update); close path freezes
-  // the last open snapshot so the card does not blank mid-animation.
+  // Live props on the same frame open becomes true (no empty mount → flash).
   const live = open && pendingUserInputs[0] != null;
   const propsForPanel = live ? latestPropsRef.current : presented;
+  if (!propsForPanel?.pendingUserInputs[0]) {
+    return null;
+  }
 
   return (
     <DisclosureRegion open={regionOpen} contentOrigin="bottom">
