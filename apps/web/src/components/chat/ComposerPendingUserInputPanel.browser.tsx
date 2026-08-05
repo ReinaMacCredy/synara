@@ -18,7 +18,11 @@ import {
 } from "../../pendingUserInput";
 import { buildPendingUserInputAdvisorQuestion } from "../../pendingUserInputAdvisor";
 import type { AdvisorConsultation } from "~/lib/advisorConsultation";
-import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
+import { DISCLOSURE_CLEANUP_BUFFER_MS, DISCLOSURE_TRANSITION_MS } from "~/lib/disclosureMotion";
+import {
+  ComposerPendingUserInputPanel,
+  ComposerPendingUserInputPanelPresence,
+} from "./ComposerPendingUserInputPanel";
 
 const QUESTIONS: UserInputQuestion[] = [
   {
@@ -339,6 +343,61 @@ describe("ComposerPendingUserInputPanel", () => {
       });
     } finally {
       await screen.unmount();
+    }
+  });
+
+  it("retains the card through a bottom-origin close transition", async () => {
+    const panelProps = {
+      pendingUserInputs: [PROMPT],
+      isResponding: false,
+      answers: {} as Record<string, PendingUserInputDraftAnswer>,
+      questionIndex: 0,
+      advisorConsultation: null,
+      advisorDisabled: true,
+      advisorDisabledReason: "Advisor is unavailable in this flow",
+      onToggleOption: () => null,
+      onOptionNoteChange: () => undefined,
+      onCustomAnswerChange: () => undefined,
+      onAskAdvisor: async () => false,
+      onAdvance: () => undefined,
+      onPrevious: () => undefined,
+    };
+
+    const renderPresence = (open: boolean) => (
+      <ComposerPendingUserInputPanelPresence
+        {...panelProps}
+        open={open}
+        pendingUserInputs={open ? [PROMPT] : []}
+      />
+    );
+
+    const mounted = await render(renderPresence(true));
+
+    try {
+      await expect
+        .poll(() => mounted.container.querySelector('[data-testid="composer-pending-user-input-panel"]'))
+        .not.toBeNull();
+      await expect
+        .element(page.getByRole("heading", { name: "How focused should the first release be?" }))
+        .toBeVisible();
+
+      await mounted.rerender(renderPresence(false));
+
+      await expect.poll(() => mounted.container.querySelector('[aria-hidden="true"]')).not.toBeNull();
+      const closingShell = mounted.container.querySelector('[aria-hidden="true"]');
+      expect(closingShell?.querySelector(".translate-y-3")).not.toBeNull();
+      expect(
+        mounted.container.querySelector('[data-testid="composer-pending-user-input-panel"]'),
+      ).not.toBeNull();
+
+      await new Promise((resolve) =>
+        window.setTimeout(resolve, DISCLOSURE_TRANSITION_MS + DISCLOSURE_CLEANUP_BUFFER_MS + 30),
+      );
+      expect(
+        mounted.container.querySelector('[data-testid="composer-pending-user-input-panel"]'),
+      ).toBeNull();
+    } finally {
+      await mounted.unmount();
     }
   });
 });

@@ -523,7 +523,9 @@ import {
 } from "./chat/ComposerProfilePicker";
 import { ContextWindowMeter } from "./chat/ContextWindowMeter";
 import { ComposerInputBanners } from "./chat/ComposerInputBanners";
-import { ComposerPendingUserInputPanel } from "./chat/ComposerPendingUserInputPanel";
+import {
+  ComposerPendingUserInputPanelPresence,
+} from "./chat/ComposerPendingUserInputPanel";
 import { ComposerVoiceButton } from "./chat/ComposerVoiceButton";
 import { ComposerVoiceRecorderBar } from "./chat/ComposerVoiceRecorderBar";
 import { ComposerReferenceAttachments } from "./chat/ComposerReferenceAttachments";
@@ -11709,33 +11711,32 @@ export default function ChatView({
                     onRespond={onRespondToApproval}
                   />
                 </div>
-              ) : pendingUserInputs.length > 0 ? (
-                <div className="pb-2">
-                  <ComposerPendingUserInputPanel
-                    pendingUserInputs={pendingUserInputs}
-                    isResponding={activePendingIsResponding}
-                    answers={activePendingDraftAnswers}
-                    questionIndex={activePendingQuestionIndex}
-                    advisorConsultation={advisorConsultation}
-                    advisorDisabled={advisorDisabled}
-                    advisorDisabledReason={advisorDisabledReason}
-                    onToggleOption={onToggleActivePendingUserInputOption}
-                    onOptionNoteChange={onChangeActivePendingUserInputOptionNote}
-                    onCustomAnswerChange={(questionId, value) =>
-                      onChangeActivePendingUserInputCustomAnswer(
-                        questionId,
-                        value,
-                        value.length,
-                        value.length,
-                        false,
-                      )
-                    }
-                    onAskAdvisor={onAskActivePendingUserInputAdvisor}
-                    onAdvance={onAdvanceActivePendingUserInput}
-                    onPrevious={onPreviousActivePendingUserInputQuestion}
-                  />
-                </div>
-              ) : null}
+              ) : (
+                <ComposerPendingUserInputPanelPresence
+                  open={pendingUserInputs.length > 0}
+                  pendingUserInputs={pendingUserInputs}
+                  isResponding={activePendingIsResponding}
+                  answers={activePendingDraftAnswers}
+                  questionIndex={activePendingQuestionIndex}
+                  advisorConsultation={advisorConsultation}
+                  advisorDisabled={advisorDisabled}
+                  advisorDisabledReason={advisorDisabledReason}
+                  onToggleOption={onToggleActivePendingUserInputOption}
+                  onOptionNoteChange={onChangeActivePendingUserInputOptionNote}
+                  onCustomAnswerChange={(questionId, value) =>
+                    onChangeActivePendingUserInputCustomAnswer(
+                      questionId,
+                      value,
+                      value.length,
+                      value.length,
+                      false,
+                    )
+                  }
+                  onAskAdvisor={onAskActivePendingUserInputAdvisor}
+                  onAdvance={onAdvanceActivePendingUserInput}
+                  onPrevious={onPreviousActivePendingUserInputQuestion}
+                />
+              )}
               {activeThreadIsAdvisor && activeThread.parentThreadId ? (
                 <ComposerAdvisorReturnBar
                   parentTitle={advisorParentShell?.title ?? "Main task"}

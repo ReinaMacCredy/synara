@@ -1,7 +1,7 @@
 // FILE: ComposerPendingUserInputPanel.tsx
 // Purpose: Detached beUI-style question card for Codex request_user_input prompts.
 // Layer: Chat composer UI
-// Exports: ComposerPendingUserInputPanel
+// Exports: ComposerPendingUserInputPanel, ComposerPendingUserInputPanelPresence
 
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { type PendingUserInput } from "../../session-logic";
@@ -29,6 +29,7 @@ import {
   CircleQuestionIcon,
   LoaderCircleIcon,
 } from "~/lib/icons";
+import { DISCLOSURE_CLEANUP_BUFFER_MS, DISCLOSURE_TRANSITION_MS } from "~/lib/disclosureMotion";
 import { cn } from "~/lib/utils";
 
 interface PendingUserInputPanelProps {
@@ -82,6 +83,58 @@ export function ComposerPendingUserInputPanel({
       onAdvance={onAdvance}
       onPrevious={onPrevious}
     />
+  );
+}
+
+/**
+ * Keeps the ask-user card mounted through one shared bottom-origin disclosure
+ * close when the pending request clears, and rAF-opens on appear so enter is
+ * not a hard cut (option A: shared 220ms disclosure motion).
+ */
+export function ComposerPendingUserInputPanelPresence({
+  open,
+  pendingUserInputs,
+  ...panelProps
+}: PendingUserInputPanelProps & { open: boolean }) {
+  const [presented, setPresented] = useState<PendingUserInputPanelProps | null>(null);
+  const [regionOpen, setRegionOpen] = useState(false);
+  const latestPropsRef = useRef<PendingUserInputPanelProps>({
+    pendingUserInputs,
+    ...panelProps,
+  });
+  latestPropsRef.current = { pendingUserInputs, ...panelProps };
+
+  useEffect(() => {
+    if (open && pendingUserInputs[0]) {
+      setPresented(latestPropsRef.current);
+      const frame = window.requestAnimationFrame(() => setRegionOpen(true));
+      return () => window.cancelAnimationFrame(frame);
+    }
+
+    // Keep the last open snapshot mounted while regionOpen eases closed.
+    setRegionOpen(false);
+    const cleanup = window.setTimeout(
+      () => setPresented(null),
+      DISCLOSURE_TRANSITION_MS + DISCLOSURE_CLEANUP_BUFFER_MS,
+    );
+    return () => window.clearTimeout(cleanup);
+  }, [open, pendingUserInputs]);
+
+  if (!presented) {
+    return null;
+  }
+
+  // Live path uses current props (answers/index update); close path freezes
+  // the last open snapshot so the card does not blank mid-animation.
+  const live = open && pendingUserInputs[0] != null;
+  const propsForPanel = live ? latestPropsRef.current : presented;
+
+  return (
+    <DisclosureRegion open={regionOpen} contentOrigin="bottom">
+      <div className="pb-2" data-composer-pending-user-input-presence="true">
+        <ComposerPendingUserInputPanel {...propsForPanel} />
+      </div>
+    </DisclosureRegion>
   );
 }
 
@@ -324,6 +377,7 @@ function ComposerPendingUserInputCard({
 
   return (
     <section
+      data-testid="composer-pending-user-input-panel"
       data-state={isResponding ? "submitting" : "pending"}
       aria-busy={isResponding}
       aria-labelledby={`user-input-question-${activeQuestion.id}`}
