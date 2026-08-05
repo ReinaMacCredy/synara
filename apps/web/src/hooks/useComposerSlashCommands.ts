@@ -27,6 +27,7 @@ import {
   type ForkSlashCommandTarget,
 } from "../composerSlashCommands";
 import { buildThreadHandoffImportedMessages } from "../lib/threadHandoff";
+import { buildForkedThreadTitle } from "../lib/forkThreadTitle";
 import { toastManager } from "../components/ui/toast";
 import type { ComposerCommandItem } from "../components/chat/ComposerCommandMenu";
 import { buildNextProviderOptions } from "../providerModelOptions";
@@ -37,6 +38,7 @@ import { registerSidechatCreator } from "../lib/sidechatCreatorRegistry";
 import { downloadUrlAsBlob } from "../lib/browserDownload";
 import { resolveWsHttpUrl } from "../lib/wsHttpUrl";
 import { useFeedbackDialogStore } from "../feedbackDialogStore";
+import { useStore } from "../store";
 
 type ComposerSnapshot = {
   value: string;
@@ -265,13 +267,26 @@ export function useComposerSlashCommands(input: {
         sourceThread: activeThread,
       });
 
+      // ChatGPT-style series: "Hi" → "Hi (2)" → "Hi (3)" among project siblings.
+      const storeState = useStore.getState();
+      const threadIds = storeState.threadIds ?? [];
+      const threadShellById = storeState.threadShellById ?? {};
+      const siblingTitles = threadIds
+        .map((id) => threadShellById[id])
+        .filter(
+          (shell): shell is NonNullable<typeof shell> =>
+            shell != null && shell.projectId === activeProject.id,
+        )
+        .map((shell) => shell.title);
+      const forkedTitle = buildForkedThreadTitle(activeThread.title, siblingTitles);
+
       await api.orchestration.dispatchCommand({
         type: "thread.fork.create",
         commandId: newCommandId(),
         threadId: nextThreadId,
         sourceThreadId: activeThread.id,
         projectId: activeProject.id,
-        title: activeThread.title,
+        title: forkedTitle,
         modelSelection: selectedModelSelection,
         runtimeMode,
         interactionMode,

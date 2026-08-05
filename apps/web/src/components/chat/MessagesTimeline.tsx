@@ -71,6 +71,11 @@ import { InlineSkillChip } from "./InlineSkillChip";
 import { InlineAgentChip } from "./InlineAgentChip";
 import { MessageActionButton, MESSAGE_ACTION_ICON_CLASS_NAME } from "./MessageActionButton";
 import { MessageCopyButton } from "./MessageCopyButton";
+import {
+  MessageForkButton,
+  type MessageForkTarget,
+} from "./MessageForkButton";
+import { ForkContinuationDivider } from "./ForkContinuationDivider";
 import { ReasoningTextSwap } from "./ReasoningTextSwap";
 import { formatAgentActivityEntryPreview } from "./agentActivity.logic";
 import { AssistantSelectionsSummaryChip } from "./AssistantSelectionsSummaryChip";
@@ -170,8 +175,6 @@ const MAX_VISIBLE_CHANGED_FILES = 5;
 // The composer overlaps the transcript by design, so the list needs extra tail
 // space beyond the overlap to keep final cards from sitting flush against it.
 const BOTTOM_CONTENT_INSET_PX = 64;
-const MESSAGE_HOVER_REVEAL_CLASS_NAME =
-  "opacity-0 transition-opacity pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto";
 // How long a jumped-to message keeps its highlight tint before fading back out.
 const JUMP_HIGHLIGHT_DURATION_MS = 1200;
 const MARKER_FINE_SCROLL_RETRY_TIMEOUT_MS = 900;
@@ -385,6 +388,20 @@ interface MessagesTimelineProps {
   canPinMessage?: (messageId: MessageId) => boolean;
   /** Toggle a message's pinned state from the assistant footer. */
   onTogglePinMessage?: (messageId: MessageId) => void;
+  /**
+   * Fork the active thread from the assistant footer (Local / Worktree menu).
+   * Omit when the thread cannot be forked (e.g. local draft).
+   */
+  onForkThread?: (target: MessageForkTarget) => void | Promise<void>;
+  /** Secondary line under “Fork into local” in the footer fork menu. */
+  forkLocalDescription?: string;
+  /**
+   * When set, this thread is a user fork — show “Continued from chat” after the
+   * last message that still belongs to the pre-fork history.
+   */
+  forkSourceThreadId?: ThreadId | null;
+  /** Thread creation time; used with message timestamps to place the fork divider. */
+  forkCreatedAt?: string | null;
   /** Text markers for assistant messages in the active thread. */
   threadMarkers?: readonly ThreadMarker[];
   /** User messages inserted locally by send actions, eligible for the subtle enter affordance. */
@@ -457,6 +474,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   pinnedMessageIds,
   canPinMessage,
   onTogglePinMessage,
+  onForkThread,
+  forkLocalDescription: forkLocalDescriptionProp,
+  forkSourceThreadId: forkSourceThreadIdProp,
+  forkCreatedAt: forkCreatedAtProp,
   threadMarkers: threadMarkersProp,
   enteringUserMessageIds: enteringUserMessageIdsProp,
   tailAnchorMessageId: tailAnchorMessageIdProp,
@@ -505,6 +526,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   // memoization for the whole transcript. See MessagesTimeline.compiler.test.ts.
   const worktreeSetup = worktreeSetupProp ?? null;
   const followLiveOutput = followLiveOutputProp ?? false;
+  const forkLocalDescription =
+    forkLocalDescriptionProp ?? "Continue in the current local thread";
+  const forkSourceThreadId = forkSourceThreadIdProp ?? null;
+  const forkCreatedAt = forkCreatedAtProp ?? null;
   const threadMarkers = threadMarkersProp ?? EMPTY_MESSAGE_MARKERS;
   const enteringUserMessageIds = enteringUserMessageIdsProp ?? EMPTY_MESSAGE_ID_SET;
   const tailAnchorMessageId = tailAnchorMessageIdProp ?? null;
@@ -749,6 +774,25 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }
     return null;
   }, [rows]);
+  // Last message that still belongs to the pre-fork history (imported context).
+  // Messages after `forkCreatedAt` are new turns on the forked thread.
+  const forkBoundaryMessageId = useMemo(() => {
+    if (!forkSourceThreadId || !forkCreatedAt) return null;
+    const boundaryMs = Date.parse(forkCreatedAt);
+    if (!Number.isFinite(boundaryMs)) return null;
+    let last: MessageId | null = null;
+    for (const row of rows) {
+      if (row.kind !== "message") continue;
+      const createdMs = Date.parse(row.message.createdAt);
+      if (!Number.isFinite(createdMs)) continue;
+      // Imported history keeps original timestamps (older than fork creation).
+      // Allow a small skew for clock/persist ordering on the fork create edge.
+      if (createdMs <= boundaryMs + 1500) {
+        last = row.message.id;
+      }
+    }
+    return last;
+  }, [forkCreatedAt, forkSourceThreadId, rows]);
   const enteringMessageRowIds = useMessageSendEnterAnimations(rows, enteringUserMessageIds);
   const timelineExtraData = useMemo(
     () => ({
@@ -761,6 +805,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       expandedUserMessagesById,
       expandedWorkGroupsState,
       firstUserMessageId,
+      forkBoundaryMessageId,
+      forkSourceThreadId,
       highlightedMessageId,
       lastLiveWorkGroupId,
       pinnedMessageIds,
@@ -779,6 +825,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       expandedUserMessagesById,
       expandedWorkGroupsState,
       firstUserMessageId,
+      forkBoundaryMessageId,
+      forkSourceThreadId,
       highlightedMessageId,
       lastLiveWorkGroupId,
       pinnedMessageIds,
@@ -1430,28 +1478,22 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   ) : null}
                   {!isEditingThisMessage && (
                     <div
-                      className="flex items-center justify-end gap-2 pr-0.5 font-system-ui font-normal text-muted-foreground/45"
+                      className="flex items-center justify-end gap-2 pr-0.5 font-system-ui font-normal text-muted-foreground/70"
                       style={chatMessageFooterStyle}
                     >
-                      <p className={cn("tabular-nums", MESSAGE_HOVER_REVEAL_CLASS_NAME)}>
+                      <p className="tabular-nums text-muted-foreground/60">
                         {formatShortTimestamp(row.message.createdAt, timestampFormat)}
                       </p>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-0.5">
                         {displayedUserMessage.copyText && (
-                          <MessageCopyButton
-                            text={displayedUserMessage.copyText}
-                            className={MESSAGE_HOVER_REVEAL_CLASS_NAME}
-                          />
+                          <MessageCopyButton text={displayedUserMessage.copyText} />
                         )}
                         {showEditUserMessage && (
                           <MessageActionButton
                             label="Edit message"
                             tooltip="Edit and resend"
                             disabled={isRevertingCheckpoint}
-                            className={cn(
-                              MESSAGE_HOVER_REVEAL_CLASS_NAME,
-                              "disabled:text-muted-foreground/35",
-                            )}
+                            className="disabled:text-muted-foreground/35"
                             onClick={() => startUserMessageEdit(row.message.id)}
                           >
                             <NewThreadIcon className={MESSAGE_ACTION_ICON_CLASS_NAME} />
@@ -1462,10 +1504,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                             label="Revert to this message"
                             tooltip="Revert to this message"
                             disabled={isRevertingCheckpoint || isWorking}
-                            className={cn(
-                              MESSAGE_HOVER_REVEAL_CLASS_NAME,
-                              "disabled:text-muted-foreground/35",
-                            )}
+                            className="disabled:text-muted-foreground/35"
                             onClick={() => onRevertUserMessage(row.message.id)}
                           >
                             <Undo2Icon className={MESSAGE_ACTION_ICON_CLASS_NAME} />
@@ -1558,6 +1597,17 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             messageCanPin &&
             Boolean(onTogglePinMessage) &&
             (assistantCopyState.text !== null || messagePinned);
+          // Fork reuses the same terminal-settled gate as copy: only whole-thread
+          // forks from a finished answer, reserved while the turn is still live.
+          const reserveForkButton =
+            Boolean(onForkThread) &&
+            row.showAssistantCopyButton &&
+            (assistantCopyState.text !== null || row.message.streaming);
+          const showForkButton =
+            Boolean(onForkThread) &&
+            row.showAssistantCopyButton &&
+            !row.assistantTurnInProgress &&
+            assistantCopyState.visible;
           const turnSummary = row.assistantTurnDiffSummary;
           const fileDiffStatByPath = new Map(
             (turnSummary?.files ?? []).map((file) => [
@@ -1813,61 +1863,73 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 {(reserveTerminalAssistantFooter ||
                   showPinToggle ||
                   assistantCopyState.visible ||
+                  reserveForkButton ||
+                  showForkButton ||
                   assistantMeta.length > 0) && (
                   <div
-                    className="mt-0.5 flex items-center gap-2 font-system-ui font-normal text-muted-foreground/45"
+                    className="mt-0.5 flex items-center gap-2 font-system-ui font-normal text-muted-foreground/70"
                     data-assistant-message-footer={
                       isTerminalAssistantMessage ? "settled" : "reserved"
                     }
                     style={chatMessageFooterStyle}
                   >
-                    {reservePinToggle ? (
-                      // Pin sits at the left edge of the footer, before the copy action. It stays
-                      // visible when pinned so it reads as a persistent "this is pinned" marker; an
-                      // unpinned message only reveals it on hover, like the other footer actions.
-                      // Same Central pin glyph in both states — persistence signals the pinned state.
-                      <span
-                        aria-hidden={showPinToggle ? undefined : true}
-                        className={cn(
-                          "contents",
-                          !showPinToggle && "invisible pointer-events-none",
-                        )}
-                      >
-                        <MessageActionButton
-                          label={pinActionLabel("message", messagePinned)}
-                          tooltip={messagePinned ? "Unpin from panel" : "Pin to panel"}
-                          aria-pressed={messagePinned}
-                          className={
-                            messagePinned
-                              ? "text-muted-foreground/80"
-                              : MESSAGE_HOVER_REVEAL_CLASS_NAME
-                          }
-                          onClick={() => onTogglePinMessage?.(row.message.id)}
+                    {/* Tight action cluster always visible (pin · copy · fork), then time. */}
+                    <div className="flex items-center gap-0.5">
+                      {reservePinToggle ? (
+                        // Pin stays reserved during streaming so settlement does not jump layout;
+                        // once settled it is always painted (not hover-only).
+                        <span
+                          aria-hidden={showPinToggle ? undefined : true}
+                          className={cn(
+                            "contents",
+                            !showPinToggle && "invisible pointer-events-none",
+                          )}
                         >
-                          <PinIcon className={MESSAGE_ACTION_ICON_CLASS_NAME} />
-                        </MessageActionButton>
-                      </span>
-                    ) : null}
-                    {assistantCopyState.text !== null ? (
-                      <span
-                        aria-hidden={assistantCopyState.visible ? undefined : true}
-                        className={cn(
-                          "contents",
-                          !assistantCopyState.visible && "invisible pointer-events-none",
-                        )}
-                      >
-                        <MessageCopyButton
-                          text={assistantCopyState.text}
-                          className={MESSAGE_HOVER_REVEAL_CLASS_NAME}
-                        />
-                      </span>
-                    ) : null}
+                          <MessageActionButton
+                            label={pinActionLabel("message", messagePinned)}
+                            tooltip={messagePinned ? "Unpin from panel" : "Pin to panel"}
+                            aria-pressed={messagePinned}
+                            className={messagePinned ? "text-muted-foreground" : undefined}
+                            onClick={() => onTogglePinMessage?.(row.message.id)}
+                          >
+                            <PinIcon className={MESSAGE_ACTION_ICON_CLASS_NAME} />
+                          </MessageActionButton>
+                        </span>
+                      ) : null}
+                      {assistantCopyState.text !== null ? (
+                        <span
+                          aria-hidden={assistantCopyState.visible ? undefined : true}
+                          className={cn(
+                            "contents",
+                            !assistantCopyState.visible && "invisible pointer-events-none",
+                          )}
+                        >
+                          <MessageCopyButton text={assistantCopyState.text} />
+                        </span>
+                      ) : null}
+                      {reserveForkButton || showForkButton ? (
+                        // Fork reserved while streaming; always visible once the turn settles.
+                        <span
+                          aria-hidden={showForkButton ? undefined : true}
+                          className={cn(
+                            "contents",
+                            !showForkButton && "invisible pointer-events-none",
+                          )}
+                        >
+                          <MessageForkButton
+                            localDescription={forkLocalDescription}
+                            onFork={async (target) => {
+                              await onForkThread?.(target);
+                            }}
+                          />
+                        </span>
+                      ) : null}
+                    </div>
                     {row.showAssistantCopyButton ? (
                       <p
                         aria-hidden={assistantMeta.length > 0 ? undefined : true}
                         className={cn(
-                          "tabular-nums",
-                          MESSAGE_HOVER_REVEAL_CLASS_NAME,
+                          "tabular-nums text-muted-foreground/60",
                           assistantMeta.length === 0 && "invisible",
                         )}
                       >
@@ -2213,6 +2275,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           </div>
         </DisclosureRegion>
       )}
+      {row.kind === "message" &&
+      forkSourceThreadId !== null &&
+      forkBoundaryMessageId !== null &&
+      row.message.id === forkBoundaryMessageId ? (
+        <ForkContinuationDivider
+          sourceThreadId={forkSourceThreadId}
+          {...(onOpenThread ? { onOpenSourceThread: onOpenThread } : {})}
+        />
+      ) : null}
     </div>
   );
 

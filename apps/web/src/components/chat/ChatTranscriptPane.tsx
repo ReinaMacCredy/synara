@@ -53,6 +53,10 @@ interface ChatTranscriptPaneProps {
   pinnedMessageIds?: ReadonlySet<MessageId>;
   canPinMessage?: (messageId: MessageId) => boolean;
   onTogglePinMessage?: (messageId: MessageId) => void;
+  onForkThread?: ComponentProps<typeof MessagesTimeline>["onForkThread"];
+  forkLocalDescription?: ComponentProps<typeof MessagesTimeline>["forkLocalDescription"];
+  forkSourceThreadId?: ComponentProps<typeof MessagesTimeline>["forkSourceThreadId"];
+  forkCreatedAt?: ComponentProps<typeof MessagesTimeline>["forkCreatedAt"];
   threadMarkers?: readonly ThreadMarker[];
   enteringUserMessageIds?: ComponentProps<typeof MessagesTimeline>["enteringUserMessageIds"];
   tailAnchorMessageId?: ComponentProps<typeof MessagesTimeline>["tailAnchorMessageId"];
@@ -116,6 +120,10 @@ export function ChatTranscriptPane({
   pinnedMessageIds,
   canPinMessage,
   onTogglePinMessage,
+  onForkThread,
+  forkLocalDescription,
+  forkSourceThreadId,
+  forkCreatedAt,
   threadMarkers,
   enteringUserMessageIds,
   tailAnchorMessageId,
@@ -206,6 +214,10 @@ export function ChatTranscriptPane({
             {...(pinnedMessageIds ? { pinnedMessageIds } : {})}
             {...(canPinMessage ? { canPinMessage } : {})}
             {...(onTogglePinMessage ? { onTogglePinMessage } : {})}
+            {...(onForkThread ? { onForkThread } : {})}
+            {...(forkLocalDescription ? { forkLocalDescription } : {})}
+            {...(forkSourceThreadId ? { forkSourceThreadId } : {})}
+            {...(forkCreatedAt ? { forkCreatedAt } : {})}
             {...(threadMarkers ? { threadMarkers } : {})}
             {...(enteringUserMessageIds ? { enteringUserMessageIds } : {})}
             tailAnchorMessageId={tailAnchorMessageId ?? null}

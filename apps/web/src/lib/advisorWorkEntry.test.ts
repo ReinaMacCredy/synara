@@ -125,9 +125,9 @@ describe("advisorWorkEntry", () => {
     expect(extractAdvisorWorkEntryAdvice(entry)).toBe("Keep the adapter for one release.");
     expect(
       extractAdvisorWorkEntryAdvice({
-        ...entry,
         detail: `${ADVISOR_CONSULTATION_MARKER}\nnope`,
-        preview: undefined,
+        tone: "tool",
+        toolStatus: "completed",
       }),
     ).toBeNull();
   });

@@ -12540,6 +12540,21 @@ export default function ChatView({
                     pinnedMessageIds={pinnedMessageIds}
                     canPinMessage={canPinMessage}
                     onTogglePinMessage={handleTogglePinMessageGuarded}
+                    {...(isServerThread
+                      ? {
+                          onForkThread: handleForkTargetSelection,
+                          forkLocalDescription:
+                            activeThread?.worktreePath || activeThread?.envMode === "worktree"
+                              ? "Continue in this local worktree"
+                              : "Continue in the current local thread",
+                        }
+                      : {})}
+                    {...(activeThread?.forkSourceThreadId
+                      ? {
+                          forkSourceThreadId: activeThread.forkSourceThreadId,
+                          forkCreatedAt: activeThread.createdAt ?? null,
+                        }
+                      : {})}
                     threadMarkers={threadMarkers}
                     enteringUserMessageIds={enteringUserMessageIds}
                     tailAnchorMessageId={

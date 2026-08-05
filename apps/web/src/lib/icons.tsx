@@ -172,6 +172,9 @@ export const GiftIcon: LucideIcon = centralIconWrapper("gift-2");
 export const GitCommitIcon: LucideIcon = centralIconWrapper("commits");
 export const GitBranchIcon: LucideIcon = centralIconWrapper("branch");
 export const GitForkIcon = centralIconWrapper("fork");
+// Message-footer "branch chat" control — split arrows (ChatGPT-style), not the
+// three-node git-fork glyph.
+export const ChatBranchIcon: LucideIcon = centralIconWrapper("arrow-split-up");
 export const GitMergeIcon: LucideIcon = centralIconWrapper("merged");
 export const GitMergedSimpleIcon: LucideIcon = centralIconWrapper("merged-simple");
 export const PushIcon: LucideIcon = centralIconWrapper("cloud-simple-upload");

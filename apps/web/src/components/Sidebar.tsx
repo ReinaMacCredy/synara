@@ -4771,6 +4771,7 @@ function renderThreadArchiveAction(
             role="button"
             tabIndex={0}
             data-thread-item
+            data-thread-id={thread.id}
             className={cn(
               SIDEBAR_HEADER_ROW_CLASS_NAME,
               // Match the normal thread row: a flex row whose title claims all free
@@ -4917,6 +4918,7 @@ function renderThreadArchiveAction(
         data-thread-hover-anchor={hoverAnchorId}
         className="group/thread-row w-full"
         data-thread-item
+        data-thread-id={thread.id}
       >
         {leadingPrStatus ? (
           <ThreadPrStatusBadge

@@ -234,7 +234,9 @@ describe("MessagesTimeline", () => {
     );
     expect(markup).toContain("rounded-[var(--radius-user-message)]");
     expect(markup).toContain("py-1.5");
-    expect(markup).toContain("group-hover:opacity-100");
+    // Footer actions stay always-visible (not hover-only).
+    expect(markup).toContain('aria-label="Copy message"');
+    expect(markup).not.toContain("group-hover:opacity-100");
   });
 
   it("labels only the first message when another task created the conversation", async () => {
@@ -479,7 +481,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain('aria-label="Copy message"');
     expect(markup).toContain('aria-label="Edit message"');
     expect(markup).toContain('aria-label="Revert to this message"');
-    expect(markup).toContain("size-[1.125em]");
+    expect(markup).toContain("size-[1.05em]");
   });
 
   it("keeps edit available and hides undo before a revert checkpoint exists", async () => {
@@ -1193,6 +1195,88 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("Thinking…");
     expect(markup).not.toContain(formatShortTimestamp(assistantCreatedAt, "locale"));
     expect(markup).toMatch(/class="[^"]*\bpb-2\b[^"]*" data-timeline-row-kind="message"/);
+  });
+
+  it("renders Continued from chat after the pre-fork history on forked threads", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const sourceThreadId = ThreadId.makeUnsafe("thread-source-fork");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...makeTimelineBaseProps()}
+        forkSourceThreadId={sourceThreadId}
+        forkCreatedAt="2026-03-17T19:12:30.000Z"
+        onOpenThread={() => {}}
+        timelineEntries={[
+          {
+            id: "entry-user-pre",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            message: {
+              id: MessageId.makeUnsafe("message-user-pre"),
+              role: "user",
+              text: "Hi",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "entry-assistant-pre",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:29.000Z",
+            message: {
+              id: MessageId.makeUnsafe("message-assistant-pre"),
+              role: "assistant",
+              text: "Hi again!",
+              createdAt: "2026-03-17T19:12:29.000Z",
+              completedAt: "2026-03-17T19:12:30.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+      />,
+    );
+    expect(markup).toContain("data-fork-continuation");
+    expect(markup).toContain("Continued from chat");
+    expect(markup).toContain('aria-label="Open the chat this was forked from"');
+  });
+
+  it("shows the footer fork control only when onForkThread is provided on a settled assistant reply", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const settledAssistant = {
+      id: "entry-assistant-fork",
+      kind: "message" as const,
+      createdAt: "2026-03-17T19:12:29.000Z",
+      message: {
+        id: MessageId.makeUnsafe("message-assistant-fork"),
+        role: "assistant" as const,
+        text: "settled answer",
+        createdAt: "2026-03-17T19:12:29.000Z",
+        completedAt: "2026-03-17T19:12:30.000Z",
+        streaming: false,
+      },
+    };
+
+    const withoutFork = renderToStaticMarkup(
+      <MessagesTimeline
+        {...makeTimelineBaseProps()}
+        timelineEntries={[settledAssistant]}
+      />,
+    );
+    expect(withoutFork).toContain('aria-label="Copy message"');
+    expect(withoutFork).not.toContain('aria-label="Fork chat"');
+    expect(withoutFork).not.toContain("data-message-fork-button");
+
+    const withFork = renderToStaticMarkup(
+      <MessagesTimeline
+        {...makeTimelineBaseProps()}
+        timelineEntries={[settledAssistant]}
+        onForkThread={() => {}}
+        forkLocalDescription="Continue in the current local thread"
+      />,
+    );
+    expect(withFork).toContain('aria-label="Fork chat"');
+    expect(withFork).toContain("data-message-fork-button");
+    expect(withFork).toContain('data-assistant-message-footer="settled"');
   });
 
   it("folds work log summaries above the next assistant message footer", async () => {

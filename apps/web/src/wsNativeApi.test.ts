@@ -303,6 +303,8 @@ describe("wsNativeApi", () => {
         defaultThreadEnvMode: "local",
         addProjectBaseDirectory: "",
         textGenerationModelSelection: { provider: "codex", model: "gpt-5.4-mini" },
+        advisorModelSelection: { provider: "codex", model: "gpt-5.4-mini" },
+        advisorCustomInstructions: "",
         handoffAgent: {
           provider: "codex",
           model: "gpt-5.6-luna",

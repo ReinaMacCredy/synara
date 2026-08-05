@@ -174,6 +174,7 @@ function AdvisorQuestionFlow({
           answerStreaming: false,
           error: null,
           status: "running",
+          origin: "user",
         });
         window.setTimeout(() => {
           setAdvisorConsultation({
@@ -183,6 +184,7 @@ function AdvisorQuestionFlow({
             answerStreaming: false,
             error: null,
             status: "complete",
+            origin: "user",
           });
         }, 50);
         return true;
@@ -280,6 +282,7 @@ describe("ComposerPendingUserInputPanel", () => {
           answerStreaming: false,
           error: null,
           status: "running",
+          origin: "user",
         }}
         advisorDisabled
         advisorDisabledReason="Advisor is already choosing"

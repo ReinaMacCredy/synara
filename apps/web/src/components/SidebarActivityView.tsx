@@ -15,6 +15,7 @@ import {
 } from "react";
 
 import type { OrchestrationThreadPullRequest, ProjectId, ThreadId } from "@synara/contracts";
+import { GoRepoForked } from "react-icons/go";
 
 import {
   AddPlusIcon,
@@ -61,7 +62,7 @@ import {
   type ActivityScopeOption,
   type ActivityScopeSelection,
 } from "./SidebarActivityView.logic";
-import { SIDEBAR_TRAILING_ICON_CLASS, sidebarGlyphClass } from "./sidebarGlyphs";
+import { SIDEBAR_TRAILING_ICON_CLASS, SidebarGlyph, sidebarGlyphClass } from "./sidebarGlyphs";
 import { SIDEBAR_HOVER_CARD_TRIGGER_PROPS } from "./sidebarHoverCardStyles";
 import {
   createSidebarThreadRowGestures,
@@ -130,6 +131,9 @@ function ActivityThreadRow({
 }) {
   const provider = thread.session?.provider ?? thread.modelSelection.provider;
   const branch = thread.associatedWorktreeBranch?.trim() || thread.branch?.trim() || null;
+  // Same rule as project thread rows: fork badge only when this is a real fork, not a sidechat.
+  const isForkedThread =
+    Boolean(thread.forkSourceThreadId) && !thread.sidechatSourceThreadId;
   const hoverAnchorId = createSidebarThreadHoverAnchorId({
     scope: "activity",
     threadId: thread.id,
@@ -158,6 +162,7 @@ function ActivityThreadRow({
             data-thread-hover-anchor={hoverAnchorId}
             className="group/activity-row relative"
             data-thread-item
+            data-thread-id={thread.id}
             {...rowGestures}
           />
         }
@@ -197,6 +202,20 @@ function ActivityThreadRow({
             >
               {thread.title}
             </span>
+            {isForkedThread ? (
+              // Match project-thread trailing fork chip (emerald GoRepoForked).
+              <span
+                className="ml-auto inline-flex shrink-0 items-center"
+                title="Forked thread"
+                data-activity-fork-badge=""
+              >
+                <SidebarGlyph
+                  icon={GoRepoForked}
+                  variant="meta"
+                  className="text-emerald-600 dark:text-emerald-300/90"
+                />
+              </span>
+            ) : null}
           </span>
           <span className="flex min-w-0 items-center gap-1.5">
             <FolderClosed

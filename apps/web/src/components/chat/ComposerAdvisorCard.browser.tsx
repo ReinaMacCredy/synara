@@ -29,6 +29,7 @@ function consultation(overrides?: Partial<AdvisorConsultation>): AdvisorConsulta
     answerStreaming: false,
     error: null,
     status: "running",
+    origin: "user",
     ...overrides,
   };
 }
