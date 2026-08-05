@@ -47,7 +47,7 @@ export function ToolCallGroupSummaryRow(props: {
       <button
         type="button"
         aria-expanded={open}
-        className="inline-flex items-center gap-1.5 py-0.5 text-left text-muted-foreground/70 transition-colors duration-200 hover:text-muted-foreground/90"
+        className="group/tool-summary inline-flex items-center gap-1.5 py-0.5 text-left text-muted-foreground/70 transition-colors duration-200 hover:text-muted-foreground/90"
         style={{ fontSize: `${fontSizePx}px` }}
         onClick={() => onToggle(!open)}
       >
@@ -59,7 +59,10 @@ export function ToolCallGroupSummaryRow(props: {
             shimmer={live}
             rootData={{ "data-tool-summary-swap": "true" }}
           />
-        <DisclosureChevron open={open} className="text-muted-foreground/55" />
+        <DisclosureChevron
+          open={open}
+          className="text-muted-foreground/55 opacity-0 transition-opacity duration-150 group-hover/tool-summary:opacity-100 group-focus-visible/tool-summary:opacity-100"
+        />
       </button>
       <DisclosureRegion open={open}>
         {shouldRenderChildren ? renderChildren() : null}
