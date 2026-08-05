@@ -259,11 +259,22 @@ import {
   resolveComposerSlashRootBranch,
 } from "../composerSlashCommands";
 import {
+  clearActiveWorkStartedAt,
+  readActiveWorkStartedAt,
+  rememberActiveWorkStartedAt,
+  resolveContinuousWorkStartedAt,
+} from "../activeWorkClock";
+import {
+  ORCHESTRATOR_ROOT_NAV_AFTER_SETTLE_MS,
+  shouldFlushOrchestratorRootNavigation,
+} from "../orchestratorRoutePromotion";
+import {
   derivePendingApprovals,
   derivePendingUserInputs,
   derivePhase,
   deriveTimelineEntries,
   deriveActiveWorkStartedAt,
+  hasAwaitingAssistantResponse,
   deriveActiveTaskListState,
   deriveActiveBackgroundTasksState,
   findSidebarProposedPlan,
@@ -540,6 +551,8 @@ import { ComposerSessionProgress } from "./chat/ComposerSessionProgress";
 import { SessionProgressCheckpoint } from "./process/SessionProgress";
 import { deriveSessionProgressActivity } from "./process/sessionProgressPresentation";
 import { ComposerSubagentStrip } from "./chat/ComposerSubagentStrip";
+import { ComposerOrchestratorChildStrip } from "./chat/ComposerOrchestratorChildStrip";
+import { deriveComposerOrchestratorChildStripItems } from "./chat/ComposerOrchestratorChildStrip.logic";
 import { AdvisorPopoverButton } from "./chat/AdvisorPopoverButton";
 import { ComposerAdvisorCardPresence } from "./chat/ComposerAdvisorCard";
 import { ComposerAdvisorReturnBar } from "./chat/ComposerAdvisorReturnBar";
@@ -1157,6 +1170,8 @@ interface ChatViewProps {
   onOpenSessionProgressProcess?: () => void;
   supervisionMissionStrips?: ReactNode;
   orchestratorMode?: boolean;
+  /** Select a child (or root) thread while staying on the Orchestrator surface. */
+  onSelectOrchestratorThread?: (threadId: ThreadId) => void;
   inspectOnly?: boolean;
 }
 
@@ -1223,6 +1238,7 @@ export default function ChatView({
   onOpenSessionProgressProcess,
   supervisionMissionStrips,
   orchestratorMode: orchestratorModeProp,
+  onSelectOrchestratorThread,
   inspectOnly: inspectOnlyProp,
 }: ChatViewProps) {
   // Prop defaults are resolved here instead of in the destructuring pattern: an
@@ -1446,6 +1462,11 @@ export default function ChatView({
     Record<ThreadId, string | null>
   >({});
   const [localDispatch, setLocalDispatch] = useState<LocalDispatchSnapshot | null>(null);
+  // After orchestrator draft promote, hold /orchestrator/$root navigation until
+  // the turn is idle so ChatView is not remounted mid Working→Worked (normal path).
+  // State (not only a ref) so scheduling the promotion re-runs the flush effect.
+  const [pendingOrchestratorRootNavigation, setPendingOrchestratorRootNavigation] =
+    useState<ThreadId | null>(null);
   const failedWorktreeSetupDispatchStartedAtRef = useRef<string | null>(null);
   const [isLocalConnecting, _setIsLocalConnecting] = useState(false);
   const [isRevertingCheckpoint, setIsRevertingCheckpoint] = useState(false);
@@ -1471,6 +1492,7 @@ export default function ChatView({
   const [planSidebarOpen, setPlanSidebarOpen] = useState(false);
   const [activeTaskListCompact, setActiveTaskListCompact] = useState(false);
   const [subagentStripCompact, setSubagentStripCompact] = useState(false);
+  const [orchestratorChildStripCompact, setOrchestratorChildStripCompact] = useState(false);
   const [workflowRunCardCompact, setWorkflowRunCardCompact] = useState(false);
   const [advisorCreating, setAdvisorCreating] = useState(false);
   const [isComposerFooterCompact, setIsComposerFooterCompact] = useState(false);
@@ -3005,6 +3027,63 @@ export default function ChatView({
     stripParentThread,
     stripWorkLogEntries,
   ]);
+  // Orchestrator Root child strip: containment children of the open root (same
+  // membership as Sidebar), stacked above the composer like the subagent strip.
+  const orchestratorChildStripEnabled =
+    orchestratorMode && isServerThread && !inspectOnly && !isOrchestratorRootDraft;
+  const orchestratorRootSnapshotQuery = useQuery({
+    ...orchestratorRootQueryOptions(threadId),
+    enabled: orchestratorChildStripEnabled,
+  });
+  const sidebarThreadSummaryById = useStore((state) => state.sidebarThreadSummaryById);
+  const composerOrchestratorChildStrip = useMemo(() => {
+    if (!orchestratorChildStripEnabled) {
+      return null;
+    }
+    const snapshot = orchestratorRootSnapshotQuery.data?.snapshot;
+    if (!snapshot || snapshot.root.rootThreadId !== threadId) {
+      return null;
+    }
+    // Pass containment fields so MCP-spawned children (sourceThreadId + creationSource)
+    // match Sidebar's "2 available" under the root — not raw parentThreadId alone.
+    const threads = Object.values(sidebarThreadSummaryById).map((summary) => ({
+      id: summary.id,
+      title: summary.title,
+      parentThreadId: summary.parentThreadId ?? null,
+      sourceThreadId: summary.sourceThreadId ?? null,
+      creationSource: summary.creationSource ?? null,
+      createdAt: summary.createdAt,
+      updatedAt: summary.updatedAt ?? null,
+    }));
+    const model = deriveComposerOrchestratorChildStripItems({
+      rootThreadId: threadId,
+      threads,
+      assignments: snapshot.assignments,
+      ...(snapshot.childProjections ? { childProjections: snapshot.childProjections } : {}),
+      viewedThreadId: null,
+    });
+    return model.items.length > 0 ? model : null;
+  }, [
+    orchestratorChildStripEnabled,
+    orchestratorRootSnapshotQuery.data?.snapshot,
+    sidebarThreadSummaryById,
+    threadId,
+  ]);
+  const onOpenOrchestratorChildThread = useCallback(
+    (childThreadId: ThreadId) => {
+      if (onSelectOrchestratorThread) {
+        onSelectOrchestratorThread(childThreadId);
+        return;
+      }
+      void navigate({
+        to: "/orchestrator/$rootThreadId",
+        params: { rootThreadId: threadId },
+        search: { selectedThreadId: childThreadId },
+        replace: true,
+      });
+    },
+    [navigate, onSelectOrchestratorThread, threadId],
+  );
   // Links workflow agent rows to their subagent child threads (and models) when the
   // Task tool_use_id produced one; agents spawned without a tool call stay unlinked.
   const workflowSubagentThreadsByToolUseId = useMemo(() => {
@@ -3131,9 +3210,63 @@ export default function ChatView({
     activeThread?.messages.some((message) => message.role === "assistant" && message.streaming) ??
     false;
   const latestTurnInProgress = Boolean(activeLatestTurn?.requestedAt) && !latestTurnSettled;
+  // Survives ChatView remounts that drop `localDispatch` (orchestrator draft →
+  // /orchestrator/$rootThreadId navigation after first send) so Working/Thinking
+  // never blanks while the user message still has no assistant answer.
+  const awaitingAssistantResponse = hasAwaitingAssistantResponse({
+    // Optimistic sends land here before the server message projection arrives;
+    // after orchestrator draft→root remount the durable user row is in messages.
+    messages:
+      optimisticUserMessages.length > 0
+        ? [...(activeThread?.messages ?? EMPTY_MESSAGES), ...optimisticUserMessages]
+        : (activeThread?.messages ?? EMPTY_MESSAGES),
+    latestTurn: activeLatestTurn,
+    session: activeThread?.session ?? null,
+  });
   const activeTurnInProgress =
     !activeThread?.error &&
-    (localDispatch !== null || isConnecting || hasLiveTurn || latestTurnInProgress);
+    (localDispatch !== null ||
+      isConnecting ||
+      hasLiveTurn ||
+      latestTurnInProgress ||
+      awaitingAssistantResponse);
+  const orchestratorTurnInFlight = activeTurnInProgress || isSendBusy;
+  const orchestratorTurnInFlightRef = useRef(orchestratorTurnInFlight);
+  orchestratorTurnInFlightRef.current = orchestratorTurnInFlight;
+  // Unified with normal chat: never remount ChatView while Working for is live.
+  // Flush draft→/orchestrator/$root only after the turn is idle (+ short settle).
+  useEffect(() => {
+    if (
+      !shouldFlushOrchestratorRootNavigation({
+        pendingRootThreadId: pendingOrchestratorRootNavigation,
+        currentThreadId: threadId,
+        turnInFlight: orchestratorTurnInFlight,
+      })
+    ) {
+      return;
+    }
+    const rootThreadId = pendingOrchestratorRootNavigation;
+    const timer = window.setTimeout(() => {
+      if (
+        !shouldFlushOrchestratorRootNavigation({
+          pendingRootThreadId: rootThreadId,
+          currentThreadId: threadId,
+          turnInFlight: orchestratorTurnInFlightRef.current,
+        })
+      ) {
+        return;
+      }
+      setPendingOrchestratorRootNavigation((current) =>
+        current === rootThreadId ? null : current,
+      );
+      void navigate({
+        to: "/orchestrator/$rootThreadId",
+        params: { rootThreadId },
+        replace: true,
+      });
+    }, ORCHESTRATOR_ROOT_NAV_AFTER_SETTLE_MS);
+    return () => window.clearTimeout(timer);
+  }, [orchestratorTurnInFlight, navigate, pendingOrchestratorRootNavigation, threadId]);
   const isComposerApprovalState = activePendingApproval !== null;
   const isComposerEditorDisabled = isConnecting || isComposerApprovalState;
   const canCollapsePastedTextToDraft = shouldEnableComposerPastedTextCollapse({
@@ -3391,17 +3524,45 @@ export default function ChatView({
     }
     return null;
   }, [timelineEntries]);
-  const activeWorkStartedAt =
-    localDispatch !== null || hasLiveTurn
-      ? deriveActiveWorkStartedAt(
-          activeLatestTurn,
-          activeThread?.session ?? null,
-          localDispatch?.startedAt ?? null,
-          latestUserMessageStartedAt,
-        )
-      : hasLiveTurnTail
-        ? (latestUserMessageStartedAt ?? activeLatestTurn?.startedAt ?? null)
-        : null;
+  // Unified Working-for origin for normal + orchestrator: prefer durable user /
+  // local-dispatch / turn times, and fall back to the remount-surviving clock
+  // so status never degrades to "Working..." after ChatView remounts mid-turn.
+  const workStatusInFlight =
+    localDispatch !== null || hasLiveTurn || awaitingAssistantResponse;
+  const derivedActiveWorkStartedAt = workStatusInFlight
+    ? deriveActiveWorkStartedAt(
+        activeLatestTurn,
+        activeThread?.session ?? null,
+        localDispatch?.startedAt ?? null,
+        latestUserMessageStartedAt,
+      )
+    : hasLiveTurnTail
+      ? (latestUserMessageStartedAt ?? activeLatestTurn?.startedAt ?? null)
+      : null;
+  let activeWorkStartedAt: string | null =
+    workStatusInFlight || hasLiveTurnTail
+      ? resolveContinuousWorkStartedAt({
+          derivedStartedAt: derivedActiveWorkStartedAt,
+          persistedStartedAt: readActiveWorkStartedAt(threadId),
+        })
+      : null;
+  // Never paint bare "Working..." while a turn is in flight — stamp a continuous
+  // origin once if every other source is still empty (rare gap after remount).
+  if (workStatusInFlight && activeWorkStartedAt == null) {
+    rememberActiveWorkStartedAt(threadId, new Date().toISOString());
+    activeWorkStartedAt = readActiveWorkStartedAt(threadId);
+  }
+  // Seed / hold the remount clock while work is live; drop when fully idle so
+  // the next send starts a fresh timer (normal and orchestrator share this).
+  useEffect(() => {
+    if (activeWorkStartedAt && (workStatusInFlight || hasLiveTurnTail)) {
+      rememberActiveWorkStartedAt(threadId, activeWorkStartedAt);
+      return;
+    }
+    if (!workStatusInFlight && !hasLiveTurnTail) {
+      clearActiveWorkStartedAt(threadId);
+    }
+  }, [activeWorkStartedAt, hasLiveTurnTail, threadId, workStatusInFlight]);
   const enteringUserMessageIds = useMemo<ReadonlySet<MessageId>>(
     () => new Set(optimisticUserMessages.map((message) => message.id)),
     [optimisticUserMessages],
@@ -6024,11 +6185,14 @@ export default function ChatView({
         );
         if (next !== current) {
           failedWorktreeSetupDispatchStartedAtRef.current = null;
+          // Persist outside React so orchestrator draft→root remounts keep
+          // "Working for Ns" instead of falling back to bare "Working...".
+          rememberActiveWorkStartedAt(threadId, next.startedAt);
         }
         return next;
       });
     },
-    [activeThread],
+    [activeThread, threadId],
   );
 
   const failLocalDispatchWorktreeSetup = useCallback(() => {
@@ -8576,10 +8740,9 @@ export default function ChatView({
         await queryClient
           .fetchQuery(orchestratorRootQueryOptions(threadIdForSend))
           .catch(() => undefined);
-        await navigate({
-          to: "/orchestrator/$rootThreadId",
-          params: { rootThreadId: threadIdForSend },
-        });
+        // Do not navigate mid-turn — same ChatView stays mounted (localDispatch +
+        // Working for Ns continuous). Route upgrades after settle (see effect).
+        setPendingOrchestratorRootNavigation(threadIdForSend);
       } else if (isSupervisorDraft && createdSupervisorSeatId) {
         await navigate({
           to: "/supervisors/$supervisorSeatId",
@@ -8636,10 +8799,7 @@ export default function ChatView({
           await queryClient
             .fetchQuery(orchestratorRootQueryOptions(threadIdForSend))
             .catch(() => undefined);
-          await navigate({
-            to: "/orchestrator/$rootThreadId",
-            params: { rootThreadId: threadIdForSend },
-          });
+          setPendingOrchestratorRootNavigation(threadIdForSend);
           return;
         }
       }
@@ -11515,6 +11675,7 @@ export default function ChatView({
   );
   const showComposerWorkflowRunCard = workflowRunState !== null;
   const showComposerSubagentStrip = composerSubagentStripItems.length > 0;
+  const showComposerOrchestratorChildStrip = composerOrchestratorChildStrip !== null;
   // Type 3 agent-auto Advisor (origin=agent) renders as B strip/receipt in the
   // transcript. Composer card stays type 1 (user) and type 2 (pending-user-input).
   const showComposerAdvisorCard =
@@ -11607,6 +11768,21 @@ export default function ChatView({
                   }
                 />
               ) : null}
+              {showComposerOrchestratorChildStrip && composerOrchestratorChildStrip ? (
+                <ComposerOrchestratorChildStrip
+                  items={composerOrchestratorChildStrip.items}
+                  counts={composerOrchestratorChildStrip.counts}
+                  compact={orchestratorChildStripCompact}
+                  onCompactChange={setOrchestratorChildStripCompact}
+                  onOpenThread={onOpenOrchestratorChildThread}
+                  attachedToPrevious={
+                    showComposerLiveChangesHeader ||
+                    showComposerActiveTaskListCard ||
+                    showComposerWorkflowRunCard ||
+                    showComposerSubagentStrip
+                  }
+                />
+              ) : null}
               <ComposerAdvisorCardPresence
                 consultation={advisorConsultation}
                 open={showComposerAdvisorCard}
@@ -11616,7 +11792,8 @@ export default function ChatView({
                   showComposerLiveChangesHeader ||
                   showComposerActiveTaskListCard ||
                   showComposerWorkflowRunCard ||
-                  showComposerSubagentStrip
+                  showComposerSubagentStrip ||
+                  showComposerOrchestratorChildStrip
                 }
               />
               {composerDraft.handoffDraft ? (
@@ -11627,6 +11804,7 @@ export default function ChatView({
                     showComposerActiveTaskListCard ||
                     showComposerWorkflowRunCard ||
                     showComposerSubagentStrip ||
+                    showComposerOrchestratorChildStrip ||
                     showComposerAdvisorCard
                   }
                   onDetach={() => {
@@ -11688,6 +11866,7 @@ export default function ChatView({
                   showComposerActiveTaskListCard ||
                   showComposerWorkflowRunCard ||
                   showComposerSubagentStrip ||
+                  showComposerOrchestratorChildStrip ||
                   showComposerAdvisorCard ||
                   hasComposerHandoffRail
                 }
@@ -11700,6 +11879,7 @@ export default function ChatView({
                     showComposerActiveTaskListCard ||
                     showComposerWorkflowRunCard ||
                     showComposerSubagentStrip ||
+                    showComposerOrchestratorChildStrip ||
                     showComposerAdvisorCard ||
                     hasComposerHandoffRail ||
                     queuedComposerTurns.length > 0

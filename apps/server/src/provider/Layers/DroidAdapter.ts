@@ -782,6 +782,14 @@ export function makeDroidAdapter(
               issue: `Expected provider '${PROVIDER}' but received '${input.provider}'.`,
             });
           }
+          if (input.orchestratorContext != null && agentGatewayCredentials === undefined) {
+            return yield* new ProviderAdapterValidationError({
+              provider: PROVIDER,
+              operation: "startSession",
+              issue:
+                "Droid Orchestrator sessions require the Synara MCP gateway (install class C: session MCP).",
+            });
+          }
           yield* sessionTeardownGate.awaitPending(input.threadId);
           const cwd = resolveDroidSessionCwd(input.cwd, serverConfig);
           if (cwd === undefined) {
@@ -2290,6 +2298,12 @@ export function makeDroidAdapter(
       capabilities: {
         sessionModelSwitch: "restart-session",
         conversationRollback: "restart-session",
+        orchestrator: {
+          authoritativeRoleInstruction: true,
+          nativeTools: true, // Synara MCP host tools (same catalog for every provider)
+          independentSession: true,
+          instructionChannel: "acp-process-system-prompt",
+        },
       },
       startSession,
       sendTurn,

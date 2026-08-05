@@ -10,6 +10,8 @@ const result = {
 
 describe("resolveOrchestratorRootRouteState", () => {
   it("renders a visible loading state before the first snapshot arrives", () => {
+    // Callers should still prefer a live chat shell when the promoted thread is
+    // already in the store (first-send navigation), but the pure state remains loading.
     expect(
       resolveOrchestratorRootRouteState({ data: undefined, isPending: true, isError: false }),
     ).toEqual({ kind: "loading" });

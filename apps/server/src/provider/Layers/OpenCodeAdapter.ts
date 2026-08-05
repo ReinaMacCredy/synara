@@ -4692,6 +4692,12 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           sessionModelSwitch: "in-session",
           supportsRuntimeModelList: true,
           supportsNativeSlashCommandDiscovery: provider === "opencode",
+          orchestrator: {
+            authoritativeRoleInstruction: true,
+            nativeTools: true, // Synara MCP host tools (same catalog for every provider)
+            independentSession: true,
+            instructionChannel: "acp-process-system-prompt",
+          },
         },
         startSession,
         sendTurn,

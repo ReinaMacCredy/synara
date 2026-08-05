@@ -91,11 +91,13 @@ import {
   Stream,
 } from "effect";
 
-import { buildClaudeMcpServers } from "../../agentGateway/mcpInjection.ts";
+import { buildClaudeHostMcpServers } from "../claudeOrchestratorSdkMcp.ts";
 import { renderSynaraHarnessPolicy } from "../../agentGateway/harnessPolicy.ts";
 import { orchestratorInstructionForSession } from "../../orchestration/orchestrator/protocolV1.ts";
 import { supervisionInstructionForSession } from "../../orchestration/supervision/protocolV1.ts";
 import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
+import { OrchestratorToolRuntime } from "../../orchestration/Services/OrchestratorToolRuntime.ts";
+import { ProviderDiscoveryService } from "../Services/ProviderDiscoveryService.ts";
 import { PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY } from "../Services/ProviderAdapter.ts";
 import {
   acquireAgentGatewaySessionLease,
@@ -1717,6 +1719,8 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
     const agentGatewayCredentials = Option.getOrUndefined(
       yield* Effect.serviceOption(AgentGatewayCredentials),
     );
+    const orchestratorToolRuntime = yield* Effect.serviceOption(OrchestratorToolRuntime);
+    const providerDiscovery = yield* Effect.serviceOption(ProviderDiscoveryService);
     const nativeEventLogger =
       options?.nativeEventLogger ??
       (options?.nativeEventLogPath !== undefined
@@ -4667,12 +4671,12 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             issue: `Expected provider '${PROVIDER}' but received '${input.provider}'.`,
           });
         }
-        if (input.orchestratorContext != null) {
+        if (input.orchestratorContext != null && agentGatewayCredentials === undefined) {
           return yield* new ProviderAdapterValidationError({
             provider: PROVIDER,
             operation: "startSession",
             issue:
-              "Claude Orchestrator sessions are unavailable because the installed Claude Agent SDK exposes custom client tools only through SDK MCP. Synara will not install an MCP compatibility path for Orchestrator Mode.",
+              "Claude Orchestrator sessions require the Synara MCP gateway so the Root/Child can call Orchestrator tools.",
           });
         }
 
@@ -5169,11 +5173,23 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           env: claudeSdkEnv,
           spawnClaudeCodeProcess: bindClaudeProcessOwner(processOwner),
           ...(input.cwd ? { additionalDirectories: [input.cwd] } : {}),
-          ...(agentGatewayCredentials
-            ? {
-                mcpServers: buildClaudeMcpServers(gatewaySessionLease!.connection),
-              }
-            : {}),
+          ...(() => {
+            const mcpServers = buildClaudeHostMcpServers({
+              httpConnection: gatewaySessionLease
+                ? {
+                    url: gatewaySessionLease.connection.url,
+                    bearerToken: gatewaySessionLease.connection.bearerToken,
+                  }
+                : null,
+              orchestratorRuntime: orchestratorToolRuntime,
+              discovery: providerDiscovery,
+              threadId,
+              isOrchestratorSession: input.orchestratorContext != null,
+            });
+            return Object.keys(mcpServers).length > 0
+              ? { mcpServers: mcpServers as NonNullable<ClaudeQueryOptions["mcpServers"]> }
+              : {};
+          })(),
         };
 
         const queryRuntime = yield* Effect.tryPromise({
@@ -6297,6 +6313,15 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         supportsRuntimeModelList: true,
         supportsTurnSteering: true,
         supportsLiveTurnDiffPatch: false,
+        orchestrator: {
+          authoritativeRoleInstruction: true,
+          // Install class B: in-process SDK MCP from OrchestratorToolRuntime
+          // (+ HTTP Synara MCP for ordinary host tools when the gateway is up).
+          nativeTools:
+            Option.isSome(orchestratorToolRuntime) || agentGatewayCredentials !== undefined,
+          independentSession: true,
+          instructionChannel: "claude-system-prompt",
+        },
       },
       startSession,
       sendTurn,

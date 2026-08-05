@@ -46,6 +46,7 @@ import type { OrchestratorArtifactRepositoryShape } from "../../persistence/Serv
 import type { ProjectionOrchestratorRepositoryShape } from "../../persistence/Services/ProjectionOrchestrator.ts";
 import type { ProjectionTaskProcessRepositoryShape } from "../../persistence/Services/ProjectionTaskProcess.ts";
 import { sealContextBundle } from "./contextBundles.ts";
+import { isOrchestratorModelTargetCapable } from "./providerCapabilityDiscovery.ts";
 import { summarizeThreadDetail } from "../../agentGateway/threadSummary.ts";
 import {
   errorText,
@@ -602,7 +603,9 @@ export function makeOrchestratorTools(
       description: definition.description,
       inputSchema: definition.inputSchema,
       readOnly: definition.readOnly === true,
-      providerSupport: { codex: "native", claude: "unsupported" },
+      // One host catalog for every provider via Synara MCP (Codex may also fall
+      // back to native dynamic tools when the gateway is unavailable).
+      providerSupport: { codex: "native", claude: "native" },
     },
     execute: (args, context) =>
       Effect.gen(function* () {
@@ -662,13 +665,7 @@ export function makeOrchestratorTools(
           return orchestratorToolSuccess({
             capabilities,
             modelTargets: capabilities
-              .filter(
-                (capability) =>
-                  capability.orchestratorCapable &&
-                  capability.authoritativeRoleInstruction &&
-                  capability.nativeTools &&
-                  capability.independentSession,
-              )
+              .filter((capability) => isOrchestratorModelTargetCapable(capability))
               .map((capability) => ({
                 provider: capability.provider,
                 model: capability.model,

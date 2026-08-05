@@ -390,6 +390,7 @@ export function OrchestratorSurface(props: {
                 onAdjacentRightDockOpenChange={(open) => setDockOpen(dockScopeId, open)}
                 onOpenSessionProgressProcess={openProcessPane}
                 orchestratorMode
+                onSelectOrchestratorThread={props.onSelectThread}
                 inspectOnly={selectedChild !== null}
               />
             ) : (

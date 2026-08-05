@@ -77,8 +77,10 @@ import { makeBrowserAutomationHost } from "../../browserAutomation/Layers/Browse
 import { makeThreadReadTools } from "../threadReadTools.ts";
 import { makeThreadDiagnosticTools } from "../threadDiagnosticTools.ts";
 import { makeAgentGatewayAdvisorTools } from "../advisorTools.ts";
+import { optionalAgentGatewayOrchestratorTools } from "../orchestratorMcpTools.ts";
 import { pruneProjectedArchivedManagedWorktrees } from "../../managedWorktrees.ts";
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
+import { OrchestratorToolRuntime } from "../../orchestration/Services/OrchestratorToolRuntime.ts";
 
 // Providers already receive the versioned host policy exactly once in their
 // private prompt. MCP clients prepend initialize.instructions to every exposed
@@ -621,6 +623,12 @@ export const makeAgentGateway = Effect.gen(function* () {
     serverSettings,
     requireThreadShell,
   });
+  // Non-Codex hosts (Claude SDK MCP, ACP MCP) reach the same Orchestrator registry
+  // through this gateway. Tools are visibility-filtered to active Root/Child roles.
+  const orchestratorTools = optionalAgentGatewayOrchestratorTools({
+    runtime: yield* Effect.serviceOption(OrchestratorToolRuntime),
+    discovery: yield* Effect.serviceOption(ProviderDiscoveryService),
+  });
   const tools: ReadonlyArray<ToolEntry> = [
     ...readTools,
     ...diagnosticTools,
@@ -633,6 +641,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     ...automationTools,
     ...browserTools,
     ...advisorTools,
+    ...orchestratorTools,
   ];
   return {
     handleMcpPost: makeAgentGatewayMcpTransport({

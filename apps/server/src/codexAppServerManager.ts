@@ -44,7 +44,7 @@ import { prewarmChatGptVoiceTranscriptionConnection } from "@synara/shared/chatG
 import { getModelSelectionBooleanOptionValue, normalizeModelSlug } from "@synara/shared/model";
 import { decodeSubagentReceiverThreadIds } from "@synara/shared/subagents";
 import { prepareWindowsSafeProcess } from "@synara/shared/windowsProcess";
-import { Effect, ServiceMap } from "effect";
+import { Effect, Option, ServiceMap } from "effect";
 
 import {
   compareCodexCliVersions,
@@ -100,6 +100,11 @@ import {
 import { makeOrchestratorProviderCapabilities } from "./provider/orchestratorCapabilities.ts";
 import { codexDynamicToolResponse } from "./provider/codexDynamicToolResponse.ts";
 import { buildHandoffDestinationInstruction } from "./handoff/handoffDestinationInstruction.ts";
+import { ProviderDiscoveryService } from "./provider/Services/ProviderDiscoveryService.ts";
+import {
+  listAllOrchestratorProviderCapabilities,
+  resolveOrchestratorProviderCapability,
+} from "./orchestration/orchestrator/providerCapabilityDiscovery.ts";
 
 const log = createLogger("codex");
 
@@ -1111,18 +1116,18 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         input.developerInstructions ??
         (combinedNativeInstruction.length > 0 ? combinedNativeInstruction : undefined);
       const isOrchestratorSession = input.orchestratorContext != null;
+      // Install matrix — Codex class: native dynamic tools (not remote MCP).
+      // Claude uses in-process SDK MCP; ACP agents use session MCP. One catalog
+      // (OrchestratorToolRuntime), three install paths.
+      const needsHostTools =
+        isOrchestratorSession ||
+        input.supervisionContext != null ||
+        input.handoffContext != null;
       const nativeToolRuntime =
         input.nativeToolRuntime ??
-        (isOrchestratorSession || input.supervisionContext != null || input.handoffContext != null
-          ? this.orchestratorToolRuntime
-          : undefined);
+        (needsHostTools ? this.orchestratorToolRuntime : undefined);
       const isNativeToolSession = nativeToolRuntime !== undefined;
-      if (
-        (isOrchestratorSession ||
-          input.supervisionContext != null ||
-          input.handoffContext != null) &&
-        !nativeToolRuntime
-      ) {
+      if (needsHostTools && !nativeToolRuntime) {
         throw new Error("Native Synara tool runtime is unavailable.");
       }
 
@@ -1137,6 +1142,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           : {}),
         ...(codexHomePath ? { homePath: codexHomePath } : {}),
       });
+      // Native-tool Codex sessions skip remote Synara MCP; host tools are dynamicTools.
       gatewaySessionLease = isNativeToolSession
         ? undefined
         : this.agentGatewayMcp?.acquireSessionLease(threadId);
@@ -3402,7 +3408,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     context: CodexSessionContext,
     turnId: string | null,
   ): OrchestratorToolInvocationContext {
-    const listOrchestratorCapabilities = () =>
+    const listCodexOnlyCapabilities = () =>
       Effect.tryPromise({
         try: async () => {
           const discovered = await this.listModels();
@@ -3426,6 +3432,14 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
               : "Codex model discovery failed during native tool execution.",
           ),
       });
+    const listOrchestratorCapabilities = () =>
+      Effect.gen(function* () {
+        const discovery = yield* Effect.serviceOption(ProviderDiscoveryService);
+        if (Option.isSome(discovery)) {
+          return yield* listAllOrchestratorProviderCapabilities(discovery.value);
+        }
+        return yield* listCodexOnlyCapabilities();
+      });
     return {
       callerThreadId: context.session.threadId,
       callerSessionKey: `codex:${context.session.threadId}`,
@@ -3441,26 +3455,34 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         readonly provider: ProviderKind;
         readonly model: string;
       }) =>
-        input.provider !== "codex"
-          ? Effect.fail(
+        Effect.gen(function* () {
+          const discovery = yield* Effect.serviceOption(ProviderDiscoveryService);
+          if (Option.isSome(discovery)) {
+            return yield* resolveOrchestratorProviderCapability({
+              discovery: discovery.value,
+              provider: input.provider,
+              model: input.model,
+            });
+          }
+          if (input.provider !== "codex") {
+            return yield* Effect.fail(
               new OrchestratorToolError(
                 "provider_native_tools_unsupported",
-                `Provider "${input.provider}" is not available through this Codex-native tool session.`,
+                `Provider "${input.provider}" is not available without multi-provider discovery.`,
               ),
-            )
-          : listOrchestratorCapabilities().pipe(
-              Effect.flatMap((capabilities) => {
-                const capability = capabilities.find((entry) => entry.model === input.model);
-                return capability
-                  ? Effect.succeed(capability)
-                  : Effect.fail(
-                      new OrchestratorToolError(
-                        "provider_model_unavailable",
-                        `Model "${input.model}" is not an exact available Codex model slug.`,
-                      ),
-                    );
-              }),
-            ),
+            );
+          }
+          const capabilities = yield* listCodexOnlyCapabilities();
+          const capability = capabilities.find((entry) => entry.model === input.model);
+          return capability
+            ? capability
+            : yield* Effect.fail(
+                new OrchestratorToolError(
+                  "provider_model_unavailable",
+                  `Model "${input.model}" is not an exact available Codex model slug.`,
+                ),
+              );
+        }),
       assertCallerTurnActive: () =>
         context.session.activeTurnId !== undefined &&
         (turnId === null || context.session.activeTurnId === turnId)

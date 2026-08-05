@@ -1567,87 +1567,24 @@ describe("AgentGateway", () => {
     }).pipe(Effect.provide(gatewayLayer));
   });
 
-  it.effect("does not expose Orchestrator tools through the MCP gateway", () => {
-    const rootThreadId = ThreadId.makeUnsafe("thread-parent");
-    const participantThreadId = ThreadId.makeUnsafe("thread-participant");
-    const orchestratorCore: ProjectionOrchestratorCore = {
-      root: {
-        root: {
-          rootThreadId,
-          projectId: PROJECT_ID,
-          protocolVersion: 1,
-          state: "active",
-          activeProcessId: TaskProcessId.makeUnsafe("process-role-catalog"),
-          resourcePolicyVersion: 1,
-          createdAt: NOW,
-          archivedAt: null,
-          revision: 2,
-        },
-        highWaterCursor: "2",
-      },
-      ownershipEdges: [
-        {
-          rootThreadId,
-          parentThreadId: rootThreadId,
-          childThreadId: participantThreadId,
-          role: "participant",
-          capabilities: [
-            "state.read",
-            "link.request",
-            "message.send",
-            "artifact.publish",
-            "assignment.report",
-          ],
-          contractVersion: 1,
-          sourceThreadId: rootThreadId,
-          sourceTurnId: null,
-          sourceOperationId: null,
-          activeFrom: NOW,
-          retiredAt: null,
-          decisionReason: {
-            summary: "Independent participant",
-            taskFit: ["design"],
-            contextHealth: "healthy",
-            cacheEconomics: "unknown",
-            selectedAt: NOW,
-          },
-        },
-      ],
-      communicationLinks: [],
-      assignments: [],
-      childResults: [],
-      runs: [],
-      providerCapabilities: [],
-      capacity: null,
-    };
-    const { gatewayLayer, makeHarness } = makeHarnessLayer(
-      [...baseThreads, makeThreadShell("thread-participant")],
-      [],
-      { orchestratorCore },
-    );
-    const orchestrationNames = (body: unknown) =>
-      (
-        body as {
-          result: { tools: ReadonlyArray<{ readonly name: string }> };
-        }
-      ).result.tools
-        .map((tool) => tool.name)
-        .filter(
-          (name) => name.startsWith("synara_task_") || name.startsWith("synara_orchestrator_"),
-        );
+  it.effect("omits Orchestrator tools from MCP when the runtime is not mounted", () => {
+    // Without OrchestratorToolRuntime in the gateway layer, tools/list stays ordinary.
+    // When the runtime is mounted (production), role-visible Orchestrator tools appear
+    // so Claude/ACP hosts can call the same registry Codex installs natively.
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
     return Effect.gen(function* () {
       const harness = yield* makeHarness;
-      const root = yield* harness.postRaw({
+      const listed = yield* harness.postRaw({
         authorizationHeader: "Bearer token-parent",
         body: { jsonrpc: "2.0", id: 1, method: "tools/list" },
       });
-      assert.deepEqual(orchestrationNames(root.body), []);
-
-      const participant = yield* harness.postRaw({
-        authorizationHeader: "Bearer token-participant",
-        body: { jsonrpc: "2.0", id: 2, method: "tools/list" },
-      });
-      assert.deepEqual(orchestrationNames(participant.body), []);
+      const names = (
+        listed.body as {
+          result: { tools: ReadonlyArray<{ readonly name: string }> };
+        }
+      ).result.tools.map((tool) => tool.name);
+      assert.isFalse(names.includes("create_child_thread"));
+      assert.isFalse(names.includes("list_provider_capabilities"));
     }).pipe(Effect.provide(gatewayLayer));
   });
 

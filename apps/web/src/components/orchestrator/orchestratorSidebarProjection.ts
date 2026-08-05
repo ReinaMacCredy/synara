@@ -55,6 +55,27 @@ function childLifecycle(
   }
 }
 
+/**
+ * True when `threadId` is a descendant of `rootThreadId` via parentThreadId links.
+ * Walks parents with a cycle guard; foreign subtrees (e.g. Advisor children of
+ * other chats) must not appear under an unrelated Orchestrator Root.
+ */
+function isDescendantOfRoot(
+  threadId: ThreadId,
+  rootThreadId: ThreadId,
+  parentById: ReadonlyMap<ThreadId, ThreadId | null | undefined>,
+): boolean {
+  const seen = new Set<ThreadId>();
+  let current: ThreadId | null | undefined = parentById.get(threadId);
+  while (current != null) {
+    if (current === rootThreadId) return true;
+    if (seen.has(current)) return false;
+    seen.add(current);
+    current = parentById.get(current);
+  }
+  return false;
+}
+
 export function projectOrchestratorSidebarChildren<
   T extends {
     readonly id: ThreadId;
@@ -72,9 +93,15 @@ export function projectOrchestratorSidebarChildren<
   const authoritativeByThreadId = new Map(
     (input.childProjections ?? []).map((projection) => [projection.threadId, projection] as const),
   );
+  const parentById = new Map(
+    input.threads.map((thread) => [thread.id, thread.parentThreadId ?? null] as const),
+  );
   const children = input.threads.flatMap((thread) => {
     const parentThreadId = thread.parentThreadId ?? null;
     if (thread.id === input.rootThreadId || parentThreadId === null) return [];
+    // Must belong to this root's ownership tree — not any parented thread in the
+    // global sidebar (Advisor forks of other chats were leaking into the strip).
+    if (!isDescendantOfRoot(thread.id, input.rootThreadId, parentById)) return [];
     const assignment = latestAssignmentByThreadId.get(thread.id) ?? null;
     const projection = authoritativeByThreadId.get(thread.id) ?? null;
     const projectedLifecycle =

@@ -74,6 +74,8 @@ import {
 } from "../acp/AcpAdapterSupport.ts";
 import {
   acceptAcpPlanUpdate,
+  acpOrchestratorSessionReceipt,
+  buildAcpOrchestratorSystemPrompt,
   clearAcpActiveTurn,
   finalizeAcpActiveTurnCost,
   makeAcpThreadLock,
@@ -86,6 +88,7 @@ import {
   settleAcpPendingUserInputsAsEmptyAnswers,
   withAcpPlanModePrompt,
 } from "../acp/AcpAdapterSessionSupport.ts";
+import { orchestratorInstructionForSession } from "../../orchestration/orchestrator/protocolV1.ts";
 import { type AcpSessionRuntimeShape } from "../acp/AcpSessionRuntime.ts";
 import {
   makeAcpAssistantItemEvent,
@@ -337,6 +340,9 @@ interface PendingUserInput {
 
 interface GrokSessionContext {
   harnessPolicyDelivered?: boolean;
+  /** ORCHESTRATOR_PROTOCOL_V1 role text; delivered once on the first turn prompt. */
+  orchestratorInstruction?: string | null;
+  orchestratorInstructionDelivered?: boolean;
   readonly gatewaySessionLease?: AgentGatewaySessionLease;
   readonly threadId: ThreadId;
   readonly lifecycleGeneration?: string;
@@ -1018,6 +1024,14 @@ export function makeGrokAdapter(
               issue: `Expected provider '${PROVIDER}' but received '${input.provider}'.`,
             });
           }
+          if (input.orchestratorContext != null && agentGatewayCredentials === undefined) {
+            return yield* new ProviderAdapterValidationError({
+              provider: PROVIDER,
+              operation: "startSession",
+              issue:
+                "Grok Orchestrator sessions require the Synara MCP gateway so the Root/Child can call Orchestrator tools.",
+            });
+          }
           const cwd = resolveGrokSessionCwd(input.cwd, serverConfig);
           if (cwd === undefined) {
             return yield* new ProviderAdapterValidationError({
@@ -1069,6 +1083,12 @@ export function makeGrokAdapter(
               payload.includes("grokShell") || payload.includes("x.ai/fs_notify"),
           });
           const providerGrokOptions = input.providerOptions?.grok;
+          const orchestratorInstruction =
+            input.orchestratorContext != null
+              ? (buildAcpOrchestratorSystemPrompt({ context: input.orchestratorContext }) ??
+                orchestratorInstructionForSession(input.orchestratorContext))
+              : null;
+          const orchestratorSession = acpOrchestratorSessionReceipt(input.orchestratorContext);
           const effectiveGrokSettings: GrokAcpRuntimeSettings = {
             ...(grokSettings.binaryPath !== undefined
               ? { binaryPath: grokSettings.binaryPath }
@@ -1091,6 +1111,7 @@ export function makeGrokAdapter(
             model: effectiveGrokSettings.model,
             reasoningEffort: effectiveGrokSettings.reasoningEffort,
             binaryPath: effectiveGrokSettings.binaryPath ?? "grok",
+            orchestratorRole: input.orchestratorContext?.role,
           });
 
           const acp = yield* makeGrokAcpRuntime({
@@ -1103,6 +1124,7 @@ export function makeGrokAdapter(
             // initialize.clientCapabilities. Re-send this on load/resume so a
             // reconnected session keeps the Plan-mode write gate.
             sessionMeta: GROK_SESSION_META,
+            ...(orchestratorSession ? { orchestratorSession } : {}),
             ...(agentGatewayCredentials
               ? {
                   buildMcpServers: (initializeResult) =>
@@ -1328,6 +1350,9 @@ export function makeGrokAdapter(
             ...(gatewaySessionLease ? { gatewaySessionLease } : {}),
             ...(input.lifecycleGeneration !== undefined
               ? { lifecycleGeneration: input.lifecycleGeneration }
+              : {}),
+            ...(orchestratorInstruction
+              ? { orchestratorInstruction, orchestratorInstructionDelivered: false }
               : {}),
             session,
             scope: sessionScope,
@@ -1837,6 +1862,20 @@ export function makeGrokAdapter(
         );
         if (harnessPolicy) {
           promptParts.unshift(harnessPolicy);
+        }
+        // Grok has no process-level system-prompt flag; install the Orchestrator
+        // role text once at the head of the first user turn (same delivery class
+        // as the harness policy block).
+        if (
+          ctx.orchestratorInstruction &&
+          ctx.orchestratorInstructionDelivered !== true &&
+          ctx.orchestratorInstruction.trim().length > 0
+        ) {
+          promptParts.unshift({
+            type: "text",
+            text: ctx.orchestratorInstruction,
+          });
+          ctx.orchestratorInstructionDelivered = true;
         }
 
         // A stop can land while the pre-prompt work or attachment reads above were
@@ -2509,6 +2548,12 @@ export function makeGrokAdapter(
       provider: PROVIDER,
       capabilities: {
         sessionModelSwitch: "restart-session",
+        orchestrator: {
+          authoritativeRoleInstruction: true,
+          nativeTools: true, // Synara MCP host tools (same catalog for every provider)
+          independentSession: true,
+          instructionChannel: "acp-process-system-prompt",
+        },
       },
       startSession,
       sendTurn,

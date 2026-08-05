@@ -130,6 +130,7 @@ export function DeferredChatView(props: {
   onOpenSessionProgressProcess?: () => void;
   supervisionMissionStrips?: ReactNode;
   orchestratorMode?: boolean;
+  onSelectOrchestratorThread?: (threadId: ThreadId) => void;
   inspectOnly?: boolean;
 }) {
   const onMounted = props.onMounted ?? noopChatSurfaceAction;
@@ -197,6 +198,9 @@ export function DeferredChatView(props: {
         ? { supervisionMissionStrips: props.supervisionMissionStrips }
         : {})}
       orchestratorMode={props.orchestratorMode ?? false}
+      {...(props.onSelectOrchestratorThread
+        ? { onSelectOrchestratorThread: props.onSelectOrchestratorThread }
+        : {})}
       inspectOnly={props.inspectOnly ?? false}
     />
   );

@@ -94,4 +94,25 @@ describe("projectOrchestratorSidebarChildren", () => {
 
     expect(visibleOrchestratorSidebarChildren(projected)).toHaveLength(5);
   });
+
+  it("excludes parented threads that belong to a different root", () => {
+    const otherRoot = ThreadId.makeUnsafe("other-root");
+    const ownChild = child("own");
+    const foreignAdvisor = child("advisor", otherRoot);
+    const nestedUnderOwn = {
+      id: ThreadId.makeUnsafe("nested"),
+      parentThreadId: ownChild.id,
+      createdAt: "2026-08-02T10:00:00.000Z",
+    };
+    const projected = projectOrchestratorSidebarChildren({
+      rootThreadId: root,
+      threads: [ownChild, foreignAdvisor, nestedUnderOwn],
+      assignments: [],
+    });
+
+    expect(projected.map((entry) => entry.thread.id).toSorted()).toEqual(
+      [ownChild.id, nestedUnderOwn.id].toSorted(),
+    );
+    expect(projected.some((entry) => entry.thread.id === foreignAdvisor.id)).toBe(false);
+  });
 });

@@ -60,7 +60,11 @@ export function makeServerProviderLayer(
     );
     const claudeAdapterLayer = makeClaudeAdapterLive(
       nativeEventLogger ? { nativeEventLogger } : undefined,
-    ).pipe(Layer.provide(agentGatewayCredentialsLayer));
+    ).pipe(
+      Layer.provide(agentGatewayCredentialsLayer),
+      // Install class B: in-process SDK MCP needs the shared tool runtime + discovery.
+      Layer.provide(OrchestratorToolRuntimeConfiguredLive),
+    );
     const openCodeAdapterLayer = makeOpenCodeAdapterLive({
       ...(nativeEventLogger ? { nativeEventLogger } : {}),
       resolveServerPassword: resolveProviderServerPassword,

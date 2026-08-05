@@ -2285,6 +2285,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
         supportsLiveTurnDiffPatch: true,
         orchestrator: {
           authoritativeRoleInstruction: true,
+          // Install class A: Codex app-server dynamicTools + native callbacks.
           nativeTools: orchestratorToolRuntime !== undefined,
           independentSession: true,
           instructionChannel: "codex-developer-instructions",
