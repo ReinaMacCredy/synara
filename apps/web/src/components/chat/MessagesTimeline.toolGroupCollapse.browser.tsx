@@ -101,7 +101,9 @@ function ToolGroupCollapseTimeline(props: {
       activeTurnInProgress={props.activeTurnInProgress ?? true}
       activeTurnId={TurnId.makeUnsafe("turn-live")}
       activeTurnStartedAt={props.activeTurnStartedAt ?? "2026-03-17T19:12:20.000Z"}
-      followLiveOutput={props.followLiveOutput}
+      {...(props.followLiveOutput !== undefined
+        ? { followLiveOutput: props.followLiveOutput }
+        : {})}
       timelineEntries={props.timelineEntries}
       turnDiffSummaryByAssistantMessageId={new Map()}
       nowIso="2026-03-17T19:12:30.000Z"
@@ -402,19 +404,35 @@ describe("MessagesTimeline tool group collapse", () => {
       const settledLayer = liveRegion?.querySelector<HTMLElement>(
         "[data-work-status-text='settled']",
       );
+      // Opacity + translateY only — blur was removed because near-identical
+      // Working/Worked copy read as a smudge under filter.
       expect(getComputedStyle(workingLayer!).transitionDuration.split(", ")).toEqual([
-        "0.15s",
-        "0.15s",
-        "0.15s",
+        "0.16s",
+        "0.16s",
       ]);
       expect(getComputedStyle(workingLayer!).transitionProperty).toContain("transform");
       expect(getComputedStyle(workingLayer!).transitionProperty).toContain("opacity");
+      expect(getComputedStyle(workingLayer!).transitionProperty).not.toContain("filter");
       expect(getComputedStyle(workingLayer!).transform).not.toBe("none");
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       const transitioningOpacity = Number.parseFloat(getComputedStyle(settledLayer!).opacity);
       expect(transitioningOpacity).toBeGreaterThan(0);
       expect(transitioningOpacity).toBeLessThan(1);
       await expect.poll(() => getComputedStyle(settledLayer!).opacity).toBe("1");
+
+      // Process details open on the settle frame then close with shared disclosure motion.
+      // Steady state: closed disclosure (user can re-open via the chevron).
+      await expect
+        .poll(
+          () =>
+            liveRegion
+              ?.querySelector("[data-turn-work-details]")
+              ?.getAttribute("data-turn-work-details") === "closed",
+        )
+        .toBe(true);
+      await expect
+        .poll(() => liveRegion?.querySelector("button")?.getAttribute("aria-expanded"))
+        .toBe("false");
 
       await mounted.rerender(
         <ToolGroupCollapseTimeline

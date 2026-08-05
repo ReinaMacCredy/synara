@@ -138,8 +138,17 @@ import {
 } from "./chatTypography";
 import { DisclosureChevron } from "../ui/DisclosureChevron";
 import { DisclosureRegion } from "../ui/DisclosureRegion";
-import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
-import { DISCLOSURE_CLEANUP_BUFFER_MS, DISCLOSURE_TRANSITION_MS } from "~/lib/disclosureMotion";
+import {
+  DISCLOSURE_CLEANUP_BUFFER_MS,
+  DISCLOSURE_CONTENT_CLOSED_CLASS,
+  DISCLOSURE_CONTENT_MOTION_CLASS,
+  DISCLOSURE_CONTENT_OPEN_CLASS,
+  DISCLOSURE_INNER_CLASS,
+  DISCLOSURE_SHELL_CLOSED_CLASS,
+  DISCLOSURE_SHELL_MOTION_CLASS,
+  DISCLOSURE_SHELL_OPEN_CLASS,
+  DISCLOSURE_TRANSITION_MS,
+} from "~/lib/disclosureMotion";
 import { getAppTypographyScale } from "../../lib/appTypography";
 import {
   USER_MESSAGE_COLLAPSED_FADE_LINES,
@@ -670,6 +679,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     ],
   );
   const rows = useStableRows(rawRows);
+  // Live → settled handoff: open folded process details for one frame, then close
+  // with the shared disclosure motion so settlement is not a hard height delete.
+  const settleOpenByActivityId = useTurnActivitySettleTransitions(rows);
   const alwaysRenderedTurnActivityRows = useMemo(() => {
     const keys: string[] = [];
     for (let index = rows.length - 1; index >= 0 && keys.length < 2; index -= 1) {
@@ -752,6 +764,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       highlightedMessageId,
       lastLiveWorkGroupId,
       pinnedMessageIds,
+      settleOpenByActivityId,
       submittingEditedUserMessageId,
       threadMarkersByMessageId,
       toolGroupSummaryOverrides,
@@ -769,6 +782,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       highlightedMessageId,
       lastLiveWorkGroupId,
       pinnedMessageIds,
+      settleOpenByActivityId,
       submittingEditedUserMessageId,
       threadMarkersByMessageId,
       toolGroupSummaryOverrides,
@@ -897,7 +911,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const tailContentRowId = useMemo(() => {
     for (let index = rows.length - 1; index >= 0; index -= 1) {
       const row = rows[index]!;
-      if (row.kind !== "working" && row.kind !== "worktree-setup") return row.id;
+      if (row.kind !== "worktree-setup") return row.id;
     }
     return null;
   }, [rows]);
@@ -2086,10 +2100,17 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           const detailItems = (row.collapsedTurnItems ?? []).filter(
             (item) => item.kind !== "work" || !item.entry.synaraThreadCreation,
           );
+          const settleTransitionOpen = settleOpenByActivityId[row.id];
+          // `true` = settle enter frame (full height, no enter motion).
+          // `false` = settle close frame (shared disclosure close).
+          // `undefined` = steady state; fall back to user toggle map.
           const expanded =
             row.state === "settled" && detailItems.length > 0
-              ? (expandedCollapsedWork[row.id] ?? false)
+              ? settleTransitionOpen !== undefined
+                ? settleTransitionOpen
+                : (expandedCollapsedWork[row.id] ?? false)
               : false;
+          const settleEnterInstant = settleTransitionOpen === true;
           const renderItem = (
             item: CollapsedTurnItem,
             keyPrefix: string,
@@ -2163,8 +2184,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               state={row.state}
               startedAt={row.createdAt}
               settledElapsed={row.collapsedWorkElapsed ?? null}
-              nowIso={nowIso}
+              {...(nowIso !== undefined ? { nowIso } : {})}
               open={expanded}
+              settleEnterInstant={settleEnterInstant}
+              settleTransitionActive={settleTransitionOpen !== undefined}
               hasDetails={detailItems.length > 0}
               fontSize={chatTypographyStyle.fontSize}
               onToggle={(open) => setCollapsedWorkExpanded(row.id, open)}
@@ -2382,7 +2405,7 @@ interface WorktreeSetupPresentation {
 
 // Keeps the transient worktree-setup card mounted through one shared-disclosure
 // close animation after ChatView clears the snapshot, mirroring
-// useSettledTurnCollapseTransitions' rAF-flip + delayed-cleanup shape.
+// useTurnActivitySettleTransitions' rAF-flip + delayed-cleanup shape.
 function useWorktreeSetupPresentation(
   worktreeSetup: WorktreeSetupSnapshot | null,
 ): WorktreeSetupPresentation | null {
@@ -2466,16 +2489,25 @@ function TurnActivityRegion(props: {
   settledElapsed: string | null;
   nowIso?: string;
   open: boolean;
+  // First settle paint: show folded details at full height with no enter motion,
+  // so the following close can ease with the shared disclosure curve.
+  settleEnterInstant?: boolean;
+  // True for the whole open→close settle handoff (used by hydrate regression tests).
+  settleTransitionActive?: boolean;
   hasDetails: boolean;
   fontSize: CSSProperties["fontSize"];
   onToggle: (open: boolean) => void;
   renderChildren: () => ReactNode;
 }) {
   const live = props.state === "working";
-  const [keepChildrenMounted, setKeepChildrenMounted] = useState(props.open);
+  const detailsOpen = !live && props.open;
+  const settleEnterInstant = props.settleEnterInstant === true;
+  const [keepChildrenMounted, setKeepChildrenMounted] = useState(detailsOpen);
+  // Chevron fades in on the settle frame rather than popping with the label swap.
+  const [chevronVisible, setChevronVisible] = useState(!live && props.hasDetails);
 
   useEffect(() => {
-    if (props.open) {
+    if (detailsOpen) {
       setKeepChildrenMounted(true);
       return;
     }
@@ -2485,41 +2517,87 @@ function TurnActivityRegion(props: {
       DISCLOSURE_TRANSITION_MS + DISCLOSURE_CLEANUP_BUFFER_MS,
     );
     return () => window.clearTimeout(cleanup);
-  }, [keepChildrenMounted, props.open]);
+  }, [detailsOpen, keepChildrenMounted]);
+
+  useEffect(() => {
+    if (live || !props.hasDetails) {
+      setChevronVisible(false);
+      return;
+    }
+    setChevronVisible(false);
+    const frame = window.requestAnimationFrame(() => {
+      setChevronVisible(true);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [live, props.hasDetails]);
+
+  const showDetails = detailsOpen || keepChildrenMounted;
+  // Shared disclosure shell (not CollapsiblePanel): settle enter must paint at
+  // full height without data-starting-style h-0, otherwise process flashes open
+  // from zero before the close animation runs.
+  const detailsShellClassName = cn(
+    DISCLOSURE_SHELL_MOTION_CLASS,
+    detailsOpen ? DISCLOSURE_SHELL_OPEN_CLASS : DISCLOSURE_SHELL_CLOSED_CLASS,
+    settleEnterInstant && "transition-none",
+  );
+  const detailsContentClassName = cn(
+    DISCLOSURE_CONTENT_MOTION_CLASS,
+    detailsOpen ? DISCLOSURE_CONTENT_OPEN_CLASS : DISCLOSURE_CONTENT_CLOSED_CLASS,
+    settleEnterInstant && "transition-none",
+  );
 
   return (
-    <div className="mb-3" data-turn-work-region={props.activityId}>
-      <Collapsible
-        className="group/collapsed-work"
-        open={!live && props.open}
-        onOpenChange={(open) => {
-          if (live || !props.hasDetails) return;
-          props.onToggle(open);
-        }}
-      >
-        <CollapsibleTrigger
+    <div
+      className="mb-3"
+      data-turn-work-region={props.activityId}
+      data-settled-turn-collapse-transition={
+        props.settleTransitionActive ? "true" : undefined
+      }
+    >
+      <div className="group/collapsed-work">
+        <button
+          type="button"
           disabled={live || !props.hasDetails}
+          // No-tool settled turns have no details to expand; keep aria-expanded="false"
+          // so assistive tech and tests still see a settled, non-expandable control.
+          aria-expanded={live ? undefined : props.hasDetails ? detailsOpen : false}
           className="-ml-0.5 inline-flex items-center gap-1 pb-2 text-left text-muted-foreground/70 transition-colors duration-200 hover:text-muted-foreground/90 disabled:pointer-events-none"
           style={{ fontSize: props.fontSize }}
+          onClick={() => {
+            if (live || !props.hasDetails) return;
+            props.onToggle(!detailsOpen);
+          }}
         >
           <TurnWorkRegionLabel
             state={props.state}
             startedAt={props.startedAt}
             settledElapsed={props.settledElapsed}
-            nowIso={props.nowIso}
+            {...(props.nowIso !== undefined ? { nowIso: props.nowIso } : {})}
           />
           {!live && props.hasDetails ? (
-            <DisclosureChevron open={props.open} className="text-muted-foreground/55" />
+            <span
+              className={cn(
+                "work-status-chevron inline-flex",
+                chevronVisible && "work-status-chevron--visible",
+              )}
+              aria-hidden={!chevronVisible}
+            >
+              <DisclosureChevron open={detailsOpen} className="text-muted-foreground/55" />
+            </span>
           ) : null}
-        </CollapsibleTrigger>
-        <CollapsiblePanel>
-          {props.open || keepChildrenMounted ? props.renderChildren() : null}
-        </CollapsiblePanel>
-        </Collapsible>
-        <div className="h-px w-full bg-border" />
+        </button>
+        <div className={detailsShellClassName} data-turn-work-details={detailsOpen ? "open" : "closed"}>
+          <div className={DISCLOSURE_INNER_CLASS}>
+            {showDetails ? (
+              <div className={detailsContentClassName}>{props.renderChildren()}</div>
+            ) : null}
+          </div>
+        </div>
       </div>
-    );
-  }
+      <div className="h-px w-full bg-border" />
+    </div>
+  );
+}
 
 function LiveReasoningStatusRow(props: {
   scopeKey: string;
@@ -2552,31 +2630,50 @@ function TurnWorkRegionLabel(props: {
   nowIso?: string;
 }) {
   const live = props.state === "working";
-  const liveElapsedSnapshotRef = useRef<WorkingElapsedSnapshot>({ seconds: 0, label: "0s" });
+  const [liveElapsedSnapshot, setLiveElapsedSnapshot] = useState<WorkingElapsedSnapshot>({
+    seconds: 0,
+    label: "0s",
+  });
+  // Freeze the last live tick across settle. On settle the row's `startedAt` can
+  // rewrite to the folded-segment start, so recalculating from props would jump.
+  const frozenLiveElapsedRef = useRef<WorkingElapsedSnapshot | null>(null);
   const fixedLiveElapsed =
-    props.startedAt && props.nowIso
+    live && props.startedAt && props.nowIso
       ? readWorkingElapsedSnapshot(props.startedAt, props.nowIso)
       : null;
-  if (live && fixedLiveElapsed) {
-    liveElapsedSnapshotRef.current = fixedLiveElapsed;
-  }
-  const liveElapsed = props.startedAt
-    ? live
-      ? fixedLiveElapsed?.label ?? (
-          <WorkingTimer
-            createdAt={props.startedAt}
-            elapsedSnapshotRef={liveElapsedSnapshotRef}
-          />
-        )
-      : liveElapsedSnapshotRef.current.label
-    : null;
+
+  useEffect(() => {
+    if (!live || !props.startedAt) return;
+    const updateElapsed = () => {
+      const next = readWorkingElapsedSnapshot(
+        props.startedAt!,
+        props.nowIso ?? new Date().toISOString(),
+      );
+      setLiveElapsedSnapshot(next);
+      frozenLiveElapsedRef.current = next;
+    };
+    updateElapsed();
+    if (props.nowIso !== undefined) return;
+    const intervalId = window.setInterval(updateElapsed, 1_000);
+    return () => window.clearInterval(intervalId);
+  }, [live, props.nowIso, props.startedAt]);
+
+  const frozenLive = frozenLiveElapsedRef.current;
+  const continuousLiveLabel =
+    fixedLiveElapsed?.label ?? liveElapsedSnapshot.label ?? frozenLive?.label ?? "0s";
+  const continuousLiveSeconds =
+    fixedLiveElapsed?.seconds ?? liveElapsedSnapshot.seconds ?? frozenLive?.seconds ?? 0;
   const providerSettledElapsed = props.settledElapsed ?? "0s";
   const providerSettledSeconds = parseClockDurationSeconds(providerSettledElapsed);
+  // Prefer the continuous live clock when provider elapsed is missing or behind the
+  // last tick; otherwise take the larger value so the number never steps backward.
   const settledElapsed =
-    providerSettledSeconds !== null &&
-    providerSettledSeconds >= liveElapsedSnapshotRef.current.seconds
+    providerSettledSeconds !== null && providerSettledSeconds >= continuousLiveSeconds
       ? providerSettledElapsed
-      : liveElapsedSnapshotRef.current.label;
+      : continuousLiveLabel;
+  // Exiting Working layer keeps the same duration as the entering Worked layer.
+  const workingElapsed = props.startedAt ? (live ? continuousLiveLabel : settledElapsed) : null;
+
   return (
     <span className="inline-grid overflow-hidden" aria-live="polite">
       <span
@@ -2587,7 +2684,7 @@ function TurnWorkRegionLabel(props: {
         )}
         aria-hidden={!live}
       >
-        {props.startedAt ? <>Working for {liveElapsed}</> : "Working..."}
+        {props.startedAt ? <>Working for {workingElapsed}</> : "Working..."}
       </span>
       <span
         data-work-status-text="settled"
@@ -2599,23 +2696,30 @@ function TurnWorkRegionLabel(props: {
       >
         Worked for {settledElapsed}
       </span>
-      </span>
-    );
+    </span>
+  );
 }
 
-// Keeps newly folded turn details mounted for one shared-disclosure close
-// animation, so settled turns do not disappear in one height recalculation.
-function useSettledTurnCollapseTransitions(
-  rows: readonly MessagesTimelineRow[],
-): Readonly<Record<string, SettledTurnCollapseTransition>> {
-  const [transitions, setTransitions] = useState<Record<string, SettledTurnCollapseTransition>>({});
-  const previousAssistantMessageIdsRef = useRef<ReadonlySet<string>>(new Set());
-  const previousCollapsedSignaturesRef = useRef<ReadonlyMap<string, string>>(new Map());
-  const watchedLiveMessageIdsRef = useRef(new Set<string>());
-  const timersRef = useRef(new Map<string, SettledTurnCollapseTimer>());
+interface TurnActivitySettleTimer {
+  closeFrame: number | null;
+  cleanupTimeout: number | null;
+}
 
-  const clearTransitionTimer = useCallback((messageId: string) => {
-    const timer = timersRef.current.get(messageId);
+// When a watched live turn-activity row first gains folded details, open the
+// disclosure on that same settle paint (no closed flash), then close with the
+// shared 220ms motion. History and already-settled rows never qualify.
+function useTurnActivitySettleTransitions(
+  rows: readonly MessagesTimelineRow[],
+): Readonly<Record<string, boolean>> {
+  const [openByActivityId, setOpenByActivityId] = useState<Record<string, boolean>>({});
+  const previousActivityIdsRef = useRef<ReadonlySet<string>>(new Set());
+  const previousSettledSignaturesRef = useRef<ReadonlyMap<string, string>>(new Map());
+  const watchedLiveActivityIdsRef = useRef(new Set<string>());
+  const timersRef = useRef(new Map<string, TurnActivitySettleTimer>());
+  const startedThisRenderRef = useRef<string[]>([]);
+
+  const clearTransitionTimer = useCallback((activityId: string) => {
+    const timer = timersRef.current.get(activityId);
     if (!timer) {
       return;
     }
@@ -2625,213 +2729,176 @@ function useSettledTurnCollapseTransitions(
     if (timer.cleanupTimeout !== null) {
       window.clearTimeout(timer.cleanupTimeout);
     }
-    timersRef.current.delete(messageId);
+    timersRef.current.delete(activityId);
   }, []);
 
   const scheduleTransitionClose = useCallback(
-    (messageId: string) => {
-      clearTransitionTimer(messageId);
+    (activityId: string) => {
+      clearTransitionTimer(activityId);
       const closeFrame = window.requestAnimationFrame(() => {
-        const timer = timersRef.current.get(messageId);
+        const timer = timersRef.current.get(activityId);
         if (!timer) {
           return;
         }
-        timersRef.current.set(messageId, { ...timer, closeFrame: null });
-        setTransitions((current) => {
-          const transition = current[messageId];
-          if (!transition || !transition.open) {
+        timersRef.current.set(activityId, { ...timer, closeFrame: null });
+        setOpenByActivityId((current) => {
+          if (current[activityId] !== true) {
             return current;
           }
-          return {
-            ...current,
-            [messageId]: { ...transition, open: false },
-          };
+          return { ...current, [activityId]: false };
         });
 
         const cleanupTimeout = window.setTimeout(() => {
-          timersRef.current.delete(messageId);
-          setTransitions((current) => {
-            if (!current[messageId]) {
+          timersRef.current.delete(activityId);
+          setOpenByActivityId((current) => {
+            if (!(activityId in current)) {
               return current;
             }
             const next = { ...current };
-            delete next[messageId];
+            delete next[activityId];
             return next;
           });
         }, DISCLOSURE_TRANSITION_MS + DISCLOSURE_CLEANUP_BUFFER_MS);
-        timersRef.current.set(messageId, { closeFrame: null, cleanupTimeout });
+        timersRef.current.set(activityId, { closeFrame: null, cleanupTimeout });
       });
-      timersRef.current.set(messageId, { closeFrame, cleanupTimeout: null });
+      timersRef.current.set(activityId, { closeFrame, cleanupTimeout: null });
     },
     [clearTransitionTimer],
   );
 
+  // Render-phase detection so the first settled paint is already open.
+  const detection = detectTurnActivitySettleTransitions({
+    rows,
+    previousActivityIds: previousActivityIdsRef.current,
+    previousSettledSignatures: previousSettledSignaturesRef.current,
+    watchedLiveActivityIds: watchedLiveActivityIdsRef.current,
+    alreadyTransitioning: openByActivityId,
+  });
+  startedThisRenderRef.current = detection.startedActivityIds;
+  const detectionRef = useRef(detection);
+  detectionRef.current = detection;
+
+  const mergedOpenByActivityId =
+    detection.startedActivityIds.length === 0
+      ? openByActivityId
+      : {
+          ...openByActivityId,
+          ...Object.fromEntries(detection.startedActivityIds.map((id) => [id, true] as const)),
+        };
+
   useLayoutEffect(() => {
-    applySettledTurnCollapseTransitions({
-      rows,
-      previousAssistantMessageIdsRef,
-      previousCollapsedSignaturesRef,
-      watchedLiveMessageIdsRef,
-      clearTransitionTimer,
-      scheduleTransitionClose,
-      setTransitions,
+    const currentDetection = detectionRef.current;
+    previousActivityIdsRef.current = currentDetection.currentActivityIds;
+    previousSettledSignaturesRef.current = currentDetection.currentSettledSignatures;
+    watchedLiveActivityIdsRef.current = currentDetection.nextWatchedLiveActivityIds;
+
+    const startedActivityIds = startedThisRenderRef.current;
+    if (startedActivityIds.length === 0) {
+      setOpenByActivityId((current) => {
+        let next: Record<string, boolean> | null = null;
+        for (const activityId of Object.keys(current)) {
+          if (
+            !currentDetection.currentSettledSignatures.has(activityId) &&
+            !currentDetection.nextWatchedLiveActivityIds.has(activityId)
+          ) {
+            clearTransitionTimer(activityId);
+            next ??= { ...current };
+            delete next[activityId];
+          }
+        }
+        return next ?? current;
+      });
+      return;
+    }
+
+    setOpenByActivityId((current) => {
+      const next = { ...current };
+      for (const activityId of startedActivityIds) {
+        next[activityId] = true;
+      }
+      return next;
     });
+    for (const activityId of startedActivityIds) {
+      scheduleTransitionClose(activityId);
+    }
   }, [clearTransitionTimer, rows, scheduleTransitionClose]);
 
   useEffect(
     () => () => {
-      for (const messageId of Array.from(timersRef.current.keys())) {
-        clearTransitionTimer(messageId);
+      for (const activityId of Array.from(timersRef.current.keys())) {
+        clearTransitionTimer(activityId);
       }
     },
     [clearTransitionTimer],
   );
 
-  return transitions;
+  return mergedOpenByActivityId;
 }
 
-// Detects turns that just folded and drives their close animation. Kept in a module
-// helper (not compiled) so the synchronous open setState stays out of the hook while
-// its ordering against scheduleTransitionClose — which needs the open state committed
-// before it schedules the closing rAF — is preserved exactly.
-function applySettledTurnCollapseTransitions(params: {
+function detectTurnActivitySettleTransitions(params: {
   rows: readonly MessagesTimelineRow[];
-  previousAssistantMessageIdsRef: RefObject<ReadonlySet<string>>;
-  previousCollapsedSignaturesRef: RefObject<ReadonlyMap<string, string>>;
-  watchedLiveMessageIdsRef: RefObject<Set<string>>;
-  clearTransitionTimer: (messageId: string) => void;
-  scheduleTransitionClose: (messageId: string) => void;
-  setTransitions: Dispatch<SetStateAction<Record<string, SettledTurnCollapseTransition>>>;
-}): void {
-  const {
-    rows,
-    previousAssistantMessageIdsRef,
-    previousCollapsedSignaturesRef,
-    watchedLiveMessageIdsRef,
-    clearTransitionTimer,
-    scheduleTransitionClose,
-    setTransitions,
-  } = params;
-  const currentAssistantMessageIds = new Set<string>();
-  const currentCollapsed = new Map<
-    string,
-    { signature: string; items: readonly CollapsedTurnItem[] }
-  >();
-  const watchedLiveMessageIds = watchedLiveMessageIdsRef.current;
+  previousActivityIds: ReadonlySet<string>;
+  previousSettledSignatures: ReadonlyMap<string, string>;
+  watchedLiveActivityIds: ReadonlySet<string>;
+  alreadyTransitioning: Readonly<Record<string, boolean>>;
+}): {
+  currentActivityIds: Set<string>;
+  currentSettledSignatures: Map<string, string>;
+  nextWatchedLiveActivityIds: Set<string>;
+  startedActivityIds: string[];
+} {
+  const currentActivityIds = new Set<string>();
+  const currentSettledSignatures = new Map<string, string>();
+  const nextWatchedLiveActivityIds = new Set(params.watchedLiveActivityIds);
+  const startedActivityIds: string[] = [];
 
-  for (const row of rows) {
-    if (row.kind !== "message" || row.message.role !== "assistant") {
+  for (const row of params.rows) {
+    if (row.kind !== "turn-activity") {
       continue;
     }
-    const messageId = row.message.id;
-    currentAssistantMessageIds.add(messageId);
-    // Only the assistant row belonging to the live turn has an expanded layout
-    // on screen worth animating away. Thread-wide working state also covers
-    // reconnects, approvals, and newer turns, so it must not qualify history.
-    if (row.assistantTurnInProgress || row.message.streaming) {
-      watchedLiveMessageIds.add(messageId);
+    currentActivityIds.add(row.id);
+    if (row.state === "working") {
+      nextWatchedLiveActivityIds.add(row.id);
     }
-    if (row.collapsedTurnItems && row.collapsedTurnItems.length > 0) {
-      currentCollapsed.set(messageId, {
-        signature: collapsedTurnItemsSignature(row.collapsedTurnItems),
-        items: row.collapsedTurnItems,
-      });
+    const detailCount = row.collapsedTurnItems?.length ?? 0;
+    if (row.state === "settled" && detailCount > 0) {
+      currentSettledSignatures.set(row.id, collapsedTurnItemsSignature(row.collapsedTurnItems!));
     }
   }
 
-  for (const messageId of watchedLiveMessageIds) {
-    if (!currentAssistantMessageIds.has(messageId)) {
-      watchedLiveMessageIds.delete(messageId);
+  for (const activityId of Array.from(nextWatchedLiveActivityIds)) {
+    if (!currentActivityIds.has(activityId)) {
+      nextWatchedLiveActivityIds.delete(activityId);
     }
   }
 
-  const previousAssistantMessageIds = previousAssistantMessageIdsRef.current;
-  const previousCollapsedSignatures = previousCollapsedSignaturesRef.current;
-  const startedTransitions: Array<{
-    messageId: string;
-    items: readonly CollapsedTurnItem[];
-  }> = [];
-
-  for (const [messageId, collapsed] of currentCollapsed) {
+  for (const activityId of currentSettledSignatures.keys()) {
     if (
-      watchedLiveMessageIds.has(messageId) &&
-      previousAssistantMessageIds.has(messageId) &&
-      !previousCollapsedSignatures.has(messageId)
+      nextWatchedLiveActivityIds.has(activityId) &&
+      params.previousActivityIds.has(activityId) &&
+      !params.previousSettledSignatures.has(activityId) &&
+      params.alreadyTransitioning[activityId] === undefined
     ) {
-      startedTransitions.push({ messageId, items: collapsed.items });
+      startedActivityIds.push(activityId);
+      nextWatchedLiveActivityIds.delete(activityId);
     }
   }
 
-  previousAssistantMessageIdsRef.current = currentAssistantMessageIds;
-  previousCollapsedSignaturesRef.current = new Map(
-    Array.from(currentCollapsed, ([messageId, collapsed]) => [messageId, collapsed.signature]),
-  );
-
-  setTransitions((current) => {
-    let next: Record<string, SettledTurnCollapseTransition> | null = null;
-    const ensureNext = () => {
-      next ??= { ...current };
-      return next;
-    };
-
-    for (const messageId of Object.keys(current)) {
-      if (!currentCollapsed.has(messageId)) {
-        clearTransitionTimer(messageId);
-        delete ensureNext()[messageId];
-      }
-    }
-
-    for (const transition of startedTransitions) {
-      ensureNext()[transition.messageId] = {
-        open: true,
-        items: transition.items,
-      };
-    }
-
-    return next ?? current;
-  });
-
-  for (const transition of startedTransitions) {
-    scheduleTransitionClose(transition.messageId);
-  }
+  return {
+    currentActivityIds,
+    currentSettledSignatures,
+    nextWatchedLiveActivityIds,
+    startedActivityIds,
+  };
 }
 
 function collapsedTurnItemsSignature(items: readonly CollapsedTurnItem[]): string {
   return items.map((item) => `${item.kind}:${item.id}`).join("|");
 }
 
-// Keep the live clock scoped to tiny leaf components so active Claude turns do
+// Keep the live clock scoped to the tiny status-label leaf so active Claude turns
 // not force the full transcript tree to re-render every second.
 type WorkingElapsedSnapshot = { seconds: number; label: string };
-
-function WorkingTimer({
-  createdAt,
-  elapsedSnapshotRef,
-}: {
-  createdAt: string;
-  elapsedSnapshotRef: { current: WorkingElapsedSnapshot };
-}) {
-  const textRef = useRef<HTMLSpanElement>(null);
-  const initialSnapshot = readWorkingElapsedSnapshot(createdAt, new Date().toISOString());
-  elapsedSnapshotRef.current = initialSnapshot;
-
-  useEffect(() => {
-    const updateText = () => {
-      const snapshot = readWorkingElapsedSnapshot(createdAt, new Date().toISOString());
-      elapsedSnapshotRef.current = snapshot;
-      if (textRef.current) {
-        textRef.current.textContent = snapshot.label;
-      }
-    };
-    updateText();
-    const id = window.setInterval(updateText, 1000);
-    return () => {
-      window.clearInterval(id);
-    };
-  }, [createdAt, elapsedSnapshotRef]);
-
-  return <span ref={textRef}>{initialSnapshot.label}</span>;
-}
 
 function readWorkingElapsedSnapshot(startIso: string, endIso: string): WorkingElapsedSnapshot {
   const startedAt = Date.parse(startIso);

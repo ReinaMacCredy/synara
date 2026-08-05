@@ -2468,33 +2468,39 @@ label:has(> select#reasoning-effort) select {
   animation: reasoning-text-swap-out 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+/* Working → Worked: opacity + 2px Y only. No blur — near-identical copy reads as
+   smudge under filter, not a status change. */
 .work-status-swap__phrase {
   opacity: 1;
   transform: translateY(0);
-  filter: blur(0);
   transition:
-    transform 150ms ease-in-out,
-    filter 150ms ease-in-out,
-    opacity 150ms ease-in-out;
-  will-change: transform, filter, opacity;
+    transform 160ms ease-out,
+    opacity 160ms ease-out;
+  will-change: transform, opacity;
 }
 
 .work-status-swap__phrase--visible {
   opacity: 1;
   transform: translateY(0);
-  filter: blur(0);
 }
 
 .work-status-swap__phrase--exit {
   opacity: 0;
-  transform: translateY(-4px);
-  filter: blur(2px);
+  transform: translateY(-2px);
 }
 
 .work-status-swap__phrase--enter {
   opacity: 0;
-  transform: translateY(4px);
-  filter: blur(2px);
+  transform: translateY(2px);
+}
+
+.work-status-chevron {
+  opacity: 0;
+  transition: opacity 160ms ease-out;
+}
+
+.work-status-chevron--visible {
+  opacity: 1;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2510,7 +2516,10 @@ label:has(> select#reasoning-effort) select {
 
   .work-status-swap__phrase {
     transform: none;
-    filter: none;
+    transition: none;
+  }
+
+  .work-status-chevron {
     transition: none;
   }
 }
