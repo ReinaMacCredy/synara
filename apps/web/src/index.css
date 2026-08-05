@@ -334,6 +334,64 @@
 }
 
 /*
+ * Multi-question step: option J · directional card push.
+ * Whole shell translates + scales out on the next/prev axis, content swaps,
+ * then settles in from the opposite side. Height is eased via inline style so
+ * Q2→Q3 (uneven option counts) never hard-jumps.
+ */
+.pending-user-input-step-shell {
+  transform-origin: 50% 50%;
+  will-change: transform, opacity, height;
+  backface-visibility: hidden;
+  transition:
+    height 280ms ease-out,
+    transform 280ms cubic-bezier(0.23, 1, 0.32, 1),
+    opacity 200ms ease-out;
+}
+
+.pending-user-input-step-shell[data-step-push="exit"][data-step-dir="next"] {
+  opacity: 0;
+  transform: translateX(-12%) scale(0.94);
+}
+
+.pending-user-input-step-shell[data-step-push="exit"][data-step-dir="prev"] {
+  opacity: 0;
+  transform: translateX(12%) scale(0.94);
+}
+
+/* Enter pose: no transition so settle has a clean from-state. */
+.pending-user-input-step-shell[data-step-push="enter"][data-step-dir="next"] {
+  opacity: 0;
+  transform: translateX(12%) scale(0.94);
+  transition:
+    height 280ms ease-out,
+    transform 0s,
+    opacity 0s;
+}
+
+.pending-user-input-step-shell[data-step-push="enter"][data-step-dir="prev"] {
+  opacity: 0;
+  transform: translateX(-12%) scale(0.94);
+  transition:
+    height 280ms ease-out,
+    transform 0s,
+    opacity 0s;
+}
+
+.pending-user-input-step-shell[data-step-push="settle"],
+.pending-user-input-step-shell[data-step-push="idle"] {
+  opacity: 1;
+  transform: translateX(0) scale(1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pending-user-input-step-shell {
+    transition: none !important;
+    transform: none !important;
+  }
+}
+
+/*
  * Ask-user panel presence exit (ComposerPendingUserInputPanelPresence):
  * 1) Card compresses into an "Answer sent" pill (story, not a hard vanish)
  * 2) Ease-in snappy grid collapse so a tall multi-option card does not squash-flick

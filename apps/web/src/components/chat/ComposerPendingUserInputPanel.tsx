@@ -36,6 +36,16 @@ import { cn } from "~/lib/utils";
 export const PENDING_USER_INPUT_EXIT_RECEIPT_MS = 140;
 /** Ease-in snappy grid collapse after the receipt pill is showing. */
 export const PENDING_USER_INPUT_EXIT_COLLAPSE_MS = 170;
+/** Multi-question step: card push exit (directional). */
+export const PENDING_USER_INPUT_STEP_PUSH_EXIT_MS = 140;
+/** Multi-question step: card push enter after content swap. */
+export const PENDING_USER_INPUT_STEP_PUSH_ENTER_MS = 200;
+/** Multi-question step: shell height ease between uneven questions. */
+export const PENDING_USER_INPUT_STEP_HEIGHT_MS = 280;
+
+type StepPushDirection = "next" | "prev";
+/** exit → enter (start pose, no transition) → settle (ease to rest). */
+type StepPushPhase = "exit" | "enter" | "settle";
 
 interface PendingUserInputPanelProps {
   pendingUserInputs: PendingUserInput[];
@@ -227,6 +237,13 @@ export function ComposerPendingUserInputPanelPresence({
   );
 }
 
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true
+  );
+}
+
 function ComposerPendingUserInputCard({
   prompt,
   isResponding,
@@ -256,7 +273,31 @@ function ComposerPendingUserInputCard({
   onAdvance: (answerOverrides?: Record<string, PendingUserInputDraftAnswer>) => void;
   onPrevious: () => void;
 }) {
-  const progress = derivePendingUserInputProgress(prompt.questions, answers, questionIndex);
+  // Rendered index lags during card-push so the outgoing question can exit before
+  // content swaps (option J · directional card push).
+  const [renderedQuestionIndex, setRenderedQuestionIndex] = useState(questionIndex);
+  const [stepPush, setStepPush] = useState<{
+    direction: StepPushDirection;
+    phase: StepPushPhase;
+  } | null>(null);
+  const shellRef = useRef<HTMLElement | null>(null);
+  const stepPushTimersRef = useRef<{
+    exit: number | null;
+    enter: number | null;
+    safety: number | null;
+  }>({
+    exit: null,
+    enter: null,
+    safety: null,
+  });
+  const stepPushGenerationRef = useRef(0);
+  const lockedShellHeightRef = useRef<number | null>(null);
+
+  const progress = derivePendingUserInputProgress(
+    prompt.questions,
+    answers,
+    renderedQuestionIndex,
+  );
   const activeQuestion = progress.activeQuestion;
   const selectedOptionLabelSet = new Set(progress.selectedOptionLabels);
   const autoAdvanceTimerRef = useRef<number | null>(null);
@@ -280,11 +321,127 @@ function ComposerPendingUserInputCard({
     onAdvanceRef.current = onAdvance;
   }, [onAdvance]);
 
+  // Directional card push when questionIndex changes (next / previous / auto-advance).
+  // Depend only on `questionIndex`. Timers are generation-guarded so a strict-mode
+  // remount or a rapid re-step cannot leave controls stuck mid-push.
+  const renderedQuestionIndexRef = useRef(renderedQuestionIndex);
+  renderedQuestionIndexRef.current = renderedQuestionIndex;
+
+  useEffect(() => {
+    const fromIndex = renderedQuestionIndexRef.current;
+    if (questionIndex === fromIndex) {
+      return;
+    }
+
+    const clearStepTimers = () => {
+      if (stepPushTimersRef.current.exit !== null) {
+        window.clearTimeout(stepPushTimersRef.current.exit);
+        stepPushTimersRef.current.exit = null;
+      }
+      if (stepPushTimersRef.current.enter !== null) {
+        window.clearTimeout(stepPushTimersRef.current.enter);
+        stepPushTimersRef.current.enter = null;
+      }
+      if (stepPushTimersRef.current.safety !== null) {
+        window.clearTimeout(stepPushTimersRef.current.safety);
+        stepPushTimersRef.current.safety = null;
+      }
+    };
+
+    const finishStep = (targetIndex: number, generation: number) => {
+      if (stepPushGenerationRef.current !== generation) return;
+      setRenderedQuestionIndex(targetIndex);
+      setStepPush(null);
+      lockedShellHeightRef.current = null;
+      if (shellRef.current) {
+        shellRef.current.style.height = "";
+      }
+    };
+
+    if (prefersReducedMotion()) {
+      clearStepTimers();
+      finishStep(questionIndex, stepPushGenerationRef.current);
+      return;
+    }
+
+    const targetIndex = questionIndex;
+    const direction: StepPushDirection = targetIndex > fromIndex ? "next" : "prev";
+    const generation = stepPushGenerationRef.current + 1;
+    stepPushGenerationRef.current = generation;
+
+    const fromHeight = shellRef.current?.offsetHeight ?? null;
+    if (fromHeight !== null && shellRef.current) {
+      lockedShellHeightRef.current = fromHeight;
+      shellRef.current.style.height = `${fromHeight}px`;
+    }
+
+    clearStepTimers();
+    setStepPush({ direction, phase: "exit" });
+    setActiveNoteTarget(null);
+
+    // Absolute safety net so a lost timer never leaves the panel non-interactive.
+    stepPushTimersRef.current.safety = window.setTimeout(
+      () => finishStep(targetIndex, generation),
+      PENDING_USER_INPUT_STEP_PUSH_EXIT_MS + PENDING_USER_INPUT_STEP_PUSH_ENTER_MS + 80,
+    );
+
+    stepPushTimersRef.current.exit = window.setTimeout(() => {
+      if (stepPushGenerationRef.current !== generation) return;
+      stepPushTimersRef.current.exit = null;
+      // Swap content while still in exit pose, then park at the enter pose with
+      // transitions disabled so the settle animation has a real from-state.
+      setRenderedQuestionIndex(targetIndex);
+      setStepPush({ direction, phase: "enter" });
+
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          if (stepPushGenerationRef.current !== generation) return;
+          const shell = shellRef.current;
+          if (shell) {
+            const locked = lockedShellHeightRef.current;
+            shell.style.height = "auto";
+            const toHeight = shell.offsetHeight;
+            if (locked !== null) {
+              shell.style.height = `${locked}px`;
+              void shell.offsetHeight;
+              shell.style.height = `${toHeight}px`;
+            } else {
+              shell.style.height = `${toHeight}px`;
+            }
+          }
+          setStepPush({ direction, phase: "settle" });
+        });
+      });
+
+      stepPushTimersRef.current.enter = window.setTimeout(() => {
+        if (stepPushGenerationRef.current !== generation) return;
+        stepPushTimersRef.current.enter = null;
+        finishStep(targetIndex, generation);
+      }, PENDING_USER_INPUT_STEP_PUSH_ENTER_MS);
+    }, PENDING_USER_INPUT_STEP_PUSH_EXIT_MS);
+
+    return () => {
+      // Invalidate this run's timers without forcing a hard cut on strict remount —
+      // the remounted effect will start a fresh generation for the same target.
+      stepPushGenerationRef.current += 1;
+      clearStepTimers();
+    };
+  }, [questionIndex]);
+
   useEffect(() => {
     return () => {
       if (autoAdvanceTimerRef.current !== null) {
         window.clearTimeout(autoAdvanceTimerRef.current);
         autoAdvanceTimerRef.current = null;
+      }
+      if (stepPushTimersRef.current.exit !== null) {
+        window.clearTimeout(stepPushTimersRef.current.exit);
+      }
+      if (stepPushTimersRef.current.enter !== null) {
+        window.clearTimeout(stepPushTimersRef.current.enter);
+      }
+      if (stepPushTimersRef.current.safety !== null) {
+        window.clearTimeout(stepPushTimersRef.current.safety);
       }
     };
   }, [activeQuestion?.id, isResponding]);
@@ -305,7 +462,15 @@ function ComposerPendingUserInputCard({
     window.requestAnimationFrame(() => selectedOptionInputRef.current?.focus());
   };
 
+  // Only block option input while the outgoing question is exiting. After the
+  // content swap (enter/settle) the new question is interactive even if the
+  // card is still easing into place.
+  const stepPushBlockingInput = stepPush?.phase === "exit";
+  const stepPushBusyRef = useRef(false);
+  stepPushBusyRef.current = stepPushBlockingInput;
+
   const handleOptionSelection = (questionId: string, optionLabel: string) => {
+    if (stepPushBusyRef.current) return;
     const nextDraftAnswer = onToggleOption(questionId, optionLabel);
     if (
       activeQuestion?.multiSelect ||
@@ -464,13 +629,22 @@ function ComposerPendingUserInputCard({
     }
   };
 
+  // Nav only blocks during exit (outgoing content). After the swap, Next/Prev stay
+  // usable even while the card is settling so we never strand the control.
+  const stepNavBusy = stepPush?.phase === "exit";
+  const canGoBackAnimated = canGoBack && !stepNavBusy;
+  const canContinueAnimated = canContinue && !stepNavBusy;
+
   return (
     <section
+      ref={shellRef}
       data-testid="composer-pending-user-input-panel"
       data-state={isResponding ? "submitting" : "pending"}
-      aria-busy={isResponding}
+      data-step-push={stepPush?.phase ?? "idle"}
+      data-step-dir={stepPush?.direction ?? undefined}
+      aria-busy={isResponding || stepPush !== null}
       aria-labelledby={`user-input-question-${activeQuestion.id}`}
-      className="w-full overflow-hidden rounded-2xl bg-muted p-4 text-sm"
+      className="pending-user-input-step-shell w-full overflow-hidden rounded-2xl bg-muted p-4 text-sm"
     >
       <div className="flex items-start gap-3">
         <span
@@ -502,7 +676,9 @@ function ComposerPendingUserInputCard({
                 type="button"
                 variant="chrome-outline"
                 size="sm"
-                disabled={advisorUnavailable || advisorBusy || isResponding}
+                disabled={
+                  advisorUnavailable || advisorBusy || isResponding || stepPushBlockingInput
+                }
                 title={advisorButtonTitle}
                 aria-label={advisorBusy ? "Advisor is choosing an option" : "Let Advisor choose"}
                 onClick={() => void startAdvisorChoice()}
@@ -555,7 +731,8 @@ function ComposerPendingUserInputCard({
                         selected
                           ? "bg-[var(--color-background-button-secondary)]"
                           : "hover:bg-[var(--color-background-button-secondary-hover)]",
-                        isResponding && "cursor-not-allowed opacity-50",
+                        (isResponding || stepPushBlockingInput) &&
+                          "cursor-not-allowed opacity-50",
                       )}
                     >
                       <span
@@ -580,7 +757,7 @@ function ComposerPendingUserInputCard({
                         name={`user-input-${activeQuestion.id}`}
                         ref={keyboardNoteTarget ? selectedOptionInputRef : undefined}
                         checked={selected}
-                        disabled={isResponding}
+                        disabled={isResponding || stepPushBlockingInput}
                         onChange={() => handleOptionSelection(activeQuestion.id, option.label)}
                         className="sr-only"
                       />
@@ -720,7 +897,7 @@ function ComposerPendingUserInputCard({
               size="icon-sm"
               shape="capsule"
               aria-label="Previous question"
-              disabled={!canGoBack}
+              disabled={!canGoBackAnimated}
               onClick={onPrevious}
             >
               <ArrowLeftIcon className="size-4" />
@@ -746,7 +923,7 @@ function ComposerPendingUserInputCard({
               size={progress.isLastQuestion ? "sm" : "icon-sm"}
               shape="capsule"
               aria-label={progress.isLastQuestion ? "Submit response" : "Next question"}
-              disabled={!canContinue}
+              disabled={!canContinueAnimated}
               onClick={() => onAdvance()}
               className="ml-auto"
             >
