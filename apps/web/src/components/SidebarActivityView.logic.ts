@@ -75,11 +75,19 @@ export function resolveActivityStatusGroup(thread: SidebarThreadSummary): Activi
  * Threads that belong in the task feed: top-level, not archived, and having run
  * at least once. Drafts stay out, but a thread whose very first turn is
  * starting up already counts as running work.
+ *
+ * User forks are first-class chats in Projects. Fork create imports history but
+ * does not invent a `latestTurn` until the fork runs its own turn — without an
+ * exception here those rows vanish from Activity even though they keep the
+ * emerald fork badge in the project list.
  */
 export function isActivityThread(thread: SidebarThreadSummary): boolean {
   if (thread.archivedAt != null) return false;
+  // Subagents / advisor children nest under a parent; they are not top-level feed rows.
   if (thread.parentThreadId) return false;
-  return thread.latestTurn !== null || isThreadRunningForActivity(thread);
+  if (thread.latestTurn !== null || isThreadRunningForActivity(thread)) return true;
+  // Real user forks (not sidechats): show even before the first own turn.
+  return Boolean(thread.forkSourceThreadId) && !thread.sidechatSourceThreadId;
 }
 
 export function isThreadSettledForActivity(

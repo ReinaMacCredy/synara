@@ -49,6 +49,8 @@ function makeThread(input: {
   archivedAt?: string | null;
   settledAt?: string | null;
   parentThreadId?: string | null;
+  forkSourceThreadId?: string | null;
+  sidechatSourceThreadId?: string | null;
   isPinned?: boolean;
   projectId?: ProjectId;
 }): SidebarThreadSummary {
@@ -69,6 +71,12 @@ function makeThread(input: {
     latestTurn: input.latestTurn ?? null,
     lastVisitedAt: input.lastVisitedAt,
     parentThreadId: input.parentThreadId ? ThreadId.makeUnsafe(input.parentThreadId) : null,
+    forkSourceThreadId: input.forkSourceThreadId
+      ? ThreadId.makeUnsafe(input.forkSourceThreadId)
+      : null,
+    sidechatSourceThreadId: input.sidechatSourceThreadId
+      ? ThreadId.makeUnsafe(input.sidechatSourceThreadId)
+      : null,
     latestUserMessageAt: null,
     hasPendingApprovals: input.hasPendingApprovals ?? false,
     hasPendingUserInput: input.hasPendingUserInput ?? false,
@@ -108,6 +116,41 @@ describe("isActivityThread", () => {
         makeThread({ id: "e", latestTurn: completedTurn("2026-08-01T09:30:00.000Z") }),
       ),
     ).toBe(true);
+  });
+
+  it("includes user forks before their first own turn (imported history only)", () => {
+    expect(
+      isActivityThread(
+        makeThread({
+          id: "hi-2",
+          latestTurn: null,
+          forkSourceThreadId: "hi",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("still excludes sidechats and parented children without a turn", () => {
+    expect(
+      isActivityThread(
+        makeThread({
+          id: "sidechat",
+          latestTurn: null,
+          forkSourceThreadId: "hi",
+          sidechatSourceThreadId: "hi",
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isActivityThread(
+        makeThread({
+          id: "advisor",
+          latestTurn: null,
+          forkSourceThreadId: "hi",
+          parentThreadId: "hi",
+        }),
+      ),
+    ).toBe(false);
   });
 });
 

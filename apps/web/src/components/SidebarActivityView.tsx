@@ -179,12 +179,14 @@ function ActivityThreadRow({
           )}
         >
           <span
-              className={cn(
-                "flex min-w-0 items-center gap-1.5 overflow-hidden pr-5 transition-[padding] duration-150 ease-out",
-                // Yield the title row to the hover action cluster (pin + archive + done).
-                onSetSettled
-                  ? "group-hover/activity-row:pr-[4.25rem] group-focus-within/activity-row:pr-[4.25rem]"
-                  : "group-hover/activity-row:pr-12 group-focus-within/activity-row:pr-12",
+            className={cn(
+              "flex min-w-0 items-center gap-1.5 overflow-hidden pr-5 transition-[padding] duration-150 ease-out",
+              // Yield the title row to the hover action cluster (pin + archive + done)
+              // and the idle trailing meta (fork / status) sitting in the same corner.
+              onSetSettled
+                ? "group-hover/activity-row:pr-[4.25rem] group-focus-within/activity-row:pr-[4.25rem]"
+                : "group-hover/activity-row:pr-12 group-focus-within/activity-row:pr-12",
+              isForkedThread || trailingStatus ? "pr-7" : null,
             )}
           >
             <ProviderIcon
@@ -196,26 +198,12 @@ function ActivityThreadRow({
             />
             <span
               className={cn(
-                "min-w-0 shrink truncate text-[length:var(--app-font-size-ui,12px)] leading-5 font-normal",
+                "min-w-0 flex-1 truncate text-[length:var(--app-font-size-ui,12px)] leading-5 font-normal",
                 isActive ? "text-foreground" : SIDEBAR_ROW_LABEL_TEXT_CLASS_NAME,
               )}
             >
               {thread.title}
             </span>
-            {isForkedThread ? (
-              // Match project-thread trailing fork chip (emerald GoRepoForked).
-              <span
-                className="ml-auto inline-flex shrink-0 items-center"
-                title="Forked thread"
-                data-activity-fork-badge=""
-              >
-                <SidebarGlyph
-                  icon={GoRepoForked}
-                  variant="meta"
-                  className="text-emerald-600 dark:text-emerald-300/90"
-                />
-              </span>
-            ) : null}
           </span>
           <span className="flex min-w-0 items-center gap-1.5">
             <FolderClosed
@@ -236,15 +224,36 @@ function ActivityThreadRow({
             </span>
           </span>
         </button>
-        {trailingStatus ? (
+        {/* Trailing meta matches Projects: fork chip + status sit top-right, hide on hover
+            so pin/archive/done can take the same slot. */}
+        {isForkedThread || trailingStatus ? (
           <span
-            data-slot="activity-completion-status"
             className={cn(
-              "pointer-events-none absolute top-1 right-1 inline-flex size-5 items-center justify-center",
+              "pointer-events-none absolute top-1 right-1 inline-flex items-center gap-0.5",
               sidebarHoverRevealHideClassName("activity-row"),
             )}
           >
-            <SidebarStatusTrailingGlyph status={trailingStatus} />
+            {isForkedThread ? (
+              <span
+                title="Forked thread"
+                data-activity-fork-badge=""
+                className="inline-flex size-5 items-center justify-center"
+              >
+                <SidebarGlyph
+                  icon={GoRepoForked}
+                  variant="meta"
+                  className="text-emerald-600 dark:text-emerald-300/90"
+                />
+              </span>
+            ) : null}
+            {trailingStatus ? (
+              <span
+                data-slot="activity-completion-status"
+                className="inline-flex size-5 items-center justify-center"
+              >
+                <SidebarStatusTrailingGlyph status={trailingStatus} />
+              </span>
+            ) : null}
           </span>
         ) : null}
         <span
