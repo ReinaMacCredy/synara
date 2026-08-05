@@ -88,17 +88,27 @@ export function ComposerPendingUserInputPanel({
 
 /**
  * Keeps the ask-user card mounted through one shared bottom-origin disclosure
- * close when the pending request clears. Enter uses double-rAF so closed styles
- * paint before open (same anti-flicker path as Advisor presence).
+ * close when the pending request clears.
+ *
+ * Enter opens immediately (no multi-frame closed gate) so the composer can stay
+ * visible until this region is actually expanded — avoids a blank gap that felt
+ * like the popup was “late”. Exit still eases closed with shared 220ms motion.
  */
 export function ComposerPendingUserInputPanelPresence({
   open,
   pendingUserInputs,
+  onExpandedChange,
   ...panelProps
-}: PendingUserInputPanelProps & { open: boolean }) {
+}: PendingUserInputPanelProps & {
+  open: boolean;
+  /** True only while the disclosure is expanded (not merely pending in data). */
+  onExpandedChange?: (expanded: boolean) => void;
+}) {
   const [presented, setPresented] = useState<PendingUserInputPanelProps | null>(null);
   const [regionOpen, setRegionOpen] = useState(false);
   const wasOpenRef = useRef(false);
+  const onExpandedChangeRef = useRef(onExpandedChange);
+  onExpandedChangeRef.current = onExpandedChange;
   const latestPropsRef = useRef<PendingUserInputPanelProps>({
     pendingUserInputs,
     ...panelProps,
@@ -106,22 +116,21 @@ export function ComposerPendingUserInputPanelPresence({
   latestPropsRef.current = { pendingUserInputs, ...panelProps };
 
   useEffect(() => {
+    onExpandedChangeRef.current?.(regionOpen);
+  }, [regionOpen]);
+
+  useEffect(() => {
     if (open) {
       if (latestPropsRef.current.pendingUserInputs[0]) {
         setPresented(latestPropsRef.current);
       }
       wasOpenRef.current = true;
-      setRegionOpen(false);
-      let innerFrame = 0;
-      const outerFrame = window.requestAnimationFrame(() => {
-        innerFrame = window.requestAnimationFrame(() => {
-          setRegionOpen(true);
-        });
+      // Open on the next paint so CSS transitions still see closed → open, but
+      // never sit multi-frame closed while the composer is already hidden.
+      const frame = window.requestAnimationFrame(() => {
+        setRegionOpen(true);
       });
-      return () => {
-        window.cancelAnimationFrame(outerFrame);
-        window.cancelAnimationFrame(innerFrame);
-      };
+      return () => window.cancelAnimationFrame(frame);
     }
 
     if (!wasOpenRef.current) {

@@ -11,34 +11,40 @@ export function parseUserInputQuestions(
     .map<UserInputQuestion | null>((entry) => {
       if (!entry || typeof entry !== "object") return null;
       const question = entry as Record<string, unknown>;
-      if (
-        typeof question.id !== "string" ||
-        typeof question.header !== "string" ||
-        typeof question.question !== "string" ||
-        !Array.isArray(question.options)
-      ) {
+      const id = typeof question.id === "string" ? question.id.trim() : "";
+      // Providers sometimes omit header; keep the prompt renderable.
+      const header =
+        typeof question.header === "string" && question.header.trim().length > 0
+          ? question.header.trim()
+          : "Question";
+      const prompt = typeof question.question === "string" ? question.question.trim() : "";
+      if (!id || !prompt) {
         return null;
       }
-      const options = question.options
+      const rawOptions = Array.isArray(question.options) ? question.options : [];
+      const options = rawOptions
         .map<UserInputQuestion["options"][number] | null>((option) => {
           if (!option || typeof option !== "object") return null;
           const optionRecord = option as Record<string, unknown>;
-          if (
-            typeof optionRecord.label !== "string" ||
-            typeof optionRecord.description !== "string"
-          ) {
+          const label =
+            typeof optionRecord.label === "string" ? optionRecord.label.trim() : "";
+          if (!label) {
             return null;
           }
-          return {
-            label: optionRecord.label,
-            description: optionRecord.description,
-          };
+          // Match server leniency: missing description falls back to the label
+          // so a partial payload still surfaces the composer panel immediately.
+          const description =
+            typeof optionRecord.description === "string" &&
+            optionRecord.description.trim().length > 0
+              ? optionRecord.description.trim()
+              : label;
+          return { label, description };
         })
         .filter((option): option is UserInputQuestion["options"][number] => option !== null);
       return {
-        id: question.id,
-        header: question.header,
-        question: question.question,
+        id,
+        header,
+        question: prompt,
         options,
         ...(question.multiSelect === true ? { multiSelect: true } : {}),
       };

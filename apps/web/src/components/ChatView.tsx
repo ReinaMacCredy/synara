@@ -1461,6 +1461,10 @@ export default function ChatView({
   const pendingUserInputAnswersByRequestIdRef = useRef(pendingUserInputAnswersByRequestId);
   const [pendingUserInputQuestionIndexByRequestId, setPendingUserInputQuestionIndexByRequestId] =
     useState<Record<string, number>>({});
+  // Composer is hidden only while the ask-user disclosure is expanded — not
+  // merely when pending data exists — so open animation never leaves a blank
+  // gap where both the panel (closed) and the composer (hidden) are gone.
+  const [pendingUserInputPanelExpanded, setPendingUserInputPanelExpanded] = useState(false);
   const [planSidebarOpen, setPlanSidebarOpen] = useState(false);
   const [activeTaskListCompact, setActiveTaskListCompact] = useState(false);
   const [subagentStripCompact, setSubagentStripCompact] = useState(false);
@@ -11721,6 +11725,7 @@ export default function ChatView({
                   advisorConsultation={advisorConsultation}
                   advisorDisabled={advisorDisabled}
                   advisorDisabledReason={advisorDisabledReason}
+                  onExpandedChange={setPendingUserInputPanelExpanded}
                   onToggleOption={onToggleActivePendingUserInputOption}
                   onOptionNoteChange={onChangeActivePendingUserInputOptionNote}
                   onCustomAnswerChange={(questionId, value) =>
@@ -11766,7 +11771,7 @@ export default function ChatView({
                 COMPOSER_INPUT_SHELL_CLASS_NAME,
                 composerProviderState.composerFrameClassName,
                 composerMenuOpen && !isComposerApprovalState && "overflow-visible",
-                pendingUserInputs.length > 0 && "hidden",
+                pendingUserInputPanelExpanded && "hidden",
               )}
             >
               <div

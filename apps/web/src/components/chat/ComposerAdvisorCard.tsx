@@ -183,19 +183,11 @@ export function ComposerAdvisorCardPresence({
         setFrozenConsultation(current);
       }
       wasOpenRef.current = true;
-      // Closed paint → open. Double rAF: first frame commits closed styles so the
-      // height/opacity transition has a real "from" state (no flash of full card).
-      setRegionOpen(false);
-      let innerFrame = 0;
-      const outerFrame = window.requestAnimationFrame(() => {
-        innerFrame = window.requestAnimationFrame(() => {
-          setRegionOpen(true);
-        });
+      // Single rAF open: still gets a closed→open transition without multi-frame delay.
+      const frame = window.requestAnimationFrame(() => {
+        setRegionOpen(true);
       });
-      return () => {
-        window.cancelAnimationFrame(outerFrame);
-        window.cancelAnimationFrame(innerFrame);
-      };
+      return () => window.cancelAnimationFrame(frame);
     }
 
     if (!wasOpenRef.current) {
