@@ -2682,10 +2682,6 @@ const orchestratorRootIdByThreadId = useMemo(() => {
         throw new Error("The app server is unavailable.");
       }
 
-    setIsAddingProject(true);
-      const finishAddingProject = () => {
-        setIsAddingProject(false);
-      };
       const openResolvedProject = async (
         projectId: ProjectId,
         snapshot: OrchestrationShellSnapshot,
@@ -2786,7 +2782,6 @@ const orchestratorRootIdByThreadId = useMemo(() => {
             to: "/orchestrator",
             search: { projectId: creationResult.projectId },
           });
-          finishAddingProject();
           return;
         }
         void handleNewThread(creationResult.projectId, {
