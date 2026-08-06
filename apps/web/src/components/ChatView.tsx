@@ -411,6 +411,7 @@ import {
   useComposerThreadDraft,
   useEffectiveComposerModelState,
 } from "../composerDraftStore";
+import { useTemporaryThreadStore } from "../temporaryThreadStore";
 import { useComposerFocusRequestStore } from "../composerFocusRequestStore";
 import { useWorkflowRunUiStore, useWorkflowRunUiThreadState } from "../workflowRunUiStore";
 import { appendComposerPromptText } from "../lib/chatReferences";
@@ -1408,6 +1409,10 @@ export default function ChatView({
   const draftThread = useComposerDraftStore(
     (store) => store.draftThreadsByThreadId[threadId] ?? null,
   );
+  const hasTemporaryThreadMarker = useTemporaryThreadStore(
+    (store) => store.temporaryThreadIds[threadId] === true,
+  );
+  const isThreadTemporary = draftThread?.isTemporary === true || hasTemporaryThreadMarker;
   const supervision = useStore((store) => store.supervision);
   const supervisionPeers = supervision.peers ?? [];
   const markWorkflowRunPaused = useWorkflowRunUiStore((store) => store.markPaused);
@@ -3262,7 +3267,7 @@ export default function ChatView({
   const orchestratorTurnFullySettled = isOrchestratorTurnFullySettled({
     messages: turnWorkStatusMessages,
     latestTurn: activeLatestTurn,
-    threadError: activeThread?.error,
+    threadError: activeThread?.error ?? null,
   });
   // After first-send promote: clear pending only. Do **not** navigate to
   // /orchestrator/$root — that remounts ChatView and blinks Worked (reload).
