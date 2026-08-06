@@ -44,7 +44,7 @@ describe("resolveRightDockLauncherItems", () => {
       ["terminal", "Terminal"],
       ["browser", "Browser"],
       ["explorer", "Files"],
-      ["sidechat", "Side chat"],
+      ["sidechat", "Side chats"],
     ]);
   });
 

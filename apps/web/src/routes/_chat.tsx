@@ -78,7 +78,8 @@ function ThreadRetentionMaintenanceToast() {
         return;
       }
 
-      const { state, deletedCount, totalCount, error } = event.payload;
+      // `deletedCount` is the legacy wire name; retention now archives.
+      const { state, deletedCount: archivedCount, totalCount, error } = event.payload;
       const eventMs = Date.parse(event.payload.at);
       const isStaleEvent = Number.isFinite(eventMs)
         ? Date.now() - eventMs > MAINTENANCE_EVENT_STALE_MS
@@ -90,7 +91,7 @@ function ThreadRetentionMaintenanceToast() {
       if (state === "started") {
         toastIdRef.current = toastManager.add({
           type: "loading",
-          title: "Hiding old chats...",
+          title: "Archiving old chats...",
           description: "Preparing background maintenance.",
           timeout: 0,
           data: { allowCrossThreadVisibility: true },
@@ -103,18 +104,18 @@ function ThreadRetentionMaintenanceToast() {
           toastIdRef.current ??
           toastManager.add({
             type: "loading",
-            title: "Hiding old chats...",
+            title: "Archiving old chats...",
             timeout: 0,
             data: { allowCrossThreadVisibility: true },
           });
         toastIdRef.current = toastId;
         toastManager.update(toastId, {
           type: "loading",
-          title: "Hiding old chats...",
+          title: "Archiving old chats...",
           description:
             totalCount && totalCount > 0
-              ? `${deletedCount ?? 0} of ${totalCount} chats hidden.`
-              : `${deletedCount ?? 0} chats hidden.`,
+              ? `${archivedCount ?? 0} of ${totalCount} chats archived.`
+              : `${archivedCount ?? 0} chats archived.`,
           timeout: 0,
           data: { allowCrossThreadVisibility: true },
         });
@@ -149,11 +150,11 @@ function ThreadRetentionMaintenanceToast() {
       if (!toastId) return;
       toastManager.update(toastId, {
         type: "success",
-        title: "Old chats hidden",
+        title: "Old chats archived",
         description:
-          deletedCount && deletedCount > 0
-            ? `${deletedCount} old chats hidden from the app.`
-            : "No old chats needed hiding.",
+          archivedCount && archivedCount > 0
+            ? `${archivedCount} old chats moved to Settings → Archived, where you can restore them.`
+            : "No old chats needed archiving.",
         timeout: 3500,
         data: { allowCrossThreadVisibility: true },
       });

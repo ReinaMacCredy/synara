@@ -148,9 +148,9 @@ function resolveSidechatSplitActivation(
 function activateSidechatSplit(
   input: ThreadActivationControllerInput,
   activation: {
-    threadId: ThreadId;
-    sourceThreadId: ThreadId;
-    ownerProjectId: ProjectId;
+      threadId: ThreadId;
+      sourceThreadId: ThreadId;
+      ownerProjectId: ProjectId;
   },
 ): void {
   input.prewarmThreadDetailForIntent(activation.sourceThreadId);

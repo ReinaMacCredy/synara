@@ -296,6 +296,7 @@ describe("activateThreadFromSidebarIntent", () => {
       threadId: THREAD_B,
       splitViewId: "split-sidechat",
     });
+    expect(getFirstNavigateArgs(input).params).toEqual({ threadId: THREAD_B });
     expect(getFirstNavigateArgs(input).search({ keep: true })).toEqual({
       keep: true,
       splitViewId: "split-sidechat",

@@ -48,7 +48,10 @@ import {
 import { automationRequiresTargetThread } from "@synara/shared/automationMode";
 import { providerSupportsNativeTurnSteering } from "@synara/shared/providerMetadata";
 import { getModelCapabilities, normalizeModelSlug } from "@synara/shared/model";
-import { resolveTailUserMessageEditTarget } from "@synara/shared/conversationEdit";
+import {
+  resolveLatestTailUserMessageEditTarget,
+  resolveTailUserMessageEditTarget,
+} from "@synara/shared/conversationEdit";
 import {
   ADVISOR_NICKNAME,
   ADVISOR_ROLE,
@@ -2203,6 +2206,7 @@ export default function ChatView({
     openNewFullWidthTerminal,
     activateTerminal,
     closeTerminal,
+    handleTerminalSessionExited,
     closeActiveWorkspaceView,
   } = useChatTerminalController({
     threadId,
@@ -3161,6 +3165,24 @@ export default function ChatView({
   // progress, collapsing the newest answer into a closed "Worked for" disclosure.
   // The latest turn is the transcript's own notion of "current", so fall back to it.
   const activeTurnIdForTranscript = activeThread?.session?.activeTurnId ?? activeLatestTurnId;
+  // The edit affordance must mirror the exact policy the server decider applies:
+  // resolve the editable target from the raw sequence-ordered thread messages and
+  // the running-session turn id — never from the createdAt-sorted timeline rows,
+  // whose optimistic/filtered entries can surface the button on a message the
+  // validators then reject.
+  const editableUserMessageId = useMemo(() => {
+    if (!activeThread || !isServerThread) {
+      return null;
+    }
+    const editTarget = resolveLatestTailUserMessageEditTarget({
+      messages: activeThread.messages,
+      activeTurnId:
+        activeThread.session?.orchestrationStatus === "running"
+          ? (activeThread.session.activeTurnId ?? null)
+          : null,
+    });
+    return editTarget.editable ? (editTarget.messageId as MessageId) : null;
+  }, [activeThread, isServerThread]);
   // Defence in depth against a session stuck at "running" with no turn to
   // complete: nothing would ever drain the composer queue, so messages routed
   // into it would be swallowed. Server-side reconciliation settles these
@@ -4749,6 +4771,7 @@ export default function ChatView({
       workspaceCloseShortcutLabel: closeWorkspaceShortcutLabel ?? undefined,
       onActiveTerminalChange: activateTerminal,
       onCloseTerminal: closeTerminal,
+      onTerminalSessionExited: handleTerminalSessionExited,
       onCloseTerminalGroup: (groupId: string) => {
         if (!activeThreadId) return;
         storeCloseTerminalGroup(activeThreadId, groupId);
@@ -4786,6 +4809,7 @@ export default function ChatView({
       adjacentRightDockOpen,
       addTerminalContextToDraft,
       closeTerminal,
+      handleTerminalSessionExited,
       closeTerminalShortcutLabel,
       closeWorkspaceShortcutLabel,
       createNewTerminal,
@@ -12715,6 +12739,7 @@ export default function ChatView({
                     }
                     tailAnchorScrollInFlightRef={tailAnchorScrollInFlightRef}
                     crossTaskOrigin={crossTaskOrigin}
+                    isTemporaryThread={isThreadTemporary}
                     timelineEntries={timelineEntries}
                     turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
                     onOpenTurnDiff={onOpenTurnDiff}
@@ -12724,6 +12749,7 @@ export default function ChatView({
                     onRevertUserMessage={onRevertUserMessage}
                     onUndoTurnFiles={onUndoTurnFiles}
                     onEditUserMessage={onEditUserMessage}
+                    editableUserMessageId={editableUserMessageId}
                     isRevertingCheckpoint={isRevertingCheckpoint}
                     onExpandTimelineImage={onExpandTimelineImage}
                     followLiveOutput={hasStreamingAssistantText}

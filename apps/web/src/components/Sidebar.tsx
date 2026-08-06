@@ -53,6 +53,7 @@ import {
   startTransition,
   useMemo,
   useRef,
+  useSyncExternalStore,
   Suspense,
   useState,
   type DragEvent as ReactDragEvent,
@@ -91,6 +92,7 @@ import {
   ThreadId,
   type GitStatusResult,
   type ResolvedKeybindingsConfig,
+  WS_GITHUB_PROJECT_PROVISIONING_CAPABILITY,
 } from "@synara/contracts";
 import { isGenericChatThreadTitle } from "@synara/shared/chatThreads";
 import { getDefaultModel } from "@synara/shared/model";
@@ -105,8 +107,9 @@ import {
 } from "../appSettings";
 import { isElectron } from "../env";
 import { formatRelativeTime } from "../lib/relativeTime";
-import { isMacPlatform, newCommandId, newThreadId, randomUUID } from "../lib/utils";
+import { isMacPlatform, newCommandId, newProjectId, newThreadId, randomUUID } from "../lib/utils";
 import { isOrdinarySpaceProject } from "../lib/spaces";
+import { expandProjectHomePath, joinProjectPath } from "../lib/projectPaths";
 import { reconcileDeletedThreadsFromClient } from "../lib/deletedThreadClientReconciliation";
 import { deleteProjectFromClient } from "../lib/projectDelete";
 import { persistAppStateNow, useStore } from "../store";
@@ -153,7 +156,11 @@ import {
   taskProcessesQueryOptions,
   taskProcessSummaryQueryOptions,
 } from "../lib/serverReactQuery";
-import { readNativeApi } from "../nativeApi";
+import {
+  onNativeApiServerCapabilitiesChange,
+  readNativeApi,
+  readNativeApiServerCapability,
+} from "../nativeApi";
 import { isHomeChatContainerProject, prewarmHomeChatProject } from "../lib/chatProjects";
 import {
   collectOrchestratorThreadIds,
@@ -166,7 +173,6 @@ import {
 } from "../lib/orchestratorRoots";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useLatestProjectStore } from "../latestProjectStore";
-import { useRightDockStore } from "../rightDockStore";
 import { resolveThreadEnvironmentPresentation } from "../lib/threadEnvironment";
 import { resolveThreadModelSummary } from "../lib/threadModelSummary";
 import { dispatchThreadRename } from "../lib/threadRename";
@@ -315,6 +321,8 @@ import {
   isProjectsSidebarSurface,
   pruneProjectThreadListPagingForCollapsedProjects,
   recoverExistingAddProjectTarget,
+  runExclusiveProjectAddition,
+  runProjectProvisionWithCancellationRecovery,
   resolvePullRequestReviewBadge,
   resolveTaskNavigationSignal,
   resolveSidebarThreadListPaging,
@@ -379,6 +387,7 @@ import {
   ComposerPickerMenuSubPopup,
 } from "./chat/ComposerPickerMenuPopup";
 import { selectSplitView, useSplitViewStore } from "../splitViewStore";
+import { useRightDockStore } from "../rightDockStore";
 import { THREAD_DRAG_MIME } from "./chat-drop-overlay/ChatPaneDropOverlay";
 import { useTemporaryThreadStore } from "../temporaryThreadStore";
 import { useThreadActivationController } from "../hooks/useThreadActivationController";
@@ -405,7 +414,11 @@ import {
   PROJECT_CREATE_EXISTING_SYNC_ERROR,
 } from "../lib/projectCreation";
 import { useSpacesUiStore } from "../spacesUiStore";
-import { CreateProjectDialog, type CreateProjectSubmitValue } from "./CreateProjectDialog";
+import {
+  CreateProjectDialog,
+  type CreateProjectSubmitOptions,
+  type CreateProjectSubmitValue,
+} from "./CreateProjectDialog";
 import { SpaceEditorDialog } from "./SpaceEditorDialog";
 import { useSpacesController } from "./useSpacesController";
 import { SpaceEmptyState } from "./SpaceEmptyState";
@@ -432,6 +445,11 @@ const CollapseAllIcon = createCentralIconComponent("minimize-45");
 const SortFilterIcon = createCentralIconComponent("filter-2");
 
 const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
+const subscribeGitHubProvisioningCapability = (listener: () => void) =>
+  onNativeApiServerCapabilitiesChange(listener);
+const readGitHubProvisioningCapability = () =>
+  readNativeApiServerCapability(WS_GITHUB_PROJECT_PROVISIONING_CAPABILITY);
+const readGitHubProvisioningServerCapability = () => false;
 const THREAD_PREVIEW_LIMIT = 5;
 // Each "Show more" click reveals this many extra rows; "Show less" hides them again page by page.
 const THREAD_PREVIEW_PAGE_SIZE = 5;
@@ -468,6 +486,8 @@ const EMPTY_THREAD_JUMP_LABELS = new Map<ThreadId, string>();
 const EMPTY_SHORTCUT_PARTS: readonly string[] = [];
 const ADD_PROJECT_SNAPSHOT_CATCH_UP_MAX_ATTEMPTS = 6;
 const ADD_PROJECT_SNAPSHOT_CATCH_UP_DELAY_MS = 50;
+const GITHUB_CANCEL_RECOVERY_MAX_ATTEMPTS = 40;
+const GITHUB_CANCEL_RECOVERY_DELAY_MS = 250;
 const EMPTY_PROJECT_SIDEBAR_DATA: ReadonlyMap<ProjectId, SidebarDerivedProjectData> = new Map();
 const DebugFeatureFlagsMenu = import.meta.env.DEV
   ? lazy(() =>
@@ -1417,6 +1437,11 @@ export function SidebarSurfacePicker({
 }
 
 export default function Sidebar() {
+  const githubProvisioningAvailable = useSyncExternalStore(
+    subscribeGitHubProvisioningCapability,
+    readGitHubProvisioningCapability,
+    readGitHubProvisioningServerCapability,
+  );
   const [showDebugFeatureFlagsMenu, setShowDebugFeatureFlagsMenu] = useState(
     readDebugFeatureFlagsMenuVisibility,
   );
@@ -1649,7 +1674,7 @@ export default function Sidebar() {
   const [searchPaletteOpen, setSearchPaletteOpen] = useState(false);
   const openFeedbackDialog = useFeedbackDialogStore((state) => state.openDialog);
   const [searchPaletteMode, setSearchPaletteMode] = useState<SidebarSearchPaletteMode>("search");
-  const [isAddingProject, setIsAddingProject] = useState(false);
+  const projectAdditionLockRef = useRef(false);
   const [renameDialogThreadId, setRenameDialogThreadId] = useState<ThreadId | null>(null);
   const [renameProjectDialogId, setRenameProjectDialogId] = useState<ProjectId | null>(null);
   const [projectContextMenuState, setProjectContextMenuState] =
@@ -2372,15 +2397,39 @@ const orchestratorRootIdByThreadId = useMemo(() => {
     async (
       api: NonNullable<ReturnType<typeof readNativeApi>>,
       projectId: ProjectId,
+      workspaceRoot?: string,
     ): Promise<{
       project: OrchestrationShellSnapshot["projects"][number] | null;
       snapshot: OrchestrationShellSnapshot | null;
     }> =>
       waitForRecoverableProjectInReadModel({
         projectId,
+        ...(workspaceRoot ? { workspaceRoot } : {}),
         loadSnapshot: () => api.orchestration.getShellSnapshot().catch(() => null),
         maxAttempts: ADD_PROJECT_SNAPSHOT_CATCH_UP_MAX_ATTEMPTS,
         delayMs: ADD_PROJECT_SNAPSHOT_CATCH_UP_DELAY_MS,
+      }),
+    [],
+  );
+
+  // Cancellation can arrive while the server is committing project.create. Give
+  // that durable commit and its read-model projection enough time to become
+  // observable before reporting the clone as cancelled.
+  const waitForCancelledGitHubProjectInSnapshot = useCallback(
+    async (
+      api: NonNullable<ReturnType<typeof readNativeApi>>,
+      projectId: ProjectId,
+      workspaceRoot?: string,
+    ): Promise<{
+      project: OrchestrationShellSnapshot["projects"][number] | null;
+      snapshot: OrchestrationShellSnapshot | null;
+    }> =>
+      waitForRecoverableProjectInReadModel({
+        projectId,
+        ...(workspaceRoot ? { workspaceRoot } : {}),
+        loadSnapshot: () => api.orchestration.getShellSnapshot().catch(() => null),
+        maxAttempts: GITHUB_CANCEL_RECOVERY_MAX_ATTEMPTS,
+        delayMs: GITHUB_CANCEL_RECOVERY_DELAY_MS,
       }),
     [],
   );
@@ -2628,15 +2677,12 @@ const orchestratorRootIdByThreadId = useMemo(() => {
       if (!cwd) {
         throw new Error("Project folder path is empty.");
       }
-      if (isAddingProject) {
-        throw new Error("Another project is already being added.");
-      }
       const api = readNativeApi();
       if (!api) {
         throw new Error("The app server is unavailable.");
       }
 
-      setIsAddingProject(true);
+    setIsAddingProject(true);
       const finishAddingProject = () => {
         setIsAddingProject(false);
       };
@@ -2679,7 +2725,7 @@ const orchestratorRootIdByThreadId = useMemo(() => {
           ? recoverForOrchestrator(waitForProjectWorkspaceRootInSnapshot(api, workspaceRoot))
           : recoverExistingProjectByWorkspaceRootFromServer(api, workspaceRoot);
 
-      // The flow lives in a nested function that the `try` below merely awaits: React
+    // The flow lives in a nested function that the exclusive lock helper merely awaits: React
       // Compiler's BuildHIR cannot lower a `throw` or a value block (`?.`, `??`, ternary,
       // conditional spread) that sits directly inside a try block, and a single one of them
       // makes the entire Sidebar bail out of compilation — silently, since `panicThreshold`
@@ -2694,7 +2740,6 @@ const orchestratorRootIdByThreadId = useMemo(() => {
           recoverByWorkspaceRoot,
         });
         if (existingRecovery === "recovered") {
-          finishAddingProject();
           return;
         }
         if (existing) {
@@ -2720,7 +2765,6 @@ const orchestratorRootIdByThreadId = useMemo(() => {
             creationResult.created,
           );
           if (recovered) {
-            finishAddingProject();
             return;
           }
         }
@@ -2728,10 +2772,8 @@ const orchestratorRootIdByThreadId = useMemo(() => {
         if (!creationResult.created) {
           const recovered = await recoverByProjectId(creationResult.projectId);
           if (recovered) {
-            finishAddingProject();
             return;
           }
-          setIsAddingProject(false);
           throw new Error(PROJECT_CREATE_EXISTING_SYNC_ERROR);
         }
 
@@ -2750,23 +2792,14 @@ const orchestratorRootIdByThreadId = useMemo(() => {
         void handleNewThread(creationResult.projectId, {
           envMode: appSettings.defaultThreadEnvMode,
         }).catch(() => undefined);
-        finishAddingProject();
       };
 
-      try {
-        await runAddProject();
-      } catch (error) {
-        const description =
-          error instanceof Error ? error.message : "An error occurred while adding the project.";
-        setIsAddingProject(false);
-        throw error instanceof Error ? error : new Error(description);
-      }
+      await runExclusiveProjectAddition(projectAdditionLockRef, runAddProject);
     },
     [
       appSettings.defaultThreadEnvMode,
       handleNewThread,
-      isAddingProject,
-      navigate,
+    navigate,
       projects,
       recoverExistingProjectFromServer,
       recoverExistingProjectByWorkspaceRootFromServer,
@@ -3673,33 +3706,108 @@ const orchestratorRootIdByThreadId = useMemo(() => {
     onCloseProjectContextMenu: handleCloseProjectContextMenu,
   });
   const handleCreateProjectSubmit = useCallback(
-    async (value: CreateProjectSubmitValue) => {
+    async (value: CreateProjectSubmitValue, options: CreateProjectSubmitOptions) => {
       const previousSpaceId = activeSpaceId;
-      const existingProject = findWorkspaceRootMatch(
-        projects,
-        value.workspaceRoot,
-        (project) => project.cwd,
-      );
+      const existingProject =
+        value.source === "local"
+          ? findWorkspaceRootMatch(projects, value.workspaceRoot, (project) => project.cwd)
+          : null;
       // Reopening an existing project must follow the Space where that project
       // actually lives. New projects use the destination selected in the dialog.
       const destinationSpaceId = existingProject
         ? (existingProject.spaceId ?? null)
         : value.spaceId;
+      const runCreateProject = async () => {
+        if (value.source === "github") {
+          const api = readNativeApi();
+          if (!api) throw new Error("The app server is unavailable.");
+          await runExclusiveProjectAddition(projectAdditionLockRef, async () => {
+            const openProvisionedProject = async (
+              projectId: ProjectId,
+              workspaceRoot: string | undefined,
+              waitForProject: typeof waitForProjectInSnapshot,
+            ) => {
+              const { project, snapshot } = await waitForProject(api, projectId, workspaceRoot);
+              if (snapshot) {
+                syncServerShellSnapshot(snapshot);
+              }
+              if (!project || !snapshot) return false;
+
+            handleSelectSpaceForIncomingProject(project.spaceId ?? null);
+            if (createProjectReturnToOrchestrator) {
+              setProjectExpanded(project.id, true);
+              await navigate({ to: "/orchestrator", search: { projectId: project.id } });
+              return true;
+            }
+            await openExistingProjectFromSnapshot(project.id, snapshot);
+            return true;
+            };
+            const requestedProjectId = newProjectId();
+            const requestedWorkspaceRoot = joinProjectPath(
+              expandProjectHomePath(value.destinationParent, homeDir),
+              value.directoryName,
+            );
+            const provision = await runProjectProvisionWithCancellationRecovery({
+              signal: options.signal,
+              provision: () =>
+                api.projects.provisionFromGitHub(
+                  {
+                    operationId: value.operationId,
+                    repository: value.repository,
+                    destinationParent: value.destinationParent,
+                    directoryName: value.directoryName,
+                    commandId: newCommandId(),
+                    projectId: requestedProjectId,
+                    newProjectSpaceId: value.spaceId,
+                    defaultModelSelection: {
+                      provider: "codex",
+                      model: getDefaultModel("codex"),
+                    },
+                    createdAt: new Date().toISOString(),
+                  },
+                  { signal: options.signal },
+                ),
+              // Cancellation can race the server's project.create commit. If that
+              // commit won, recover the durable project and report success instead
+              // of telling the user a registered project was cancelled.
+              recoverCommittedProject: () =>
+                openProvisionedProject(
+                  requestedProjectId,
+                  requestedWorkspaceRoot,
+                  waitForCancelledGitHubProjectInSnapshot,
+                ),
+            });
+            if (provision.status === "recovered") return;
+            if (
+              !(await openProvisionedProject(
+                provision.result.projectId,
+                undefined,
+                waitForProjectInSnapshot,
+              ))
+            ) {
+              throw new Error(
+                "The GitHub project was added, but it has not synced into the sidebar yet. Try again in a moment.",
+              );
+            }
+          });
+        } else {
+          handleSelectSpaceForIncomingProject(destinationSpaceId);
+          await addProjectFromPath(value.workspaceRoot, {
+            createIfMissing: value.createIfMissing,
+            spaceId: value.spaceId,
+            ...(createProjectReturnToOrchestrator ? { surface: "orchestrator" as const } : {}),
+          });
+        }
+      };
+
+      // Keep the compiler-sensitive try block free of value/throw statements.
       // Land on the destination space before creating so the sidebar follows the
       // new project's thread instead of bouncing back to the previous space.
-      handleSelectSpaceForIncomingProject(destinationSpaceId);
-      const runAddProject = async () => {
-        await addProjectFromPath(value.workspaceRoot, {
-          createIfMissing: value.createIfMissing,
-          spaceId: value.spaceId,
-          ...(createProjectReturnToOrchestrator ? { surface: "orchestrator" as const } : {}),
-        });
+      try {
+        await runCreateProject();
         if (createProjectReturnToOrchestrator) {
           setCreateProjectReturnToOrchestrator(false);
         }
-      };
-      try {
-        await runAddProject();
       } catch (error) {
         // Project creation is one UI transaction: a failed command must not
         // strand the sidebar in a Space unrelated to the current route.
@@ -3710,9 +3818,16 @@ const orchestratorRootIdByThreadId = useMemo(() => {
     [
       activeSpaceId,
       addProjectFromPath,
-      createProjectReturnToOrchestrator,
-      handleSelectSpaceForIncomingProject,
+    createProjectReturnToOrchestrator,
+    handleSelectSpaceForIncomingProject,
+      homeDir,
+      navigate,
+      openExistingProjectFromSnapshot,
       projects,
+      setProjectExpanded,
+    syncServerShellSnapshot,
+    waitForCancelledGitHubProjectInSnapshot,
+    waitForProjectInSnapshot,
     ],
   );
 
@@ -4874,20 +4989,25 @@ function renderThreadArchiveAction(
             )}
             onPointerDown={(event) => primeThreadActivation(event, thread.id)}
             onClick={() => activateThreadFromSidebarIntent(thread.id)}
+            onDoubleClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              openRenameThreadDialog(thread.id);
+            }}
+            onPointerUp={(event) => handleThreadRenamePointerUp(event, thread.id)}
             onKeyDown={(event) => {
               if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
                 activateThreadFromSidebarIntent(thread.id);
               }
             }}
-            {...createSidebarThreadRowGestures({
-              threadId: thread.id,
-              onRename: openRenameThreadDialog,
-              onRenamePointerUp: handleThreadRenamePointerUp,
-              onContextMenu: (threadId, position) => {
-                void handleThreadContextMenu(threadId, position);
-              },
-            })}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              void handleThreadContextMenu(thread.id, {
+                x: event.clientX,
+                y: event.clientY,
+              });
+            }}
           >
             <SidebarThreadRowContent
               thread={thread}
@@ -5054,28 +5174,36 @@ function renderThreadArchiveAction(
                   handleThreadClick(event, thread.id, orderedProjectThreadIds);
                 }}
                 onPointerDown={(event) => primeThreadActivation(event, thread.id)}
+                onDoubleClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  openRenameThreadDialog(thread.id);
+                }}
+                onPointerUp={(event) => handleThreadRenamePointerUp(event, thread.id)}
                 onKeyDown={(event) => {
                   if (event.key !== "Enter" && event.key !== " ") return;
                   event.preventDefault();
                   activateThreadFromSidebarIntent(thread.id);
                 }}
-                {...createSidebarThreadRowGestures({
-                  threadId: thread.id,
-                  onRename: openRenameThreadDialog,
-                  onRenamePointerUp: handleThreadRenamePointerUp,
-                  onContextMenu: (threadId, position) => {
-                    // A right-click inside an active multi-selection acts on the whole
-                    // selection; anywhere else it drops the selection and targets the row.
-                    if (selectedThreadIds.size > 0 && selectedThreadIds.has(threadId)) {
-                      void handleMultiSelectContextMenu(position);
-                      return;
-                    }
-                    if (selectedThreadIds.size > 0) {
-                      clearSelection();
-                    }
-                    void handleThreadContextMenu(threadId, position);
-                  },
-                })}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  // A right-click inside an active multi-selection acts on the whole
+                  // selection; anywhere else it drops the selection and targets the row.
+                  if (selectedThreadIds.size > 0 && selectedThreadIds.has(thread.id)) {
+                    void handleMultiSelectContextMenu({
+                      x: event.clientX,
+                      y: event.clientY,
+                    });
+                    return;
+                  }
+                  if (selectedThreadIds.size > 0) {
+                    clearSelection();
+                  }
+                  void handleThreadContextMenu(thread.id, {
+                    x: event.clientX,
+                    y: event.clientY,
+                  });
+                }}
               />
             }
           >
@@ -7139,12 +7267,14 @@ function renderThreadArchiveAction(
 
       <CreateProjectDialog
         open={createProjectDialogOpen}
+        githubProvisioningAvailable={githubProvisioningAvailable}
         spaces={spaces}
         activeSpaceId={activeSpaceId}
-        onOpenChange={(open) => {
-          setCreateProjectDialogOpen(open);
-          if (!open) setCreateProjectReturnToOrchestrator(false);
-        }}
+    onOpenChange={(open) => {
+      setCreateProjectDialogOpen(open);
+      if (!open) setCreateProjectReturnToOrchestrator(false);
+    }}
+    defaultCloneParent={homeDir ?? "~"}
         onSubmit={handleCreateProjectSubmit}
       />
 

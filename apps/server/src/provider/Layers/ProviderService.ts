@@ -66,7 +66,6 @@ import {
   type ProviderSessionDirectoryWriteError,
 } from "../Services/ProviderSessionDirectory.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
-import { AnalyticsService } from "../../telemetry/Services/AnalyticsService.ts";
 import { PersistenceDecodeError } from "../../persistence/Errors.ts";
 import { ProviderRuntimeEventRepository } from "../../persistence/Services/ProviderRuntimeEvents.ts";
 import {
@@ -422,7 +421,6 @@ function runtimeLastErrorForEvent(event: ProviderRuntimeEvent): string | null | 
 
 const makeProviderService = (options?: ProviderServiceLiveOptions) =>
   Effect.gen(function* () {
-    const analytics = yield* Effect.service(AnalyticsService);
     const canonicalEventLogger =
       options?.canonicalEventLogger ??
       (options?.canonicalEventLogPath !== undefined
@@ -1359,11 +1357,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
               );
               if (existing) {
                 lease.adopt(binding.lifecycleGeneration ?? "legacy");
-                yield* analytics.record("provider.session.recovered", {
-                  provider: existing.provider,
-                  strategy: "adopt-existing",
-                  hasResumeCursor: hasResumeCursor(existing.resumeCursor),
-                });
                 return adapter;
               }
             }
@@ -1446,11 +1439,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
               ),
             );
             lease.commit();
-            yield* analytics.record("provider.session.recovered", {
-              provider: resumed.provider,
-              strategy: "resume-thread",
-              hasResumeCursor: hasResumeCursor(resumed.resumeCursor),
-            });
             return adapter;
           }),
         );
@@ -1727,15 +1715,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                 ),
               );
               lease.commit();
-              yield* analytics.record("provider.session.started", {
-                provider: session.provider,
-                runtimeMode: input.runtimeMode,
-                hasResumeCursor: hasResumeCursor(session.resumeCursor),
-                hasCwd: typeof input.cwd === "string" && input.cwd.trim().length > 0,
-                hasModel:
-                  typeof input.modelSelection?.model === "string" &&
-                  input.modelSelection.model.trim().length > 0,
-              });
               if (
                 replacementFence !== undefined &&
                 providerInterruptionFences.get(threadId) === replacementFence
@@ -1942,9 +1921,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             lease.commit();
           }),
         );
-        yield* analytics.record("provider.thread.forked", {
-          provider: adapter.provider,
-        });
         return forked;
       });
 
@@ -2006,13 +1982,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             // runtime-event handler, so a terminal event cannot slip between
             // them and then be overwritten.
             yield* persistStartedTurn(persistenceInput);
-            yield* analytics.record("provider.turn.sent", {
-              provider: routed.adapter.provider,
-              model: input.modelSelection?.model,
-              interactionMode: input.interactionMode,
-              attachmentCount: input.attachments.length,
-              hasInput: typeof input.input === "string" && input.input.trim().length > 0,
-            });
             return turn;
           }),
         );
@@ -2066,13 +2035,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             };
             rememberSuccessfulTurnDispatch(persistenceInput);
             yield* persistStartedTurn(persistenceInput);
-            yield* analytics.record("provider.turn.steered", {
-              provider: routed.adapter.provider,
-              model: input.modelSelection?.model,
-              interactionMode: input.interactionMode,
-              attachmentCount: input.attachments.length,
-              hasInput: typeof input.input === "string" && input.input.trim().length > 0,
-            });
             return turn;
           }),
         );
@@ -2111,10 +2073,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             };
             rememberSuccessfulTurnDispatch(persistenceInput);
             yield* persistStartedTurn(persistenceInput);
-            yield* analytics.record("provider.review.started", {
-              provider: routed.adapter.provider,
-              target: input.target.type,
-            });
             return turn;
           }),
         );
@@ -2251,9 +2209,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                 state: "confirmed",
               });
             }
-            yield* analytics.record("provider.turn.interrupted", {
-              provider: routed.adapter.provider,
-            });
           }),
         );
         return yield* Effect.uninterruptible(
@@ -2317,9 +2272,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                 );
               }
               yield* routed.adapter.stopTask(input.threadId, input.taskId);
-              yield* analytics.record("provider.task.stopped", {
-                provider: routed.adapter.provider,
-              });
             }),
           ),
         ),
@@ -2352,9 +2304,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                 );
               }
               yield* routed.adapter.backgroundTask(input.threadId, input.toolUseId);
-              yield* analytics.record("provider.task.backgrounded", {
-                provider: routed.adapter.provider,
-              });
             }),
           ),
         ),
@@ -2392,9 +2341,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                 ...(attachments.length > 0 ? { attachments } : {}),
                 ...(input.skills !== undefined ? { skills: input.skills } : {}),
                 ...(input.mentions !== undefined ? { mentions: input.mentions } : {}),
-              });
-              yield* analytics.record("provider.subagent.steered", {
-                provider: routed.adapter.provider,
               });
             }),
           ),
@@ -2446,10 +2392,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
               input.requestId,
               response.input.decision,
             );
-            yield* analytics.record("provider.request.responded", {
-              provider: routed.adapter.provider,
-              decision: response.input.decision,
-            });
             return;
           }
           yield* routed.adapter.respondToUserInput(
@@ -2513,9 +2455,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             providerInterruptionFences.delete(input.threadId);
             lease.retire();
             retireRuntimeIdleGeneration(input.threadId);
-            yield* analytics.record("provider.session.stopped", {
-              provider: routed.adapter.provider,
-            });
           }),
         );
       });
@@ -2595,9 +2534,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
               }),
             );
             lease.commit();
-            yield* analytics.record("provider.session.runtime_stopped", {
-              provider: binding.provider,
-            });
             retireRuntimeIdleGeneration(input.threadId, expectedIdleGeneration);
           }),
         );
@@ -2683,7 +2619,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         clearRuntimeIdleTimer(input.threadId);
         // Share the runtime-event binding lock so a delayed session.exited
         // update cannot restore the stale cursor after this explicit clear.
-        const clearedProvider = yield* lifecycle.run(input.threadId, (lease) =>
+        yield* lifecycle.run(input.threadId, (lease) =>
           withBindingWriteLock(
             input.threadId,
             Effect.gen(function* () {
@@ -2727,11 +2663,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           ),
         );
         yield* waitForRuntimeIdleStop(input.threadId);
-        if (clearedProvider !== undefined) {
-          yield* analytics.record("provider.session.resume_cursor_cleared", {
-            provider: clearedProvider,
-          });
-        }
         retireRuntimeIdleGeneration(input.threadId);
       });
 
@@ -2817,10 +2748,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                   });
               yield* active.adapter.rollbackThread(input.threadId, input.numTurns);
             }
-            yield* analytics.record("provider.conversation.rolled_back", {
-              provider: routed.adapter.provider,
-              turns: input.numTurns,
-            });
           }),
           { scheduleIdleStopOnSuccess: true },
         );
@@ -2865,9 +2792,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                 },
               });
             }
-            yield* analytics.record("provider.thread.compacted", {
-              provider: routed.adapter.provider,
-            });
           }),
           { scheduleIdleStopOnSuccess: true },
         );
@@ -2888,10 +2812,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             markThreadStopped(threadId, stoppedAt, activeSessionByThreadId.get(threadId)),
         );
         yield* Effect.forEach(adapters, (adapter) => adapter.stopAll());
-        yield* analytics.record("provider.sessions.stopped_all", {
-          sessionCount: threadIds.length,
-        });
-        yield* analytics.flush;
       });
 
     const awaitRuntimeEventFanoutDrained: Effect.Effect<void> = Effect.suspend(() =>

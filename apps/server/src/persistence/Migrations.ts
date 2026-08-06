@@ -108,6 +108,7 @@ import Migration0089 from "./Migrations/089_ProjectionThreadsSettledAt.ts";
 import Migration0090 from "./Migrations/090_OrchestratorChildResults.ts";
 import Migration0091 from "./Migrations/091_SupervisedOrchestration.ts";
 import Migration0092 from "./Migrations/092_SupervisionPeerBindings.ts";
+import Migration0093 from "./Migrations/093_RecoverRetentionHiddenThreads.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -215,6 +216,7 @@ export const migrationEntries = [
   [90, "OrchestratorChildResults", Migration0090],
   [91, "SupervisedOrchestration", Migration0091],
   [92, "SupervisionPeerBindings", Migration0092],
+  [93, "RecoverRetentionHiddenThreads", Migration0093],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

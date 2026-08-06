@@ -469,6 +469,7 @@ describe("MessagesTimeline", () => {
         }
         onRevertUserMessage={() => {}}
         onEditUserMessage={() => true}
+        editableUserMessageId={MessageId.makeUnsafe("message-editable-user")}
         isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
@@ -527,6 +528,7 @@ describe("MessagesTimeline", () => {
         revertTurnCountByUserMessageId={new Map()}
         onRevertUserMessage={() => {}}
         onEditUserMessage={() => true}
+        editableUserMessageId={MessageId.makeUnsafe("message-user-no-checkpoint")}
         isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
@@ -575,6 +577,7 @@ describe("MessagesTimeline", () => {
         }
         onRevertUserMessage={() => {}}
         onEditUserMessage={() => true}
+        editableUserMessageId={MessageId.makeUnsafe("message-user-running")}
         isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}

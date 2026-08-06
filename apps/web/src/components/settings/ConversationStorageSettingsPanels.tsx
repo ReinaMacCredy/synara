@@ -304,14 +304,16 @@ export function ArchivedSettingsPanel({ active }: { readonly active: boolean }) 
     [projects],
   );
   const archivedGroups = useMemo(() => {
-    // Subagent threads are archived and restored through their parent, so only
-    // top-level threads are listed here.
-    const archivedThreads = threadShells.filter(
-      (thread) =>
-        thread.archivedAt != null &&
-        (thread.parentThreadId ?? null) === null &&
-        !rootThreadIds.has(thread.id),
+    // Roots have their own section. For ordinary archived threads, represent each
+    // subtree once while still exposing a child whose parent is active or missing.
+    const archivedThreadIds = new Set(
+      threadShells.filter((thread) => thread.archivedAt != null).map((thread) => thread.id),
     );
+    const archivedThreads = threadShells.filter((thread) => {
+      if (thread.archivedAt == null || rootThreadIds.has(thread.id)) return false;
+      const parentThreadId = thread.parentThreadId ?? null;
+      return parentThreadId === null || !archivedThreadIds.has(parentThreadId);
+    });
     const knownProjectIds = new Set(projects.map((project) => project.id));
     const groups: Array<{
       project: (typeof projects)[number] | null;
