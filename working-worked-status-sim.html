@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Working → Worked · Normal vs Orchestrator (sim)</title>
+    <style>
+      :root {
+        --bg: #f7f7f8;
+        --panel: #ffffff;
+        --border: #e8e8ea;
+        --muted: #8b8b93;
+        --text: #1c1c1f;
+        --soft: #f0f0f2;
+        --good: #0f7b4a;
+        --bad: #b42318;
+        --warn: #b54708;
+        --accent: #5b5bd6;
+        --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
+          sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: var(--font);
+        color: var(--text);
+        background:
+          radial-gradient(1200px 500px at 50% -10%, #ececff 0%, transparent 55%),
+          var(--bg);
+        padding: 28px 20px 48px;
+      }
+
+      .wrap {
+        max-width: 1100px;
+        margin: 0 auto;
+      }
+
+      header {
+        margin-bottom: 22px;
+      }
+
+      header h1 {
+        font-size: 1.15rem;
+        font-weight: 650;
+        letter-spacing: -0.02em;
+        margin: 0 0 6px;
+      }
+
+      header p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.92rem;
+        line-height: 1.45;
+        max-width: 70ch;
+      }
+
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        margin: 18px 0 20px;
+      }
+
+      button {
+        font: inherit;
+        border: 1px solid var(--border);
+        background: var(--panel);
+        color: var(--text);
+        border-radius: 999px;
+        padding: 8px 14px;
+        cursor: pointer;
+        box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03);
+      }
+
+      button.primary {
+        background: var(--text);
+        color: #fff;
+        border-color: var(--text);
+      }
+
+      button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
+      .legend {
+        margin-left: auto;
+        display: flex;
+        gap: 14px;
+        font-size: 0.8rem;
+        color: var(--muted);
+      }
+
+      .legend span::before {
+        content: "";
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 99px;
+        margin-right: 6px;
+        vertical-align: 1px;
+      }
+
+      .legend .good::before {
+        background: var(--good);
+      }
+
+      .legend .bad::before {
+        background: var(--bad);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+
+      @media (max-width: 860px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+        .legend {
+          margin-left: 0;
+          width: 100%;
+        }
+      }
+
+      .pane {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        overflow: hidden;
+        min-height: 420px;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 10px 30px rgba(20, 20, 40, 0.04);
+      }
+
+      .pane-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--border);
+        background: #fafafa;
+      }
+
+      .pane-head h2 {
+        margin: 0;
+        font-size: 0.88rem;
+        font-weight: 600;
+      }
+
+      .tag {
+        font-size: 0.72rem;
+        font-weight: 600;
+        padding: 3px 8px;
+        border-radius: 999px;
+        letter-spacing: 0.02em;
+      }
+
+      .tag.ok {
+        color: var(--good);
+        background: color-mix(in srgb, var(--good) 12%, white);
+      }
+
+      .tag.bug {
+        color: var(--bad);
+        background: color-mix(in srgb, var(--bad) 12%, white);
+      }
+
+      .transcript {
+        flex: 1;
+        padding: 22px 18px 16px;
+        position: relative;
+      }
+
+      .user-bubble {
+        margin-left: auto;
+        width: fit-content;
+        max-width: 70%;
+        background: var(--soft);
+        border-radius: 16px;
+        padding: 8px 14px;
+        font-size: 0.92rem;
+        margin-bottom: 28px;
+      }
+
+      .user-meta {
+        text-align: right;
+        color: var(--muted);
+        font-size: 0.75rem;
+        margin: 4px 2px 0;
+      }
+
+      .status-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 22px;
+        color: var(--muted);
+        font-size: 0.92rem;
+        margin-bottom: 18px;
+      }
+
+      /* Morning fix: opacity + 2px Y only, no blur */
+      .work-status-swap {
+        display: grid;
+        grid-template-columns: 1fr;
+      }
+
+      .work-status-swap__phrase {
+        grid-area: 1 / 1;
+        opacity: 1;
+        transform: translateY(0);
+        transition:
+          transform 160ms ease-out,
+          opacity 160ms ease-out;
+        will-change: transform, opacity;
+      }
+
+      .work-status-swap__phrase--visible {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      .work-status-swap__phrase--exit {
+        opacity: 0;
+        transform: translateY(-2px);
+        pointer-events: none;
+      }
+
+      .work-status-swap__phrase--enter {
+        opacity: 0;
+        transform: translateY(2px);
+        pointer-events: none;
+      }
+
+      .work-status-chevron {
+        opacity: 0;
+        transition: opacity 160ms ease-out;
+        font-size: 0.75rem;
+      }
+
+      .work-status-chevron--visible {
+        opacity: 1;
+      }
+
+      .thinking {
+        color: #a0a0a8;
+        font-size: 0.92rem;
+        margin-top: 4px;
+      }
+
+      .thinking.hidden {
+        display: none;
+      }
+
+      .answer {
+        margin-top: 10px;
+        font-size: 0.95rem;
+        line-height: 1.5;
+        color: var(--text);
+        max-width: 42ch;
+      }
+
+      .answer.hidden {
+        display: none;
+      }
+
+      .composer {
+        margin: 0 12px 12px;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 12px 14px;
+        color: var(--muted);
+        font-size: 0.88rem;
+        background: #fff;
+      }
+
+      .event-log {
+        margin-top: 18px;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        background: var(--panel);
+        overflow: hidden;
+      }
+
+      .event-log h3 {
+        margin: 0;
+        padding: 10px 14px;
+        font-size: 0.8rem;
+        border-bottom: 1px solid var(--border);
+        background: #fafafa;
+        color: var(--muted);
+        font-weight: 600;
+      }
+
+      .event-log ul {
+        list-style: none;
+        margin: 0;
+        padding: 8px 0;
+        max-height: 180px;
+        overflow: auto;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.75rem;
+      }
+
+      .event-log li {
+        padding: 4px 14px;
+        display: grid;
+        grid-template-columns: 72px 90px 1fr;
+        gap: 10px;
+      }
+
+      .event-log .t {
+        color: var(--muted);
+      }
+
+      .event-log .lane.normal {
+        color: var(--good);
+      }
+
+      .event-log .lane.orches {
+        color: var(--warn);
+      }
+
+      .callout {
+        margin-top: 14px;
+        padding: 12px 14px;
+        border-radius: 12px;
+        border: 1px solid color-mix(in srgb, var(--warn) 28%, var(--border));
+        background: color-mix(in srgb, var(--warn) 8%, white);
+        color: #5c3b12;
+        font-size: 0.86rem;
+        line-height: 1.45;
+      }
+
+      .callout strong {
+        font-weight: 650;
+      }
+
+      .flash {
+        position: absolute;
+        inset: 0;
+        background: #fff;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 80ms linear;
+      }
+
+      .flash.on {
+        opacity: 1;
+      }
+
+      .phase-label {
+        font-size: 0.72rem;
+        color: var(--muted);
+        margin-bottom: 10px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .blank-marker {
+        position: absolute;
+        left: 18px;
+        top: 96px;
+        right: 18px;
+        height: 64px;
+        border: 1.5px dashed color-mix(in srgb, var(--bad) 45%, var(--border));
+        border-radius: 10px;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        color: var(--bad);
+        font-size: 0.78rem;
+        font-weight: 600;
+        background: color-mix(in srgb, var(--bad) 5%, white);
+      }
+
+      .blank-marker.on {
+        display: flex;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>Working → Worked · Normal vs Orchestrator</h1>
+        <p>
+          Simulation of the <strong>unified</strong> work-status path. Left is normal chat.
+          Right is Orchestrator Root first-send: same ChatView stays mounted for the full
+          turn (no mid-turn route remount). URL upgrades to
+          <code>/orchestrator/$root</code> only after <em>Worked for</em>.
+        </p>
+      </header>
+
+      <div class="controls">
+        <button class="primary" id="playBoth" type="button">Play both sequences</button>
+        <button id="playNormal" type="button">Play normal only</button>
+        <button id="playOrches" type="button">Play orchestrator only</button>
+        <button id="reset" type="button">Reset</button>
+        <div class="legend">
+          <span class="good">continuous startedAt</span>
+          <span class="bad">lost startedAt / remount</span>
+        </div>
+      </div>
+
+      <div class="grid">
+        <!-- NORMAL -->
+        <section class="pane" id="pane-normal" aria-label="Normal mode">
+          <div class="pane-head">
+            <h2>Normal chat</h2>
+            <span class="tag ok">target · morning fix</span>
+          </div>
+          <div class="transcript">
+            <div class="phase-label" id="phase-normal">idle</div>
+            <div class="user-bubble">
+              Hi
+              <div class="user-meta">6:57 PM</div>
+            </div>
+
+            <div class="status-row" id="status-normal">
+              <div class="work-status-swap" id="swap-normal">
+                <span
+                  class="work-status-swap__phrase work-status-swap__phrase--visible"
+                  data-role="working"
+                  >Working for 0s</span
+                >
+                <span
+                  class="work-status-swap__phrase work-status-swap__phrase--enter"
+                  data-role="settled"
+                  >Worked for 0s</span
+                >
+              </div>
+              <span class="work-status-chevron" id="chev-normal">▾</span>
+            </div>
+            <div class="thinking" id="think-normal">Thinking…</div>
+            <div class="answer hidden" id="answer-normal">
+              Hello — continuous timer, then smooth Working → Worked.
+            </div>
+          </div>
+          <div class="composer">Ask for follow-up changes…</div>
+        </section>
+
+        <!-- ORCHESTRATOR -->
+        <section class="pane" id="pane-orches" aria-label="Orchestrator mode">
+          <div class="pane-head">
+            <h2>Orchestrator Root</h2>
+            <span class="tag ok">fixed · shared normal path</span>
+          </div>
+          <div class="transcript">
+            <div class="flash" id="flash-orches"></div>
+            <div class="blank-marker" id="blank-orches">blank / remount (ChatView unmount)</div>
+            <div class="phase-label" id="phase-orches">idle</div>
+            <div class="user-bubble">
+              Hi
+              <div class="user-meta">6:56 PM</div>
+            </div>
+
+            <div class="status-row" id="status-orches">
+              <div class="work-status-swap" id="swap-orches">
+                <span
+                  class="work-status-swap__phrase work-status-swap__phrase--visible"
+                  data-role="working"
+                  >Working for 0s</span
+                >
+                <span
+                  class="work-status-swap__phrase work-status-swap__phrase--enter"
+                  data-role="settled"
+                  >Worked for 0s</span
+                >
+              </div>
+              <span class="work-status-chevron" id="chev-orches">▾</span>
+            </div>
+            <div class="thinking" id="think-orches">Thinking…</div>
+            <div class="answer hidden" id="answer-orches">
+              Same end state eventually — but the path flickered.
+            </div>
+          </div>
+          <div class="composer">Ask anything… · Orchestrate · Grok 4.5 Low</div>
+        </section>
+      </div>
+
+      <div class="callout">
+        <strong>Unified path (normal is the source of truth):</strong>
+        both modes keep one ChatView for Working→Worked.
+        Orchestrator defers <code>navigate(/orchestrator/$root)</code> until the turn is
+        idle (<code>orchestratorRoutePromotion.ts</code>).
+        <code>activeWorkClock</code> remains a safety net if any remount still happens.
+      </div>
+
+      <div class="event-log">
+        <h3>Event log (sim)</h3>
+        <ul id="log"></ul>
+      </div>
+    </div>
+
+    <script>
+      const logEl = document.getElementById("log");
+      let timers = [];
+      let t0 = 0;
+
+      function clearTimers() {
+        for (const id of timers) clearTimeout(id);
+        timers = [];
+      }
+
+      function after(ms, fn) {
+        timers.push(setTimeout(fn, ms));
+      }
+
+      function nowLabel() {
+        return `+${String(Date.now() - t0).padStart(4, " ")}ms`;
+      }
+
+      function log(lane, msg) {
+        const li = document.createElement("li");
+        li.innerHTML = `<span class="t">${nowLabel()}</span><span class="lane ${lane}">${lane}</span><span>${msg}</span>`;
+        logEl.prepend(li);
+      }
+
+      function setPhase(lane, text) {
+        document.getElementById(`phase-${lane}`).textContent = text;
+      }
+
+      function getWorkingPhrase(lane) {
+        return document.querySelector(`#swap-${lane} [data-role="working"]`);
+      }
+
+      function getSettledPhrase(lane) {
+        return document.querySelector(`#swap-${lane} [data-role="settled"]`);
+      }
+
+      function setWorkingCopy(lane, text) {
+        getWorkingPhrase(lane).textContent = text;
+      }
+
+      function setSettledCopy(lane, text) {
+        getSettledPhrase(lane).textContent = text;
+      }
+
+      function showWorking(lane) {
+        const w = getWorkingPhrase(lane);
+        const s = getSettledPhrase(lane);
+        w.className = "work-status-swap__phrase work-status-swap__phrase--visible";
+        s.className = "work-status-swap__phrase work-status-swap__phrase--enter";
+        document.getElementById(`chev-${lane}`).classList.remove("work-status-chevron--visible");
+        document.getElementById(`think-${lane}`).classList.remove("hidden");
+        document.getElementById(`answer-${lane}`).classList.add("hidden");
+        document.getElementById(`status-${lane}`).style.visibility = "visible";
+      }
+
+      function settle(lane, elapsedLabel) {
+        setSettledCopy(lane, `Worked for ${elapsedLabel}`);
+        const w = getWorkingPhrase(lane);
+        const s = getSettledPhrase(lane);
+        // Morning fix swap: working exits up, worked enters from below — no blur
+        w.className = "work-status-swap__phrase work-status-swap__phrase--exit";
+        s.className = "work-status-swap__phrase work-status-swap__phrase--visible";
+        document.getElementById(`chev-${lane}`).classList.add("work-status-chevron--visible");
+        document.getElementById(`think-${lane}`).classList.add("hidden");
+        document.getElementById(`answer-${lane}`).classList.remove("hidden");
+      }
+
+      function hideStatus(lane) {
+        document.getElementById(`status-${lane}`).style.visibility = "hidden";
+        document.getElementById(`think-${lane}`).classList.add("hidden");
+      }
+
+      function showStatus(lane) {
+        document.getElementById(`status-${lane}`).style.visibility = "visible";
+        document.getElementById(`think-${lane}`).classList.remove("hidden");
+      }
+
+      function resetLane(lane) {
+        setPhase(lane, "idle");
+        setWorkingCopy(lane, "Working for 0s");
+        setSettledCopy(lane, "Worked for 0s");
+        showWorking(lane);
+        document.getElementById(`think-${lane}`).classList.add("hidden");
+        document.getElementById(`answer-${lane}`).classList.add("hidden");
+        document.getElementById(`status-${lane}`).style.visibility = "hidden";
+        if (lane === "orches") {
+          document.getElementById("flash-orches").classList.remove("on");
+          document.getElementById("blank-orches").classList.remove("on");
+        }
+      }
+
+      function resetAll() {
+        clearTimers();
+        logEl.innerHTML = "";
+        resetLane("normal");
+        resetLane("orches");
+        setButtons(false);
+      }
+
+      function setButtons(running) {
+        for (const id of ["playBoth", "playNormal", "playOrches"]) {
+          document.getElementById(id).disabled = running;
+        }
+      }
+
+      /**
+       * Normal mode timeline (stable startedAt):
+       * 0ms  send → Working for 0s
+       * 1s   Working for 1s
+       * 2s   Working for 2s
+       * 2.4s settle → Worked for 2s (smooth swap)
+       */
+      function runNormal() {
+        log("normal", "send · localDispatch.startedAt set");
+        setPhase("normal", "t+0 · send · startedAt kept");
+        showStatus("normal");
+        showWorking("normal");
+        setWorkingCopy("normal", "Working for 0s");
+
+        after(1000, () => {
+          setWorkingCopy("normal", "Working for 1s");
+          setPhase("normal", "t+1s · Working for 1s (timer continuous)");
+          log("normal", "tick · Working for 1s");
+        });
+
+        after(2000, () => {
+          setWorkingCopy("normal", "Working for 2s");
+          setPhase("normal", "t+2s · Working for 2s");
+          log("normal", "tick · Working for 2s");
+        });
+
+        after(2400, () => {
+          settle("normal", "2s");
+          setPhase("normal", "t+2.4s · Worked for 2s (smooth swap, no blur)");
+          log("normal", "settle · Working → Worked (opacity+Y only)");
+        });
+      }
+
+      /**
+       * Orchestrator Root first-send AFTER deferred route promotion:
+       * Same ChatView stays mounted for the full turn (normal path). URL
+       * upgrades to /orchestrator/$root only after Worked for (no mid-turn blank).
+       */
+      function runOrches() {
+        const flash = document.getElementById("flash-orches");
+        const blank = document.getElementById("blank-orches");
+        flash.classList.remove("on");
+        blank.classList.remove("on");
+
+        log("orches", "send · stay on draft ChatView (no navigate yet)");
+        setPhase("orches", "t+0 · send · Working for 0s (same instance as normal)");
+        showStatus("orches");
+        showWorking("orches");
+        setWorkingCopy("orches", "Working for 0s");
+
+        after(1000, () => {
+          setWorkingCopy("orches", "Working for 1s");
+          setPhase("orches", "t+1s · Working for 1s — no blank remount");
+          log("orches", "tick · Working for 1s (ChatView never unmounted)");
+        });
+
+        after(2000, () => {
+          setWorkingCopy("orches", "Working for 2s");
+          setPhase("orches", "t+2s · Working for 2s");
+          log("orches", "tick · Working for 2s");
+        });
+
+        after(2400, () => {
+          settle("orches", "2s");
+          setPhase("orches", "t+2.4s · Worked for 2s (unified with normal)");
+          log("orches", "settle · Working → Worked for 2s");
+        });
+
+        after(2850, () => {
+          setPhase("orches", "t+2.85s · replace URL → /orchestrator/$root (after settle)");
+          log("orches", "deferred navigate · route only (turn already Worked)");
+        });
+      }
+
+      function play(which) {
+        resetAll();
+        t0 = Date.now();
+        setButtons(true);
+        if (which === "both" || which === "normal") runNormal();
+        if (which === "both" || which === "orches") runOrches();
+        after(2800, () => setButtons(false));
+      }
+
+      document.getElementById("playBoth").onclick = () => play("both");
+      document.getElementById("playNormal").onclick = () => play("normal");
+      document.getElementById("playOrches").onclick = () => play("orches");
+      document.getElementById("reset").onclick = resetAll;
+
+      resetAll();
+    </script>
+  </body>
+</html>
