@@ -2782,9 +2782,10 @@ interface TurnActivitySettleTimer {
   cleanupTimeout: number | null;
 }
 
-// When a watched live turn-activity row first gains folded details, open the
+// When a watched live turn-activity row settles with folded details, open the
 // disclosure on that same settle paint (no closed flash), then close with the
-// shared 220ms motion. History and already-settled rows never qualify.
+// shared 220ms motion. History, already-settled rows, and details that hydrate
+// after the settle paint never qualify.
 function useTurnActivitySettleTransitions(
   rows: readonly MessagesTimelineRow[],
 ): Readonly<Record<string, boolean>> {
@@ -2926,6 +2927,7 @@ function detectTurnActivitySettleTransitions(params: {
 } {
   const currentActivityIds = new Set<string>();
   const currentSettledSignatures = new Map<string, string>();
+  const currentSettledActivityIds = new Set<string>();
   const nextWatchedLiveActivityIds = new Set(params.watchedLiveActivityIds);
   const startedActivityIds: string[] = [];
 
@@ -2936,6 +2938,9 @@ function detectTurnActivitySettleTransitions(params: {
     currentActivityIds.add(row.id);
     if (row.state === "working") {
       nextWatchedLiveActivityIds.add(row.id);
+    }
+    if (row.state === "settled") {
+      currentSettledActivityIds.add(row.id);
     }
     const detailCount = row.collapsedTurnItems?.length ?? 0;
     if (row.state === "settled" && detailCount > 0) {
@@ -2957,8 +2962,11 @@ function detectTurnActivitySettleTransitions(params: {
       params.alreadyTransitioning[activityId] === undefined
     ) {
       startedActivityIds.push(activityId);
-      nextWatchedLiveActivityIds.delete(activityId);
     }
+  }
+
+  for (const activityId of currentSettledActivityIds) {
+    nextWatchedLiveActivityIds.delete(activityId);
   }
 
   return {

@@ -1,51 +1,89 @@
 // FILE: orchestratorRoutePromotion.test.ts
-// Purpose: Pins deferred orchestrator root navigation (no mid-turn remount).
+// Purpose: Pins deferred orchestrator promote clear (no post-settle remount).
 
 import { describe, expect, it } from "vitest";
 import { ThreadId } from "@synara/contracts";
 
-import { shouldFlushOrchestratorRootNavigation } from "./orchestratorRoutePromotion";
+import {
+  isOrchestratorTurnFullySettled,
+  shouldClearPendingOrchestratorRootPromotion,
+} from "./orchestratorRoutePromotion";
 
 const root = ThreadId.makeUnsafe("root-1");
 const other = ThreadId.makeUnsafe("root-2");
 
-describe("shouldFlushOrchestratorRootNavigation", () => {
-  it("does not flush while a turn is in flight (keeps ChatView mounted)", () => {
+describe("shouldClearPendingOrchestratorRootPromotion", () => {
+  it("does not clear while a turn is in flight", () => {
     expect(
-      shouldFlushOrchestratorRootNavigation({
+      shouldClearPendingOrchestratorRootPromotion({
         pendingRootThreadId: root,
         currentThreadId: root,
         turnInFlight: true,
+        turnFullySettled: true,
       }),
     ).toBe(false);
   });
 
-  it("flushes once the matching thread is idle", () => {
+  it("does not clear on idle gaps without durable settle", () => {
     expect(
-      shouldFlushOrchestratorRootNavigation({
+      shouldClearPendingOrchestratorRootPromotion({
         pendingRootThreadId: root,
         currentThreadId: root,
         turnInFlight: false,
+        turnFullySettled: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("clears once idle and fully settled (no navigate — avoids Worked remount blink)", () => {
+    expect(
+      shouldClearPendingOrchestratorRootPromotion({
+        pendingRootThreadId: root,
+        currentThreadId: root,
+        turnInFlight: false,
+        turnFullySettled: true,
       }),
     ).toBe(true);
   });
 
-  it("ignores pending navigation for a different open thread", () => {
+  it("ignores pending for a different open thread", () => {
     expect(
-      shouldFlushOrchestratorRootNavigation({
+      shouldClearPendingOrchestratorRootPromotion({
         pendingRootThreadId: root,
         currentThreadId: other,
         turnInFlight: false,
+        turnFullySettled: true,
       }),
     ).toBe(false);
   });
 
   it("is a no-op without a pending root", () => {
     expect(
-      shouldFlushOrchestratorRootNavigation({
+      shouldClearPendingOrchestratorRootPromotion({
         pendingRootThreadId: null,
         currentThreadId: root,
         turnInFlight: false,
+        turnFullySettled: true,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("isOrchestratorTurnFullySettled", () => {
+  it("is true when the transcript ends on an assistant answer", () => {
+    expect(
+      isOrchestratorTurnFullySettled({
+        messages: [{ role: "user" }, { role: "assistant" }],
+        latestTurn: null,
+      }),
+    ).toBe(true);
+  });
+
+  it("is false while still waiting on a user tail", () => {
+    expect(
+      isOrchestratorTurnFullySettled({
+        messages: [{ role: "user" }],
+        latestTurn: { completedAt: null, state: "running" },
       }),
     ).toBe(false);
   });

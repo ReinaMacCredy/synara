@@ -259,22 +259,21 @@ import {
   resolveComposerSlashRootBranch,
 } from "../composerSlashCommands";
 import {
-  clearActiveWorkStartedAt,
-  readActiveWorkStartedAt,
-  rememberActiveWorkStartedAt,
-  resolveContinuousWorkStartedAt,
-} from "../activeWorkClock";
-import {
-  ORCHESTRATOR_ROOT_NAV_AFTER_SETTLE_MS,
-  shouldFlushOrchestratorRootNavigation,
+  isOrchestratorTurnFullySettled,
+  shouldClearPendingOrchestratorRootPromotion,
 } from "../orchestratorRoutePromotion";
+import {
+  clearTurnWorkStartedAt,
+  deriveTurnWorkStatus,
+  readTurnWorkStartedAt,
+  rememberTurnWorkStartedAt,
+  resolveTurnWorkKey,
+} from "../turnWorkStatus";
 import {
   derivePendingApprovals,
   derivePendingUserInputs,
   derivePhase,
   deriveTimelineEntries,
-  deriveActiveWorkStartedAt,
-  hasAwaitingAssistantResponse,
   deriveActiveTaskListState,
   deriveActiveBackgroundTasksState,
   findSidebarProposedPlan,
@@ -282,9 +281,9 @@ import {
   deriveWorkLogEntries,
   omitRoutedSubagentWorkEntries,
   buildSourceProposedPlanReference,
-    hasActionableProposedPlan,
-    hasLiveTurnTailWork,
-    isLatestTurnSettled,
+  hasActionableProposedPlan,
+  hasLiveTurnTailWork,
+  isLatestTurnSettled,
   type ActiveTaskListState,
 } from "../session-logic";
 import {
@@ -3205,68 +3204,71 @@ export default function ChatView({
     promptRef,
     setComposerDraftPrompt,
   });
-  const isWorking = hasLiveTurn || isSendBusy || isConnecting || isRevertingCheckpoint;
   const hasStreamingAssistantText =
     activeThread?.messages.some((message) => message.role === "assistant" && message.streaming) ??
     false;
-  const latestTurnInProgress = Boolean(activeLatestTurn?.requestedAt) && !latestTurnSettled;
-  // Survives ChatView remounts that drop `localDispatch` (orchestrator draft →
-  // /orchestrator/$rootThreadId navigation after first send) so Working/Thinking
-  // never blanks while the user message still has no assistant answer.
-  const awaitingAssistantResponse = hasAwaitingAssistantResponse({
-    // Optimistic sends land here before the server message projection arrives;
-    // after orchestrator draft→root remount the durable user row is in messages.
-    messages:
-      optimisticUserMessages.length > 0
-        ? [...(activeThread?.messages ?? EMPTY_MESSAGES), ...optimisticUserMessages]
-        : (activeThread?.messages ?? EMPTY_MESSAGES),
+  // Shared Working→Worked lifecycle (normal + orchestrator). Presentation stays
+  // in MessagesTimeline; this only feeds activeTurnInProgress / startedAt.
+  const turnWorkStatusMessages =
+    optimisticUserMessages.length > 0
+      ? [...(activeThread?.messages ?? EMPTY_MESSAGES), ...optimisticUserMessages]
+      : (activeThread?.messages ?? EMPTY_MESSAGES);
+  const turnWorkKey = resolveTurnWorkKey({
+    messages: turnWorkStatusMessages,
+    localDispatchActive: localDispatch !== null,
+    localDispatchStartedAt: localDispatch?.startedAt ?? null,
+  });
+  const turnWorkStatus = deriveTurnWorkStatus({
+    threadError: activeThread?.error,
+    messages: turnWorkStatusMessages,
     latestTurn: activeLatestTurn,
     session: activeThread?.session ?? null,
+    localDispatchActive: localDispatch !== null,
+    localDispatchStartedAt: localDispatch?.startedAt ?? null,
+    isConnecting,
+    hasLiveTurn,
+    hasLiveTurnTail,
+    hasStreamingAssistantText,
+    persistedStartedAtForTurn: readTurnWorkStartedAt(threadId, turnWorkKey),
   });
-  const activeTurnInProgress =
-    !activeThread?.error &&
-    (localDispatch !== null ||
-      isConnecting ||
-      hasLiveTurn ||
-      latestTurnInProgress ||
-      awaitingAssistantResponse);
+  const activeTurnInProgress = turnWorkStatus.activeTurnInProgress;
+  const activeWorkStartedAt = turnWorkStatus.activeWorkStartedAt;
+  // Composer/busy chrome: morning semantics (session running), not only the
+  // transcript work-status gate. Transcript uses activeTurnInProgress separately.
+  const isWorking = hasLiveTurn || isSendBusy || isConnecting || isRevertingCheckpoint;
   const orchestratorTurnInFlight = activeTurnInProgress || isSendBusy;
-  const orchestratorTurnInFlightRef = useRef(orchestratorTurnInFlight);
-  orchestratorTurnInFlightRef.current = orchestratorTurnInFlight;
-  // Unified with normal chat: never remount ChatView while Working for is live.
-  // Flush draft→/orchestrator/$root only after the turn is idle (+ short settle).
+  const orchestratorTurnFullySettled = isOrchestratorTurnFullySettled({
+    messages: turnWorkStatusMessages,
+    latestTurn: activeLatestTurn,
+    threadError: activeThread?.error,
+  });
+  // After first-send promote: clear pending only. Do **not** navigate to
+  // /orchestrator/$root — that remounts ChatView and blinks Worked (reload).
+  // Stay on the draft surface so Working→Worked matches normal (one instance).
   useEffect(() => {
     if (
-      !shouldFlushOrchestratorRootNavigation({
+      !shouldClearPendingOrchestratorRootPromotion({
         pendingRootThreadId: pendingOrchestratorRootNavigation,
         currentThreadId: threadId,
         turnInFlight: orchestratorTurnInFlight,
+        turnFullySettled: orchestratorTurnFullySettled,
       })
     ) {
       return;
     }
     const rootThreadId = pendingOrchestratorRootNavigation;
-    const timer = window.setTimeout(() => {
-      if (
-        !shouldFlushOrchestratorRootNavigation({
-          pendingRootThreadId: rootThreadId,
-          currentThreadId: threadId,
-          turnInFlight: orchestratorTurnInFlightRef.current,
-        })
-      ) {
-        return;
-      }
-      setPendingOrchestratorRootNavigation((current) =>
-        current === rootThreadId ? null : current,
-      );
-      void navigate({
-        to: "/orchestrator/$rootThreadId",
-        params: { rootThreadId },
-        replace: true,
-      });
-    }, ORCHESTRATOR_ROOT_NAV_AFTER_SETTLE_MS);
-    return () => window.clearTimeout(timer);
-  }, [orchestratorTurnInFlight, navigate, pendingOrchestratorRootNavigation, threadId]);
+    if (rootThreadId == null) {
+      return;
+    }
+    setPendingOrchestratorRootNavigation((current) =>
+      current === rootThreadId ? null : current,
+    );
+  }, [
+    orchestratorTurnFullySettled,
+    orchestratorTurnInFlight,
+    pendingOrchestratorRootNavigation,
+    threadId,
+  ]);
   const isComposerApprovalState = activePendingApproval !== null;
   const isComposerEditorDisabled = isConnecting || isComposerApprovalState;
   const canCollapsePastedTextToDraft = shouldEnableComposerPastedTextCollapse({
@@ -3515,54 +3517,23 @@ export default function ChatView({
       ),
     [activeThread?.proposedPlans, agentActivityTimelineState.timelineWorkEntries, timelineMessages],
   );
-  const latestUserMessageStartedAt = useMemo(() => {
-    for (let index = timelineEntries.length - 1; index >= 0; index -= 1) {
-      const entry = timelineEntries[index];
-      if (entry?.kind === "message" && entry.message.role === "user") {
-        return entry.message.createdAt;
-      }
-    }
-    return null;
-  }, [timelineEntries]);
-  // Unified Working-for origin for normal + orchestrator: prefer durable user /
-  // local-dispatch / turn times, and fall back to the remount-surviving clock
-  // so status never degrades to "Working..." after ChatView remounts mid-turn.
-  const workStatusInFlight =
-    localDispatch !== null || hasLiveTurn || awaitingAssistantResponse;
-  const derivedActiveWorkStartedAt = workStatusInFlight
-    ? deriveActiveWorkStartedAt(
-        activeLatestTurn,
-        activeThread?.session ?? null,
-        localDispatch?.startedAt ?? null,
-        latestUserMessageStartedAt,
-      )
-    : hasLiveTurnTail
-      ? (latestUserMessageStartedAt ?? activeLatestTurn?.startedAt ?? null)
-      : null;
-  let activeWorkStartedAt: string | null =
-    workStatusInFlight || hasLiveTurnTail
-      ? resolveContinuousWorkStartedAt({
-          derivedStartedAt: derivedActiveWorkStartedAt,
-          persistedStartedAt: readActiveWorkStartedAt(threadId),
-        })
-      : null;
-  // Never paint bare "Working..." while a turn is in flight — stamp a continuous
-  // origin once if every other source is still empty (rare gap after remount).
-  if (workStatusInFlight && activeWorkStartedAt == null) {
-    rememberActiveWorkStartedAt(threadId, new Date().toISOString());
-    activeWorkStartedAt = readActiveWorkStartedAt(threadId);
-  }
-  // Seed / hold the remount clock while work is live; drop when fully idle so
-  // the next send starts a fresh timer (normal and orchestrator share this).
+  // Per-turn remount seed: same path for normal + orchestrator. New user send
+  // gets a new turnKey so elapsed never carries multi-minute from a prior turn.
   useEffect(() => {
-    if (activeWorkStartedAt && (workStatusInFlight || hasLiveTurnTail)) {
-      rememberActiveWorkStartedAt(threadId, activeWorkStartedAt);
+    if (activeTurnInProgress && activeWorkStartedAt && turnWorkStatus.turnKey) {
+      rememberTurnWorkStartedAt(threadId, turnWorkStatus.turnKey, activeWorkStartedAt);
       return;
     }
-    if (!workStatusInFlight && !hasLiveTurnTail) {
-      clearActiveWorkStartedAt(threadId);
+    if (!activeTurnInProgress && !hasLiveTurnTail) {
+      clearTurnWorkStartedAt(threadId);
     }
-  }, [activeWorkStartedAt, hasLiveTurnTail, threadId, workStatusInFlight]);
+  }, [
+    activeTurnInProgress,
+    activeWorkStartedAt,
+    hasLiveTurnTail,
+    threadId,
+    turnWorkStatus.turnKey,
+  ]);
   const enteringUserMessageIds = useMemo<ReadonlySet<MessageId>>(
     () => new Set(optimisticUserMessages.map((message) => message.id)),
     [optimisticUserMessages],
@@ -6185,9 +6156,9 @@ export default function ChatView({
         );
         if (next !== current) {
           failedWorktreeSetupDispatchStartedAtRef.current = null;
-          // Persist outside React so orchestrator draft→root remounts keep
-          // "Working for Ns" instead of falling back to bare "Working...".
-          rememberActiveWorkStartedAt(threadId, next.startedAt);
+          // Per-turn remount seed (normal + orches): keyed later when the user
+          // message id is known; seed with a provisional key from startedAt.
+          rememberTurnWorkStartedAt(threadId, `send:${next.startedAt}`, next.startedAt);
         }
         return next;
       });

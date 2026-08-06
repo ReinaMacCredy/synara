@@ -656,7 +656,7 @@ describe("MessagesTimeline tool group collapse", () => {
     }
   });
 
-  it("keeps Worked visible after a no-tool turn settles", async () => {
+  it("keeps Worked stable when tool details arrive after a no-tool settle", async () => {
     const host = createTimelineHost();
     const mounted = await render(
       <ToolGroupCollapseTimeline
@@ -686,6 +686,28 @@ describe("MessagesTimeline tool group collapse", () => {
         "Worked for",
       );
       expect(settledRegion?.querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
+      expect(isThinkingVisible()).toBe(false);
+
+      await mounted.rerender(
+        <ToolGroupCollapseTimeline
+          timelineEntries={[
+            commandEntry("late-command", "bun run build"),
+            assistantEntry("plain-assistant", "Hello from a plain turn.", false),
+          ]}
+          isWorking={false}
+          activeTurnInProgress={false}
+        />,
+      );
+
+      const hydratedRegion = document.querySelector<HTMLElement>("[data-turn-work-region]");
+      expect(hydratedRegion).toBe(settledRegion);
+      expect(hydratedRegion?.getAttribute("data-settled-turn-collapse-transition")).toBeNull();
+      expect(hydratedRegion?.querySelector("[aria-hidden='false']")?.textContent).toContain(
+        "Worked for",
+      );
+      expect(hydratedRegion?.querySelector("button")?.getAttribute("aria-expanded")).toBe(
+        "false",
+      );
       expect(isThinkingVisible()).toBe(false);
     } finally {
       await mounted.unmount();

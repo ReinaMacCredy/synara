@@ -1,28 +1,71 @@
 // FILE: orchestratorRoutePromotion.ts
-// Purpose: Orchestrator first-send must not remount ChatView mid-turn. Normal
-// chat keeps one ChatView for Working→Worked; root promotion defers the
-// /orchestrator/$rootThreadId navigation until the turn is idle so both modes
-// share that continuous work-status path.
+// Purpose: Orchestrator first-send must not remount ChatView for Working→Worked.
+// Normal chat never remounts on settle; draft→/orchestrator/$root must not either
+// (post-settle navigate flashed a blank then reloaded Worked). Pending promote is
+// cleared in place; URL upgrades only when the user opens the root elsewhere.
 // Layer: Orchestrator route timing
-// Exports: shouldFlushOrchestratorRootNavigation, ORCHESTRATOR_ROOT_NAV_AFTER_SETTLE_MS
+// Exports: shouldClearPendingOrchestratorRootPromotion, isOrchestratorTurnFullySettled
 
 import type { ThreadId } from "@synara/contracts";
 
-/** Let Working→Worked (160ms) + process collapse (~220ms) finish before route change. */
-export const ORCHESTRATOR_ROOT_NAV_AFTER_SETTLE_MS = 450;
-
 /**
- * True when a deferred draft→root navigation may run: pending id matches the
- * open thread and no turn is in flight (same idle condition as normal chat).
+ * True when a deferred first-send promote may clear its pending flag.
+ * Does **not** mean "navigate now" — navigating remounts ChatView and reloads
+ * Worked (the post-settle blink). Clear pending only; stay on the draft surface.
  */
-export function shouldFlushOrchestratorRootNavigation(input: {
+export function shouldClearPendingOrchestratorRootPromotion(input: {
   readonly pendingRootThreadId: ThreadId | null;
   readonly currentThreadId: ThreadId;
   readonly turnInFlight: boolean;
+  readonly turnFullySettled: boolean;
 }): boolean {
   return (
     input.pendingRootThreadId != null &&
     input.pendingRootThreadId === input.currentThreadId &&
-    !input.turnInFlight
+    !input.turnInFlight &&
+    input.turnFullySettled
   );
+}
+
+/** @deprecated Use shouldClearPendingOrchestratorRootPromotion (no auto-navigate). */
+export function shouldFlushOrchestratorRootNavigation(input: {
+  readonly pendingRootThreadId: ThreadId | null;
+  readonly currentThreadId: ThreadId;
+  readonly turnInFlight: boolean;
+  readonly turnFullySettled: boolean;
+}): boolean {
+  return shouldClearPendingOrchestratorRootPromotion(input);
+}
+
+/** Pure helper for ChatView: durable settle for deferred orchestrator URL upgrade. */
+export function isOrchestratorTurnFullySettled(input: {
+  readonly messages: ReadonlyArray<{ readonly role: string }>;
+  readonly latestTurn: {
+    readonly completedAt?: string | null;
+    readonly state?: string | null;
+  } | null;
+  readonly threadError?: string | null;
+}): boolean {
+  if (input.threadError) {
+    return true;
+  }
+  let lastRole: string | null = null;
+  for (let index = input.messages.length - 1; index >= 0; index -= 1) {
+    const message = input.messages[index];
+    if (!message) continue;
+    if (message.role !== "user" && message.role !== "assistant") continue;
+    lastRole = message.role;
+    break;
+  }
+  if (lastRole === "assistant") {
+    return true;
+  }
+  const state = input.latestTurn?.state ?? null;
+  if (state === "interrupted" || state === "error") {
+    return true;
+  }
+  if (input.latestTurn?.completedAt != null && lastRole !== "user") {
+    return true;
+  }
+  return false;
 }

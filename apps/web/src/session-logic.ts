@@ -156,65 +156,6 @@ export function hasLiveLatestTurn(
 }
 
 /**
- * True when the transcript ends on a user message that still has no settled
- * assistant answer. Survives ChatView remounts (e.g. orchestrator draft → root
- * route navigation) where React-local `localDispatch` is gone but the turn is
- * still in flight.
- */
-export function hasAwaitingAssistantResponse(input: {
-  readonly messages: ReadonlyArray<{
-    readonly role: string;
-    readonly createdAt?: string | null;
-  }>;
-  readonly latestTurn: (LatestTurnTiming & { readonly requestedAt?: string | null }) | null;
-  readonly session: (SessionActivityState & { readonly status?: string | null }) | null;
-}): boolean {
-  let lastRole: string | null = null;
-  let lastCreatedAt: string | null = null;
-  for (let index = input.messages.length - 1; index >= 0; index -= 1) {
-    const message = input.messages[index];
-    if (!message) continue;
-    if (message.role !== "user" && message.role !== "assistant") continue;
-    lastRole = message.role;
-    lastCreatedAt = message.createdAt ?? null;
-    break;
-  }
-  if (lastRole !== "user") {
-    return false;
-  }
-
-  const session = input.session;
-  if (
-    session?.status === "running" ||
-    session?.status === "connecting" ||
-    session?.orchestrationStatus === "running" ||
-    session?.orchestrationStatus === "starting" ||
-    session?.activeTurnId != null
-  ) {
-    return true;
-  }
-
-  const latestTurn = input.latestTurn;
-  if (!latestTurn) {
-    // User message is durable but the turn projection has not arrived yet.
-    return true;
-  }
-  if (latestTurn.completedAt == null && latestTurn.state !== "interrupted" && latestTurn.state !== "error") {
-    return true;
-  }
-  // Newest user message is after the latest settled turn (follow-up send) and
-  // the next turn projection is not visible yet.
-  if (
-    lastCreatedAt != null &&
-    latestTurn.completedAt != null &&
-    lastCreatedAt > latestTurn.completedAt
-  ) {
-    return true;
-  }
-  return false;
-}
-
-/**
  * Pending approval / user-input requests are only actionable while the session
  * that raised them can still receive the answer. Once the session is closed or
  * errored the request is dead, so status surfaces can stop showing it as active.

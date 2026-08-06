@@ -9,7 +9,6 @@ import {
   findLatestProposedPlan,
   findSidebarProposedPlan,
   hasActionableProposedPlan,
-  hasAwaitingAssistantResponse,
   hasLiveLatestTurn,
   hasLiveTurnTailWork,
   isLatestTurnSettled,
@@ -530,68 +529,6 @@ describe("findSidebarProposedPlan", () => {
         threadId: ThreadId.makeUnsafe("thread-1"),
       }),
     ).toBeNull();
-  });
-});
-
-describe("hasAwaitingAssistantResponse", () => {
-  it("stays true after a remount when the transcript ends on a user message with no turn yet", () => {
-    expect(
-      hasAwaitingAssistantResponse({
-        messages: [
-          {
-            role: "user",
-            createdAt: "2026-08-05T18:36:00.000Z",
-          },
-        ],
-        latestTurn: null,
-        session: {
-          status: "ready",
-          orchestrationStatus: "ready",
-          activeTurnId: undefined,
-        },
-      }),
-    ).toBe(true);
-  });
-
-  it("stays true while the session is running even without local dispatch", () => {
-    expect(
-      hasAwaitingAssistantResponse({
-        messages: [{ role: "user", createdAt: "2026-08-05T18:36:00.000Z" }],
-        latestTurn: {
-          turnId: TurnId.makeUnsafe("turn-1"),
-          state: "running",
-          startedAt: "2026-08-05T18:36:01.000Z",
-          completedAt: null,
-        },
-        session: {
-          status: "running",
-          orchestrationStatus: "running",
-          activeTurnId: TurnId.makeUnsafe("turn-1"),
-        },
-      }),
-    ).toBe(true);
-  });
-
-  it("returns false once an assistant answer is the transcript tail", () => {
-    expect(
-      hasAwaitingAssistantResponse({
-        messages: [
-          { role: "user", createdAt: "2026-08-05T18:36:00.000Z" },
-          { role: "assistant", createdAt: "2026-08-05T18:36:22.000Z" },
-        ],
-        latestTurn: {
-          turnId: TurnId.makeUnsafe("turn-1"),
-          state: "completed",
-          startedAt: "2026-08-05T18:36:01.000Z",
-          completedAt: "2026-08-05T18:36:22.000Z",
-        },
-        session: {
-          status: "ready",
-          orchestrationStatus: "ready",
-          activeTurnId: undefined,
-        },
-      }),
-    ).toBe(false);
   });
 });
 
