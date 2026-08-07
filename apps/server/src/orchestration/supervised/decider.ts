@@ -706,6 +706,50 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
           rlmEpisode: command.episode,
         });
       }
+      case "supervised.model-session.upsert": {
+          const trace = command.modelSession;
+          const run = state.runs.find((candidate) => candidate.id === trace.runId);
+          if (command.actor.kind !== "daemon") {
+            yield* requireHumanOrMatchingSeat(
+              command,
+              [run?.ownerSeatId],
+              "Only the Human, daemon, or Run owner may record a model session.",
+            );
+          }
+          if (!run) return yield* reject(command, "Model session Run does not exist.");
+          if (run.roomId !== trace.roomId || run.taskId !== trace.taskId) {
+            return yield* reject(command, "Model session scope does not match its Run.");
+          }
+          if (trace.taskNodeId !== run.taskNodeId) {
+            return yield* reject(command, "Model session TaskNode does not match its Run.");
+          }
+          if (
+            trace.rlmEpisodeId &&
+            !state.rlmEpisodes.some(
+              (episode) => episode.id === trace.rlmEpisodeId && episode.runId === trace.runId,
+            )
+          ) {
+            return yield* reject(command, "Model session RLM episode does not belong to its Run.");
+          }
+          if (
+            trace.parentSessionId &&
+            !state.modelSessions.some(
+              (session) => session.id === trace.parentSessionId && session.roomId === trace.roomId,
+            )
+          ) {
+            return yield* reject(command, "Model session parent does not belong to this Room.");
+          }
+          const current = state.modelSessions.find((session) => session.id === trace.id);
+          yield* requireRevision(command, current?.revision ?? null);
+          const revision = current ? current.revision + 1 : trace.revision;
+          return event(
+            command,
+            "supervised.model-session-upserted",
+            "model_session",
+            revision,
+            { modelSession: { ...trace, revision, updatedAt: command.createdAt } },
+          );
+      }
       case "supervised.patch.upsert": {
         yield* requireHuman(command, "Only the Human may activate or replace Harness Patches.");
         const current = state.harnessPatches.find((patch) => patch.id === command.patch.id);

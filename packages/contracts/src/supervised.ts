@@ -61,6 +61,8 @@ export const KernelExecutionId = id("KernelExecutionId");
 export type KernelExecutionId = typeof KernelExecutionId.Type;
 export const RlmEpisodeId = id("RlmEpisodeId");
 export type RlmEpisodeId = typeof RlmEpisodeId.Type;
+export const ModelSessionId = id("ModelSessionId");
+export type ModelSessionId = typeof ModelSessionId.Type;
 export const InterventionId = id("InterventionId");
 export type InterventionId = typeof InterventionId.Type;
 export const LeadNotificationId = id("LeadNotificationId");
@@ -390,6 +392,114 @@ export const RlmEpisode = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 export type RlmEpisode = typeof RlmEpisode.Type;
+
+export const ModelSessionRole = Schema.Literals([
+  "lead",
+  "specialist",
+  "rlm_root",
+  "rlm_branch",
+]);
+export const ModelSessionStatus = Schema.Literals([
+  "queued",
+  "running",
+  "waiting",
+  "completed",
+  "failed",
+  "cancelled",
+]);
+const TranscriptItemBase = {
+  id: TrimmedNonEmptyString,
+  createdAt: IsoDateTime,
+} as const;
+export const ModelTranscriptItem = Schema.Union([
+  Schema.Struct({
+    ...TranscriptItemBase,
+    type: Schema.Literal("message"),
+    role: Schema.Literals(["user", "assistant"]),
+    content: BoundedText,
+    reasoningSummary: Schema.NullOr(BoundedText),
+  }),
+  Schema.Struct({
+    ...TranscriptItemBase,
+    type: Schema.Literal("tool_call"),
+    callId: TrimmedNonEmptyString,
+    toolName: TrimmedNonEmptyString,
+    inputSummary: BoundedText,
+    status: Schema.Literals(["pending", "running", "completed", "failed"]),
+    finishedAt: Schema.NullOr(IsoDateTime),
+  }),
+  Schema.Struct({
+    ...TranscriptItemBase,
+    type: Schema.Literal("tool_result"),
+    callId: TrimmedNonEmptyString,
+    outputSummary: Schema.NullOr(BoundedText),
+    errorSummary: Schema.NullOr(BoundedText),
+  }),
+  Schema.Struct({
+    ...TranscriptItemBase,
+    type: Schema.Literal("evidence"),
+    evidenceId: EvidenceId,
+    summary: BoundedText,
+  }),
+  Schema.Struct({
+    ...TranscriptItemBase,
+    type: Schema.Literal("kernel_cell"),
+    language: Schema.Literals(["javascript", "python"]),
+    code: BoundedText,
+    output: Schema.NullOr(BoundedText),
+    status: Schema.Literals(["running", "completed", "failed", "denied"]),
+  }),
+  Schema.Struct({
+    ...TranscriptItemBase,
+    type: Schema.Literal("context_receipt"),
+    label: ShortText,
+    contextRecordIds: Schema.Array(ContextRecordId).check(Schema.isMaxLength(256)),
+  }),
+  Schema.Struct({
+    ...TranscriptItemBase,
+    type: Schema.Literal("handoff"),
+    destination: ShortText,
+    summary: BoundedText,
+  }),
+]);
+export type ModelTranscriptItem = typeof ModelTranscriptItem.Type;
+
+export const ModelSessionTrace = Schema.Struct({
+  id: ModelSessionId,
+  roomId: RoomId,
+  runId: RunId,
+  taskId: TaskId,
+  taskNodeId: Schema.NullOr(TaskNodeId),
+  rlmEpisodeId: Schema.NullOr(RlmEpisodeId),
+  parentSessionId: Schema.NullOr(ModelSessionId),
+  specialistId: Schema.NullOr(SpecialistId),
+  role: ModelSessionRole,
+  title: ShortText,
+  provider: TrimmedNonEmptyString,
+  model: TrimmedNonEmptyString,
+  reasoningEffort: Schema.NullOr(TrimmedNonEmptyString),
+  providerSessionId: Schema.NullOr(TrimmedNonEmptyString),
+  providerCallId: Schema.NullOr(TrimmedNonEmptyString),
+  contextViewRefs: Schema.Array(ContextRecordId).check(Schema.isMaxLength(256)),
+  inputSummary: BoundedText,
+  items: Schema.Array(ModelTranscriptItem).check(Schema.isMaxLength(10_000)),
+  usage: Schema.Struct({
+    inputTokens: NonNegativeInt,
+    outputTokens: NonNegativeInt,
+    contextTokens: NonNegativeInt,
+    providerLimitTokens: Schema.NullOr(PositiveInt),
+    contextUsagePercent: Schema.NullOr(Percent),
+  }),
+  status: ModelSessionStatus,
+  retryCount: NonNegativeInt,
+  durationMs: Schema.NullOr(NonNegativeInt),
+  costUsd: Schema.NullOr(Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0))),
+  synthesisDestination: Schema.NullOr(ShortText),
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+  revision: NonNegativeInt,
+});
+export type ModelSessionTrace = typeof ModelSessionTrace.Type;
 
 export const HarnessPatchScope = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("profile"), profilePresetId: ProfilePresetId }),
@@ -963,6 +1073,11 @@ export const SupervisedCommand = Schema.Union([
     record: ContextRecord,
   }),
   Schema.Struct({ ...CommandBase, type: Schema.Literal("supervised.rlm.upsert"), episode: RlmEpisode }),
+  Schema.Struct({
+    ...CommandBase,
+    type: Schema.Literal("supervised.model-session.upsert"),
+    modelSession: ModelSessionTrace,
+  }),
   Schema.Struct({ ...CommandBase, type: Schema.Literal("supervised.patch.upsert"), patch: HarnessPatch }),
   Schema.Struct({
     ...CommandBase,
@@ -1073,6 +1188,7 @@ export const SupervisedEventType = Schema.Literals([
   "supervised.context-workspace-upserted",
   "supervised.context-appended",
   "supervised.rlm-upserted",
+  "supervised.model-session-upserted",
   "supervised.patch-upserted",
   "supervised.specialist-upserted",
   "supervised.kernel-session-upserted",
@@ -1105,6 +1221,7 @@ export const SupervisedAggregateKind = Schema.Literals([
   "run_policy",
   "context_workspace",
   "rlm_episode",
+  "model_session",
   "harness_patch",
   "specialist",
   "kernel_session",
@@ -1128,6 +1245,7 @@ export const SupervisedEventPayload = Schema.Struct({
   contextWorkspace: Schema.optional(ContextWorkspace),
   contextRecord: Schema.optional(ContextRecord),
   rlmEpisode: Schema.optional(RlmEpisode),
+  modelSession: Schema.optional(ModelSessionTrace),
   patch: Schema.optional(HarnessPatch),
   specialist: Schema.optional(Specialist),
   specialistSnapshot: Schema.optional(SpecialistSnapshot),
@@ -1197,6 +1315,9 @@ export const SupervisedRuntimeSnapshot = Schema.Struct({
   rlmEpisodes: Schema.optional(Schema.Array(RlmEpisode)).pipe(
     Schema.withDecodingDefault(() => []),
   ),
+  modelSessions: Schema.optional(Schema.Array(ModelSessionTrace)).pipe(
+    Schema.withDecodingDefault(() => []),
+  ),
   harnessPatches: Schema.optional(Schema.Array(HarnessPatch)).pipe(
     Schema.withDecodingDefault(() => []),
   ),
@@ -1251,6 +1372,7 @@ export const emptySupervisedRuntimeSnapshot = (at: string): SupervisedRuntimeSna
   contextWorkspaces: [],
   contextRecords: [],
   rlmEpisodes: [],
+  modelSessions: [],
   harnessPatches: [],
   specialists: [],
   specialistSnapshots: [],

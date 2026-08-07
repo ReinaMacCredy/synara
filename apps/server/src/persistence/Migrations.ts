@@ -113,6 +113,7 @@ import Migration0094 from "./Migrations/094_SupervisedRuntime.ts";
 import Migration0095 from "./Migrations/095_SupervisedPluginHealthCircuit.ts";
 import Migration0096 from "./Migrations/096_SupervisedExecutionGovernance.ts";
 import Migration0097 from "./Migrations/097_LeadSubscriptionOwnership.ts";
+import Migration0098 from "./Migrations/098_SupervisedModelSessions.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -225,6 +226,7 @@ export const migrationEntries = [
   [95, "SupervisedPluginHealthCircuit", Migration0095],
   [96, "SupervisedExecutionGovernance", Migration0096],
   [97, "LeadSubscriptionOwnership", Migration0097],
+  [98, "SupervisedModelSessions", Migration0098],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

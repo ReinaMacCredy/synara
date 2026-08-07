@@ -12,13 +12,17 @@ import { readNativeApi } from "~/nativeApi";
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
+import {
+  SupervisedConversationsPanel,
+  type ConversationGroup,
+} from "./SupervisedConversationsPanel";
 
 type OperationsTab = "activity" | "conversation" | "task-graph" | "history";
 type ActivityFilter = "facts" | "observations" | "signals" | "commands";
 
 const OPERATIONS_TABS: ReadonlyArray<{ id: OperationsTab; label: string }> = [
   { id: "activity", label: "Activity" },
-  { id: "conversation", label: "Conversation" },
+  { id: "conversation", label: "Conversations" },
   { id: "task-graph", label: "Task graph" },
   { id: "history", label: "History" },
 ];
@@ -379,6 +383,7 @@ function ActivityPanel(props: {
 function TaskGraphPanel(props: {
   readonly roomId: string;
   readonly snapshot: SupervisedRuntimeSnapshot;
+  readonly onOpenTranscript: (taskNodeId: string) => void;
 }) {
   const tasks = props.snapshot.tasks.filter((task) => task.roomId === props.roomId);
   const nodes = props.snapshot.taskNodes.filter((node) => node.roomId === props.roomId);
@@ -399,11 +404,22 @@ function TaskGraphPanel(props: {
           </div>
           <div className="mt-3 space-y-1.5">
             {nodes.filter((node) => node.taskId === task.id).map((node) => (
-              <div key={node.id} className="flex items-center gap-2 text-[11px] text-muted-foreground">
+              <button
+                key={node.id}
+                type="button"
+                className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+                disabled={!props.snapshot.modelSessions.some((session) => session.taskNodeId === node.id)}
+                title={
+                  props.snapshot.modelSessions.some((session) => session.taskNodeId === node.id)
+                    ? "Open the model transcript that executed this TaskNode"
+                    : "No model session receipt has been recorded for this TaskNode"
+                }
+                onClick={() => props.onOpenTranscript(node.id)}
+              >
                 <span className="size-1.5 rounded-full bg-muted-foreground/55" />
                 <span className="min-w-0 flex-1 truncate">{node.title}</span>
                 <span className="capitalize">{node.lifecycle}</span>
-              </div>
+              </button>
             ))}
           </div>
         </section>
@@ -417,7 +433,20 @@ export function SupervisedOperationsDock(props: {
   readonly conversation: ReactNode;
 }) {
   const [tab, setTab] = useState<OperationsTab>("activity");
+  const [conversationGroup, setConversationGroup] = useState<ConversationGroup>("lead");
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const query = useQuery(supervisedRuntimeQueryOptions());
+  const openTaskNodeTranscript = (taskNodeId: string) => {
+    const session = query.data?.modelSessions
+      .filter((candidate) => candidate.taskNodeId === taskNodeId)
+      .toSorted((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+    if (!session) return;
+    setConversationGroup(
+      session.role === "lead" ? "lead" : session.role === "specialist" ? "specialists" : "rlm",
+    );
+    setSelectedSessionId(session.id);
+    setTab("conversation");
+  };
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--color-background-surface)]">
       <nav className="flex h-11 shrink-0 items-end gap-4 border-b border-border/60 px-4" aria-label="Room operations">
@@ -439,16 +468,31 @@ export function SupervisedOperationsDock(props: {
           </button>
         ))}
       </nav>
-      {tab === "conversation" ? (
-        <div className="flex min-h-0 flex-1">{props.conversation}</div>
-      ) : !query.data ? (
+      {!query.data ? (
         <div className="flex min-h-64 flex-1 items-center justify-center px-6 text-center text-xs text-muted-foreground">
           {query.isLoading ? "Loading durable Room state…" : "Supervised runtime is unavailable."}
         </div>
+      ) : tab === "conversation" ? (
+        <SupervisedConversationsPanel
+          roomId={props.roomId}
+          snapshot={query.data}
+          leadConversation={props.conversation}
+          group={conversationGroup}
+          selectedSessionId={selectedSessionId}
+          onGroupChange={(group) => {
+            setConversationGroup(group);
+            setSelectedSessionId(null);
+          }}
+          onSelectSession={setSelectedSessionId}
+        />
       ) : tab === "activity" ? (
         <ActivityPanel roomId={props.roomId} snapshot={query.data} />
       ) : tab === "task-graph" ? (
-        <TaskGraphPanel roomId={props.roomId} snapshot={query.data} />
+        <TaskGraphPanel
+          roomId={props.roomId}
+          snapshot={query.data}
+          onOpenTranscript={openTaskNodeTranscript}
+        />
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
           <div className="rounded-lg border border-border/65 p-3">

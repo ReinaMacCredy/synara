@@ -72,6 +72,10 @@ export function projectSupervisedEvent(
         return payload.rlmEpisode
           ? { ...next, rlmEpisodes: upsert(next.rlmEpisodes, payload.rlmEpisode) }
           : next;
+      case "supervised.model-session-upserted":
+        return payload.modelSession
+          ? { ...next, modelSessions: upsert(next.modelSessions, payload.modelSession) }
+          : next;
       case "supervised.patch-upserted":
         return payload.patch
           ? { ...next, harnessPatches: upsert(next.harnessPatches, payload.patch) }

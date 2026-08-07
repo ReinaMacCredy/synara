@@ -13,6 +13,7 @@ import {
   KernelSession,
   LeadNotification,
   MetricSample,
+  ModelSessionTrace,
   PluginInstallation,
   PluginHealth,
   Reconciliation,
@@ -191,6 +192,12 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
           ORDER BY updated_at DESC, episode_id
           LIMIT ${limit}
         `;
+        const modelSessionRows = yield* sql<EntityRow>`
+          SELECT entity_json AS "entityJson"
+          FROM projection_supervised_model_sessions
+          ORDER BY updated_at DESC, model_session_id
+          LIMIT ${limit}
+        `;
         const harnessPatchRows = yield* sql<EntityRow>`
           SELECT entity_json AS "entityJson"
           FROM projection_harness_patches
@@ -351,6 +358,11 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
           RlmEpisode,
           "SupervisedRuntime.getSnapshot:rlmEpisodes",
           rlmEpisodeRows,
+        );
+        const modelSessions = yield* decodeRows(
+          ModelSessionTrace,
+          "SupervisedRuntime.getSnapshot:modelSessions",
+          modelSessionRows,
         );
         const harnessPatches = yield* decodeRows(
           HarnessPatch,
@@ -524,6 +536,7 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
           contextWorkspaces: visibleContextWorkspaces,
           contextRecords: contextRecords.filter((record) => workspaceIds.has(record.workspaceId)),
           rlmEpisodes: rlmEpisodes.filter((episode) => runIds.has(episode.runId)),
+          modelSessions: modelSessions.filter((session) => runIds.has(session.runId)),
           harnessPatches,
           specialists,
           specialistSnapshots,
@@ -1220,6 +1233,26 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
             `;
             break;
           }
+          case "supervised.model-session-upserted": {
+            if (!payload.modelSession) return;
+            const session = payload.modelSession;
+            yield* sql`
+              INSERT INTO projection_supervised_model_sessions (
+                model_session_id, room_id, run_id, task_node_id, rlm_episode_id,
+                parent_session_id, role, status, revision, updated_at, entity_json
+              ) VALUES (
+                ${session.id}, ${session.roomId}, ${session.runId}, ${session.taskNodeId},
+                ${session.rlmEpisodeId}, ${session.parentSessionId}, ${session.role},
+                ${session.status}, ${session.revision}, ${session.updatedAt}, ${JSON.stringify(session)}
+              )
+              ON CONFLICT (model_session_id) DO UPDATE SET
+                status = excluded.status,
+                revision = excluded.revision,
+                updated_at = excluded.updated_at,
+                entity_json = excluded.entity_json
+            `;
+            break;
+          }
         case "supervised.patch-upserted": {
           if (!payload.patch) return;
           const patch = payload.patch;
@@ -1423,6 +1456,7 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
           yield* sql`DELETE FROM projection_specialist_snapshots`;
           yield* sql`DELETE FROM projection_retained_specialists`;
           yield* sql`DELETE FROM projection_harness_patches`;
+          yield* sql`DELETE FROM projection_supervised_model_sessions`;
           yield* sql`DELETE FROM projection_supervised_rlm_episodes`;
           yield* sql`DELETE FROM projection_context_records`;
           yield* sql`DELETE FROM projection_context_workspaces`;
@@ -1565,6 +1599,20 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
               ) VALUES (
                 ${episode.id}, ${episode.runId}, ${episode.status}, ${episode.completedBranchCount},
                 ${episode.updatedAt}, ${JSON.stringify(episode)}
+              )
+            `,
+            { concurrency: 1, discard: true },
+          );
+          yield* Effect.forEach(
+            snapshot.modelSessions,
+            (session) => sql`
+              INSERT INTO projection_supervised_model_sessions (
+                model_session_id, room_id, run_id, task_node_id, rlm_episode_id,
+                parent_session_id, role, status, revision, updated_at, entity_json
+              ) VALUES (
+                ${session.id}, ${session.roomId}, ${session.runId}, ${session.taskNodeId},
+                ${session.rlmEpisodeId}, ${session.parentSessionId}, ${session.role},
+                ${session.status}, ${session.revision}, ${session.updatedAt}, ${JSON.stringify(session)}
               )
             `,
             { concurrency: 1, discard: true },
