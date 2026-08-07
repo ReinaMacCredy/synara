@@ -124,7 +124,7 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
             usedTokensEstimate: Math.round((value / 100) * 100_000),
             providerLimitTokens: 100_000,
             provider: "openai",
-            model: "gpt-5.6-sol",
+            model: "gpt-5.6-luna",
             trendPercentPerMinute: 2,
             activeObligations: ["Integrate node-4"],
             ownedTaskNodeIds: ["node-4"],

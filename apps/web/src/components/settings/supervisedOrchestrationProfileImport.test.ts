@@ -10,8 +10,8 @@ describe("supervised orchestration profile imports", () => {
         roleHints: ["specialist"],
         runtime: {
           provider: "codex",
-          model: "gpt-5.6-sol",
-          reasoningEffort: "medium",
+          model: "gpt-5.6-luna",
+          reasoningEffort: "low",
           sandboxMode: "workspace-write",
           approvalPolicy: "on-request",
           developerInstructions: "Review carefully.",
@@ -22,7 +22,7 @@ describe("supervised orchestration profile imports", () => {
     );
 
     expect(profile.name).toBe("JSON reviewer");
-    expect(profile.runtime.model).toBe("gpt-5.6-sol");
+    expect(profile.runtime.model).toBe("gpt-5.6-luna");
     expect(profile.roleHints).toEqual(["peer"]);
   });
 
@@ -34,7 +34,7 @@ roleHints = ["lead"]
 [runtime]
 provider = "codex"
 model = "gpt-5.6-luna"
-reasoningEffort = "high"
+reasoningEffort = "low"
 sandboxMode = "danger-full-access"
 approvalPolicy = "never"
 developerInstructions = "Lead the project."
@@ -46,15 +46,15 @@ multi_agent = false
     );
 
     expect(profile.name).toBe("TOML lead");
-    expect(profile.runtime.reasoningEffort).toBe("high");
+    expect(profile.runtime.reasoningEffort).toBe("low");
     expect(profile.runtime.providerOptions).toEqual({ features: { multi_agent: false } });
   });
 
   it("maps native Codex TOML profiles into a supervision draft", () => {
     const profile = parseProfileImport(
-      `model = "gpt-5.6-sol"
+      `model = "gpt-5.6-luna"
 model_instructions_file = "~/.codex/model-instructions.md"
-model_reasoning_effort = "medium"
+model_reasoning_effort = "low"
 personality = "pragmatic"
 sandbox_mode = "danger-full-access"
 approval_policy = "never"
@@ -73,8 +73,8 @@ Observe the workspace and advise its Root.
       roleHints: ["lead"],
       runtime: {
         provider: "codex",
-        model: "gpt-5.6-sol",
-        reasoningEffort: "medium",
+        model: "gpt-5.6-luna",
+        reasoningEffort: "low",
         sandboxMode: "danger-full-access",
         approvalPolicy: "never",
         developerInstructions: expect.stringContaining("Room role: Lead"),

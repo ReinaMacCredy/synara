@@ -170,7 +170,7 @@ describe("SubscriptionEvaluator", () => {
         leadSeatId: "lead-1",
         roomId: "room-1",
         provider: "codex",
-        model: "gpt-5.6-sol",
+        model: "gpt-5.6-luna",
         providerLimitTokens: 100_000,
         usedTokensEstimate: value * 1_000,
         quality: "estimated",

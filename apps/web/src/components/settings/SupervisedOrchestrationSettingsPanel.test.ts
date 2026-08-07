@@ -13,8 +13,8 @@ const existingProfile = {
   roleHints: ["lead"],
   runtime: {
     provider: "codex",
-    model: "gpt-5.6-sol",
-    reasoningEffort: "medium",
+    model: "gpt-5.6-luna",
+    reasoningEffort: "low",
     sandboxMode: "danger-full-access",
     approvalPolicy: "never",
     developerInstructions: "",
@@ -50,7 +50,7 @@ describe("supervised orchestration profile editor", () => {
     const baseline = { ...EMPTY_DRAFT, id: existingProfile.id, name: existingProfile.name };
 
     expect(profileDraftIsDirty(baseline, baseline)).toBe(false);
-    expect(profileDraftIsDirty({ ...baseline, model: "gpt-5.6-sol-new" }, baseline)).toBe(true);
+    expect(profileDraftIsDirty({ ...baseline, model: "gpt-5.6-luna-new" }, baseline)).toBe(true);
     expect(profileDraftIsDirty({ ...EMPTY_DRAFT }, null)).toBe(true);
     expect(profileDraftIsDirty(null, null)).toBe(false);
   });

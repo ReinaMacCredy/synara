@@ -406,8 +406,8 @@ function downloadDemo(format: "json" | "toml") {
     roleHints: ["specialist"],
     runtime: {
       provider: "codex",
-      model: "gpt-5.6-sol",
-      reasoningEffort: "medium",
+      model: "gpt-5.6-luna",
+      reasoningEffort: "low",
       sandboxMode: "workspace-write",
       approvalPolicy: "on-request",
       developerInstructions: "Review the assigned outcome and report material findings with evidence.",
@@ -419,8 +419,8 @@ roleHints = ["specialist"]
 
 [runtime]
 provider = "codex"
-model = "gpt-5.6-sol"
-reasoningEffort = "medium"
+model = "gpt-5.6-luna"
+reasoningEffort = "low"
 sandboxMode = "workspace-write"
 approvalPolicy = "on-request"
 developerInstructions = "Review the assigned outcome and report material findings with evidence."

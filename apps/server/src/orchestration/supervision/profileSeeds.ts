@@ -13,8 +13,8 @@ const makeSeed = (input: {
   roleHints: [input.role],
   runtime: {
     provider: "codex",
-    model: "gpt-5.6-sol",
-    reasoningEffort: "medium",
+    model: "gpt-5.6-luna",
+    reasoningEffort: "low",
     sandboxMode: "danger-full-access",
     approvalPolicy: "never",
     developerInstructions: input.instructions,

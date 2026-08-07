@@ -18,6 +18,7 @@ import { useTemporaryThreadLifecycle } from "../hooks/useTemporaryThreadLifecycl
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useRecentViewSwitcher } from "../hooks/useRecentViewSwitcher";
 import { useLatestProjectStore } from "../latestProjectStore";
+import { isEditorWorkspaceLocation } from "../lib/editorWorkspaceRoute";
 import {
   resolveCurrentProjectTargetId,
   resolveLatestProjectTargetId,
@@ -556,7 +557,11 @@ const SIDEBAR_INNER_CLASS = "app-sidebar-surface";
 
 function ChatRouteLayout() {
   const isEditorView = useLocation({
-    select: (location) => (location.search as { view?: unknown }).view === "editor",
+    select: (location) =>
+      isEditorWorkspaceLocation({
+        pathname: location.pathname,
+        view: (location.search as { view?: unknown }).view,
+      }),
   });
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const resolvedSidebarOpen = isEditorView ? false : sidebarOpen;

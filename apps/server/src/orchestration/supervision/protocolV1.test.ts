@@ -17,8 +17,8 @@ it.effect("requires a visible completion after Supervisor tool activity", () =>
         sourcePresetName: "Supervisor Default",
         runtime: {
           provider: "codex",
-          model: "gpt-5.6-sol",
-          reasoningEffort: "medium",
+          model: "gpt-5.6-luna",
+          reasoningEffort: "low",
           sandboxMode: "danger-full-access",
           approvalPolicy: "never",
           developerInstructions: "Observe the assigned Lead.",

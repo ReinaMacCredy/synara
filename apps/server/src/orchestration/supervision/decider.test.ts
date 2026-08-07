@@ -24,8 +24,8 @@ const snapshotProfile: ProfileSnapshot = {
   sourcePresetName: "Default",
   runtime: {
     provider: "codex",
-    model: "gpt-5.6-sol",
-    reasoningEffort: "medium",
+    model: "gpt-5.6-luna",
+    reasoningEffort: "low",
     sandboxMode: "danger-full-access",
     approvalPolicy: "never",
     developerInstructions: "Persistent role collaborator",
