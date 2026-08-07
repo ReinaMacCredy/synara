@@ -71,6 +71,22 @@ const review = (index: number, graphRevision = 1) =>
   });
 
 testLayer("SupervisedRuntimeDaemon", (it) => {
+  it.effect("restarts the background loop and advances the durable daemon epoch", () =>
+    Effect.gen(function* () {
+      const daemon = yield* SupervisedRuntimeDaemon;
+      const repository = yield* SupervisedRuntimeRepository;
+      yield* daemon.start;
+      const before = yield* repository.getSnapshot({ includeDisabled: true });
+      const restarted = yield* daemon.restart;
+      const after = yield* repository.getSnapshot({ includeDisabled: true });
+
+      assert.equal(restarted.daemonEpoch, before.health.daemonEpoch + 1);
+      assert.equal(after.health.daemonEpoch, restarted.daemonEpoch);
+      assert.equal(after.health.status, "healthy");
+      assert.ok(after.health.lastRecoveryAt);
+    }),
+  );
+
   it.effect("triggers review >3 exactly once and separates graph revisions", () =>
     Effect.gen(function* () {
       delivered.length = 0;

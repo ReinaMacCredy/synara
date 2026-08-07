@@ -1,4 +1,4 @@
-import type { ControlPlaneEvent } from "@synara/contracts";
+import type { ControlPlaneEvent, SupervisedRuntimeHealth } from "@synara/contracts";
 import { ServiceMap } from "effect";
 import type { Effect, Scope } from "effect";
 
@@ -9,6 +9,7 @@ export interface SupervisedRuntimeDaemonShape {
     event: ControlPlaneEvent,
   ) => Effect.Effect<number, ProjectionRepositoryError>;
   readonly reconcile: Effect.Effect<void, ProjectionRepositoryError>;
+  readonly restart: Effect.Effect<SupervisedRuntimeHealth, ProjectionRepositoryError>;
   readonly start: Effect.Effect<void, never, Scope.Scope>;
 }
 

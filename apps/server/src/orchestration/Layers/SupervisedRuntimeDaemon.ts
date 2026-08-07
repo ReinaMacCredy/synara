@@ -9,7 +9,7 @@ import type {
   SupervisedCommand,
 } from "@synara/contracts";
 import { CommandId } from "@synara/contracts";
-import { Effect, Layer, Schedule } from "effect";
+import { Effect, Exit, Fiber, Layer, Ref, Scope, Semaphore } from "effect";
 
 import { SupervisedRuntimeRepository } from "../../persistence/Services/SupervisedRuntimeRepository.ts";
 import {
@@ -57,6 +57,11 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
   const signalDelivery = yield* SupervisedSignalDelivery;
   const engine = yield* OrchestrationEngineService;
   const workerId = `supervised-daemon:${process.pid}`;
+  const lifecycleLock = yield* Semaphore.make(1);
+  const workerScope = yield* Effect.acquireRelease(Scope.make("sequential"), (scope) =>
+    Scope.close(scope, Exit.void),
+  );
+  const workerFiber = yield* Ref.make<Fiber.Fiber<void, never> | null>(null);
 
   const ensureBuiltIns = Effect.gen(function* () {
     const snapshot = yield* repository.getSnapshot({ includeDisabled: true });
@@ -92,7 +97,9 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
         state = result.state;
         lastSequence = Math.max(lastSequence, event.sequence);
         lastEventTime =
-          lastEventTime === null || event.eventTime > lastEventTime ? event.eventTime : lastEventTime;
+          lastEventTime === null || event.eventTime > lastEventTime
+            ? event.eventTime
+            : lastEventTime;
         yield* Effect.forEach(result.metricSamples, repository.recordMetricSample, {
           concurrency: 1,
           discard: true,
@@ -193,7 +200,8 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
             status: "failed",
             attemptCount,
             availableAt: new Date(
-              Date.parse(now) + input.subscription.failurePolicy.backoffMs * 2 ** (attemptCount - 1),
+              Date.parse(now) +
+                input.subscription.failurePolicy.backoffMs * 2 ** (attemptCount - 1),
             ).toISOString(),
             lastError: error.detail,
             updatedAt: now,
@@ -202,42 +210,42 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
       }),
     );
 
-    const reconcile: SupervisedRuntimeDaemonShape["reconcile"] = Effect.gen(function* () {
-      yield* ensureBuiltIns;
-      const before = yield* repository.getSnapshot({ includeDisabled: true });
-      const now = new Date().toISOString();
-      const expiredCommands: SupervisedCommand[] = [
-        ...before.workClaims
-          .filter((claim) => claim.status === "active" && claim.expiresAt <= now)
-          .map((claim) => ({
-            type: "supervised.claim.expire" as const,
-            commandId: CommandId.makeUnsafe(stableId("command:claim-expire", claim.id)),
-            actor: { kind: "daemon" as const, actorId: workerId },
-            aggregateId: claim.id,
-            expectedRevision: claim.revision,
-            idempotencyKey: `claim-expire:${claim.id}:${claim.expiresAt}`,
-            claimId: claim.id,
-            createdAt: now,
-          })),
-        ...before.capabilityLeases
-          .filter((lease) => lease.status === "active" && lease.expiresAt <= now)
-          .map((lease) => ({
-            type: "supervised.lease.expire" as const,
-            commandId: CommandId.makeUnsafe(stableId("command:lease-expire", lease.id)),
-            actor: { kind: "daemon" as const, actorId: workerId },
-            aggregateId: lease.id,
-            expectedRevision: lease.revision,
-            idempotencyKey: `lease-expire:${lease.id}:${lease.expiresAt}`,
-            leaseId: lease.id,
-            createdAt: now,
-          })),
-      ];
-      yield* Effect.forEach(expiredCommands, (command) => engine.dispatch(command), {
-        concurrency: 1,
-        discard: true,
-      });
-      yield* repository.setHealth(
-        { ...before.health, status: "recovering", updatedAt: now },
+  const reconcile: SupervisedRuntimeDaemonShape["reconcile"] = Effect.gen(function* () {
+    yield* ensureBuiltIns;
+    const before = yield* repository.getSnapshot({ includeDisabled: true });
+    const now = new Date().toISOString();
+    const expiredCommands: SupervisedCommand[] = [
+      ...before.workClaims
+        .filter((claim) => claim.status === "active" && claim.expiresAt <= now)
+        .map((claim) => ({
+          type: "supervised.claim.expire" as const,
+          commandId: CommandId.makeUnsafe(stableId("command:claim-expire", claim.id)),
+          actor: { kind: "daemon" as const, actorId: workerId },
+          aggregateId: claim.id,
+          expectedRevision: claim.revision,
+          idempotencyKey: `claim-expire:${claim.id}:${claim.expiresAt}`,
+          claimId: claim.id,
+          createdAt: now,
+        })),
+      ...before.capabilityLeases
+        .filter((lease) => lease.status === "active" && lease.expiresAt <= now)
+        .map((lease) => ({
+          type: "supervised.lease.expire" as const,
+          commandId: CommandId.makeUnsafe(stableId("command:lease-expire", lease.id)),
+          actor: { kind: "daemon" as const, actorId: workerId },
+          aggregateId: lease.id,
+          expectedRevision: lease.revision,
+          idempotencyKey: `lease-expire:${lease.id}:${lease.expiresAt}`,
+          leaseId: lease.id,
+          createdAt: now,
+        })),
+    ];
+    yield* Effect.forEach(expiredCommands, (command) => engine.dispatch(command), {
+      concurrency: 1,
+      discard: true,
+    });
+    yield* repository.setHealth(
+      { ...before.health, status: "recovering", updatedAt: now },
       before.snapshotSequence,
     );
     yield* Effect.forEach(
@@ -279,7 +287,8 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
         journalLag: 0,
         deliveryQueueDepth: queued,
         deadLetterCount: after.deadLetters.filter((letter) => letter.status === "open").length,
-        unhealthyPluginCount: after.plugins.filter((plugin) => plugin.status === "unhealthy").length,
+        unhealthyPluginCount: after.plugins.filter((plugin) => plugin.status === "unhealthy")
+          .length,
         lastRecoveryAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       },
@@ -290,18 +299,56 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
   const ingest: SupervisedRuntimeDaemonShape["ingest"] = (event) =>
     repository.appendControlPlaneEvent(event);
 
-  const start: SupervisedRuntimeDaemonShape["start"] = Effect.gen(function* () {
-    yield* Effect.forkScoped(
-      reconcile.pipe(
-        Effect.catch((error) =>
-          Effect.logError("Supervised runtime reconciliation failed", { error }),
-        ),
-        Effect.repeat(Schedule.spaced("1 second")),
+  const backgroundLoop = Effect.forever(
+    Effect.sleep("1 second").pipe(
+      Effect.andThen(reconcile),
+      Effect.catch((error) =>
+        Effect.logError("Supervised runtime reconciliation failed", { error }),
       ),
-    );
+    ),
+  );
+
+  const launchBackgroundLoop = Effect.gen(function* () {
+    const fiber = yield* Scope.provide(Effect.forkScoped(backgroundLoop), workerScope);
+    yield* Ref.set(workerFiber, fiber);
   });
 
-  return { ingest, reconcile, start } satisfies SupervisedRuntimeDaemonShape;
+  const stopBackgroundLoop = Effect.gen(function* () {
+    const current = yield* Ref.get(workerFiber);
+    if (current) yield* Fiber.interrupt(current);
+    yield* Ref.set(workerFiber, null);
+  });
+
+  const start: SupervisedRuntimeDaemonShape["start"] = Effect.gen(function* () {
+    yield* reconcile.pipe(
+      Effect.catch((error) =>
+        Effect.logError("Supervised runtime startup reconciliation failed", { error }),
+      ),
+    );
+    yield* launchBackgroundLoop;
+  });
+
+  const restart: SupervisedRuntimeDaemonShape["restart"] = lifecycleLock.withPermits(1)(
+    Effect.gen(function* () {
+      yield* stopBackgroundLoop;
+      const before = yield* repository.getSnapshot({ includeDisabled: true });
+      const now = new Date().toISOString();
+      yield* repository.setHealth(
+        {
+          ...before.health,
+          daemonEpoch: before.health.daemonEpoch + 1,
+          status: "starting",
+          updatedAt: now,
+        },
+        before.snapshotSequence,
+      );
+      yield* reconcile;
+      yield* launchBackgroundLoop;
+      return (yield* repository.getSnapshot({ includeDisabled: true })).health;
+    }),
+  );
+
+  return { ingest, reconcile, restart, start } satisfies SupervisedRuntimeDaemonShape;
 });
 
 export const SupervisedRuntimeDaemonLive = Layer.effect(

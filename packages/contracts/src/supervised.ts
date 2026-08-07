@@ -19,6 +19,10 @@ const BoundedUnknownRecord = Schema.Record(
   Schema.String.check(Schema.isMaxLength(256)),
   Schema.Unknown,
 ).check(Schema.isMaxProperties(256));
+const BoundedJsonRecord = Schema.Record(
+  Schema.String.check(Schema.isMaxLength(256)),
+  Schema.Json,
+).check(Schema.isMaxProperties(256));
 const Percent = Schema.Finite.check(Schema.isBetween({ minimum: 0, maximum: 100 }));
 const Confidence = Schema.Finite.check(Schema.isBetween({ minimum: 0, maximum: 1 }));
 const Sha256 = Schema.String.check(Schema.isPattern(/^sha256:[a-f0-9]{64}$/));
@@ -510,7 +514,7 @@ export const EventSchema = Schema.Struct({
   eventType: TrimmedNonEmptyString,
   version: TrimmedNonEmptyString,
   compatibility: EventSchemaCompatibility,
-  jsonSchema: BoundedUnknownRecord,
+  jsonSchema: BoundedJsonRecord,
   fieldClassifications: Schema.Record(
     Schema.String.check(Schema.isMaxLength(256)),
     Schema.Literals(["public", "internal", "protected", "secret"]),
@@ -851,7 +855,9 @@ export const InstallSupervisedPluginResult = Schema.Struct({
 });
 export type InstallSupervisedPluginResult = typeof InstallSupervisedPluginResult.Type;
 
-export const ReconcileSupervisedRuntimeInput = Schema.Struct({});
+export const ReconcileSupervisedRuntimeInput = Schema.Struct({
+  restart: Schema.optional(Schema.Boolean),
+});
 export type ReconcileSupervisedRuntimeInput = typeof ReconcileSupervisedRuntimeInput.Type;
 
 export const ReviewLoopSignalContext = Schema.Struct({

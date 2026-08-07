@@ -1218,15 +1218,35 @@ const makeWsRpcHandlersLayer = () =>
             }),
             "Failed to install Supervised plugin",
           ),
-        [ORCHESTRATION_WS_METHODS.reconcileSupervisedRuntime]: () =>
+        [ORCHESTRATION_WS_METHODS.reconcileSupervisedRuntime]: (input) =>
           rpcEffect(
             Effect.gen(function* () {
               yield* requireOwnerSession;
-              yield* supervisedRuntimeDaemon.reconcile;
-              const snapshot = yield* supervisedRuntimeRepository.getSnapshot({
-                includeDisabled: true,
+              const health =
+                input.restart === true
+                  ? yield* supervisedRuntimeDaemon.restart
+                  : yield* supervisedRuntimeDaemon.reconcile.pipe(
+                      Effect.andThen(
+                        supervisedRuntimeRepository.getSnapshot({ includeDisabled: true }),
+                      ),
+                      Effect.map((snapshot) => snapshot.health),
+                    );
+              yield* supervisedRuntimeRepository.appendAudit({
+                action: input.restart === true ? "daemon.restart" : "daemon.reconcile",
+                actor: { kind: "user", actorId: "owner" },
+                targetKind: "supervised-runtime",
+                targetId: "daemon",
+                outcome: "succeeded",
+                detail: {
+                  daemonEpoch: health.daemonEpoch,
+                  status: health.status,
+                  journalLag: health.journalLag,
+                  deliveryQueueDepth: health.deliveryQueueDepth,
+                  deadLetterCount: health.deadLetterCount,
+                },
+                occurredAt: new Date().toISOString(),
               });
-              return snapshot.health;
+              return health;
             }),
             "Failed to reconcile Supervised runtime",
           ),
@@ -2359,6 +2379,8 @@ const makeWsRpcHandlersLayer = () =>
               const memory = process.memoryUsage();
               const diagnostics: ServerDiagnosticsResult = {
                 generatedAt: new Date().toISOString(),
+                logsDirectory: config.logsDir,
+                serverLogPath: config.serverLogPath,
                 process: {
                   pid: process.pid,
                   uptimeSeconds: Math.max(0, Math.round(process.uptime())),

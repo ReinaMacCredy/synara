@@ -241,6 +241,8 @@ export type ServerDiagnosticsChildProcess = typeof ServerDiagnosticsChildProcess
 
 export const ServerDiagnosticsResult = Schema.Struct({
   generatedAt: IsoDateTime,
+  logsDirectory: TrimmedNonEmptyString,
+  serverLogPath: TrimmedNonEmptyString,
   process: Schema.Struct({
     pid: NonNegativeInt,
     uptimeSeconds: NonNegativeInt,

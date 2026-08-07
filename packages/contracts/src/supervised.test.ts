@@ -6,6 +6,7 @@ import {
   ControlPlaneEvent,
   DEFAULT_SUPERVISED_RUN_POLICY,
   DispatchSupervisedCommandInput,
+  EventSchema,
   PluginManifest,
   SubscriptionDefinition,
   TestSubscriptionResult,
@@ -90,6 +91,26 @@ describe("Supervised contracts", () => {
     });
     assert.equal(event.type, "agent.context.measured");
     assert.equal("commandId" in event, false);
+  });
+
+  it("preserves nested JSON schema values across the RPC codec boundary", () => {
+    const eventSchema = Schema.decodeUnknownSync(EventSchema)({
+      id: "schema-review-completed-v1",
+      eventType: "ReviewCompleted",
+      version: "1.0.0",
+      compatibility: "backward",
+      jsonSchema: { type: "object", fields: { taskId: "internal" } },
+      fieldClassifications: { taskId: "internal" },
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const encoded = Schema.encodeSync(EventSchema)(eventSchema);
+    assert.deepEqual(encoded.jsonSchema, {
+      type: "object",
+      fields: { taskId: "internal" },
+    });
   });
 
   it("requires expected revision and idempotency for every typed action", () => {
