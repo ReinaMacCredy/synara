@@ -41,18 +41,22 @@ export function ensureSupervisedDraft(input: EnsureSupervisedDraftInput): Thread
     : null;
   const existing = drafts.getDraftThreadByProjectId(input.project.id, "supervised");
   if (existing) {
-    if (stagedHandoff) {
-      drafts.setDraftThreadContext(existing.threadId, {
-        orchestratorSourceThreadId: stagedHandoff.sourceThreadId,
-        orchestratorHandoffMessages: stagedHandoff.messages,
-      });
-    }
+    drafts.setDraftThreadContext(existing.threadId, {
+      supervisionMode: "supervise",
+      ...(stagedHandoff
+        ? {
+            orchestratorSourceThreadId: stagedHandoff.sourceThreadId,
+            orchestratorHandoffMessages: stagedHandoff.messages,
+          }
+        : {}),
+    });
     return existing.threadId;
   }
 
   const threadId = newThreadId();
   drafts.setProjectDraftThreadId(input.project.id, threadId, {
     entryPoint: "supervised",
+    supervisionMode: "supervise",
     envMode: "local",
     branch: null,
     worktreePath: null,

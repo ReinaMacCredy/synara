@@ -1022,7 +1022,7 @@ function EventRouter() {
   const routeThreadId = useParams({
     strict: false,
     select: (params) => {
-      const value = params.threadId ?? params.rootThreadId;
+      const value = params.threadId ?? params.rootThreadId ?? params.roomId;
       return value ? ThreadId.makeUnsafe(value) : null;
     },
   });

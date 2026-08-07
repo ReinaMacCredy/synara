@@ -191,6 +191,7 @@ export function SingleChatSurface(props: {
   roomView?: {
     readonly roomId: string;
     readonly roomName: string;
+    readonly onEnter: () => void;
     readonly onExit: () => void;
     readonly onSelectFile: (filePath: string) => void;
     readonly onSelectProject: (projectId: ProjectId) => void;
@@ -357,6 +358,10 @@ export function SingleChatSurface(props: {
   };
 
   const handleOpenEditorView = () => {
+    if (props.roomView) {
+      props.roomView.onEnter();
+      return;
+    }
     void navigate({
       to: "/$threadId",
       params: { threadId: props.threadId },
@@ -1103,7 +1108,7 @@ export function SingleChatSurface(props: {
               onOpenTurnDiff={handleOpenTurnDiff}
               onSplitSurface={handleSplitSurface}
               viewModeAction={{
-                label: "Editor view",
+                label: props.roomView ? "Room view" : "Editor view",
                 active: false,
                 onClick: handleOpenEditorView,
               }}

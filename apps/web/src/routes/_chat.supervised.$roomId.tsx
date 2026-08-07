@@ -14,6 +14,7 @@ import { createThreadSelector } from "~/storeSelectors";
 interface SupervisedRoomSearch {
   readonly projectId?: ProjectId;
   readonly editorFilePath?: string;
+  readonly view?: "chat";
 }
 
 function SupervisedRoomRouteView() {
@@ -41,13 +42,24 @@ function SupervisedRoomRouteView() {
       threadId={threadId}
       projectId={projectId}
       search={{
-        view: "editor",
+        ...(search.view === "chat" ? {} : { view: "editor" as const }),
         ...(search.editorFilePath ? { editorFilePath: search.editorFilePath } : {}),
       }}
       roomView={{
         roomId,
         roomName,
-        onExit: () => void navigate({ to: "/supervised", search: { projectId } }),
+        onEnter: () =>
+          void navigate({
+            to: "/supervised/$roomId",
+            params: { roomId },
+            search: { projectId },
+          }),
+        onExit: () =>
+          void navigate({
+            to: "/supervised/$roomId",
+            params: { roomId },
+            search: { projectId, view: "chat" },
+          }),
         onSelectFile: (editorFilePath) =>
           void navigate({
             to: "/supervised/$roomId",
@@ -70,6 +82,7 @@ export const Route = createFileRoute("/_chat/supervised/$roomId")({
     ...(typeof raw.editorFilePath === "string" && raw.editorFilePath.length > 0
       ? { editorFilePath: raw.editorFilePath }
       : {}),
+    ...(raw.view === "chat" ? { view: "chat" as const } : {}),
   }),
   component: SupervisedRoomRouteView,
 });
