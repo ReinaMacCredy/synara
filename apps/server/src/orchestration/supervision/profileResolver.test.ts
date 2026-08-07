@@ -9,11 +9,11 @@ import {
   resolveProfilePreset,
 } from "./profileResolver.ts";
 
-it.effect("seeds four editable Codex presets with supplied Peer judgment law", () =>
+it.effect("seeds Lead and Specialist Codex presets with independent judgment law", () =>
   Effect.sync(() => {
     assert.deepEqual(
       DEFAULT_SUPERVISION_PROFILES.map((profile) => profile.name),
-      ["Supervisor Default", "Lead Default", "Peer Implementer", "Peer Reviewer"],
+      ["Lead Default", "Specialist Implementer", "Specialist Reviewer"],
     );
     assert.ok(
       DEFAULT_SUPERVISION_PROFILES.filter((profile) => profile.roleHints.includes("peer")).every(

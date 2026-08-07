@@ -26,12 +26,14 @@ export function EnvironmentEditorSection({
   availableEditors,
   openInTarget,
   onOpenEditorView,
+  editorViewLabel = "Editor view",
 }: {
   keybindings: ResolvedKeybindingsConfig;
   availableEditors: ReadonlyArray<EditorId>;
   openInTarget: string | null;
   /** Open the in-app editor workspace view; omitted on surfaces that can't host it. */
   onOpenEditorView?: () => void;
+  editorViewLabel?: string;
 }) {
   const {
     options,
@@ -60,7 +62,7 @@ export function EnvironmentEditorSection({
       {onOpenEditorView ? (
         <EnvironmentRow
           icon={<LayoutSidebarIcon aria-hidden className={ENVIRONMENT_ROW_ICON_CLASS_NAME} />}
-          label="Editor view"
+          label={editorViewLabel}
           onClick={onOpenEditorView}
         />
       ) : null}

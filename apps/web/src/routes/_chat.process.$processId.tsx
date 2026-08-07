@@ -21,8 +21,8 @@ function ProcessRouteView() {
     const target = resolveTaskProcessNavigationTarget(processId, owner);
     if (target.mode === "orchestrator") {
       void navigate({
-        to: "/orchestrator/$rootThreadId/tasks/$processId",
-        params: { rootThreadId: target.rootThreadId, processId: target.processId },
+        to: "/supervised/$roomId/tasks/$processId",
+        params: { roomId: target.rootThreadId, processId: target.processId },
         replace: true,
       });
       return;

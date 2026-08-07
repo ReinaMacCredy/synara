@@ -189,6 +189,18 @@ import type {
   OrchestrationUnsubscribeThreadInput,
 } from "./orchestration";
 import type {
+  GetSupervisedRuntimeInput,
+  InspectSupervisedPluginInput,
+  InstallSupervisedPluginInput,
+  InstallSupervisedPluginResult,
+  ReconcileSupervisedRuntimeInput,
+  SupervisedRuntimeHealth,
+  SupervisedPluginInspection,
+  SupervisedRuntimeSnapshot,
+  TestSubscriptionInput,
+  TestSubscriptionResult,
+} from "./supervised";
+import type {
   ArchiveOrchestratorRootInput,
   CreateOrchestratorRootInput,
   DetachOrchestratorChildInput,
@@ -781,6 +793,21 @@ export interface NativeApi {
   };
   orchestration: {
     getSnapshot: () => Promise<OrchestrationReadModel>;
+    getSupervisedRuntime: (
+      input?: GetSupervisedRuntimeInput,
+    ) => Promise<SupervisedRuntimeSnapshot>;
+    testSupervisedSubscription: (
+      input: TestSubscriptionInput,
+    ) => Promise<TestSubscriptionResult>;
+    inspectSupervisedPlugin: (
+      input: InspectSupervisedPluginInput,
+    ) => Promise<SupervisedPluginInspection>;
+    installSupervisedPlugin: (
+      input: InstallSupervisedPluginInput,
+    ) => Promise<InstallSupervisedPluginResult>;
+    reconcileSupervisedRuntime: (
+      input?: ReconcileSupervisedRuntimeInput,
+    ) => Promise<SupervisedRuntimeHealth>;
     getShellSnapshot: () => Promise<OrchestrationShellSnapshot>;
     getThreadDetailSnapshot: (
       input: OrchestrationGetThreadDetailSnapshotInput,

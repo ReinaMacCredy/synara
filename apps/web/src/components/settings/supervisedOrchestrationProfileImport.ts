@@ -26,7 +26,10 @@ const PROVIDERS = new Set<ProfileProviderKind>([
   "opencode",
   "pi",
 ]);
-const ROLES = new Set<RoomRole>(["supervisor", "lead", "peer"]);
+const ROLES = new Set(["lead", "specialist"]);
+// TODO(synara): Remove this storage translation on or after 2026-11-01 once
+// ProfilePreset persists canonical Specialist role hints.
+const SPECIALIST_STORAGE_ROLE: RoomRole = "peer";
 const SANDBOXES = new Set<ProfileSandboxMode>([
   "read-only",
   "workspace-write",
@@ -68,8 +71,13 @@ function profileNameFromFile(fileName: string): string {
 
 function inferNativeRoleHints(instructions: unknown): readonly RoomRole[] {
   if (typeof instructions !== "string") return [];
-  const match = instructions.match(/\broom\s+role\s*:\s*(supervisor|lead|peer)\b/i);
-  return match?.[1] ? [match[1].toLowerCase() as RoomRole] : [];
+  const match = instructions.match(/\broom\s+role\s*:\s*(lead|specialist)\b/i);
+  if (!match?.[1]) return [];
+  return [
+    match[1].toLowerCase() === "specialist"
+      ? SPECIALIST_STORAGE_ROLE
+      : (match[1].toLowerCase() as RoomRole),
+  ];
 }
 
 function normalizeNativeCodexProfile(
@@ -154,9 +162,12 @@ export function parseProfileImport(text: string, fileName: string): ImportedProf
   }
 
   const rawRoleHints = normalized.roleHints ?? [];
-  if (!Array.isArray(rawRoleHints) || rawRoleHints.some((role) => !ROLES.has(role as RoomRole))) {
-    throw new Error("Role hints must contain only supervisor, lead, or peer.");
+  if (!Array.isArray(rawRoleHints) || rawRoleHints.some((role) => !ROLES.has(String(role)))) {
+    throw new Error("Role hints must contain only lead or specialist.");
   }
+  const roleHints = rawRoleHints.map((role) =>
+    role === "specialist" ? SPECIALIST_STORAGE_ROLE : (role as RoomRole),
+  );
 
   const reasoningEffort = runtime.reasoningEffort;
   if (
@@ -176,7 +187,7 @@ export function parseProfileImport(text: string, fileName: string): ImportedProf
 
   return {
     name: requiredString(normalized.name, "Name"),
-    roleHints: rawRoleHints as RoomRole[],
+    roleHints,
     runtime: {
       provider,
       model: requiredString(runtime.model, "Model"),

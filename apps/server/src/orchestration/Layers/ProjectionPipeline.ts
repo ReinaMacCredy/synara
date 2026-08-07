@@ -4,6 +4,7 @@ import {
   OrchestratorDomainEvent,
   TaskProcessDomainEvent,
   SupervisionDomainEvent,
+  SupervisedDomainEvent,
   type OrchestrationEvent,
 } from "@synara/contracts";
 import {
@@ -39,6 +40,7 @@ import { ProjectionOrchestratorRepository } from "../../persistence/Services/Pro
 import { OrchestratorArtifactRepository } from "../../persistence/Services/OrchestratorArtifacts.ts";
 import { ProjectionTaskProcessRepository } from "../../persistence/Services/ProjectionTaskProcess.ts";
 import { ProjectionSupervisionRepository } from "../../persistence/Services/ProjectionSupervision.ts";
+import { SupervisedRuntimeRepository } from "../../persistence/Services/SupervisedRuntimeRepository.ts";
 import { ProjectionSpaceRepository } from "../../persistence/Services/ProjectionSpaces.ts";
 import { ProjectionStateRepository } from "../../persistence/Services/ProjectionState.ts";
 import { ProjectionThreadActivityRepository } from "../../persistence/Services/ProjectionThreadActivities.ts";
@@ -66,6 +68,7 @@ import { ProjectionOrchestratorRepositoryLive } from "../../persistence/Layers/P
 import { OrchestratorArtifactRepositoryLive } from "../../persistence/Layers/OrchestratorArtifacts.ts";
 import { ProjectionTaskProcessRepositoryLive } from "../../persistence/Layers/ProjectionTaskProcess.ts";
 import { ProjectionSupervisionRepositoryLive } from "../../persistence/Layers/ProjectionSupervision.ts";
+import { SupervisedRuntimeRepositoryLive } from "../../persistence/Layers/SupervisedRuntimeRepository.ts";
 import { ProjectionSpaceRepositoryLive } from "../../persistence/Layers/ProjectionSpaces.ts";
 import { ProjectionStateRepositoryLive } from "../../persistence/Layers/ProjectionState.ts";
 import { ProjectionThreadActivityRepositoryLive } from "../../persistence/Layers/ProjectionThreadActivities.ts";
@@ -124,6 +127,7 @@ export const ORCHESTRATION_PROJECTOR_NAMES = {
   orchestrator: "projection.orchestrator",
   taskProcess: "projection.task-process",
   supervision: "projection.supervision",
+  supervised: "projection.supervised",
 } as const;
 
 type ProjectorName =
@@ -494,6 +498,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
   const orchestratorArtifactRepository = yield* OrchestratorArtifactRepository;
   const projectionTaskProcessRepository = yield* ProjectionTaskProcessRepository;
   const projectionSupervisionRepository = yield* ProjectionSupervisionRepository;
+  const supervisedRuntimeRepository = yield* SupervisedRuntimeRepository;
   const projectionSpaceRepository = yield* ProjectionSpaceRepository;
   const projectionThreadRepository = yield* ProjectionThreadRepository;
   const projectionThreadMessageRepository = yield* ProjectionThreadMessageRepository;
@@ -587,6 +592,11 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
       const next = projectSupervisionEvent(current, event);
       yield* projectionSupervisionRepository.replaceSnapshot(next);
     });
+  };
+
+  const applySupervisedProjection: ProjectorDefinition["apply"] = (event) => {
+    if (!Schema.is(SupervisedDomainEvent)(event)) return Effect.void;
+    return supervisedRuntimeRepository.applyDomainEvent(event);
   };
 
   const applyOrchestratorProjection: ProjectorDefinition["apply"] = (event) => {
@@ -2016,6 +2026,12 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
       apply: applySupervisionProjection,
     },
     {
+      name: ORCHESTRATION_PROJECTOR_NAMES.supervised,
+      phase: "hot",
+      shouldApply: Schema.is(SupervisedDomainEvent),
+      apply: applySupervisedProjection,
+    },
+    {
       name: ORCHESTRATION_PROJECTOR_NAMES.threadMessages,
       phase: "hot",
       shouldApply: (event) => THREAD_MESSAGE_PROJECTION_EVENT_TYPES.has(event.type),
@@ -2466,6 +2482,7 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   Layer.provideMerge(OrchestratorArtifactRepositoryLive),
   Layer.provideMerge(ProjectionTaskProcessRepositoryLive),
   Layer.provideMerge(ProjectionSupervisionRepositoryLive),
+  Layer.provideMerge(SupervisedRuntimeRepositoryLive),
   Layer.provideMerge(ProjectionSpaceRepositoryLive),
   Layer.provideMerge(ProjectionThreadRepositoryLive),
   Layer.provideMerge(ProjectionThreadMessageRepositoryLive),

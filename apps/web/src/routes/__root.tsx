@@ -1026,17 +1026,6 @@ function EventRouter() {
       return value ? ThreadId.makeUnsafe(value) : null;
     },
   });
-  const routeSupervisorSeatId = useParams({
-    strict: false,
-    select: (params) => params.supervisorSeatId ?? null,
-  });
-  const supervisorRouteThreadId = useStore((state) => {
-    if (!routeSupervisorSeatId) return null;
-    return (
-      state.supervision.supervisors.find((seat) => seat.id === routeSupervisorSeatId)
-        ?.activeThreadId ?? null
-    );
-  });
   const untypedRouteSearch = useSearch({ strict: false }) as Record<string, unknown>;
   const orchestratorSelectedThreadId =
     typeof untypedRouteSearch.selectedThreadId === "string" &&
@@ -1051,13 +1040,12 @@ function EventRouter() {
     () =>
       resolveRouteVisibleThreadIds({
         routeThreadId,
-        supervisorRouteThreadId,
         orchestratorSelectedThreadId,
         ...(activeSplitView
           ? { splitViewThreadIds: resolveSplitViewThreadIds(activeSplitView) }
           : {}),
       }),
-    [activeSplitView, orchestratorSelectedThreadId, routeThreadId, supervisorRouteThreadId],
+    [activeSplitView, orchestratorSelectedThreadId, routeThreadId],
   );
   // Right-dock sidechat panes render a full ChatView for their embedded thread,
   // so they need a detail lease exactly like split-view panes: without one the

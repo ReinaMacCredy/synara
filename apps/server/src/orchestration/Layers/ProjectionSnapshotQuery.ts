@@ -60,7 +60,9 @@ import { ProjectionThreadProposedPlan } from "../../persistence/Services/Project
 import { ProjectionThreadSession } from "../../persistence/Services/ProjectionThreadSessions.ts";
 import { ProjectionThread } from "../../persistence/Services/ProjectionThreads.ts";
 import { ProjectionSupervisionRepository } from "../../persistence/Services/ProjectionSupervision.ts";
+import { SupervisedRuntimeRepository } from "../../persistence/Services/SupervisedRuntimeRepository.ts";
 import { ProjectionSupervisionRepositoryLive } from "../../persistence/Layers/ProjectionSupervision.ts";
+import { SupervisedRuntimeRepositoryLive } from "../../persistence/Layers/SupervisedRuntimeRepository.ts";
 import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
 import {
   ProjectionSnapshotQuery,
@@ -744,6 +746,7 @@ function computeSnapshotSequence(
 const makeProjectionSnapshotQuery = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const projectionSupervisionRepository = yield* ProjectionSupervisionRepository;
+  const supervisedRuntimeRepository = yield* SupervisedRuntimeRepository;
 
   // Soft-deleted rows can remain while their purge is fenced or deferred. `getSnapshot` is
   // the only reader that hydrates message/activity bodies for the whole database at once,
@@ -2009,6 +2012,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
 
           const projects: ReadonlyArray<OrchestrationProject> = projectRows.map(toProjectedProject);
           const supervision = yield* projectionSupervisionRepository.getSnapshot();
+          const supervised = yield* supervisedRuntimeRepository.getSnapshot({ includeDisabled: true });
 
           const threads: ReadonlyArray<OrchestrationThread> = threadRows.map((row) =>
             toProjectedThread({
@@ -2029,6 +2033,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             projects,
             threads,
             supervision,
+            supervised,
             updatedAt: updatedAt ?? new Date(0).toISOString(),
           };
 
@@ -2155,6 +2160,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
 
           const projects: ReadonlyArray<OrchestrationProject> = projectRows.map(toProjectedProject);
           const supervision = yield* projectionSupervisionRepository.getSnapshot();
+          const supervised = yield* supervisedRuntimeRepository.getSnapshot({ includeDisabled: true });
 
           const threads: ReadonlyArray<OrchestrationThread> = threadRows.map((row) =>
             toProjectedThread({
@@ -2175,6 +2181,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             projects,
             threads,
             supervision,
+            supervised,
             updatedAt: updatedAt ?? new Date(0).toISOString(),
           }).pipe(
             Effect.mapError(
@@ -2925,4 +2932,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
 export const OrchestrationProjectionSnapshotQueryLive = Layer.effect(
   ProjectionSnapshotQuery,
   makeProjectionSnapshotQuery,
-).pipe(Layer.provideMerge(ProjectionSupervisionRepositoryLive));
+).pipe(
+  Layer.provideMerge(ProjectionSupervisionRepositoryLive),
+  Layer.provideMerge(SupervisedRuntimeRepositoryLive),
+);

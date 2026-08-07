@@ -49,7 +49,7 @@ export interface OrchestrationEventStoreShape {
 
   readonly getAggregateHighWaterSequence: (input: {
     readonly aggregateKind: OrchestrationAggregateKind;
-    readonly aggregateId: SpaceId | ProjectId | ThreadId | TaskProcessId | SupervisionAggregateId;
+    readonly aggregateId: string;
   }) => Effect.Effect<number, OrchestrationEventStoreError>;
 
   /** Read one stable, newest-first page from a thread's durable event stream. */
@@ -64,12 +64,12 @@ export interface OrchestrationEventStoreShape {
   /** Read the complete ordered history for one event-sourced aggregate. */
   readonly readAggregateEvents: (input: {
     readonly aggregateKind: OrchestrationAggregateKind;
-    readonly aggregateId: SpaceId | ProjectId | ThreadId | TaskProcessId | SupervisionAggregateId;
+    readonly aggregateId: string;
   }) => Effect.Effect<ReadonlyArray<OrchestrationEvent>, OrchestrationEventStoreError>;
 
   readonly readAggregateEventPage: (input: {
     readonly aggregateKind: OrchestrationAggregateKind;
-    readonly aggregateId: SpaceId | ProjectId | ThreadId | TaskProcessId | SupervisionAggregateId;
+    readonly aggregateId: string;
     readonly beforeSequenceExclusive?: number;
     readonly limit: number;
   }) => Effect.Effect<ReadonlyArray<OrchestrationEvent>, OrchestrationEventStoreError>;

@@ -39,6 +39,10 @@ import {
 } from "../../lib/chatPaneScope";
 import type { DockPaneRuntimeMode } from "../../lib/dockPaneActivation";
 import type { FileCommentSelection } from "../../lib/fileComments";
+import {
+  EDITOR_WORKSPACE_EXIT_MS,
+  editorWorkspaceMotionClassName,
+} from "../../lib/editorWorkspaceMotion";
 import { gitBranchesQueryOptions } from "../../lib/gitReactQuery";
 import { canComposerHandlePanelWidth } from "../../lib/panelResize";
 import { projectListDirectoriesQueryOptions } from "../../lib/projectReactQuery";
@@ -115,6 +119,11 @@ const EditorWorkspaceView = lazy(() =>
     default: module.EditorWorkspaceView,
   })),
 );
+const SupervisedOperationsDock = lazy(() =>
+  import("../supervised/SupervisedOperationsDock").then((module) => ({
+    default: module.SupervisedOperationsDock,
+  })),
+);
 const DockTerminalPane = lazy(() => import("./DockTerminalPane"));
 const GitPanel = lazy(() => import("./GitPanel"));
 const DockExplorerPane = lazy(() =>
@@ -179,6 +188,13 @@ export function SingleChatSurface(props: {
   threadId: ThreadId;
   search: DiffRouteSearch;
   projectId: ProjectId | null;
+  roomView?: {
+    readonly roomId: string;
+    readonly roomName: string;
+    readonly onExit: () => void;
+    readonly onSelectFile: (filePath: string) => void;
+    readonly onSelectProject: (projectId: ProjectId) => void;
+  };
 }) {
   const navigate = useNavigate();
   const createSplitView = useSplitViewStore((store) => store.createFromThread);
@@ -241,6 +257,8 @@ export function SingleChatSurface(props: {
       ? "file"
       : (readEditorViewState(props.threadId)?.centerMode ?? "diff"),
   );
+  const [editorWorkspaceExiting, setEditorWorkspaceExiting] = useState(false);
+  const editorWorkspaceExitTimerRef = useRef<number | null>(null);
   // This route component is reused across thread navigations; reload the
   // persisted editor view state when the thread changes.
   const editorViewStateThreadIdRef = useRef(props.threadId);
@@ -260,6 +278,17 @@ export function SingleChatSurface(props: {
     return () => window.clearTimeout(timer);
   }, [props.search.editorFilePath, props.threadId]);
   const editorViewActive = props.search.view === "editor";
+  useEffect(() => {
+    if (editorViewActive) {
+      setEditorWorkspaceExiting(false);
+    }
+    return () => {
+      if (editorWorkspaceExitTimerRef.current !== null) {
+        window.clearTimeout(editorWorkspaceExitTimerRef.current);
+        editorWorkspaceExitTimerRef.current = null;
+      }
+    };
+  }, [editorViewActive, props.threadId]);
   useEffect(() => {
     if (!editorViewActive) {
       return;
@@ -340,15 +369,36 @@ export function SingleChatSurface(props: {
   };
 
   const handleCloseEditorView = () => {
-    void navigate({
-      to: "/$threadId",
-      params: { threadId: props.threadId },
-      search: (previous) => stripEditorViewSearchParams(stripDiffSearchParams(previous)),
-    });
+    if (editorWorkspaceExiting) return;
+
+    const finishExit = () => {
+      editorWorkspaceExitTimerRef.current = null;
+      if (props.roomView) {
+        props.roomView.onExit();
+        return;
+      }
+      void navigate({
+        to: "/$threadId",
+        params: { threadId: props.threadId },
+        search: (previous) => stripEditorViewSearchParams(stripDiffSearchParams(previous)),
+      });
+    };
+
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      finishExit();
+      return;
+    }
+
+    setEditorWorkspaceExiting(true);
+    editorWorkspaceExitTimerRef.current = window.setTimeout(finishExit, EDITOR_WORKSPACE_EXIT_MS);
   };
 
   const handleSelectEditorFile = (filePath: string) => {
     setEditorCenterMode("file");
+    if (props.roomView) {
+      props.roomView.onSelectFile(filePath);
+      return;
+    }
     void navigate({
       to: "/$threadId",
       params: { threadId: props.threadId },
@@ -665,6 +715,10 @@ export function SingleChatSurface(props: {
     );
   };
   const handleSelectEditorProject = (projectId: ProjectId) => {
+    if (props.roomView) {
+      props.roomView.onSelectProject(projectId);
+      return;
+    }
     void openEditorProject(projectId).catch((error: unknown) => {
       toastManager.add({
         type: "error",
@@ -928,12 +982,17 @@ export function SingleChatSurface(props: {
     return (
       <WorkspaceFileOpenerContext.Provider value={editorFileOpener}>
         <div
-          className={cn(CHAT_MAIN_VIEWPORT_SHELL_CLASS_NAME, CHAT_MAIN_CONTENT_SURFACE_CLASS_NAME)}
+          className={cn(
+            CHAT_MAIN_VIEWPORT_SHELL_CLASS_NAME,
+            CHAT_MAIN_CONTENT_SURFACE_CLASS_NAME,
+            editorWorkspaceMotionClassName(editorWorkspaceExiting),
+          )}
         >
           <Suspense fallback={<ChatMountLoader />}>
             <EditorWorkspaceView
               workspaceRoot={workspaceRoot}
               projectName={activeProject?.name ?? null}
+              contextLabel={props.roomView?.roomName ?? null}
               currentProjectId={activeProject?.id ?? null}
               projectOptions={editorProjectOptions}
               selectedFilePath={selectedEditorFilePath}
@@ -967,7 +1026,31 @@ export function SingleChatSurface(props: {
                   onEditorDiffOptionsChange={handleEditorDiffOptionsChange}
                 />
               }
-              chatPanel={
+              chatPanel={props.roomView ? (
+                <SupervisedOperationsDock
+                  roomId={props.roomView.roomId}
+                  conversation={
+                    <SidebarInset
+                      className="min-h-0 min-w-0 overflow-hidden overscroll-y-none text-foreground"
+                      surfaceClassName={CHAT_BACKGROUND_CLASS_NAME}
+                    >
+                      <DeferredChatView
+                        threadId={props.threadId}
+                        paneScopeId={`${EDITOR_CHAT_PANE_SCOPE_ID}:${props.roomView.roomId}`}
+                        deferMount={false}
+                        surfaceMode="split"
+                        presentationMode="editor"
+                        isFocusedPane
+                        panelState={editorChatPanelState}
+                        onToggleDiff={handleEditorToggleDiff}
+                        onToggleBrowser={noopChatSurfaceAction}
+                        onOpenBrowserUrl={noopChatSurfaceAction}
+                        onOpenTurnDiff={handleEditorOpenTurnDiff}
+                      />
+                    </SidebarInset>
+                  }
+                />
+              ) : (
                 <SidebarInset
                   className="min-h-0 min-w-0 overflow-hidden overscroll-y-none text-foreground"
                   surfaceClassName={CHAT_BACKGROUND_CLASS_NAME}
@@ -986,7 +1069,7 @@ export function SingleChatSurface(props: {
                     onOpenTurnDiff={handleEditorOpenTurnDiff}
                   />
                 </SidebarInset>
-              }
+              )}
             />
           </Suspense>
         </div>

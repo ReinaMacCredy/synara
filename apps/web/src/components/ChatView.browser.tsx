@@ -2329,62 +2329,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("keeps the Supervise switch visible in a new Supervisor draft and retains the draft on exit", async () => {
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-supervisor-draft-source" as MessageId,
-        targetText: "supervisor draft source",
-      }),
-      initialEntry: `/orchestrator?projectId=${PROJECT_ID}`,
-    });
-
-    try {
-      let supervisorDraftThreadId: ThreadId | null = null;
-      await vi.waitFor(() => {
-        supervisorDraftThreadId =
-          useComposerDraftStore.getState().getDraftThreadByProjectId(PROJECT_ID, "orchestrator")
-            ?.threadId ?? null;
-        expect(supervisorDraftThreadId).not.toBeNull();
-      });
-      useComposerDraftStore.getState().setProjectDraftThreadId(PROJECT_ID, supervisorDraftThreadId!, {
-        entryPoint: "supervisor",
-        supervisionMode: "supervise",
-      });
-      useComposerDraftStore.getState().setPrompt(
-        supervisorDraftThreadId!,
-        "retain this unsent Supervisor draft",
-      );
-
-      const modeSwitch = await waitForElement(
-        () =>
-          document.querySelector<HTMLButtonElement>(
-            '[data-testid="composer-orchestration-mode-switch"]',
-          ),
-        "New Supervisor draft did not expose the Supervise mode switch.",
-      );
-      expect(modeSwitch.textContent).toContain("Supervise");
-      expect(modeSwitch.getAttribute("aria-pressed")).toBe("true");
-      modeSwitch.click();
-
-      await vi.waitFor(() => {
-        expect(
-          useComposerDraftStore.getState().getDraftThreadByProjectId(PROJECT_ID, "orchestrator"),
-        ).toMatchObject({ entryPoint: "orchestrator", supervisionMode: "orchestrate" });
-      });
-      expect(
-        useComposerDraftStore.getState().getDraftThread(supervisorDraftThreadId!),
-      ).toMatchObject({
-        entryPoint: "supervisor",
-      });
-      expect(
-        useComposerDraftStore.getState().draftsByThreadId[supervisorDraftThreadId!]?.prompt,
-      ).toBe("retain this unsent Supervisor draft");
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-
   it("dispatches a rapid access-mode reversal while the server projection is stale", async () => {
     const baseSnapshot = createSnapshotForTargetUser({
       targetMessageId: "msg-user-runtime-reversal" as MessageId,

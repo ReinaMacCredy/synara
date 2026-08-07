@@ -5,7 +5,9 @@ import {
   OrchestrationSession,
   OrchestrationThread,
   emptySupervisionSnapshot,
+  emptySupervisedRuntimeSnapshot,
   SupervisionDomainEvent,
+  SupervisedDomainEvent,
 } from "@synara/contracts";
 import {
   addPinnedMessage,
@@ -58,6 +60,7 @@ import { resolveStableMessageTurnId } from "./messageTurnId.ts";
 import { settleTurnStateFromSession } from "./turnLifecycle.ts";
 import { deriveTurnStartModelSelection, deriveTurnStartSession } from "./turnStartSession.ts";
 import { projectSupervisionEvent } from "./supervision/projector.ts";
+import { projectSupervisedEvent } from "./supervised/projector.ts";
 
 type ThreadPatch = Partial<Omit<OrchestrationThread, "id" | "projectId">>;
 const MAX_THREAD_MESSAGES = 2_000;
@@ -302,6 +305,7 @@ export function createEmptyReadModel(nowIso: string): OrchestrationReadModel {
     projects: [],
     threads: [],
     supervision: emptySupervisionSnapshot(nowIso),
+    supervised: emptySupervisedRuntimeSnapshot(nowIso),
     updatedAt: nowIso,
   };
 }
@@ -317,6 +321,39 @@ export function projectEvent(
   };
 
   switch (event.type) {
+    case "supervised.room-created":
+    case "supervised.room-updated":
+    case "supervised.task-created":
+    case "supervised.task-node-committed":
+    case "supervised.run-requested":
+    case "supervised.run-transitioned":
+    case "supervised.run-policy-upserted":
+    case "supervised.context-appended":
+    case "supervised.patch-upserted":
+    case "supervised.specialist-upserted":
+    case "supervised.subscription-upserted":
+    case "supervised.subscription-state-changed":
+    case "supervised.plugin-installed":
+    case "supervised.plugin-upgraded":
+    case "supervised.plugin-state-changed":
+    case "supervised.plugin-circuit-reset":
+    case "supervised.metric-recorded":
+    case "supervised.signal-derived":
+    case "supervised.signal-acknowledged":
+    case "supervised.signal-reset":
+    case "supervised.delivery-enqueued":
+    case "supervised.delivery-updated":
+    case "supervised.dead-lettered":
+    case "supervised.intervention-proposed":
+    case "supervised.compaction-requested":
+    case "supervised.handoff-requested":
+      return Effect.succeed({
+        ...nextBase,
+        supervised: projectSupervisedEvent(
+          nextBase.supervised,
+          event as typeof SupervisedDomainEvent.Type,
+        ),
+      });
     case "supervision.profile-created":
     case "supervision.profile-updated":
     case "supervision.profile-archived":

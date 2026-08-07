@@ -280,6 +280,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
             description: null,
             acceptanceCriteria: [],
             priority: "normal",
+            risk: "medium",
             lifecycle: "planned",
             orderKey: "a",
             createdBy: { kind: "user", actorId: "owner" },

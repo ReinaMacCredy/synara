@@ -111,16 +111,17 @@ without requiring a Synara-hosted workspace (`README.md:3-23`, `README.md:39-43`
 
 **Supervised Mode** is the durable multi-agent operating capability within that
 workspace and harness. It replaces the conceptual Orchestrator Mode with a
-federated Supervisor, Lead, Peer authority graph; Task and TaskNode execution;
-Durable Context Workspace; RLM; reversible Harness Patches; retained specialists;
-bounded RunPolicy; a background daemon; and governed JavaScript/Python kernels.
+deterministic Supervised Runtime, Room-owning Leads, bounded Specialists, Task and
+TaskNode execution, Durable Context Workspace, RLM, reversible Harness Patches,
+retained Specialists, bounded RunPolicy, a background daemon, and governed
+JavaScript/Python kernels.
 It makes long-running work observable, bounded, recoverable, attributable, and
-human-interruptible without turning a central conversational agent or the desktop
-UI into the runtime owner.
+human-interruptible without adding a second root coordination role or turning the
+desktop UI into the runtime owner.
 
 Its control plane is event- and signal-driven: immutable domain/runtime facts feed
-rebuildable observations and policy signals; concern-specific Supervisors
-declaratively subscribe and wake only when relevant operational conditions occur.
+rebuildable observations and policy signals; concern-specific subscriptions wake
+the scoped Lead path only when relevant operational conditions occur.
 Versioned, capability-bounded plugins may extend schemas, metrics, signals, and
 delivery handlers without reading canonical storage, expanding authority, or
 bypassing the typed command bus and RunPolicy.
@@ -130,14 +131,14 @@ value proposition. Its clean Supervised shell, deep Room view, and separate
 runtime Settings surface progressively disclose operational depth while preserving
 the product's restrained interaction model. The canonical target is specified in
 `.spec-workflow/active/supervised-orchestration/SPEC.md`; implementation and ship
-proof remain pending.
+proof are represented by the active implementation candidate and VERIFY record.
 
 ## Gaps
 
 | ID | Current gap | Desired outcome | Evidence | Status |
 | --- | --- | --- | --- | --- |
 | GAP-EV-001 | Target vision was previously unresolved between workspace-first and orchestration-first framings. | One concise target vision names the primary value, its users, and the supporting role of the other surface. | Owner locked “Local-first workspace + MCP” on 2026-08-06; `README.md:1-23`; current contracts and release history. | CLOSED / owner decision recorded |
-| GAP-EV-002 | Supervised Mode now has a complete draft target and verification contract, but the owner has not yet approved it and no target behavior has been implemented or verified. | Owner approves the target; implementation follows staged proof gates; real product UI, recovery, migration, cleanup, and rollback evidence satisfy VERIFY. | `.spec-workflow/active/supervised-orchestration/SPEC.md`; `.spec-workflow/active/supervised-orchestration/VERIFY.md`; current task/supervision contracts and runtime history. | OPEN / draft ready for owner review |
+| GAP-EV-002 | Supervised Mode is implemented as a local candidate and its controllable UI/runtime paths are verified; the actual GPT-5.6 Luna response is externally blocked by the provider account usage limit, and dated migration adapters remain until the compatibility window closes. | Re-run the bounded Luna response after quota reset, obtain owner acceptance, and retire compatibility adapters when migration evidence permits. | `.spec-workflow/active/supervised-orchestration/SPEC.md`; `.spec-workflow/active/supervised-orchestration/NOTES.md`; `.spec-workflow/active/supervised-orchestration/VERIFY.md`; current contracts/runtime/UI. | OPEN / implementation candidate; external response proof pending |
 | GAP-EV-003 | “Missing features from the ChatGPT/Codex app” is an owner-selected Now direction and the baseline is now fixed to ChatGPT Codex app UX, but the feature inventory is not yet named. | A parity matrix names the ChatGPT Codex app UX baseline, missing capabilities, selected outcomes, dependencies, and per-feature acceptance evidence. | Owner selected “ChatGPT Codex app UX” on 2026-08-06; no checked-in parity matrix or owner-approved feature list found during this pass. | OPEN / feature inventory required |
 | GAP-EV-004 | Owner says all seven adopted legacy concepts are shipped, while each repository bundle remains paused with `VERIFY.md` pending and an unaligned Evolution reference. | Each claimed-shipped group has independent ship or handoff proof, a completed normal VERIFY, a reconciled Evolution reference, and only then normal archive eligibility. | `.spec-workflow/paused/*/manifest.json`; `.spec-workflow/paused/*/VERIFY.md`; `design-qa.md:1-156`; preserved root assets. | OPEN / proof reconciliation required |
 | GAP-EV-005 | Now is selected, but Next and Later product priorities cannot be assigned without expanding the parity feature inventory or orchestration scope. | Owner locks the parity feature set and orchestration scope, after which every active initiative maps to one gap and one outcome horizon. | `REPO_EVOLUTION.md` target and roadmap status; owner decisions on 2026-08-06. | OPEN / sequencing decision required |
@@ -151,7 +152,8 @@ fabricated.
 
 #### OUT-NOW-001: Productize orchestration
 
-- Desired outcome: deliver Supervised Mode as the durable SLP runtime defined by
+- Desired outcome: deliver Supervised Mode as the governed Runtime, Lead and
+  Specialist system defined by
   `.spec-workflow/active/supervised-orchestration/SPEC.md`, including the clean
   shell, Room view, runtime Settings, daemon-owned recovery, bounded autonomy,
   governed RLM/kernels, reversible learning, programmable Signal & Subscription
@@ -223,15 +225,15 @@ silently promoted or discarded.
 - Autonomous execution is bounded by immutable per-Run policy snapshots; learned
   Harness Patches cannot alter base policy or expand permissions.
 - Immutable facts, rebuildable metrics, durable policy signals, and typed commands
-  remain separate. Supervisor subscriptions wake with evidence but do not confer
-  authority; plugins are capability-bounded and cannot block or bypass the durable
-  control plane.
+  remain separate. Subscriptions wake the scoped Lead path with evidence but do
+  not confer authority; plugins are capability-bounded and cannot block or bypass
+  the durable control plane.
 - Final Supervised UI acceptance includes real Computer Use against the visible
   running product, and target cutover removes obsolete code and tests rather than
   preserving parallel legacy behavior indefinitely.
-- This synthesis updates workflow design artifacts and the interactive prototype
-  only. It does not edit product code, finalize the bundle, or claim implementation
-  or shipment.
+- The current implementation candidate includes product code, migrations, focused
+  tests, production builds and Computer Use evidence. It is not owner-accepted or
+  archived while the external Luna response assertion remains blocked.
 
 ### Non-goals
 
@@ -244,20 +246,31 @@ silently promoted or discarded.
 
 ## Evolution Log
 
+- **2026-08-07 — one Supervised product implemented and exercised:** Owner retired
+  the duplicate root coordination abstraction. The canonical product now has a
+  deterministic Supervised Runtime, Lead and Specialist actors, optional bounded
+  recursive Leads, shared Editor Workspace motion, Signal Plane, governed plugins
+  and two Settings surfaces. Computer Use verified the controllable product flow,
+  GPT-5.6 Luna + Low propagation, Room Workspace, synthetic subscription preview
+  and runtime diagnostics. The provider usage limit blocks only the generated
+  response assertion; `GAP-EV-002` remains open for that external proof, owner
+  acceptance and later compatibility retirement.
+
 - **2026-08-07 — Signal & Subscription Plane made foundational:** Owner clarified
   that control-plane events must cover domain/runtime facts, derived metrics,
-  policy conditions, Supervisor wake subscriptions, and governed plugin handlers,
+  policy conditions, scoped Lead wake subscriptions, and governed plugin handlers,
   not only agent lifecycle. The canonical draft now includes review-loop and Lead
   context-pressure use cases, declarative subscription contracts, event schemas,
   at-least-once delivery, replay/DeadLetter semantics, plugin lifecycle/security,
   UI/Settings, cleanup, and verification. The existing prototype predates these
-  signal-specific surfaces and requires a fresh prototype and Computer Use pass.
+  signal-specific surfaces; those surfaces are now implemented and exercised in
+  the product candidate.
 
 - **2026-08-07 — Supervised Mode target synthesized:** Owner decisions, current
   Synara ownership/contracts, the approved interactive prototype, official Prime
   Agent/RLM sources, owner-provided analyses, and preserved legacy assets were
   consolidated into one draft canonical SPEC and verification contract. The
-  vision now names the durable SLP target, Room view, separate runtime Settings,
+  vision now names the governed Runtime/Lead/Specialist target, Room view, separate runtime Settings,
   legacy code/test cleanup, and required real Computer Use UI acceptance. This is
   design evidence only; `GAP-EV-002` remains open pending owner approval,
   implementation, and proof.
@@ -275,8 +288,8 @@ silently promoted or discarded.
 
 ## Next Reconciliation Trigger
 
-Reconcile this map when the owner approves or materially revises the Supervised
-Mode SPEC, when its implementation or verification evidence advances, when the
+Reconcile this map when the owner accepts or materially revises the Supervised
+Mode candidate, when the blocked Luna response evidence advances, when the
 owner names the ChatGPT Codex app parity features, or when independent ship/handoff
 evidence is attached for one or more of the seven paused bundles. Until then, keep
 `GAP-EV-002`, `GAP-EV-003`, `GAP-EV-004`, and `GAP-EV-005` visible and do not claim

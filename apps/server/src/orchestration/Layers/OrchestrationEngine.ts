@@ -1,9 +1,8 @@
 import type {
   ChatAttachment,
   OrchestrationEvent,
+  OrchestrationAggregateKind,
   OrchestrationReadModel,
-  ProjectId,
-  SpaceId,
   TaskProcessId,
   ThreadId,
 } from "@synara/contracts";
@@ -16,6 +15,7 @@ import {
   ORCHESTRATION_WS_METHODS,
   SupervisionAggregateId,
   SupervisionCommand,
+  SupervisedCommand,
 } from "@synara/contracts";
 import {
   Cause,
@@ -125,17 +125,70 @@ type CommittedCommandResult = {
 };
 
 function commandToAggregateRef(command: OrchestrationCommand): {
-  readonly aggregateKind:
-    | "space"
-    | "project"
-    | "thread"
-    | "orchestrator"
-    | "task_process"
-    | "supervision";
-  readonly aggregateId: SpaceId | ProjectId | ThreadId | TaskProcessId | SupervisionAggregateId;
+  readonly aggregateKind: OrchestrationAggregateKind;
+  readonly aggregateId: string;
 } {
   if (Schema.is(SupervisionCommand)(command)) {
     return { aggregateKind: "supervision", aggregateId: command.aggregateId };
+  }
+  if (Schema.is(SupervisedCommand)(command)) {
+    const aggregateKind = (() => {
+      switch (command.type) {
+        case "supervised.room.create":
+        case "supervised.room.update":
+        case "supervised.compaction.request":
+        case "supervised.handoff.request":
+          return "supervised_room" as const;
+        case "supervised.task.create":
+        case "supervised.task-node.commit":
+          return "supervised_task" as const;
+        case "supervised.run.request":
+        case "supervised.run.transition":
+          return "supervised_run" as const;
+        case "supervised.run-policy.upsert":
+          return "run_policy" as const;
+        case "supervised.claim.acquire":
+        case "supervised.claim.release":
+        case "supervised.claim.revoke":
+        case "supervised.claim.expire":
+          return "work_claim" as const;
+        case "supervised.lease.grant":
+        case "supervised.lease.revoke":
+        case "supervised.lease.expire":
+          return "capability_lease" as const;
+        case "supervised.context.workspace-upsert":
+        case "supervised.context.append":
+          return "context_workspace" as const;
+        case "supervised.rlm.upsert":
+          return "rlm_episode" as const;
+        case "supervised.patch.upsert":
+          return "harness_patch" as const;
+        case "supervised.specialist.upsert":
+          return "specialist" as const;
+        case "supervised.kernel.session-upsert":
+        case "supervised.kernel.execution-upsert":
+          return "kernel_session" as const;
+        case "supervised.subscription.upsert":
+        case "supervised.subscription.pause":
+        case "supervised.subscription.enable":
+        case "supervised.subscription.revoke":
+        case "supervised.delivery.redrive":
+          return "subscription" as const;
+        case "supervised.plugin.install":
+        case "supervised.plugin.upgrade":
+        case "supervised.plugin.enable":
+        case "supervised.plugin.disable":
+        case "supervised.plugin.revoke":
+        case "supervised.plugin.reset-circuit":
+          return "plugin" as const;
+        case "supervised.signal.acknowledge":
+          return "signal" as const;
+        case "supervised.intervention.propose":
+        case "supervised.intervention.reconcile":
+          return "intervention" as const;
+      }
+    })();
+    return { aggregateKind, aggregateId: command.aggregateId };
   }
   switch (command.type) {
     case "space.create":

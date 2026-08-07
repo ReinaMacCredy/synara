@@ -290,7 +290,11 @@ function ChatRouteGlobalShortcuts() {
     () => handleNewChat({ fresh: true }),
     [handleNewChat],
   );
-  const isOrchestratorMode = pathname === "/orchestrator" || pathname.startsWith("/orchestrator/");
+  const isOrchestratorMode =
+    pathname === "/supervised" ||
+    pathname.startsWith("/supervised/") ||
+    pathname === "/orchestrator" ||
+    pathname.startsWith("/orchestrator/");
 
   useEffect(() => {
     if (!currentProjectId) {
@@ -448,7 +452,7 @@ function ChatRouteGlobalShortcuts() {
         event.preventDefault();
         event.stopPropagation();
         void navigate({
-          to: "/orchestrator",
+          to: "/supervised",
           search: currentProjectId ? { projectId: currentProjectId } : {},
         });
         return;

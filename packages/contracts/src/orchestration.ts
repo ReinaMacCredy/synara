@@ -35,6 +35,14 @@ import {
   emptySupervisionSnapshot,
 } from "./supervision";
 import {
+  SupervisedAggregateKind,
+  SupervisedCommand,
+  SupervisedDomainEvent,
+  SupervisedEventType,
+  SupervisedRuntimeSnapshot,
+  emptySupervisedRuntimeSnapshot,
+} from "./supervised";
+import {
   ApprovalRequestId,
   CheckpointRef,
   CommandId,
@@ -90,6 +98,11 @@ export const ORCHESTRATION_WS_METHODS = {
   cancelHandoffPreparation: "orchestration.cancelHandoffPreparation",
   listHandoffGrants: "orchestration.listHandoffGrants",
   revokeHandoffGrant: "orchestration.revokeHandoffGrant",
+  getSupervisedRuntime: "orchestration.getSupervisedRuntime",
+  testSupervisedSubscription: "orchestration.testSupervisedSubscription",
+  inspectSupervisedPlugin: "orchestration.inspectSupervisedPlugin",
+  installSupervisedPlugin: "orchestration.installSupervisedPlugin",
+  reconcileSupervisedRuntime: "orchestration.reconcileSupervisedRuntime",
 } as const;
 
 export const ORCHESTRATION_WS_CHANNELS = {
@@ -949,6 +962,9 @@ export const OrchestrationReadModel = Schema.Struct({
   supervision: Schema.optional(SupervisionSnapshot).pipe(
     Schema.withDecodingDefault(() => emptySupervisionSnapshot(new Date(0).toISOString())),
   ),
+  supervised: Schema.optional(SupervisedRuntimeSnapshot).pipe(
+    Schema.withDecodingDefault(() => emptySupervisedRuntimeSnapshot(new Date(0).toISOString())),
+  ),
   updatedAt: IsoDateTime,
 });
 export type OrchestrationReadModel = typeof OrchestrationReadModel.Type;
@@ -1639,6 +1655,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   OrchestratorUserCommand,
   TaskProcessCommand,
   SupervisionCommand,
+  SupervisedCommand,
 ]);
 export type ClientOrchestrationCommand = typeof ClientOrchestrationCommand.Type;
 
@@ -1743,6 +1760,7 @@ export const OrchestrationCommand = Schema.Union([
   OrchestratorCommand,
   TaskProcessCommand,
   SupervisionCommand,
+  SupervisedCommand,
 ]);
 export type OrchestrationCommand = typeof OrchestrationCommand.Type;
 
@@ -1794,16 +1812,13 @@ export const OrchestrationEventType = Schema.Union([
   OrchestratorEventType,
   TaskProcessEventType,
   SupervisionEventType,
+  SupervisedEventType,
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 
-export const OrchestrationAggregateKind = Schema.Literals([
-  "space",
-  "project",
-  "thread",
-  "orchestrator",
-  "task_process",
-  "supervision",
+export const OrchestrationAggregateKind = Schema.Union([
+  Schema.Literals(["space", "project", "thread", "orchestrator", "task_process", "supervision"]),
+  SupervisedAggregateKind,
 ]);
 export type OrchestrationAggregateKind = typeof OrchestrationAggregateKind.Type;
 export const OrchestrationActorKind = Schema.Literals(["client", "server", "provider"]);
@@ -2205,6 +2220,7 @@ export const OrchestrationEvent = Schema.Union([
   OrchestratorDomainEvent,
   TaskProcessDomainEvent,
   SupervisionDomainEvent,
+  SupervisedDomainEvent,
   Schema.Struct({
     ...EventBaseFields,
     type: Schema.Literal("space.created"),

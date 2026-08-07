@@ -179,7 +179,7 @@ layer("migration 091", (it) => {
       const restored = yield* repository.getSnapshot();
       assert.equal(restored.snapshotSequence, 91);
       assert.equal(restored.wakeQueue[0]?.id, "wake-a");
-      assert.ok(restored.profiles.length >= 4);
+      assert.ok(restored.profiles.length >= 3);
     }),
   );
 });

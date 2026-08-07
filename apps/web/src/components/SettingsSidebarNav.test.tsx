@@ -48,6 +48,18 @@ describe("rankSettingsSearchEntries", () => {
     );
   });
 
+  it("finds Supervised trigger settings by operational signal", () => {
+    const contextResults = rankSettingsSearchEntries("context pressure", 12);
+    const reviewResults = rankSettingsSearchEntries("review loop", 12);
+
+    expect(contextResults.some((entry) => entry.id === "supervised-orchestration:subscriptions")).toBe(
+      true,
+    );
+    expect(reviewResults.some((entry) => entry.id === "supervised-orchestration:subscriptions")).toBe(
+      true,
+    );
+  });
+
   it("indexes environment instructions and the system UI font row", () => {
     expect(SETTINGS_SEARCH_ENTRIES.map((entry) => entry.id)).toEqual(
       expect.arrayContaining(["general:environment-instructions", "appearance:system-ui-font"]),

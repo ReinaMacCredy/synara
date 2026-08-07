@@ -9,8 +9,8 @@ import {
 
 const existingProfile = {
   id: ProfilePresetId.makeUnsafe("profile-existing"),
-  name: "Supervisor Default",
-  roleHints: ["supervisor"],
+  name: "Lead Default",
+  roleHints: ["lead"],
   runtime: {
     provider: "codex",
     model: "gpt-5.6-sol",
@@ -37,7 +37,7 @@ describe("supervised orchestration profile editor", () => {
     });
 
     expect(
-      validateProfileDraft({ ...EMPTY_DRAFT, name: " supervisor default " }, [existingProfile])
+      validateProfileDraft({ ...EMPTY_DRAFT, name: " lead default " }, [existingProfile])
         .name,
     ).toBe("A profile with this name already exists.");
 

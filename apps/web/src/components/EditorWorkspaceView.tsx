@@ -74,6 +74,7 @@ const EDITOR_CHAT_PANE_KEYBOARD_STEP = 24;
 interface EditorWorkspaceViewProps {
   workspaceRoot: string | null;
   projectName: string | null;
+  contextLabel?: string | null;
   currentProjectId?: ProjectId | null;
   projectOptions?: ReadonlyArray<ProjectMenuPickerOption>;
   selectedFilePath: string | null;
@@ -534,6 +535,14 @@ export function EditorWorkspaceView(props: EditorWorkspaceViewProps) {
             <span className="truncate text-[13px] font-medium text-foreground">
               {props.projectName ?? "Workspace"}
             </span>
+            {props.contextLabel ? (
+              <>
+                <span className="text-[11px] text-muted-foreground/45">/</span>
+                <span className="truncate text-[12px] text-muted-foreground">
+                  {props.contextLabel}
+                </span>
+              </>
+            ) : null}
             <span className="hidden truncate text-[11px] text-muted-foreground/70 sm:inline">
               {props.workspaceRoot ?? "No workspace"}
             </span>

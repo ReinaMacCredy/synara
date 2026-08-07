@@ -8,9 +8,11 @@ import {
   OrchestratorMessageId,
   OrchestratorDomainEvent,
   ORCHESTRATION_WS_METHODS,
+  PluginInstallation,
   TaskProcessDomainEvent,
   TaskProcessId,
   SupervisionCommand,
+  SupervisedCommand,
   ThreadId,
   WS_BOOTSTRAP_METHOD,
   WS_BOOTSTRAP_PATH,
@@ -26,7 +28,7 @@ import {
   type GitHubProjectProvisionProgressEvent,
   type OrchestrationCommand,
   type OrchestrationEvent,
-  type OrchestratorCommand,
+  OrchestratorCommand,
   type ProjectDevServerEvent,
   type OrchestrationShellStreamEvent,
   type OrchestrationShellStreamItem,
@@ -82,6 +84,7 @@ import { Open, resolveAvailableEditors } from "./open";
 import { makeDispatchCommandNormalizer } from "./orchestration/dispatchCommandNormalization";
 import { makeImportThreadHandler } from "./orchestration/importThreadRoute";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
+import { SupervisedRuntimeDaemon } from "./orchestration/Services/SupervisedRuntimeDaemon";
 import { ProviderCommandReactor } from "./orchestration/Services/ProviderCommandReactor";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { TaskProcessQuery } from "./orchestration/Services/TaskProcessQuery";
@@ -140,6 +143,9 @@ import { makeCursorSafeSnapshotLiveStream } from "./wsSnapshotLiveStream";
 import { PullRequestService } from "./pullRequests/Services/PullRequestService";
 import { resolveGitHubRepository } from "./pullRequests/repositoryResolution";
 import { OrchestrationEventStore } from "./persistence/Services/OrchestrationEventStore";
+import { SupervisedRuntimeRepository } from "./persistence/Services/SupervisedRuntimeRepository";
+import { evaluateSyntheticSubscriptionTest } from "./supervised/signal/SubscriptionEvaluator";
+import { inspectSupervisedPluginPackage } from "./supervised/runtime/PluginPackage";
 import { OrchestratorArtifactRepository } from "./persistence/Services/OrchestratorArtifacts";
 import { ProjectionOrchestratorRepository } from "./persistence/Services/ProjectionOrchestrator";
 import { ProjectionTaskProcessRepository } from "./persistence/Services/ProjectionTaskProcess";
@@ -379,6 +385,8 @@ const makeWsRpcHandlersLayer = () =>
       const open = yield* Open;
       const orchestrationEngine = yield* OrchestrationEngineService;
       const orchestrationEventStore = yield* OrchestrationEventStore;
+      const supervisedRuntimeRepository = yield* SupervisedRuntimeRepository;
+      const supervisedRuntimeDaemon = yield* SupervisedRuntimeDaemon;
       const orchestratorArtifacts = yield* OrchestratorArtifactRepository;
       const orchestratorProjections = yield* ProjectionOrchestratorRepository;
       const orchestratorToolRuntime = yield* OrchestratorToolRuntime;
@@ -883,31 +891,27 @@ const makeWsRpcHandlersLayer = () =>
             }),
           );
 
-      const dispatchOrchestratorUserCommand = (command: OrchestratorCommand) =>
-        Effect.gen(function* () {
-          const result = yield* dispatchOrchestrationCommand(command);
-          const event = yield* readAcceptedAggregateEvent({
-            aggregateKind: "orchestrator",
-            aggregateId: command.rootThreadId,
-            commandId: command.commandId,
-            sequence: result.sequence,
-          });
-          if (!Schema.is(OrchestratorDomainEvent)(event)) {
-            return yield* Effect.fail(new Error("Accepted event is not an Orchestrator event."));
-          }
-          return {
-            sequence: event.sequence,
-            revision: event.payload.acceptedRevision,
-          };
-        });
+      const dispatchOrchestratorUserCommand = (_command: OrchestratorCommand) =>
+        Effect.fail(
+          new Error(
+            "Legacy Orchestrator commands are read-only after the Supervised Mode cutover.",
+          ),
+        );
 
       return AdmittedWsFeatureRpcGroup.of({
         [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
           rpcEffect(
             Effect.gen(function* () {
-              const { command: normalizedCommand, prepareWorkspaceRoot } =
-                yield* normalizeDispatchCommand({ command });
-              let authorizedCommand = normalizedCommand;
+                const { command: normalizedCommand, prepareWorkspaceRoot } =
+                  yield* normalizeDispatchCommand({ command });
+                if (Schema.is(OrchestratorCommand)(normalizedCommand)) {
+                  return yield* Effect.fail(
+                    new Error(
+                      "Legacy Orchestrator commands are read-only after the Supervised Mode cutover.",
+                    ),
+                  );
+                }
+                let authorizedCommand = normalizedCommand;
               if (Schema.is(SupervisionCommand)(normalizedCommand)) {
                 yield* requireOwnerSession;
                 const actor = { kind: "user" as const, actorId: "owner" };
@@ -955,6 +959,12 @@ const makeWsRpcHandlersLayer = () =>
                 } else {
                   authorizedCommand = { ...normalizedCommand, actor };
                 }
+              } else if (Schema.is(SupervisedCommand)(normalizedCommand)) {
+                yield* requireOwnerSession;
+                authorizedCommand = {
+                  ...normalizedCommand,
+                  actor: { kind: "user" as const, actorId: "owner" },
+                };
               } else if (
                 normalizedCommand.type === "orchestrator.child.create" &&
                 normalizedCommand.supervisionPeerBootstrap !== undefined
@@ -1081,6 +1091,144 @@ const makeWsRpcHandlersLayer = () =>
           rpcEffect(
             projectionReadModelQuery.getSnapshot(),
             "Failed to load orchestration snapshot",
+          ),
+        [ORCHESTRATION_WS_METHODS.getSupervisedRuntime]: (input) =>
+          rpcEffect(
+            supervisedRuntimeRepository.getSnapshot(input),
+            "Failed to load Supervised runtime",
+          ),
+        [ORCHESTRATION_WS_METHODS.testSupervisedSubscription]: (input) =>
+          rpcEffect(
+            Effect.sync(() => {
+              const result = evaluateSyntheticSubscriptionTest(
+                input.subscription,
+                input.syntheticEvent,
+              );
+              return {
+                matched: result.matched,
+                wouldTrigger: result.triggeredSignals.length > 0,
+                reasons: [...result.reasons],
+                hypotheticalSignal: result.triggeredSignals[0] ?? null,
+                productionActionExecuted: false as const,
+              };
+            }),
+            "Failed to test Supervised subscription",
+          ),
+        [ORCHESTRATION_WS_METHODS.inspectSupervisedPlugin]: (input) =>
+          rpcEffect(
+            Effect.gen(function* () {
+              yield* requireOwnerSession;
+              return yield* Effect.tryPromise(() =>
+                inspectSupervisedPluginPackage(input.directory),
+              );
+            }),
+            "Failed to inspect Supervised plugin",
+          ),
+        [ORCHESTRATION_WS_METHODS.installSupervisedPlugin]: (input) =>
+          rpcEffect(
+            Effect.gen(function* () {
+              yield* requireOwnerSession;
+              const inspection = yield* Effect.tryPromise(() =>
+                inspectSupervisedPluginPackage(input.directory),
+              );
+              const requestedCapabilities = new Set(
+                inspection.manifest.requestedCapabilities,
+              );
+              if (input.capabilities.some((capability) => !requestedCapabilities.has(capability))) {
+                return yield* Effect.fail(
+                  new Error("Selected plugin capabilities exceed the inspected manifest."),
+                );
+              }
+              const requestedFields = new Set(inspection.manifest.requestedPayloadFields);
+              if (input.payloadFields.some((field) => !requestedFields.has(field))) {
+                return yield* Effect.fail(
+                  new Error("Selected plugin payload fields exceed the inspected manifest."),
+                );
+              }
+              const secretFields = new Set(
+                inspection.manifest.eventSchemas.flatMap((schema) =>
+                  Object.entries(schema.fieldClassifications)
+                    .filter(([, classification]) => classification === "secret")
+                    .map(([field]) => field),
+                ),
+              );
+              if (input.payloadFields.some((field) => secretFields.has(field))) {
+                return yield* Effect.fail(
+                  new Error("Secret EventSchema fields cannot be granted to a plugin."),
+                );
+              }
+              const requestedActions = new Set(inspection.requestedActionRequests);
+              if (input.allowedActionRequests.some((action) => !requestedActions.has(action))) {
+                return yield* Effect.fail(
+                  new Error("Selected plugin actions exceed its declared subscriptions."),
+                );
+              }
+              const snapshot = yield* supervisedRuntimeRepository.getSnapshot({
+                includeDisabled: true,
+              });
+              const current = snapshot.plugins.find(
+                (plugin) => plugin.pluginId === inspection.manifest.pluginId,
+              );
+              if (current?.status === "revoked") {
+                return yield* Effect.fail(
+                  new Error("This plugin identity was revoked and cannot be reactivated."),
+                );
+              }
+              const now = new Date().toISOString();
+              const installation = Schema.decodeUnknownSync(PluginInstallation)({
+                pluginId: inspection.manifest.pluginId,
+                manifest: inspection.manifest,
+                grant: {
+                  id: `plugin-grant:${randomUUID()}`,
+                  pluginId: inspection.manifest.pluginId,
+                  capabilities: input.capabilities,
+                  payloadFields: input.payloadFields,
+                  scopes: input.scopes,
+                  allowedActionRequests: input.allowedActionRequests,
+                  status: "active",
+                  grantedBy: { kind: "user", actorId: "owner" },
+                  grantedAt: now,
+                  revokedAt: null,
+                  revision: current ? current.grant.revision + 1 : 0,
+                },
+                status: input.enableAfterInstall
+                  ? "enabled"
+                  : current
+                    ? "disabled"
+                    : "installed",
+                installedAt: current?.installedAt ?? now,
+                updatedAt: now,
+                revision: current ? current.revision + 1 : 0,
+              });
+              const result = yield* orchestrationEngine.dispatch({
+                type: current ? "supervised.plugin.upgrade" : "supervised.plugin.install",
+                commandId: CommandId.makeUnsafe(`plugin-install:${randomUUID()}`),
+                actor: { kind: "user", actorId: "owner" },
+                aggregateId: installation.pluginId,
+                expectedRevision: current?.revision ?? 0,
+                idempotencyKey: `plugin-install:${installation.pluginId}:${installation.manifest.provenance.contentHash}`,
+                createdAt: now,
+                installation,
+              });
+              return {
+                installation,
+                sequence: result.sequence,
+                operation: current ? "upgraded" as const : "installed" as const,
+              };
+            }),
+            "Failed to install Supervised plugin",
+          ),
+        [ORCHESTRATION_WS_METHODS.reconcileSupervisedRuntime]: () =>
+          rpcEffect(
+            Effect.gen(function* () {
+              yield* requireOwnerSession;
+              yield* supervisedRuntimeDaemon.reconcile;
+              const snapshot = yield* supervisedRuntimeRepository.getSnapshot({
+                includeDisabled: true,
+              });
+              return snapshot.health;
+            }),
+            "Failed to reconcile Supervised runtime",
           ),
         [ORCHESTRATION_WS_METHODS.getShellSnapshot]: () =>
           rpcEffect(

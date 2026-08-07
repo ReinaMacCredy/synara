@@ -16,7 +16,6 @@ import {
   RuntimeMode,
   DEFAULT_SUPERVISION_DRAFT_MODE,
   ProfilePresetId,
-  SupervisorSeatId,
   LeadSeatId,
   SupervisionDraftMode,
   ThreadHandoffImportedMessage,
@@ -72,9 +71,10 @@ const DraftThreadEnvModeSchema = Schema.Literals(["local", "worktree"]);
 const DraftThreadEntryPointSchema = Schema.Literals([
   "chat",
   "terminal",
-  "orchestrator",
-  "supervisor",
-]);
+    "orchestrator",
+    "supervisor",
+    "supervised",
+  ]);
 
 function cloneBrowserAnnotation(annotation: BrowserAnnotationDraft): BrowserAnnotationDraft {
   return {
@@ -316,7 +316,6 @@ const PersistedDraftThreadState = Schema.Struct({
     Schema.withDecodingDefault(() => DEFAULT_SUPERVISION_DRAFT_MODE),
   ),
   profilePresetId: Schema.optionalKey(Schema.NullOr(ProfilePresetId)),
-  supervisorSeatId: Schema.optionalKey(Schema.NullOr(SupervisorSeatId)),
   leadSeatId: Schema.optionalKey(Schema.NullOr(LeadSeatId)),
   orchestratorSourceThreadId: Schema.optionalKey(Schema.NullOr(ThreadId)),
   orchestratorHandoffMessages: Schema.optionalKey(Schema.Array(ThreadHandoffImportedMessage)),
@@ -765,11 +764,6 @@ function normalizePersistedDraftThreads(
         candidateDraftThread.profilePresetId.trim().length > 0
           ? ProfilePresetId.makeUnsafe(candidateDraftThread.profilePresetId)
           : null;
-      const supervisorSeatId =
-        typeof candidateDraftThread.supervisorSeatId === "string" &&
-        candidateDraftThread.supervisorSeatId.trim().length > 0
-          ? SupervisorSeatId.makeUnsafe(candidateDraftThread.supervisorSeatId)
-          : null;
       const leadSeatId =
         typeof candidateDraftThread.leadSeatId === "string" &&
         candidateDraftThread.leadSeatId.trim().length > 0
@@ -812,7 +806,6 @@ function normalizePersistedDraftThreads(
         entryPoint: normalizeDraftThreadEntryPoint(candidateDraftThread.entryPoint),
         supervisionMode,
         profilePresetId,
-        supervisorSeatId,
         leadSeatId,
         ...(orchestratorSourceThreadId !== undefined ? { orchestratorSourceThreadId } : {}),
         ...(orchestratorHandoffMessages !== undefined ? { orchestratorHandoffMessages } : {}),
@@ -842,8 +835,8 @@ function normalizePersistedDraftThreads(
         : undefined;
       const decodedEntryPoint = projectDraftThreadEntryPointFromKey(mappingKey);
       const entryPoint =
-        decodedEntryPoint === "chat" && persistedDraftThread?.entryPoint === "supervisor"
-          ? "supervisor"
+        decodedEntryPoint === "chat" && persistedDraftThread?.entryPoint === "supervised"
+          ? "supervised"
           : decodedEntryPoint;
       if (
         typeof projectId === "string" &&
@@ -862,7 +855,6 @@ function normalizePersistedDraftThreads(
             entryPoint,
             supervisionMode: DEFAULT_SUPERVISION_DRAFT_MODE,
             profilePresetId: null,
-            supervisorSeatId: null,
             leadSeatId: null,
             branch: null,
             worktreePath: null,

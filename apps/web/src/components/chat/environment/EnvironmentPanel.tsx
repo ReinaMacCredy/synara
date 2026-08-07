@@ -163,6 +163,7 @@ export interface EnvironmentPanelProps {
   onOpenProgressProcess: (processId: TaskProcessId) => void;
   /** Open the in-app editor workspace view (the Editor section's default first row). */
   onOpenEditorView?: (() => void) | null;
+  editorViewLabel?: string;
   /** Dismiss the panel overlay — invoked after actions that open the dock. */
   onClose: () => void;
   /** Registers the panel's "Commit and Push" row as the target for the global shortcut. */
@@ -244,6 +245,7 @@ export function EnvironmentPanel({
   onOpenProgressTask,
   onOpenProgressProcess,
   onOpenEditorView: onOpenEditorViewProp,
+  editorViewLabel = "Editor view",
   onClose,
   onRegisterCommitAndPushTrigger,
 }: EnvironmentPanelProps) {
@@ -370,6 +372,7 @@ export function EnvironmentPanel({
           keybindings={keybindings}
           availableEditors={availableEditors}
           openInTarget={openInTarget}
+          editorViewLabel={editorViewLabel}
           {...(onOpenEditorView
             ? {
                 onOpenEditorView: () => {

@@ -115,6 +115,18 @@ import {
   OrchestrationThreadStreamItem,
 } from "./orchestration";
 import {
+  GetSupervisedRuntimeInput,
+  InspectSupervisedPluginInput,
+  InstallSupervisedPluginInput,
+  InstallSupervisedPluginResult,
+  ReconcileSupervisedRuntimeInput,
+  SupervisedRuntimeSnapshot,
+  SupervisedPluginInspection,
+  SupervisedRuntimeHealth,
+  TestSubscriptionInput,
+  TestSubscriptionResult,
+} from "./supervised";
+import {
   ArchiveOrchestratorRootInput,
   CreateOrchestratorRootInput,
   DetachOrchestratorChildInput,
@@ -280,6 +292,51 @@ export const WsOrchestrationGetSnapshotRpc = Rpc.make(ORCHESTRATION_WS_METHODS.g
   success: OrchestrationRpcSchemas.getSnapshot.output,
   error: WsRpcError,
 });
+
+export const WsOrchestrationGetSupervisedRuntimeRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.getSupervisedRuntime,
+  {
+    payload: GetSupervisedRuntimeInput,
+    success: SupervisedRuntimeSnapshot,
+    error: WsRpcError,
+  },
+);
+
+export const WsOrchestrationTestSupervisedSubscriptionRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.testSupervisedSubscription,
+  {
+    payload: TestSubscriptionInput,
+    success: TestSubscriptionResult,
+    error: WsRpcError,
+  },
+);
+
+export const WsOrchestrationInspectSupervisedPluginRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.inspectSupervisedPlugin,
+  {
+    payload: InspectSupervisedPluginInput,
+    success: SupervisedPluginInspection,
+    error: WsRpcError,
+  },
+);
+
+export const WsOrchestrationInstallSupervisedPluginRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.installSupervisedPlugin,
+  {
+    payload: InstallSupervisedPluginInput,
+    success: InstallSupervisedPluginResult,
+    error: WsRpcError,
+  },
+);
+
+export const WsOrchestrationReconcileSupervisedRuntimeRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.reconcileSupervisedRuntime,
+  {
+    payload: ReconcileSupervisedRuntimeInput,
+    success: SupervisedRuntimeHealth,
+    error: WsRpcError,
+  },
+);
 
 export const WsOrchestrationGetShellSnapshotRpc = Rpc.make(
   ORCHESTRATION_WS_METHODS.getShellSnapshot,
@@ -1165,6 +1222,11 @@ export const WsBootstrapRpcGroup = RpcGroup.make(WsBootstrapNegotiateRpc);
 
 type WsOrchestrationFeatureRpc =
   | typeof WsOrchestrationDispatchCommandRpc
+  | typeof WsOrchestrationGetSupervisedRuntimeRpc
+  | typeof WsOrchestrationTestSupervisedSubscriptionRpc
+  | typeof WsOrchestrationInspectSupervisedPluginRpc
+  | typeof WsOrchestrationInstallSupervisedPluginRpc
+  | typeof WsOrchestrationReconcileSupervisedRuntimeRpc
   | typeof WsOrchestrationImportThreadRpc
   | typeof WsOrchestrationGetSnapshotRpc
   | typeof WsOrchestrationGetShellSnapshotRpc
@@ -1205,6 +1267,11 @@ type WsOrchestrationFeatureRpc =
 
 const WsOrchestrationFeatureRpcGroup: RpcGroup.RpcGroup<WsOrchestrationFeatureRpc> = RpcGroup.make(
   WsOrchestrationDispatchCommandRpc,
+  WsOrchestrationGetSupervisedRuntimeRpc,
+  WsOrchestrationTestSupervisedSubscriptionRpc,
+  WsOrchestrationInspectSupervisedPluginRpc,
+  WsOrchestrationInstallSupervisedPluginRpc,
+  WsOrchestrationReconcileSupervisedRuntimeRpc,
   WsOrchestrationImportThreadRpc,
   WsOrchestrationGetSnapshotRpc,
   WsOrchestrationGetShellSnapshotRpc,

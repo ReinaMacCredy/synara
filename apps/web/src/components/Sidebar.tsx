@@ -84,6 +84,7 @@ import {
   type DesktopUpdateState,
   type OrchestrationShellSnapshot,
   type OrchestratorRoot,
+  type Room,
   PROVIDER_DISPLAY_NAMES,
   ProjectId,
   SpaceId,
@@ -107,6 +108,7 @@ import {
 } from "../appSettings";
 import { isElectron } from "../env";
 import { formatRelativeTime } from "../lib/relativeTime";
+import { supervisedRuntimeQueryOptions } from "../lib/supervisedRuntime";
 import { isMacPlatform, newCommandId, newProjectId, newThreadId, randomUUID } from "../lib/utils";
 import { isOrdinarySpaceProject } from "../lib/spaces";
 import { expandProjectHomePath, joinProjectPath } from "../lib/projectPaths";
@@ -381,7 +383,6 @@ import {
   SIDEBAR_SECTION_LABEL_CLASS_NAME,
 } from "../sidebarRowStyles";
 import { SettingsSidebarNav } from "./SettingsSidebarNav";
-import { SupervisorSidebarSection } from "./SupervisorSidebarSection";
 import {
   ComposerPickerMenuPopup,
   ComposerPickerMenuSubPopup,
@@ -1265,7 +1266,7 @@ function SidebarActivityBellButton({
 
 const SIDEBAR_SURFACE_PICKER_COPY: Record<SidebarView, { title: string; description: string }> = {
   threads: { title: "Synara", description: "Build, debug, and ship" },
-  orchestrator: { title: "Orchestrator", description: "Coordinate agents and review work" },
+  orchestrator: { title: "Supervised", description: "Govern Lead Rooms and specialist work" },
 };
 
 /** Lucide LayoutGrid as IconNode data (stroke, 24×24) for morphicons. */
@@ -1291,7 +1292,7 @@ const SURFACE_MODE_SPARKLES_ICON = [
 ] as const satisfies IconNode;
 
 /**
- * Quick Projects ↔ Orchestrator toggle in the sidebar header (beside Search).
+ * Quick Projects ↔ Supervised toggle in the sidebar header (beside Search).
  * Morphs layout-grid ↔ sparkles via morphicons.
  */
 function SidebarSurfaceModeToggle({
@@ -1305,8 +1306,8 @@ function SidebarSurfaceModeToggle({
 }) {
   const isOrchestrator = activeView === "orchestrator";
   const nextView: SidebarView = isOrchestrator ? "threads" : "orchestrator";
-  const label = isOrchestrator ? "Switch to Projects" : "Switch to Orchestrator";
-  const tooltip = isOrchestrator ? "Projects (chat mode)" : "Orchestrator";
+  const label = isOrchestrator ? "Switch to Projects" : "Switch to Supervised";
+  const tooltip = isOrchestrator ? "Projects (chat mode)" : "Supervised";
 
   return (
     <Tooltip>
@@ -1487,7 +1488,8 @@ export default function Sidebar() {
     select: (loc) => loc.pathname === "/settings",
   });
   const isOnOrchestratorRoute =
-    pathname.startsWith("/orchestrator") || pathname.startsWith("/supervisors");
+    pathname.startsWith("/supervised") ||
+    pathname.startsWith("/orchestrator");
   const isOnAutomations = pathname.startsWith("/automations");
   const isOnPullRequests = pathname.startsWith("/pull-requests");
   const isOnTasks = pathname.startsWith("/tasks") || pathname.includes("/tasks/");
@@ -1777,6 +1779,11 @@ export default function Sidebar() {
 const sidebarThreads = useStore(selectSidebarThreads);
 const sidebarTreeThreads = useStore(selectSidebarTreeThreads);
 const orchestratorRootsQuery = useQuery(orchestratorRootsQueryOptions({ limit: 100 }));
+const supervisedRuntimeQuery = useQuery(supervisedRuntimeQueryOptions());
+const supervisedRooms = useMemo(
+  () => supervisedRuntimeQuery.data?.rooms ?? [],
+  [supervisedRuntimeQuery.data?.rooms],
+);
 const orchestratorRoots = useMemo(
   () => sortOrchestratorRoots(orchestratorRootsQuery.data?.items ?? []),
   [orchestratorRootsQuery.data?.items],
@@ -1828,8 +1835,8 @@ const orchestratorRootIdByThreadId = useMemo(() => {
         kind: "orchestratorTeam",
       });
       void navigate({
-        to: "/orchestrator/$rootThreadId",
-        params: { rootThreadId },
+        to: "/supervised/$roomId",
+        params: { roomId: rootThreadId },
         search: {},
       });
     },
@@ -1998,7 +2005,7 @@ const orchestratorRootIdByThreadId = useMemo(() => {
     async (root: OrchestratorRoot, options: { confirm: boolean }) => {
       const api = readNativeApi();
       if (!api) return;
-      const threadTitle = sidebarThreadSummaryById[root.rootThreadId]?.title ?? "Orchestrator Root";
+      const threadTitle = sidebarThreadSummaryById[root.rootThreadId]?.title ?? "Lead Room";
       if (options.confirm && appSettings.confirmThreadArchive) {
         const confirmed = await api.dialogs.confirm(
           [
@@ -2024,8 +2031,11 @@ const orchestratorRootIdByThreadId = useMemo(() => {
         });
         const shellSnapshot = await api.orchestration.getShellSnapshot();
         syncServerShellSnapshot(shellSnapshot);
-        if (routePathname === `/orchestrator/${root.rootThreadId}`) {
-          await navigate({ to: "/orchestrator", search: { projectId: root.projectId } });
+        if (
+          routePathname === `/supervised/${root.rootThreadId}` ||
+          routePathname === `/orchestrator/${root.rootThreadId}`
+        ) {
+          await navigate({ to: "/supervised", search: { projectId: root.projectId } });
         }
         queryClient.removeQueries({ queryKey: orchestratorQueryKeys.root(root.rootThreadId) });
         await queryClient.invalidateQueries({ queryKey: orchestratorQueryKeys.all });
@@ -2595,7 +2605,7 @@ const orchestratorRootIdByThreadId = useMemo(() => {
   const handleBackToAppFromSettings = useCallback(() => {
     const fromOrchestrator = lastActiveSidebarSegmentRef.current === "orchestrator";
     if (fromOrchestrator) {
-      void navigate({ to: "/orchestrator" });
+      void navigate({ to: "/supervised" });
       return;
     }
     const target = resolveBackToThreadsTarget();
@@ -2611,7 +2621,7 @@ const orchestratorRootIdByThreadId = useMemo(() => {
     (view: SidebarView) => {
       if (view === "orchestrator") {
         void navigate({
-          to: "/orchestrator",
+          to: "/supervised",
           search: focusedProjectId ? { projectId: focusedProjectId } : {},
         });
         return;
@@ -2646,23 +2656,10 @@ const orchestratorRootIdByThreadId = useMemo(() => {
       return;
     }
     void navigate({
-      to: "/orchestrator",
+      to: "/supervised",
       search: { projectId },
     });
   }, [focusedProjectId, navigate, orchestratorRoots]);
-
-  const handleCreateSupervisor = () => {
-    const projectId =
-      focusedProjectId ??
-      projects.find((project) => project.kind === "project" && project.cwd.trim().length > 0)?.id ??
-      null;
-    if (!projectId) {
-      setCreateProjectReturnToOrchestrator(true);
-      setCreateProjectDialogOpen(true);
-      return;
-    }
-    void navigate({ to: "/supervisors", search: { projectId } });
-  };
 
   const addProjectFromPath = useCallback(
     async (
@@ -2690,7 +2687,7 @@ const orchestratorRootIdByThreadId = useMemo(() => {
         syncServerShellSnapshot(snapshot);
         if (options.surface === "orchestrator") {
           setProjectExpanded(projectId, true);
-          await navigate({ to: "/orchestrator", search: { projectId } });
+          await navigate({ to: "/supervised", search: { projectId } });
           return true;
         }
         return created
@@ -2779,7 +2776,7 @@ const orchestratorRootIdByThreadId = useMemo(() => {
         setProjectExpanded(creationResult.projectId, true);
         if (options.surface === "orchestrator") {
           await navigate({
-            to: "/orchestrator",
+            to: "/supervised",
             search: { projectId: creationResult.projectId },
           });
           return;
@@ -2912,8 +2909,8 @@ const orchestratorRootIdByThreadId = useMemo(() => {
         return;
       }
       void navigate({
-        to: "/orchestrator/$rootThreadId/tasks/$processId",
-        params: { rootThreadId, processId },
+        to: "/supervised/$roomId/tasks/$processId",
+        params: { roomId: rootThreadId, processId },
       });
       return;
     }
@@ -3282,7 +3279,7 @@ const orchestratorRootIdByThreadId = useMemo(() => {
             ? [
                 {
                   id: "create-orchestrator",
-                  label: "Create Orchestrator from thread",
+                  label: "Create Lead Room from thread",
                   separatorBefore: true,
                 },
               ]
@@ -3340,7 +3337,7 @@ const orchestratorRootIdByThreadId = useMemo(() => {
       }
       if (clicked === "create-orchestrator") {
         await navigate({
-          to: "/orchestrator",
+          to: "/supervised",
           search: { projectId: thread.projectId, sourceThreadId: threadId },
         });
         return;
@@ -3647,8 +3644,8 @@ const orchestratorRootIdByThreadId = useMemo(() => {
         openChatThreadPage(threadId);
         setOptimisticActiveThreadId(threadId);
         void navigate({
-          to: "/orchestrator/$rootThreadId",
-          params: { rootThreadId },
+          to: "/supervised/$roomId",
+          params: { roomId: rootThreadId },
           search: threadId === rootThreadId ? {} : { selectedThreadId: threadId },
         });
         return;
@@ -3731,7 +3728,7 @@ const orchestratorRootIdByThreadId = useMemo(() => {
             handleSelectSpaceForIncomingProject(project.spaceId ?? null);
             if (createProjectReturnToOrchestrator) {
               setProjectExpanded(project.id, true);
-              await navigate({ to: "/orchestrator", search: { projectId: project.id } });
+              await navigate({ to: "/supervised", search: { projectId: project.id } });
               return true;
             }
             await openExistingProjectFromSnapshot(project.id, snapshot);
@@ -4172,12 +4169,29 @@ const orchestratorRootIdByThreadId = useMemo(() => {
     }
     return byProjectId;
   }, [orchestratorRootPresentations]);
+  const supervisedRoomsByProjectId = useMemo(() => {
+    const byProjectId = new Map<ProjectId, Room[]>();
+    for (const room of supervisedRooms) {
+      const bucket = byProjectId.get(room.projectId);
+      if (bucket) bucket.push(room);
+      else byProjectId.set(room.projectId, [room]);
+    }
+    for (const rooms of byProjectId.values()) {
+      rooms.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    }
+    return byProjectId;
+  }, [supervisedRooms]);
   const noProjectOrchestratorRootPresentations = useMemo(
     () =>
       orchestratorRootPresentations.filter(
         (entry) => projectById.get(entry.thread.projectId)?.kind !== "project",
       ),
     [orchestratorRootPresentations, projectById],
+  );
+  const noProjectSupervisedRooms = useMemo(
+    () =>
+      supervisedRooms.filter((room) => projectById.get(room.projectId)?.kind !== "project"),
+    [projectById, supervisedRooms],
   );
   const orchestratorSearchEntries = useMemo(
     () =>
@@ -4204,13 +4218,13 @@ const orchestratorRootIdByThreadId = useMemo(() => {
         return [
           {
             threadId: rootThread.id,
-            rootBreadcrumb: rootThread.title || "Orchestrator Root",
+            rootBreadcrumb: rootThread.title || "Lead Room",
             lifecycle: "Root",
             model: rootThread.modelSelection.model,
           },
           ...children.map((child) => ({
             threadId: child.thread.id,
-            rootBreadcrumb: `${rootThread.title || "Orchestrator Root"} › Child`,
+            rootBreadcrumb: `${rootThread.title || "Lead Room"} › Specialist`,
             lifecycle: childStateLabel(child),
             model: child.thread.modelSelection.model,
           })),
@@ -5519,6 +5533,64 @@ function renderThreadArchiveAction(
     );
   }
 
+  function renderSupervisedRoomHistoryRow(room: Room) {
+    const isActive = pathname === `/supervised/${room.id}`;
+    const thread = sidebarTreeThreads.find((candidate) => candidate.id === room.id);
+    const provider = thread?.session?.provider ?? thread?.modelSelection.provider ?? null;
+    const taskCount = supervisedRuntimeQuery.data?.tasks.filter(
+      (task) => task.roomId === room.id,
+    ).length ?? 0;
+    const activeRunCount = supervisedRuntimeQuery.data?.runs.filter(
+      (run) => run.roomId === room.id && ["admitted", "queued", "running", "waiting"].includes(run.status),
+    ).length ?? 0;
+    return (
+      <div key={room.id} className="group/thread-row relative flex items-center">
+        <button
+          type="button"
+          data-thread-item
+          className={cn(
+            "flex min-h-11 w-full items-center gap-2 rounded-lg py-1.5 pl-8 pr-9 text-left transition-colors",
+            isActive
+              ? SIDEBAR_ROW_ACTIVE_CLASS_NAME
+              : cn(SIDEBAR_ROW_IDLE_TEXT_CLASS_NAME, SIDEBAR_ROW_HOVER_CLASS_NAME),
+          )}
+          onClick={() =>
+            void navigate({
+              to: "/supervised/$roomId",
+              params: { roomId: room.id },
+              search: { projectId: room.projectId },
+            })
+          }
+        >
+          {provider ? (
+            <ProviderIcon provider={provider} className="size-3.5 shrink-0" />
+          ) : (
+            <EyeIcon className="size-3.5 shrink-0 text-muted-foreground/65" />
+          )}
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[length:var(--app-font-size-ui,12px)]">
+              {room.title}
+            </span>
+            <span className="block truncate text-[length:var(--app-font-size-ui-meta,10px)] text-muted-foreground/48">
+              {room.status} · {taskCount} task{taskCount === 1 ? "" : "s"} · {activeRunCount} active run{activeRunCount === 1 ? "" : "s"}
+            </span>
+          </span>
+        </button>
+        <span
+          className={cn(
+            "absolute right-3 top-1/2 size-1.5 -translate-y-1/2 rounded-full",
+            room.status === "recovering"
+              ? "bg-amber-500"
+              : room.status === "active"
+                ? "bg-emerald-500"
+                : "bg-muted-foreground/35",
+          )}
+          aria-label={`Room status: ${room.status}`}
+        />
+      </div>
+    );
+  }
+
   function renderProjectItem(
     project: (typeof sortedProjects)[number],
     dragHandleProps: SortableProjectHandleProps | null,
@@ -5526,6 +5598,7 @@ function renderThreadArchiveAction(
   ) {
     const isOrchestratorProject = surface === "orchestrator";
     const orchestratorRootEntries = orchestratorRootPresentationsByProjectId.get(project.id) ?? [];
+    const supervisedRoomEntries = supervisedRoomsByProjectId.get(project.id) ?? [];
     const isProjectPinned = pinnedProjectIdSet.has(project.id);
     const projectSidebarData = surfaceProjectSidebarDataById.get(project.id);
     if (!projectSidebarData) {
@@ -5546,7 +5619,7 @@ function renderThreadArchiveAction(
         )
       : ordinaryProjectStatus;
     const projectItemCount = isOrchestratorProject
-      ? orchestratorRootEntries.length
+      ? supervisedRoomEntries.length + orchestratorRootEntries.length
       : allProjectThreadCount;
     const projectFolderIconClassName = isProjectPinned
       ? "opacity-0"
@@ -5691,13 +5764,13 @@ function renderThreadArchiveAction(
               {isOrchestratorProject ? (
                 <SidebarIconButton
                   icon={NewThreadIcon}
-                  label={`New Orchestrator Root in ${project.name}`}
-                  tooltip="New Orchestrator Root"
+                  label={`New Lead Room in ${project.name}`}
+                  tooltip="New Lead Room"
                   tooltipSide="top"
                   onClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
-                    void navigate({ to: "/orchestrator", search: { projectId: project.id } });
+                    void navigate({ to: "/supervised", search: { projectId: project.id } });
                   }}
                 />
               ) : (
@@ -5791,11 +5864,14 @@ function renderThreadArchiveAction(
               )}
             >
               {isOrchestratorProject ? (
-                orchestratorRootEntries.length > 0 ? (
-                  orchestratorRootEntries.map(renderOrchestratorRootHistoryRow)
+                supervisedRoomEntries.length > 0 || orchestratorRootEntries.length > 0 ? (
+                  <>
+                    {supervisedRoomEntries.map(renderSupervisedRoomHistoryRow)}
+                    {orchestratorRootEntries.map(renderOrchestratorRootHistoryRow)}
+                  </>
                 ) : (
                   <SidebarMenuSubItem className="w-full px-8 py-1 text-[10px] text-muted-foreground/52">
-                    No Orchestrator Roots yet
+                    No Lead Rooms yet
                   </SidebarMenuSubItem>
                 )
               ) : (
@@ -6771,14 +6847,8 @@ function renderThreadArchiveAction(
                   <SidebarPrimaryAction
                     icon={NewThreadIcon}
                     iconClassName="size-3.5"
-                    label="New Orchestrator Root"
+                    label="New Lead Room"
                         onClick={handleCreateOrchestrator}
-                      />
-                      <SidebarPrimaryAction
-                        icon={EyeIcon}
-                        label="New Supervisor"
-                        active={pathname === "/supervisors"}
-                        onClick={handleCreateSupervisor}
                       />
                       <SidebarPrimaryAction
                         icon={ProcessIcon}
@@ -6846,10 +6916,10 @@ function renderThreadArchiveAction(
                     settlementEnabled={!isOnOrchestrator}
                     createActionLabel={
                       isOnOrchestrator
-                        ? "Start new Orchestrator Root"
+                        ? "Start new Lead Room"
                         : "Start new chat in last used project"
                     }
-                    createActionTooltip={isOnOrchestrator ? "New Orchestrator Root" : "New chat"}
+                    createActionTooltip={isOnOrchestrator ? "New Lead Room" : "New chat"}
                     threadsHydrated={
                       isOnOrchestrator ? !orchestratorRootsQuery.isPending : threadsHydrated
                     }
@@ -6895,20 +6965,6 @@ function renderThreadArchiveAction(
                 </SidebarGroup>
               ) : isOnOrchestrator ? (
                 <SidebarGroup className="px-1.5 py-1.5">
-                  <SupervisorSidebarSection
-                    activeSupervisorSeatId={
-                      pathname.startsWith("/supervisors/")
-                        ? pathname.slice("/supervisors/".length)
-                        : null
-                    }
-                    onCreateSupervisor={handleCreateSupervisor}
-                    onOpenSupervisor={(supervisorSeatId) =>
-                      void navigate({
-                        to: "/supervisors/$supervisorSeatId",
-                        params: { supervisorSeatId },
-                      })
-                    }
-                  />
                   {renderListSectionHeader(
                     "Projects",
                     <>
@@ -6947,12 +7003,14 @@ function renderThreadArchiveAction(
 
                   {renderProjectFolderList("orchestrator")}
 
-                  {noProjectOrchestratorRootPresentations.length > 0 ? (
+                  {noProjectSupervisedRooms.length > 0 ||
+                  noProjectOrchestratorRootPresentations.length > 0 ? (
                     <div className="mt-3">
                       <div className="px-2 pb-1 text-[length:var(--app-font-size-ui,12px)] font-normal text-muted-foreground/58">
                         No project
                       </div>
                       <div className="flex flex-col gap-0.5">
+                        {noProjectSupervisedRooms.map(renderSupervisedRoomHistoryRow)}
                         {noProjectOrchestratorRootPresentations.map(
                           renderOrchestratorRootHistoryRow,
                         )}
@@ -6961,6 +7019,7 @@ function renderThreadArchiveAction(
                   ) : null}
 
                   {standardProjects.length === 0 &&
+                  noProjectSupervisedRooms.length === 0 &&
                   noProjectOrchestratorRootPresentations.length === 0 ? (
                     <div className="px-2 pt-4 text-center text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/58">
                       {orchestratorRootsQuery.isPending ? "Loading projects..." : "No projects yet"}

@@ -16,7 +16,6 @@ import {
   type RuntimeMode,
   DEFAULT_SUPERVISION_DRAFT_MODE,
   type ProfilePresetId,
-  type SupervisorSeatId,
   type LeadSeatId,
   type SupervisionDraftMode,
   type ThreadHandoffImportedMessage,
@@ -51,12 +50,18 @@ import {
 } from "./types";
 
 export const COMPOSER_DRAFT_STORAGE_KEY = "synara:composer-drafts:v1";
-export const COMPOSER_DRAFT_STORAGE_VERSION = 9;
+export const COMPOSER_DRAFT_STORAGE_VERSION = 10;
 export type DraftThreadEnvMode = "local" | "worktree";
-export type DraftThreadEntryPoint = ThreadPrimarySurface | "orchestrator" | "supervisor";
+export type DraftThreadEntryPoint =
+  | ThreadPrimarySurface
+  | "orchestrator"
+  /** @deprecated Decoded only to migrate pre-Supervised drafts. */
+  | "supervisor"
+  | "supervised";
 const TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX = "::terminal";
 const ORCHESTRATOR_DRAFT_THREAD_MAPPING_SUFFIX = "::orchestrator";
 const SUPERVISOR_DRAFT_THREAD_MAPPING_SUFFIX = "::supervisor";
+const SUPERVISED_DRAFT_THREAD_MAPPING_SUFFIX = "::supervised";
 
 const PersistedComposerAppSnapSource = Schema.Struct({
   kind: Schema.Literal("appsnap"),
@@ -205,7 +210,6 @@ export interface DraftThreadState {
   entryPoint: DraftThreadEntryPoint;
   supervisionMode?: SupervisionDraftMode;
   profilePresetId?: ProfilePresetId | null;
-  supervisorSeatId?: SupervisorSeatId | null;
   leadSeatId?: LeadSeatId | null;
   orchestratorSourceThreadId?: ThreadId | null;
   orchestratorHandoffMessages?: ReadonlyArray<ThreadHandoffImportedMessage>;
@@ -233,7 +237,6 @@ interface DraftThreadMutationOptions {
   entryPoint?: DraftThreadEntryPoint;
   supervisionMode?: SupervisionDraftMode;
   profilePresetId?: ProfilePresetId | null;
-  supervisorSeatId?: SupervisorSeatId | null;
   leadSeatId?: LeadSeatId | null;
   orchestratorSourceThreadId?: ThreadId | null;
   orchestratorHandoffMessages?: ReadonlyArray<ThreadHandoffImportedMessage>;
@@ -283,7 +286,6 @@ export interface ComposerDraftStoreState {
       entryPoint?: DraftThreadEntryPoint;
       supervisionMode?: SupervisionDraftMode;
       profilePresetId?: ProfilePresetId | null;
-      supervisorSeatId?: SupervisorSeatId | null;
       leadSeatId?: LeadSeatId | null;
       orchestratorSourceThreadId?: ThreadId | null;
       orchestratorHandoffMessages?: ReadonlyArray<ThreadHandoffImportedMessage>;
@@ -416,8 +418,8 @@ export function projectDraftThreadMappingKey(
   if (entryPoint === "orchestrator") {
     return `${projectId}${ORCHESTRATOR_DRAFT_THREAD_MAPPING_SUFFIX}`;
   }
-  if (entryPoint === "supervisor") {
-    return `${projectId}${SUPERVISOR_DRAFT_THREAD_MAPPING_SUFFIX}`;
+  if (entryPoint === "supervisor" || entryPoint === "supervised") {
+    return `${projectId}${SUPERVISED_DRAFT_THREAD_MAPPING_SUFFIX}`;
   }
   return projectId;
 }
@@ -425,7 +427,8 @@ export function projectDraftThreadMappingKey(
 export function projectDraftThreadEntryPointFromKey(key: string): DraftThreadEntryPoint {
   if (key.endsWith(TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX)) return "terminal";
   if (key.endsWith(ORCHESTRATOR_DRAFT_THREAD_MAPPING_SUFFIX)) return "orchestrator";
-  if (key.endsWith(SUPERVISOR_DRAFT_THREAD_MAPPING_SUFFIX)) return "supervisor";
+  if (key.endsWith(SUPERVISOR_DRAFT_THREAD_MAPPING_SUFFIX)) return "supervised";
+  if (key.endsWith(SUPERVISED_DRAFT_THREAD_MAPPING_SUFFIX)) return "supervised";
   return "chat";
 }
 
@@ -436,9 +439,12 @@ export function projectIdFromDraftThreadMappingKey(key: string): ProjectId {
   if (key.endsWith(ORCHESTRATOR_DRAFT_THREAD_MAPPING_SUFFIX)) {
     return key.slice(0, -ORCHESTRATOR_DRAFT_THREAD_MAPPING_SUFFIX.length) as ProjectId;
   }
-  if (key.endsWith(SUPERVISOR_DRAFT_THREAD_MAPPING_SUFFIX)) {
-    return key.slice(0, -SUPERVISOR_DRAFT_THREAD_MAPPING_SUFFIX.length) as ProjectId;
-  }
+    if (key.endsWith(SUPERVISOR_DRAFT_THREAD_MAPPING_SUFFIX)) {
+      return key.slice(0, -SUPERVISOR_DRAFT_THREAD_MAPPING_SUFFIX.length) as ProjectId;
+    }
+    if (key.endsWith(SUPERVISED_DRAFT_THREAD_MAPPING_SUFFIX)) {
+      return key.slice(0, -SUPERVISED_DRAFT_THREAD_MAPPING_SUFFIX.length) as ProjectId;
+    }
   return key as ProjectId;
 }
 
@@ -496,10 +502,6 @@ export function buildDraftThreadState(input: {
       options?.profilePresetId === undefined
         ? (existingThread?.profilePresetId ?? null)
         : options.profilePresetId,
-    supervisorSeatId:
-      options?.supervisorSeatId === undefined
-        ? (existingThread?.supervisorSeatId ?? null)
-        : options.supervisorSeatId,
     leadSeatId:
       options?.leadSeatId === undefined ? (existingThread?.leadSeatId ?? null) : options.leadSeatId,
     ...(options?.orchestratorSourceThreadId !== undefined
@@ -546,7 +548,6 @@ export function draftThreadStatesEqual(
     left.entryPoint === right.entryPoint &&
     left.supervisionMode === right.supervisionMode &&
     left.profilePresetId === right.profilePresetId &&
-    left.supervisorSeatId === right.supervisorSeatId &&
     left.leadSeatId === right.leadSeatId &&
     (left.orchestratorSourceThreadId ?? null) === (right.orchestratorSourceThreadId ?? null) &&
     Equal.equals(left.orchestratorHandoffMessages ?? [], right.orchestratorHandoffMessages ?? []) &&
@@ -905,10 +906,11 @@ export function normalizeDraftThreadEntryPoint(
   value: unknown,
   fallback: DraftThreadEntryPoint = "chat",
 ) {
+  if (value === "supervisor") return "supervised";
   return value === "terminal" ||
     value === "chat" ||
     value === "orchestrator" ||
-    value === "supervisor"
+    value === "supervised"
     ? value
     : fallback;
 }

@@ -9,7 +9,7 @@ import {
 import { useNavigate } from "@tanstack/react-router";
 
 import { useComposerDraftStore } from "../composerDraftStore";
-import { ensureOrchestratorDraft } from "./useHandleNewOrchestrator";
+import { ensureSupervisedDraft, ensureSupervisedRoom } from "./useHandleNewSupervised";
 import { newThreadId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
 import type { Project, Thread } from "../types";
@@ -102,9 +102,13 @@ export function useCrossModeHandoff(input: {
     const destinationMode: HandoffConversationMode =
       input.sourceMode === "project" ? "orchestrator_root" : "project";
     const store = useComposerDraftStore.getState();
-    let destinationThreadId: ThreadId;
-    if (destinationMode === "orchestrator_root") {
-      destinationThreadId = ensureOrchestratorDraft({ project: sourceProject });
+      let destinationThreadId: ThreadId;
+      if (destinationMode === "orchestrator_root") {
+        destinationThreadId = ensureSupervisedDraft({ project: sourceProject });
+        await ensureSupervisedRoom({
+          threadId: destinationThreadId,
+          projectId: sourceProject.id,
+        });
     } else {
       destinationThreadId = newThreadId();
       store.registerDraftThread(destinationThreadId, {
@@ -127,7 +131,7 @@ export function useCrossModeHandoff(input: {
       );
     }
     if (destinationMode === "orchestrator_root") {
-      await navigate({ to: "/orchestrator", search: { projectId: sourceProject.id } });
+      await navigate({ to: "/supervised", search: { projectId: sourceProject.id } });
     } else {
       await navigate({ to: "/$threadId", params: { threadId: destinationThreadId } });
     }

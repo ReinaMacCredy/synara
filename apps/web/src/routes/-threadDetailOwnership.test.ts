@@ -26,14 +26,6 @@ describe("resolveRouteVisibleThreadIds", () => {
     ).toEqual(["split-a", "split-b"]);
   });
 
-  it("leases the active thread behind a Supervisor seat route", () => {
-    expect(
-      resolveRouteVisibleThreadIds({
-        routeThreadId: null,
-        supervisorRouteThreadId: "supervisor-thread" as ThreadId,
-      }),
-    ).toEqual(["supervisor-thread"]);
-  });
 });
 
 const threadId = (value: string) => ThreadId.makeUnsafe(value);

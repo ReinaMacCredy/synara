@@ -22,11 +22,20 @@ const decodeSnapshot = (value: string) =>
   });
 
 const withSeedProfiles = (snapshot: typeof SupervisionSnapshot.Type) => {
-  const existing = new Set(snapshot.profiles.map((profile) => profile.id));
+  // TODO(supervised-runtime): Remove legacy profile normalization on or after 2026-11-01
+  // once all pre-Supervised profile snapshots have crossed the migration boundary.
+  const productProfiles = snapshot.profiles
+    .filter((profile) => !profile.roleHints.includes("supervisor"))
+    .map((profile) =>
+      profile.id === "profile-peer-implementer"
+        ? { ...profile, name: "Specialist Implementer" }
+        : profile.id === "profile-peer-reviewer"
+          ? { ...profile, name: "Specialist Reviewer" }
+          : profile,
+    );
+  const existing = new Set(productProfiles.map((profile) => profile.id));
   const missing = DEFAULT_SUPERVISION_PROFILES.filter((profile) => !existing.has(profile.id));
-  return missing.length === 0
-    ? snapshot
-    : { ...snapshot, profiles: [...snapshot.profiles, ...missing] };
+  return { ...snapshot, profiles: [...productProfiles, ...missing] };
 };
 
 const makeProjectionSupervisionRepository = Effect.gen(function* () {

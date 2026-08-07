@@ -151,7 +151,7 @@ describe("composerDraftStore persisted-state hydration", () => {
     });
   });
 
-  it("migrates a legacy Supervisor draft mapping without decoding it as chat", () => {
+  it("folds a legacy Supervisor draft into the single Supervised draft slot", () => {
     const projectId = ProjectId.makeUnsafe("project-supervisor-draft");
     const threadId = ThreadId.makeUnsafe("thread-supervisor-draft");
     const hydrated = normalizeCurrentPersistedComposerDraftStoreState({
@@ -177,11 +177,11 @@ describe("composerDraftStore persisted-state hydration", () => {
     });
 
     expect(hydrated.projectDraftThreadIdByProjectId).toEqual({
-      [`${projectId}::supervisor`]: threadId,
+      [`${projectId}::supervised`]: threadId,
     });
     expect(hydrated.draftThreadsByThreadId[threadId]).toMatchObject({
       projectId,
-      entryPoint: "supervisor",
+      entryPoint: "supervised",
       supervisionMode: "supervise",
       profilePresetId: "profile-supervisor",
     });

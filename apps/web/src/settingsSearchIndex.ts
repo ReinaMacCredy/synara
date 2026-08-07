@@ -319,6 +319,64 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     keywords:
       "Extra custom guidance for every Advisor consultation response style tradeoffs recommendation",
   },
+
+  // ── Supervised orchestration ────────────────────────────────────────────────
+  {
+    id: "supervised-orchestration:profiles",
+    section: "supervised-orchestration",
+    title: "Supervised profiles",
+    keywords: "Supervised Lead Specialist profiles seats governance directives",
+    target: null,
+  },
+  {
+    id: "supervised-orchestration:subscriptions",
+    section: "supervised-orchestration",
+    title: "Subscriptions & Triggers",
+    keywords:
+      "events metrics threshold window hysteresis cooldown signal wake Lead context pressure review loop rejection count",
+    target: null,
+  },
+
+  // ── Supervised runtime ─────────────────────────────────────────────────────
+  {
+    id: "supervised-runtime:daemon",
+    section: "supervised-runtime",
+    title: "Background daemon",
+    keywords: "runtime status epoch recovery scheduling heartbeat",
+  },
+  {
+    id: "supervised-runtime:signal-delivery",
+    section: "supervised-runtime",
+    title: "Signal delivery",
+    keywords: "queue cursor lag DeadLetter replay cooldown re-arm diagnostics",
+  },
+  {
+    id: "supervised-runtime:kernels",
+    section: "supervised-runtime",
+    title: "Programmable kernels",
+    keywords: "JavaScript Python process memory output isolation",
+  },
+  {
+    id: "supervised-runtime:plugins",
+    section: "supervised-runtime",
+    title: "Plugin registry",
+    keywords: "install enable disable revoke capability grants handlers",
+    target: null,
+  },
+  {
+    id: "supervised-runtime:schemas",
+    section: "supervised-runtime",
+    title: "Event schema catalog",
+    keywords: "event versions compatibility protected fields producers subscribers",
+    target: null,
+  },
+  {
+    id: "supervised-runtime:delivery",
+    section: "supervised-runtime",
+    title: "Delivery diagnostics",
+    keywords: "queue lag cursor retry replay DeadLetter circuit breaker",
+    target: null,
+  },
   {
     id: "models:git-writing-model",
     section: "models",

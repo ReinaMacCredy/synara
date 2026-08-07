@@ -7,7 +7,7 @@ describe("supervised orchestration profile imports", () => {
     const profile = parseProfileImport(
       JSON.stringify({
         name: "JSON reviewer",
-        roleHints: ["peer"],
+        roleHints: ["specialist"],
         runtime: {
           provider: "codex",
           model: "gpt-5.6-sol",
@@ -60,7 +60,7 @@ sandbox_mode = "danger-full-access"
 approval_policy = "never"
 service_tier = "default"
 developer_instructions = """
-Room role: Supervisor.
+Room role: Lead.
 
 Observe the workspace and advise its Root.
 """
@@ -70,14 +70,14 @@ Observe the workspace and advise its Root.
 
     expect(profile).toMatchObject({
       name: "Test",
-      roleHints: ["supervisor"],
+      roleHints: ["lead"],
       runtime: {
         provider: "codex",
         model: "gpt-5.6-sol",
         reasoningEffort: "medium",
         sandboxMode: "danger-full-access",
         approvalPolicy: "never",
-        developerInstructions: expect.stringContaining("Room role: Supervisor"),
+        developerInstructions: expect.stringContaining("Room role: Lead"),
         providerOptions: {
           model_instructions_file: "~/.codex/model-instructions.md",
           personality: "pragmatic",

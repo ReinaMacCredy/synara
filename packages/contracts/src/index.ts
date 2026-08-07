@@ -26,6 +26,7 @@ export * from "./keybindings";
 export * from "./server";
 export * from "./stats";
 export * from "./supervision";
+export * from "./supervised";
 export * from "./settings";
 export * from "./git";
 export * from "./handoff";

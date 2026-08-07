@@ -38,7 +38,7 @@ const UnknownFromJsonString = Schema.fromJsonString(Schema.Unknown);
 const AppendEventRequestSchema = Schema.Struct({
   eventId: EventId,
   aggregateKind: OrchestrationAggregateKind,
-  streamId: Schema.Union([SpaceId, ProjectId, ThreadId, TaskProcessId, SupervisionAggregateId]),
+  streamId: Schema.String,
   type: OrchestrationEventType,
   causationEventId: Schema.NullOr(EventId),
   correlationId: Schema.NullOr(CommandId),
@@ -319,9 +319,9 @@ function inferActorKind(
     return "server";
   }
   if (
-    event.metadata.providerTurnId !== undefined ||
-    event.metadata.providerItemId !== undefined ||
-    event.metadata.adapterKey !== undefined
+    ("providerTurnId" in event.metadata && event.metadata.providerTurnId !== undefined) ||
+    ("providerItemId" in event.metadata && event.metadata.providerItemId !== undefined) ||
+    ("adapterKey" in event.metadata && event.metadata.adapterKey !== undefined)
   ) {
     return "provider";
   }

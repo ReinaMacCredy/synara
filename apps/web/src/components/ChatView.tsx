@@ -7,8 +7,6 @@ import {
   MessageId,
   LeadSeatId,
   ProfileSnapshotId,
-  SupervisionMissionId,
-  SupervisorSeatId,
   type ModelSelection,
   type NativeApi,
   type OrchestrationShellSnapshot,
@@ -187,8 +185,7 @@ import {
 } from "../lib/automationDraft";
 import { dispatchThreadRename } from "../lib/threadRename";
 import { useHandleNewChat } from "../hooks/useHandleNewChat";
-import { ensureOrchestratorDraft } from "../hooks/useHandleNewOrchestrator";
-import { ensureSupervisorDraft } from "../hooks/useHandleNewSupervisor";
+import { activateSupervisedRoom } from "../hooks/useHandleNewSupervised";
 import { splitComposerDropzoneFiles, useComposerDropzone } from "../hooks/useComposerDropzone";
 import { useComposerImageIntake } from "../hooks/useComposerImageIntake";
 import { useDiffRouteSearch } from "../hooks/useDiffRouteSearch";
@@ -531,7 +528,6 @@ import {
 } from "./chat/ComposerLocalDirectoryMenu";
 import { ComposerPendingApprovalPanel } from "./chat/ComposerPendingApprovalPanel";
 import { ComposerExtrasMenu } from "./chat/ComposerExtrasMenu";
-import { ComposerOrchestrationModeSwitch } from "./chat/ComposerOrchestrationModeSwitch";
 import {
   ComposerProfilePicker,
   ComposerResolvedProfileSummary,
@@ -1171,7 +1167,6 @@ interface ChatViewProps {
     readonly onResetProject: () => void;
   };
   onOpenSessionProgressProcess?: () => void;
-  supervisionMissionStrips?: ReactNode;
   orchestratorMode?: boolean;
   /** Select a child (or root) thread while staying on the Orchestrator surface. */
   onSelectOrchestratorThread?: (threadId: ThreadId) => void;
@@ -1239,7 +1234,6 @@ export default function ChatView({
   onAdjacentRightDockOpenChange,
   orchestratorRootDraft,
   onOpenSessionProgressProcess,
-  supervisionMissionStrips,
   orchestratorMode: orchestratorModeProp,
   onSelectOrchestratorThread,
   inspectOnly: inspectOnlyProp,
@@ -1414,7 +1408,9 @@ export default function ChatView({
   );
   const isThreadTemporary = draftThread?.isTemporary === true || hasTemporaryThreadMarker;
   const supervision = useStore((store) => store.supervision);
-  const supervisionPeers = supervision.peers ?? [];
+  // TODO(synara): Remove the legacy `peers` projection on or after 2026-11-01 once
+  // persisted Orchestrator snapshots have migrated to Supervised Specialist records.
+  const legacySpecialists = supervision.peers ?? [];
   const markWorkflowRunPaused = useWorkflowRunUiStore((store) => store.markPaused);
   const markWorkflowRunDismissed = useWorkflowRunUiStore((store) => store.markDismissed);
   const serverThread = useStore(useMemo(() => createThreadSelector(threadId), [threadId]));
@@ -1924,44 +1920,44 @@ export default function ChatView({
   const isServerThread = serverThread !== undefined;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const isOrchestratorRootDraft = isLocalDraftThread && draftThread?.entryPoint === "orchestrator";
-  const isSupervisorDraft = isLocalDraftThread && draftThread?.entryPoint === "supervisor";
+  const isSupervisedRoomDraft = isLocalDraftThread && draftThread?.entryPoint === "supervised";
   const supervisionDraftMode = draftThread?.supervisionMode ?? "orchestrate";
   const selectedSupervisionProfile = useMemo(() => {
-    const role = isSupervisorDraft ? "supervisor" : "lead";
     const activeProfiles = supervision.profiles.filter((profile) => profile.archivedAt === null);
     return (
       activeProfiles.find((profile) => profile.id === draftThread?.profilePresetId) ??
-      activeProfiles.find((profile) => profile.roleHints.includes(role)) ??
+      activeProfiles.find((profile) => profile.roleHints.includes("lead")) ??
       activeProfiles[0] ??
       null
     );
-  }, [draftThread?.profilePresetId, isSupervisorDraft, supervision.profiles]);
+  }, [draftThread?.profilePresetId, supervision.profiles]);
   const durableSupervisionRole = useMemo(() => {
     if (!isServerThread || !orchestratorMode) return null;
-    if (supervision.supervisors.some((seat) => seat.activeThreadId === threadId)) {
-      return "Supervisor" as const;
-    }
-    if (supervision.leads.some((seat) => seat.activeThreadId === threadId)) {
+    if (
+      supervision.leads.some((seat) => seat.activeThreadId === threadId)
+    ) {
       return "Lead" as const;
     }
-    if (supervisionPeers.some((peer) => peer.threadId === threadId && peer.status === "active")) {
-      return "Peer" as const;
+    if (
+      legacySpecialists.some(
+        (specialist) => specialist.threadId === threadId && specialist.status === "active",
+      )
+    ) {
+      return "Specialist" as const;
     }
-    return "Orchestrate" as const;
+    return "Lead" as const;
   }, [
     isServerThread,
     orchestratorMode,
     supervision.leads,
-    supervisionPeers,
-    supervision.supervisors,
+    legacySpecialists,
     threadId,
   ]);
   const durableSupervisionProfileSnapshot = useMemo(() => {
     if (!isServerThread || !orchestratorMode) return null;
     const seat =
-      supervision.supervisors.find((candidate) => candidate.activeThreadId === threadId) ??
       supervision.leads.find((candidate) => candidate.activeThreadId === threadId) ??
-      supervisionPeers.find((candidate) => candidate.threadId === threadId) ??
+      legacySpecialists.find((candidate) => candidate.threadId === threadId) ??
       null;
     return seat
       ? (supervision.profileSnapshots.find((snapshot) => snapshot.id === seat.profileSnapshotId) ??
@@ -1971,9 +1967,8 @@ export default function ChatView({
     isServerThread,
     orchestratorMode,
     supervision.leads,
-    supervisionPeers,
+    legacySpecialists,
     supervision.profileSnapshots,
-    supervision.supervisors,
     threadId,
   ]);
   useLayoutEffect(() => {
@@ -3084,8 +3079,8 @@ export default function ChatView({
         return;
       }
       void navigate({
-        to: "/orchestrator/$rootThreadId",
-        params: { rootThreadId: threadId },
+        to: "/supervised/$roomId",
+        params: { roomId: threadId },
         search: { selectedThreadId: childThreadId },
         replace: true,
       });
@@ -3419,9 +3414,9 @@ export default function ChatView({
     }, ATTACHMENT_PREVIEW_HANDOFF_TTL_MS);
   }, []);
   const serverMessages = activeThread?.messages;
-  const emptySupervisorTurnMessage = useMemo<ChatMessage | null>(() => {
+  const emptyLeadTurnMessage = useMemo<ChatMessage | null>(() => {
     if (
-      durableSupervisionRole !== "Supervisor" ||
+      durableSupervisionRole !== "Lead" ||
       !latestTurnSettled ||
       !activeLatestTurn?.completedAt
     ) {
@@ -3437,7 +3432,7 @@ export default function ChatView({
     return {
       id: MessageId.makeUnsafe(`supervision-empty:${activeLatestTurn.turnId}`),
       role: "assistant",
-      text: "Supervisor finished without a visible response.",
+      text: "Lead finished without a visible response.",
       createdAt: activeLatestTurn.completedAt,
       streaming: false,
       source: "native",
@@ -3505,18 +3500,18 @@ export default function ChatView({
       const serverIds = new Set(serverMessagesWithPreviewHandoff.map((message) => message.id));
       pendingMessages = optimisticUserMessages.filter((message) => !serverIds.has(message.id));
     }
-    const withSupervisorFallback = emptySupervisorTurnMessage
-      ? [...serverMessagesWithPreviewHandoff, emptySupervisorTurnMessage]
+    const withLeadFallback = emptyLeadTurnMessage
+      ? [...serverMessagesWithPreviewHandoff, emptyLeadTurnMessage]
       : serverMessagesWithPreviewHandoff;
     const withPending =
       pendingMessages.length === 0
-        ? withSupervisorFallback
-        : [...withSupervisorFallback, ...pendingMessages];
+        ? withLeadFallback
+        : [...withLeadFallback, ...pendingMessages];
     return setupBubbles.length === 0 ? withPending : [...withPending, ...setupBubbles];
   }, [
     activeThread?.sidechatSourceThreadId,
     serverMessages,
-    emptySupervisorTurnMessage,
+    emptyLeadTurnMessage,
     attachmentPreviewHandoffByMessageId,
     optimisticUserMessages,
     pendingAutomationConversation,
@@ -5254,82 +5249,6 @@ export default function ChatView({
   const toggleInteractionMode = useCallback(() => {
     handleInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
   }, [handleInteractionModeChange, interactionMode]);
-  const toggleSupervisionDraftMode = useCallback(() => {
-    if (!isOrchestratorRootDraft) return;
-    const nextMode = supervisionDraftMode === "supervise" ? "orchestrate" : "supervise";
-    if (nextMode === "supervise" && activeProject?.kind !== "project") {
-      toastManager.add({
-        type: "warning",
-        title: "Supervise requires a real Project",
-        description:
-          "Choose a Project workspace first. Supervisor missions may still span all Projects after the Supervisor task is created.",
-      });
-      scheduleComposerFocus();
-      return;
-    }
-    setDraftThreadContext(threadId, {
-      supervisionMode: nextMode,
-      ...(nextMode === "supervise" && selectedSupervisionProfile
-        ? { profilePresetId: selectedSupervisionProfile.id }
-        : {}),
-      ...(nextMode === "supervise" ? { interactionMode: "default" } : {}),
-    });
-    if (nextMode === "supervise" && interactionMode !== "default") {
-      setComposerDraftInteractionMode(threadId, "default");
-    }
-    scheduleComposerFocus();
-  }, [
-    interactionMode,
-    activeProject?.kind,
-    isOrchestratorRootDraft,
-    scheduleComposerFocus,
-    selectedSupervisionProfile,
-    setComposerDraftInteractionMode,
-    setDraftThreadContext,
-    supervisionDraftMode,
-    threadId,
-  ]);
-  const openRetainedOrchestratorDraft = useCallback(() => {
-    if (activeProject?.kind !== "project") {
-      scheduleComposerFocus();
-      return;
-    }
-    const destinationThreadId = ensureOrchestratorDraft({ project: activeProject });
-    useComposerDraftStore.getState().setDraftThreadContext(destinationThreadId, {
-      supervisionMode: "orchestrate",
-      interactionMode: "default",
-    });
-    void navigate({ to: "/orchestrator", search: { projectId: activeProject.id } });
-  }, [activeProject, navigate, scheduleComposerFocus]);
-  const toggleSupervisorDraftMode = useCallback(() => {
-    if (!isSupervisorDraft) {
-      scheduleComposerFocus();
-      return;
-    }
-    openRetainedOrchestratorDraft();
-  }, [isSupervisorDraft, openRetainedOrchestratorDraft, scheduleComposerFocus]);
-  const toggleDurableOrchestrationMode = useCallback(() => {
-    if (
-      durableSupervisionRole === null ||
-      durableSupervisionRole === "Peer" ||
-      activeProject?.kind !== "project"
-    ) {
-      scheduleComposerFocus();
-      return;
-    }
-    if (durableSupervisionRole === "Supervisor") {
-      openRetainedOrchestratorDraft();
-    } else {
-      ensureSupervisorDraft({ project: activeProject });
-      void navigate({ to: "/supervisors", search: { projectId: activeProject.id } });
-    }
-  }, [
-    activeProject,
-    durableSupervisionRole,
-    navigate,
-    openRetainedOrchestratorDraft,
-    scheduleComposerFocus,
-  ]);
   const togglePlanSidebar = useCallback(() => {
     setPlanSidebarOpen((open) => {
       if (open) {
@@ -7902,17 +7821,15 @@ export default function ChatView({
       );
       if (activeLead) {
         await navigate({
-          to: "/orchestrator/$rootThreadId",
-          params: { rootThreadId: activeLead.activeThreadId },
+          to: "/supervised/$roomId",
+          params: { roomId: activeLead.activeThreadId },
         });
         return true;
       }
     }
     const promoteToLead = isOrchestratorRootDraft && supervisionDraftMode === "supervise";
-    const createSupervisorSeat = isSupervisorDraft;
-    const supervisionProfileForSend =
-      promoteToLead || createSupervisorSeat ? selectedSupervisionProfile : null;
-    if ((promoteToLead || createSupervisorSeat) && supervisionProfileForSend === null) {
+    const supervisionProfileForSend = promoteToLead ? selectedSupervisionProfile : null;
+    if (promoteToLead && supervisionProfileForSend === null) {
       setStoreThreadError(activeThread.id, "Choose an active supervision profile before sending.");
       return false;
     }
@@ -8377,13 +8294,9 @@ export default function ChatView({
     const promotedLeadSeatId = promoteToLead
       ? (draftThread?.leadSeatId ?? LeadSeatId.makeUnsafe(randomUUID()))
       : null;
-    const createdSupervisorSeatId = createSupervisorSeat
-      ? (draftThread?.supervisorSeatId ?? SupervisorSeatId.makeUnsafe(randomUUID()))
-      : null;
-    if (promotedLeadSeatId !== null || createdSupervisorSeatId !== null) {
+    if (promotedLeadSeatId !== null) {
       setDraftThreadContext(threadIdForSend, {
-        ...(promotedLeadSeatId !== null ? { leadSeatId: promotedLeadSeatId } : {}),
-        ...(createdSupervisorSeatId !== null ? { supervisorSeatId: createdSupervisorSeatId } : {}),
+        leadSeatId: promotedLeadSeatId,
         ...(supervisionProfileForSend !== null
           ? { profilePresetId: supervisionProfileForSend.id }
           : {}),
@@ -8453,7 +8366,7 @@ export default function ChatView({
         const handoffSourceThreadId =
           stagedCrossModeHandoff?.sourceThreadId ?? orchestratorSourceThreadId;
         const shouldAtomicallyBootstrapSupervisedThread =
-          handoffSourceThreadId === null && (promoteToLead || createSupervisorSeat);
+          handoffSourceThreadId === null && promoteToLead;
         if (handoffSourceThreadId) {
           const importedMessages = draftThread?.orchestratorHandoffMessages ?? [];
           if (!stagedCrossModeHandoff && importedMessages.length === 0) {
@@ -8679,50 +8592,27 @@ export default function ChatView({
                   },
                 },
               }
-            : createdSupervisorSeatId !== null && supervisionProfileForSend !== null
-              ? {
-                  supervisionBootstrap: {
-                    kind: "supervisor" as const,
-                    profilePresetId: supervisionProfileForSend.id,
-                    supervisor: {
-                      id: createdSupervisorSeatId,
-                      name: title || `Supervisor ${supervision.supervisors.length + 1}`,
-                      activeThreadId: threadIdForSend,
-                      predecessorThreadIds: [],
-                      profileSnapshotId: ProfileSnapshotId.makeUnsafe(
-                        `${createdSupervisorSeatId}:initial-profile`,
-                      ),
-                      status: "active" as const,
-                      createdAt: messageCreatedAt,
-                      updatedAt: messageCreatedAt,
-                      archivedAt: null,
-                      revision: 0,
-                    },
-                    initialMission: {
-                      id: SupervisionMissionId.makeUnsafe(
-                        `${createdSupervisorSeatId}:initial-mission`,
-                      ),
-                      supervisorSeatId: createdSupervisorSeatId,
-                      brief: trimmed,
-                      focus: trimmed,
-                      scope: [{ kind: "project" as const, projectId: targetProjectIdForSend }],
-                      grants: ["lead.observe" as const, "lead.advise" as const],
-                      endCondition: { kind: "manual" as const },
-                      status: "active" as const,
-                      sourceMessageId: messageIdForSend,
-                      createdAt: messageCreatedAt,
-                      updatedAt: messageCreatedAt,
-                      completedAt: null,
-                      revision: 0,
-                    },
-                  },
-                }
-              : {}),
+            : {}),
           createdAt: messageCreatedAt,
         }),
       );
       turnStartSucceeded = true;
-  if (atomicThreadBootstrap) {
+      if (isSupervisedRoomDraft) {
+        await activateSupervisedRoom({
+          threadId: threadIdForSend,
+          projectId: targetProjectIdForSend,
+        }).catch((error: unknown) => {
+          toastManager.add({
+            type: "warning",
+            title: "Lead Room needs attention",
+            description:
+              error instanceof Error
+                ? error.message
+                : "The thread started, but its Room status could not be updated.",
+          });
+        });
+      }
+      if (atomicThreadBootstrap) {
         markPromotedDraftThreads(new Set([threadIdForSend]));
         if (atomicBootstrapThreadNotes) {
           await dispatchThreadNotes(threadIdForSend, atomicBootstrapThreadNotes).catch(
@@ -8730,7 +8620,7 @@ export default function ChatView({
           );
         }
       }
-      if (isOrchestratorRootDraft || isSupervisorDraft) {
+      if (isOrchestratorRootDraft) {
         const shellSnapshot = await api.orchestration.getShellSnapshot();
         syncServerShellSnapshot(shellSnapshot);
         await prehydratePromotedThreadDetail(threadIdForSend, api);
@@ -8743,23 +8633,18 @@ export default function ChatView({
         // Do not navigate mid-turn — same ChatView stays mounted (localDispatch +
         // Working for Ns continuous). Route upgrades after settle (see effect).
         setPendingOrchestratorRootNavigation(threadIdForSend);
-      } else if (isSupervisorDraft && createdSupervisorSeatId) {
-        await navigate({
-          to: "/supervisors/$supervisorSeatId",
-          params: { supervisorSeatId: createdSupervisorSeatId },
-        });
-  }
-  // Steers on providers without native mid-turn steering interrupt the live
-  // turn before re-dispatching; hold queued auto-dispatch through that gap
-  // so it can't race the steer. The live session provider decides the
-  // interrupt path server-side, so the gate keys off it rather than the
-  // requested model selection.
-  const liveProviderForSteerGate =
-    activeThread?.session?.provider ?? effectiveModelSelectionForSend.provider;
-  if (
-    dispatchMode === "steer" &&
-    !providerSupportsNativeTurnSteering(liveProviderForSteerGate)
-  ) {
+      }
+      // Steers on providers without native mid-turn steering interrupt the live
+      // turn before re-dispatching; hold queued auto-dispatch through that gap
+      // so it can't race the steer. The live session provider decides the
+      // interrupt path server-side, so the gate keys off it rather than the
+      // requested model selection.
+      const liveProviderForSteerGate =
+        activeThread?.session?.provider ?? effectiveModelSelectionForSend.provider;
+      if (
+        dispatchMode === "steer" &&
+        !providerSupportsNativeTurnSteering(liveProviderForSteerGate)
+      ) {
         setQueuedSteerGate({
           sawInterruptGap: false,
           gapStartedAt: null,
@@ -10060,7 +9945,7 @@ export default function ChatView({
     [handleModelPickerOpenChange],
   );
   const supervisionProfilePickerActive =
-    isSupervisorDraft || (isOrchestratorRootDraft && supervisionDraftMode === "supervise");
+    isOrchestratorRootDraft && supervisionDraftMode === "supervise";
   const composerPickerControls = supervisionProfilePickerActive ? (
     <ComposerProfilePicker
       profiles={supervision.profiles}
@@ -11011,15 +10896,7 @@ export default function ChatView({
       !isTraitsPickerOpen &&
       !isLocalFolderBrowserOpen
     ) {
-      if (isOrchestratorRootDraft) {
-        toggleSupervisionDraftMode();
-      } else if (isSupervisorDraft) {
-        toggleSupervisorDraftMode();
-      } else if (durableSupervisionRole !== null && durableSupervisionRole !== "Peer") {
-        toggleDurableOrchestrationMode();
-      } else {
-        toggleInteractionMode();
-      }
+      toggleInteractionMode();
       return true;
     }
 
@@ -11567,6 +11444,18 @@ export default function ChatView({
         projectCwd={activeProject?.cwd ?? null}
         onAsk={onAskAdvisor}
       />
+      {viewModeAction ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          aria-pressed={viewModeAction.active}
+          onClick={viewModeAction.onClick}
+          className="shrink-0 whitespace-nowrap px-2 text-[length:var(--app-font-size-ui-sm,11px)] font-normal text-[var(--color-text-foreground-secondary)] hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)] sm:px-2.5"
+        >
+          {viewModeAction.label}
+        </Button>
+      ) : null}
       <Button
         type="button"
         variant="ghost"
@@ -11576,7 +11465,7 @@ export default function ChatView({
         title={
           isServerThread
             ? sourceHandoffMode === "project"
-              ? "Continue this thread in Orchestrator"
+              ? "Continue this thread in Supervised"
               : "Continue this thread in Projects"
             : "Send the first message before handing off this draft"
         }
@@ -11637,6 +11526,7 @@ export default function ChatView({
     onRenameThreadMarker: handleRenameThreadMarker,
     onNotesChange: handleNotesChange,
     onOpenEditorView: viewModeAction?.onClick ?? null,
+    editorViewLabel: viewModeAction?.label ?? "Editor view",
     onClose: closeEnvironmentPanelAfterAction,
     onRegisterCommitAndPushTrigger,
   };
@@ -11951,11 +11841,6 @@ export default function ChatView({
                   onBack={() => onNavigateToThread(activeThread.parentThreadId!)}
                 />
               ) : null}
-              {supervisionMissionStrips ? (
-                <div className="pb-2" data-supervision-mission-strips="true">
-                  {supervisionMissionStrips}
-                </div>
-              ) : null}
             </div>
             <div
               className={cn(
@@ -12129,42 +12014,7 @@ export default function ChatView({
 
                       {!isVoiceRecording && !isVoiceTranscribing ? (
                         <>
-                          {isOrchestratorRootDraft ? (
-                            <ComposerOrchestrationModeSwitch
-                              mode={supervisionDraftMode}
-                              disabled={isComposerEditorDisabled}
-                              unavailableReason={
-                                supervisionDraftMode === "orchestrate" &&
-                                activeProject?.kind !== "project"
-                                  ? "Supervise requires a real Project workspace"
-                                  : null
-                              }
-                              onToggle={toggleSupervisionDraftMode}
-                            />
-                          ) : isSupervisorDraft ? (
-                            <ComposerOrchestrationModeSwitch
-                              mode="supervise"
-                              disabled={isComposerEditorDisabled}
-                              title="Open an Orchestrate draft. This Supervisor draft will be retained. · Shift+Tab"
-                              onToggle={toggleSupervisorDraftMode}
-                            />
-                          ) : durableSupervisionRole !== null &&
-                            durableSupervisionRole !== "Peer" ? (
-                            <ComposerOrchestrationModeSwitch
-                              mode={
-                                durableSupervisionRole === "Supervisor"
-                                  ? "supervise"
-                                  : "orchestrate"
-                              }
-                              disabled={isComposerEditorDisabled}
-                              title={
-                                durableSupervisionRole === "Supervisor"
-                                  ? "Open an Orchestrate draft. This room remains a Supervisor. · Shift+Tab"
-                                  : "Open a Supervise draft. This room keeps its current identity. · Shift+Tab"
-                              }
-                              onToggle={toggleDurableOrchestrationMode}
-                            />
-                          ) : durableSupervisionRole !== null ? (
+                          {durableSupervisionRole !== null ? (
                             <span
                               className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground"
                               aria-label={`${durableSupervisionRole} role`}
@@ -12433,7 +12283,7 @@ export default function ChatView({
       <CrossModeHandoffDialog
         open={crossModeHandoffOpen}
         threadId={threadId}
-        destinationLabel={sourceHandoffMode === "project" ? "Orchestrator" : "Projects"}
+        destinationLabel={sourceHandoffMode === "project" ? "Supervised" : "Projects"}
         onOpenChange={setCrossModeHandoffOpen}
         onContinue={async (handoffPrompt, runtime) => {
           await startCrossModeHandoff(handoffPrompt, runtime);

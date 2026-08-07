@@ -7,14 +7,13 @@ import type { ThreadId } from "@synara/contracts";
 
 export function resolveRouteVisibleThreadIds(input: {
   readonly routeThreadId: ThreadId | null;
-  readonly supervisorRouteThreadId?: ThreadId | null | undefined;
   readonly orchestratorSelectedThreadId?: ThreadId | null | undefined;
   readonly splitViewThreadIds?: readonly ThreadId[] | undefined;
 }): ThreadId[] {
   if (input.splitViewThreadIds) {
     return [...new Set(input.splitViewThreadIds)];
   }
-  const primaryThreadId = input.routeThreadId ?? input.supervisorRouteThreadId ?? null;
+  const primaryThreadId = input.routeThreadId;
   if (!primaryThreadId) {
     return [];
   }

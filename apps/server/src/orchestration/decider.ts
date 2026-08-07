@@ -15,6 +15,7 @@ import {
   SPACES_MAX_COUNT,
   THREAD_MARKERS_MAX_COUNT,
   TurnId,
+  SupervisedCommand,
 } from "@synara/contracts";
 import {
   deriveAssociatedWorktreeMetadata,
@@ -29,10 +30,11 @@ import {
   collectTailTurnIds,
   resolveTailUserMessageEditTarget,
 } from "@synara/shared/conversationEdit";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
 import { hasNativeHandoffMessages } from "./handoff.ts";
+import { decideSupervisedCommand } from "./supervised/decider.ts";
 import { resolveStableMessageTurnId } from "./messageTurnId.ts";
 import {
   findSpaceById,
@@ -362,6 +364,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
   Omit<OrchestrationEvent, "sequence"> | ReadonlyArray<Omit<OrchestrationEvent, "sequence">>,
   OrchestrationCommandInvariantError
 > {
+  if (Schema.is(SupervisedCommand)(command)) {
+    return yield* decideSupervisedCommand({ command, state: readModel.supervised });
+  }
   switch (command.type) {
     case "space.create": {
       yield* requireSpaceAbsent({ readModel, command, spaceId: command.spaceId });

@@ -221,7 +221,6 @@ export const createComposerDraftStoreState =
           entryPoint: options.entryPoint ?? "chat",
           supervisionMode: options.supervisionMode ?? DEFAULT_SUPERVISION_DRAFT_MODE,
           profilePresetId: options.profilePresetId ?? null,
-          supervisorSeatId: options.supervisorSeatId ?? null,
           leadSeatId: options.leadSeatId ?? null,
           ...(options.orchestratorSourceThreadId !== undefined
             ? { orchestratorSourceThreadId: options.orchestratorSourceThreadId }

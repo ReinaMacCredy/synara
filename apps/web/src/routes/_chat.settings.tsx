@@ -63,6 +63,7 @@ import {
 } from "../components/settings/SettingsPanelPrimitives";
 import { SkillsSettingsPanel } from "../components/settings/SkillsSettingsPanel";
 import { SupervisedOrchestrationSettingsPanel } from "../components/settings/SupervisedOrchestrationSettingsPanel";
+import { SupervisedRuntimeSettingsPanel } from "../components/settings/SupervisedRuntimeSettingsPanel";
 import { ThemePackEditor } from "../components/ThemePackEditor";
 import {
   CHAT_CONTENT_CARD_CLASS_NAME,
@@ -1103,6 +1104,7 @@ function SettingsRouteView() {
                 <SupervisedOrchestrationSettingsPanel
                   active={activeSection === "supervised-orchestration"}
                 />
+                <SupervisedRuntimeSettingsPanel active={activeSection === "supervised-runtime"} />
                 <HandoffAgentSettingsPanel active={activeSection === "handoff-agent"} />
                 <HandoffAccessSettingsPanel active={activeSection === "handoff-access"} />
                 <ProvidersSettingsPanel

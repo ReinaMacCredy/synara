@@ -109,6 +109,10 @@ import Migration0090 from "./Migrations/090_OrchestratorChildResults.ts";
 import Migration0091 from "./Migrations/091_SupervisedOrchestration.ts";
 import Migration0092 from "./Migrations/092_SupervisionPeerBindings.ts";
 import Migration0093 from "./Migrations/093_RecoverRetentionHiddenThreads.ts";
+import Migration0094 from "./Migrations/094_SupervisedRuntime.ts";
+import Migration0095 from "./Migrations/095_SupervisedPluginHealthCircuit.ts";
+import Migration0096 from "./Migrations/096_SupervisedExecutionGovernance.ts";
+import Migration0097 from "./Migrations/097_LeadSubscriptionOwnership.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -217,6 +221,10 @@ export const migrationEntries = [
   [91, "SupervisedOrchestration", Migration0091],
   [92, "SupervisionPeerBindings", Migration0092],
   [93, "RecoverRetentionHiddenThreads", Migration0093],
+  [94, "SupervisedRuntime", Migration0094],
+  [95, "SupervisedPluginHealthCircuit", Migration0095],
+  [96, "SupervisedExecutionGovernance", Migration0096],
+  [97, "LeadSubscriptionOwnership", Migration0097],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

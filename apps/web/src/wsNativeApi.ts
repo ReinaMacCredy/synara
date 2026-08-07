@@ -721,6 +721,16 @@ export function createWsNativeApi(): NativeApi {
     },
     orchestration: {
       getSnapshot: () => transport.request(ORCHESTRATION_WS_METHODS.getSnapshot),
+      getSupervisedRuntime: (input = {}) =>
+        transport.request(ORCHESTRATION_WS_METHODS.getSupervisedRuntime, input),
+      testSupervisedSubscription: (input) =>
+        transport.request(ORCHESTRATION_WS_METHODS.testSupervisedSubscription, input),
+      inspectSupervisedPlugin: (input) =>
+        transport.request(ORCHESTRATION_WS_METHODS.inspectSupervisedPlugin, input),
+      installSupervisedPlugin: (input) =>
+        transport.request(ORCHESTRATION_WS_METHODS.installSupervisedPlugin, input),
+      reconcileSupervisedRuntime: (input = {}) =>
+        transport.request(ORCHESTRATION_WS_METHODS.reconcileSupervisedRuntime, input),
       getShellSnapshot: () => transport.request(ORCHESTRATION_WS_METHODS.getShellSnapshot),
       getThreadDetailSnapshot: (input) =>
         transport.request(ORCHESTRATION_WS_METHODS.getThreadDetailSnapshot, input),

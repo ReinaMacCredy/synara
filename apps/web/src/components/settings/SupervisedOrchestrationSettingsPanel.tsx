@@ -9,7 +9,7 @@ import {
   type ProviderModelDescriptor,
   type SupervisionSnapshot,
 } from "@synara/contracts";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useAppSettings } from "~/appSettings";
 import { ComposerPickerMenuPopup } from "~/components/chat/ComposerPickerMenuPopup";
@@ -46,13 +46,13 @@ import {
   PencilIcon,
   RotateCcwIcon,
   TriangleAlertIcon,
-  UsersIcon,
 } from "~/lib/icons";
 import { cn, newCommandId, randomUUID } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { useStore } from "~/store";
 import { SettingsSelectControl } from "./SettingControls";
 import { SupervisedOrchestrationProfileLibrary } from "./SupervisedOrchestrationProfileLibrary";
+import { SupervisedSubscriptionsSettings } from "./SupervisedSubscriptionsSettings";
 import type { ImportedProfilePreset } from "./supervisedOrchestrationProfileImport";
 
 const SANDBOXES: readonly ProfileSandboxMode[] = [
@@ -67,6 +67,22 @@ const APPROVALS: readonly ProfileApprovalPolicy[] = [
   "never",
 ];
 const AGGREGATE_ID = SupervisionAggregateId.makeUnsafe("supervision");
+// TODO(synara): Remove this storage translation on or after 2026-11-01 once
+// ProfilePreset persists canonical Specialist role hints.
+const SPECIALIST_STORAGE_ROLE = "peer" as const;
+
+const toSupervisedProductProfile = (profile: ProfilePreset): ProfilePreset | null => {
+  // TODO(synara): Remove pre-Supervised profile compatibility on or after
+  // 2026-11-01 once persisted profile snapshots use only product vocabulary.
+  if (profile.roleHints.includes("supervisor")) return null;
+  if (profile.id === "profile-peer-implementer") {
+    return { ...profile, name: "Specialist Implementer" };
+  }
+  if (profile.id === "profile-peer-reviewer") {
+    return { ...profile, name: "Specialist Reviewer" };
+  }
+  return profile;
+};
 
 export type ProfileDraft = {
   readonly id: ProfilePresetId | null;
@@ -101,7 +117,9 @@ function draftFromProfile(profile: ProfilePreset): ProfileDraft {
   return {
     id: profile.id,
     name: profile.name,
-    roleHints: profile.roleHints.join(", "),
+    roleHints: profile.roleHints
+      .map((role) => (role === SPECIALIST_STORAGE_ROLE ? "specialist" : role))
+      .join(", "),
     provider: profile.runtime.provider,
     model: profile.runtime.model,
     reasoningEffort: profile.runtime.reasoningEffort ?? "",
@@ -125,14 +143,15 @@ function redactedExport(value: unknown): unknown {
   );
 }
 
-function roleHintsFromDraft(value: string): Array<"supervisor" | "lead" | "peer"> {
+function roleHintsFromDraft(value: string): Array<"lead" | typeof SPECIALIST_STORAGE_ROLE> {
   const normalized = value
     .split(",")
     .map((entry) => entry.trim().toLowerCase())
-    .filter(
-      (entry): entry is "supervisor" | "lead" | "peer" =>
-        entry === "supervisor" || entry === "lead" || entry === "peer",
-    );
+    .flatMap((entry): Array<"lead" | typeof SPECIALIST_STORAGE_ROLE> => {
+      if (entry === "lead") return ["lead"];
+      if (entry === "specialist") return [SPECIALIST_STORAGE_ROLE];
+      return [];
+    });
   return [...new Set(normalized)];
 }
 
@@ -325,43 +344,6 @@ function ProfileNode(props: {
   );
 }
 
-function RegionLabel(props: { readonly title: string; readonly count: string }) {
-  return (
-    <div className="mb-4 text-center">
-      <h2 className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-        {props.title}
-      </h2>
-      <p className="mt-1 text-xs text-muted-foreground">{props.count}</p>
-    </div>
-  );
-}
-
-function EmptyRegion(props: {
-  readonly icon: ReactNode;
-  readonly title: string;
-  readonly description?: string;
-  readonly compact?: boolean;
-}) {
-  return (
-    <div
-      className={cn(
-        "flex rounded-xl border border-dashed bg-background/20 text-center text-muted-foreground",
-        props.compact
-          ? "min-h-28 items-center justify-center gap-3 px-4 text-left"
-          : "min-h-80 flex-col items-center justify-center px-5",
-      )}
-    >
-      <div className="shrink-0 text-muted-foreground/80">{props.icon}</div>
-      <div>
-        <p className="text-sm text-muted-foreground">{props.title}</p>
-        {props.description ? (
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">{props.description}</p>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
 function reasoningEffortLabel(value: string): string {
   if (value === "xhigh") return "Extra High";
   return value
@@ -529,169 +511,6 @@ function ReasoningEffortSlider(props: {
   );
 }
 
-function SupervisorRegion(props: {
-  readonly snapshot: SupervisionSnapshot;
-  readonly busy: boolean;
-  readonly compact?: boolean;
-  readonly onArchiveOrRestore: (seat: SupervisionSnapshot["supervisors"][number]) => Promise<void>;
-  readonly run: (operation: () => Promise<void>) => void;
-}) {
-  if (props.snapshot.supervisors.length === 0) {
-    return (
-      <EmptyRegion
-        {...(props.compact === undefined ? {} : { compact: props.compact })}
-        icon={<UsersIcon className={props.compact ? "size-6" : "size-12"} />}
-        title="No Supervisor seats yet."
-        description="Create one from the Orchestrator sidebar."
-      />
-    );
-  }
-  return (
-    <div className="divide-y overflow-hidden rounded-xl border bg-background/25">
-      {props.snapshot.supervisors.map((seat) => {
-        const missionCount = props.snapshot.missions.filter(
-          (mission) => mission.supervisorSeatId === seat.id && mission.status === "active",
-        ).length;
-        return (
-          <div key={seat.id} className="flex items-center justify-between gap-3 px-3 py-3">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-foreground">{seat.name}</p>
-              <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                {seat.status} · {missionCount} active {missionCount === 1 ? "mission" : "missions"}
-              </p>
-            </div>
-            <Button
-              size="xs"
-              variant="outline"
-              disabled={props.busy}
-              onClick={() => props.run(() => props.onArchiveOrRestore(seat))}
-            >
-              {seat.status === "archived" ? "Restore" : "Archive"}
-            </Button>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function WorkflowRegion(props: {
-  readonly snapshot: SupervisionSnapshot;
-  readonly busy: boolean;
-  readonly compact?: boolean;
-  readonly onRevoke: (
-    directive: SupervisionSnapshot["workflowDirectives"][number],
-  ) => Promise<void>;
-  readonly run: (operation: () => Promise<void>) => void;
-}) {
-  if (props.snapshot.workflowDirectives.length === 0) {
-    return (
-      <EmptyRegion
-        {...(props.compact === undefined ? {} : { compact: props.compact })}
-        icon={<FileIcon className={props.compact ? "size-6" : "size-12"} />}
-        title="No workflow directives."
-      />
-    );
-  }
-  return (
-    <div className="divide-y overflow-hidden rounded-xl border bg-background/25">
-      {props.snapshot.workflowDirectives.map((directive) => (
-        <div key={directive.id} className="space-y-2 px-3 py-3">
-          <div>
-            <p className="text-sm font-medium text-foreground">{directive.slot}</p>
-            <p className="mt-0.5 line-clamp-3 text-xs leading-5 text-muted-foreground">
-              {directive.status} · {directive.instruction}
-            </p>
-          </div>
-          {directive.status === "active" ? (
-            <Button
-              size="xs"
-              variant="outline"
-              disabled={props.busy}
-              onClick={() => props.run(() => props.onRevoke(directive))}
-            >
-              Revoke
-            </Button>
-          ) : null}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function ConflictRegion(props: {
-  readonly snapshot: SupervisionSnapshot;
-  readonly busy: boolean;
-  readonly compact?: boolean;
-  readonly onResolve: (
-    conflict: SupervisionSnapshot["workflowConflicts"][number],
-    directiveId: SupervisionSnapshot["workflowDirectives"][number]["id"],
-  ) => Promise<void>;
-  readonly run: (operation: () => Promise<void>) => void;
-}) {
-  const openCount = props.snapshot.workflowConflicts.filter(
-    (conflict) => conflict.status === "open",
-  ).length;
-  return (
-    <div className="rounded-xl border border-dashed bg-background/20 p-3">
-      <div className="mb-3 text-center">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          Conflicts
-        </p>
-        <p className="mt-1 text-xs text-muted-foreground">{openCount} open</p>
-      </div>
-      {props.snapshot.workflowConflicts.length === 0 ? (
-        <EmptyRegion
-          compact
-          icon={<TriangleAlertIcon className="size-6" />}
-          title="No workflow conflicts."
-        />
-      ) : (
-        <div className="space-y-2">
-          {props.snapshot.workflowConflicts.map((conflict) => (
-            <div key={conflict.id} className="rounded-lg border bg-background/30 p-3">
-              <p className="text-sm font-medium text-foreground">{conflict.slot}</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {conflict.status} · {conflict.directiveIds.length} directives
-              </p>
-              {conflict.status === "open" ? (
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  {conflict.directiveIds.map((directiveId) => (
-                    <Button
-                      key={directiveId}
-                      size="xs"
-                      variant="outline"
-                      disabled={props.busy}
-                      onClick={() => props.run(() => props.onResolve(conflict, directiveId))}
-                    >
-                      Use{" "}
-                      {props.snapshot.workflowDirectives.find(
-                        (directive) => directive.id === directiveId,
-                      )?.supervisorSeatId ?? directiveId}
-                    </Button>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function CausalGate(props: { readonly label: ReactNode }) {
-  return (
-    <div className="flex min-w-0 items-center">
-      <div className="w-full border-t border-dashed border-muted-foreground/65" />
-      <div className="mx-2 shrink-0 rounded-lg border bg-background px-2 py-2 text-center text-[10px] leading-4 text-foreground">
-        {props.label}
-      </div>
-      <div className="w-full border-t border-dashed border-muted-foreground/65" />
-    </div>
-  );
-}
-
 function ProfileEditor(props: {
   readonly draft: ProfileDraft;
   readonly errors: ProfileDraftErrors;
@@ -734,7 +553,7 @@ function ProfileEditor(props: {
           <span className="text-muted-foreground">Role hints</span>
           <Input
             value={draft.roleHints}
-            placeholder="supervisor, lead, peer"
+            placeholder="lead, specialist"
             onChange={(event) => update({ roleHints: event.target.value })}
           />
         </label>
@@ -982,14 +801,23 @@ export function SupervisedOrchestrationSettingsPanel(props: { readonly active: b
   }, [props.active]);
 
   const activeProfiles = useMemo(
-    () => snapshot.profiles.filter((profile) => profile.archivedAt === null),
+    () =>
+      snapshot.profiles.flatMap((profile) => {
+        const productProfile = toSupervisedProductProfile(profile);
+        return productProfile && productProfile.archivedAt === null ? [productProfile] : [];
+      }),
     [snapshot.profiles],
   );
   const archivedProfiles = useMemo(
     () =>
-      snapshot.profiles.filter(
-        (profile) => profile.archivedAt !== null && profile.clearedAt == null,
-      ),
+      snapshot.profiles.flatMap((profile) => {
+        const productProfile = toSupervisedProductProfile(profile);
+        return productProfile &&
+          productProfile.archivedAt !== null &&
+          productProfile.clearedAt == null
+          ? [productProfile]
+          : [];
+      }),
     [snapshot.profiles],
   );
   const filteredProfiles = useMemo(() => {
@@ -1141,57 +969,6 @@ export function SupervisedOrchestrationSettingsPanel(props: { readonly active: b
     }
   };
 
-  const archiveOrRestoreSupervisor = async (seat: SupervisionSnapshot["supervisors"][number]) => {
-    const api = readNativeApi();
-    if (!api) throw new Error("Synara server unavailable.");
-    await api.orchestration.dispatchCommand({
-      type:
-        seat.status === "archived"
-          ? "supervision.supervisor.restore"
-          : "supervision.supervisor.archive",
-      commandId: newCommandId(),
-      aggregateId: AGGREGATE_ID,
-      actor: { kind: "user", actorId: "owner" },
-      expectedRevision: seat.revision,
-      createdAt: new Date().toISOString(),
-      supervisorSeatId: seat.id,
-    });
-  };
-
-  const resolveWorkflowConflict = async (
-    conflict: SupervisionSnapshot["workflowConflicts"][number],
-    resolvedDirectiveId: SupervisionSnapshot["workflowDirectives"][number]["id"],
-  ) => {
-    const api = readNativeApi();
-    if (!api) throw new Error("Synara server unavailable.");
-    await api.orchestration.dispatchCommand({
-      type: "supervision.workflow.resolve",
-      commandId: newCommandId(),
-      aggregateId: AGGREGATE_ID,
-      actor: { kind: "user", actorId: "owner" },
-      expectedRevision: 0,
-      createdAt: new Date().toISOString(),
-      conflictId: conflict.id,
-      resolvedDirectiveId,
-    });
-  };
-
-  const revokeWorkflowDirective = async (
-    directive: SupervisionSnapshot["workflowDirectives"][number],
-  ) => {
-    const api = readNativeApi();
-    if (!api) throw new Error("Synara server unavailable.");
-    await api.orchestration.dispatchCommand({
-      type: "supervision.workflow.revoke",
-      commandId: newCommandId(),
-      aggregateId: AGGREGATE_ID,
-      actor: { kind: "user", actorId: "owner" },
-      expectedRevision: directive.revision,
-      createdAt: new Date().toISOString(),
-      directiveId: directive.id,
-    });
-  };
-
   const exportProfile = (profile: ProfilePreset) => {
     const blob = new Blob([JSON.stringify(redactedExport(profile), null, 2)], {
       type: "application/json",
@@ -1230,7 +1007,7 @@ export function SupervisedOrchestrationSettingsPanel(props: { readonly active: b
               Supervised orchestration
             </h1>
             <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-              Manage reusable profiles, Supervisor seats, and visible workflow directives.
+              Manage reusable Lead and Specialist profiles plus governed runtime triggers.
             </p>
           </div>
           <Button size="sm" onClick={() => beginDraft({ ...EMPTY_DRAFT }, null)}>
@@ -1281,9 +1058,11 @@ export function SupervisedOrchestrationSettingsPanel(props: { readonly active: b
         onImportError={setError}
       />
 
+      <SupervisedSubscriptionsSettings active={props.active} />
+
       <footer className="flex items-start gap-2 border-t pt-5 text-xs text-muted-foreground">
         <InfoIcon className="mt-0.5 size-4 shrink-0" />
-        <p>Preset edits affect future launches only. Running seats retain their snapshots.</p>
+        <p>Preset edits affect future launches only. Running Leads and Specialists retain their snapshots.</p>
       </footer>
 
       <ProfileEditorDialog
