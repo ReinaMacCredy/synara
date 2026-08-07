@@ -21,6 +21,7 @@ import {
   ChevronDownIcon,
   DiffIcon,
   FoldersIcon,
+  GitBranchIcon,
   PanelRightCloseIcon,
   SearchIcon,
 } from "~/lib/icons";
@@ -60,7 +61,7 @@ import {
 import { ProjectMenuPicker, type ProjectMenuPickerOption } from "./ProjectMenuPicker";
 import { WorkspaceFilePreview } from "./WorkspaceFilePreview";
 
-type EditorCenterMode = "file" | "diff";
+type EditorCenterMode = "file" | "diff" | "topology";
 type EditorActivityBarItem = EditorCenterMode | "search";
 
 const EDITOR_CHAT_PANE_STORAGE_KEY = "synara.editor.chatPaneWidth";
@@ -85,6 +86,8 @@ interface EditorWorkspaceViewProps {
   selectedDiffFilePath: string | null;
   diffOptionsControl?: ReactNode;
   diffPanel: ReactNode;
+  topologyPanel?: ReactNode;
+  topologySidebar?: ReactNode;
   chatPanel: ReactNode;
   onSelectFile: (path: string) => void;
   onSelectDiffFile: (path: string) => void;
@@ -324,10 +327,13 @@ function EditorActivityBar(props: {
   centerMode: EditorCenterMode;
   searchActive: boolean;
   sidebarVisible: boolean;
+  topologyAvailable: boolean;
   onSelectItem: (item: EditorActivityBarItem) => void;
 }) {
   const filesActive = props.sidebarVisible && !props.searchActive && props.centerMode === "file";
   const diffActive = props.sidebarVisible && !props.searchActive && props.centerMode === "diff";
+  const topologyActive =
+    props.sidebarVisible && !props.searchActive && props.centerMode === "topology";
   const searchActive = props.sidebarVisible && props.searchActive;
   return (
     <nav
@@ -341,6 +347,15 @@ function EditorActivityBar(props: {
       >
         <FoldersIcon className="size-5" />
       </ExplorerActivityBarButton>
+      {props.topologyAvailable ? (
+        <ExplorerActivityBarButton
+          label={topologyActive ? "Hide topology sidebar" : "Topology"}
+          active={topologyActive}
+          onClick={() => props.onSelectItem("topology")}
+        >
+          <GitBranchIcon className="size-5" />
+        </ExplorerActivityBarButton>
+      ) : null}
       <ExplorerActivityBarButton
         label={diffActive ? "Hide diff sidebar" : "Diff"}
         active={diffActive}
@@ -594,6 +609,7 @@ export function EditorWorkspaceView(props: EditorWorkspaceViewProps) {
           centerMode={props.centerMode}
           searchActive={searchPaneActive}
           sidebarVisible={sidebarVisible}
+          topologyAvailable={props.topologyPanel !== undefined}
           onSelectItem={handleActivityBarSelectItem}
         />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:flex-row">
@@ -606,6 +622,8 @@ export function EditorWorkspaceView(props: EditorWorkspaceViewProps) {
               onSelectFile={props.onSelectFile}
               onReferenceInChat={props.onReferenceInChat}
             />
+          ) : props.centerMode === "topology" && props.topologySidebar ? (
+            props.topologySidebar
           ) : props.centerMode === "diff" ? (
             <DiffFilesSidebar
               files={props.diffFiles}
@@ -644,6 +662,7 @@ export function EditorWorkspaceView(props: EditorWorkspaceViewProps) {
                 />
               </div>
             ) : null}
+            {props.centerMode === "topology" ? props.topologyPanel : null}
           </main>
           <div
             role="separator"

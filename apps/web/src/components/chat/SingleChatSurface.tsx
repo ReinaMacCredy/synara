@@ -124,6 +124,16 @@ const SupervisedOperationsDock = lazy(() =>
     default: module.SupervisedOperationsDock,
   })),
 );
+const SupervisedTopologyCanvas = lazy(() =>
+  import("../supervised/SupervisedTopologyView").then((module) => ({
+    default: module.SupervisedTopologyCanvas,
+  })),
+);
+const SupervisedTopologySidebar = lazy(() =>
+  import("../supervised/SupervisedTopologyView").then((module) => ({
+    default: module.SupervisedTopologySidebar,
+  })),
+);
 const DockTerminalPane = lazy(() => import("./DockTerminalPane"));
 const GitPanel = lazy(() => import("./GitPanel"));
 const DockExplorerPane = lazy(() =>
@@ -253,10 +263,14 @@ export function SingleChatSurface(props: {
   const [editorExpandedDirectories, setEditorExpandedDirectories] = useState<ReadonlySet<string>>(
     () => new Set(readEditorViewState(props.threadId)?.expandedDirectories ?? []),
   );
-  const [editorCenterMode, setEditorCenterMode] = useState<"file" | "diff">(() =>
-    props.search.editorFilePath
-      ? "file"
-      : (readEditorViewState(props.threadId)?.centerMode ?? "diff"),
+  const [editorCenterMode, setEditorCenterMode] = useState<"file" | "diff" | "topology">(() => {
+    if (props.search.editorFilePath) return "file";
+    const persistedMode = readEditorViewState(props.threadId)?.centerMode;
+    if (persistedMode === "topology" && !props.roomView) return "diff";
+    return persistedMode ?? (props.roomView ? "topology" : "diff");
+  });
+  const [selectedTopologyNodeId, setSelectedTopologyNodeId] = useState<string | null>(
+    "supervised-runtime",
   );
   const [editorWorkspaceExiting, setEditorWorkspaceExiting] = useState(false);
   const editorWorkspaceExitTimerRef = useRef<number | null>(null);
@@ -274,10 +288,17 @@ export function SingleChatSurface(props: {
     // elsewhere, so deriving here would mean stamping the thread key in every one.
     const timer = window.setTimeout(() => {
       setEditorExpandedDirectories(new Set(persisted?.expandedDirectories ?? []));
-      setEditorCenterMode(props.search.editorFilePath ? "file" : (persisted?.centerMode ?? "diff"));
+      const persistedMode = persisted?.centerMode;
+      setEditorCenterMode(
+        props.search.editorFilePath
+          ? "file"
+          : persistedMode === "topology" && !props.roomView
+            ? "diff"
+            : (persistedMode ?? (props.roomView ? "topology" : "diff")),
+      );
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [props.search.editorFilePath, props.threadId]);
+  }, [props.roomView?.roomId, props.search.editorFilePath, props.threadId]);
   const editorViewActive = props.search.view === "editor";
   useEffect(() => {
     if (editorViewActive) {
@@ -1031,6 +1052,20 @@ export function SingleChatSurface(props: {
                   onEditorDiffOptionsChange={handleEditorDiffOptionsChange}
                 />
               }
+              topologySidebar={props.roomView ? (
+                <SupervisedTopologySidebar
+                  roomId={props.roomView.roomId}
+                  selectedNodeId={selectedTopologyNodeId}
+                  onSelectNode={setSelectedTopologyNodeId}
+                />
+              ) : undefined}
+              topologyPanel={props.roomView ? (
+                <SupervisedTopologyCanvas
+                  roomId={props.roomView.roomId}
+                  selectedNodeId={selectedTopologyNodeId}
+                  onSelectNode={setSelectedTopologyNodeId}
+                />
+              ) : undefined}
               chatPanel={props.roomView ? (
                 <SupervisedOperationsDock
                   roomId={props.roomView.roomId}

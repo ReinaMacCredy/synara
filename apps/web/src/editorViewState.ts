@@ -13,7 +13,7 @@ const MAX_EDITOR_RAIL_CHAT_TABS = 8;
 
 export interface EditorViewStateSnapshot {
   expandedDirectories: ReadonlyArray<string>;
-  centerMode: "file" | "diff";
+  centerMode: "file" | "diff" | "topology";
 }
 
 interface PersistedEditorViewState extends EditorViewStateSnapshot {
@@ -55,7 +55,10 @@ export function readEditorViewState(threadId: string): EditorViewStateSnapshot |
     expandedDirectories: Array.isArray(entry.expandedDirectories)
       ? entry.expandedDirectories.filter((path): path is string => typeof path === "string")
       : [],
-    centerMode: entry.centerMode === "file" ? "file" : "diff",
+    centerMode:
+      entry.centerMode === "file" || entry.centerMode === "topology"
+        ? entry.centerMode
+        : "diff",
   };
 }
 
