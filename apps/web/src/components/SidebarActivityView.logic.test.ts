@@ -415,7 +415,7 @@ describe("buildActivityViewModel", () => {
     expect(model.settled.map((thread) => thread.id)).toEqual(["reviewed"]);
   });
 
-    it("keeps settled Orchestrator Roots in active history when settlement is disabled", () => {
+    it("keeps settled Supervised Lead Rooms in active history when settlement is disabled", () => {
     const root = makeThread({
       id: "orchestrator-root",
       settledAt: "2026-08-01T09:50:00.000Z",

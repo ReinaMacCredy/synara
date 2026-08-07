@@ -7,7 +7,7 @@ import {
 } from "./-threadDetailOwnership";
 
 describe("resolveRouteVisibleThreadIds", () => {
-  it("leases both an Orchestrator Root and its selected child", () => {
+  it("leases both a Supervised Lead Room and its selected Specialist", () => {
     expect(
       resolveRouteVisibleThreadIds({
         routeThreadId: "root" as ThreadId,

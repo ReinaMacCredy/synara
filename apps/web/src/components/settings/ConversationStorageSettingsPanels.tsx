@@ -357,7 +357,7 @@ export function ArchivedSettingsPanel({ active }: { readonly active: boolean }) 
       toastManager.add({
         type: "success",
         title: "Root restored",
-        description: `${threadById.get(root.rootThreadId)?.title ?? "The Orchestrator Root"} is back in the Orchestrator sidebar.`,
+        description: `${threadById.get(root.rootThreadId)?.title ?? "The Lead Room"} is back in the Supervised sidebar.`,
       });
     },
     onError: (error) => {
@@ -447,7 +447,7 @@ export function ArchivedSettingsPanel({ active }: { readonly active: boolean }) 
   if (!active) return null;
 
   if (rootsQuery.isLoading) {
-    return <WorktreesStatus>Loading archived chats and Roots...</WorktreesStatus>;
+    return <WorktreesStatus>Loading archived chats and Lead Rooms...</WorktreesStatus>;
   }
 
   if (rootsQuery.isError) {
@@ -455,7 +455,7 @@ export function ArchivedSettingsPanel({ active }: { readonly active: boolean }) 
       <WorktreesStatus error>
         {rootsQuery.error instanceof Error
           ? rootsQuery.error.message
-          : "Unable to load archived Roots."}
+          : "Unable to load archived Lead Rooms."}
       </WorktreesStatus>
     );
   }
@@ -468,7 +468,7 @@ export function ArchivedSettingsPanel({ active }: { readonly active: boolean }) 
         </div>
         <div className="text-sm font-medium text-foreground">Nothing archived</div>
         <div className="mt-1 text-sm text-muted-foreground">
-          Archived chats and Orchestrator Roots will appear here for restoration.
+          Archived chats and Lead Rooms will appear here for restoration.
         </div>
       </SettingsEmptyState>
     );
@@ -524,16 +524,16 @@ export function ArchivedSettingsPanel({ active }: { readonly active: boolean }) 
       </div>
 
       <div className="space-y-6">
-        <h2 className={SETTINGS_SECTION_LABEL_CLASS_NAME}>Archived Roots</h2>
+        <h2 className={SETTINGS_SECTION_LABEL_CLASS_NAME}>Archived Lead Rooms</h2>
         {archivedRoots.length > 0 ? (
-          <SettingsSection title="Orchestrator">
+          <SettingsSection title="Supervised">
             {archivedRoots.map((root) => {
               const thread = threadById.get(root.rootThreadId);
               const project = projectById.get(root.projectId);
               return (
                 <SettingsListRow
                   key={root.rootThreadId}
-                  title={thread?.title ?? "Untitled Orchestrator Root"}
+                  title={thread?.title ?? "Untitled Lead Room"}
                   description={`${project?.name ?? "Unknown project"} · Archived ${formatRelativeTime(root.archivedAt ?? root.createdAt)}`}
                   actions={
                     <Button
@@ -550,7 +550,7 @@ export function ArchivedSettingsPanel({ active }: { readonly active: boolean }) 
             })}
           </SettingsSection>
         ) : (
-          <SettingsEmptyState layout="status">No archived Orchestrator Roots.</SettingsEmptyState>
+          <SettingsEmptyState layout="status">No archived Lead Rooms.</SettingsEmptyState>
         )}
       </div>
     </div>

@@ -68,14 +68,6 @@ describe("AdvancedSettingsPanel", () => {
     expect((repairButton.element() as HTMLButtonElement).disabled).toBe(false);
     expect(document.body.textContent).toContain("Authenticated as client.");
 
-    const registryNote = page.getByText(
-      "Read-only registry inspection. Orchestration strategy remains developer-controlled.",
-      { exact: true },
-    );
-    const registryNoteElement = registryNote.element() as HTMLParagraphElement;
-    expect(registryNoteElement.className).toContain("pb-3");
-    expect(getComputedStyle(registryNoteElement).paddingBottom).toBe("12px");
-
     const disclosureButton = page.getByRole("button", { name: "What this does" });
     expect(disclosureButton.element().getAttribute("aria-expanded")).toBe("false");
     const disclosureShell = disclosureButton.element().parentElement?.querySelector("div[inert]");

@@ -48,7 +48,7 @@ export const THREAD_SELECTION_SAFE_SELECTOR = "[data-thread-item], [data-thread-
 export const SIDEBAR_THREAD_PREWARM_LIMIT = 10;
 export const DEBUG_FEATURE_FLAGS_MENU_STORAGE_KEY = "synara:show-debug-feature-flags-menu";
 export type SidebarNewThreadEnvMode = "local" | "worktree";
-export type SidebarView = "threads" | "orchestrator";
+export type SidebarView = "threads" | "supervised";
 export type SidebarActionBadge = {
   readonly text: string;
   readonly accessibleLabel: string;

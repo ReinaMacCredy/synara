@@ -300,8 +300,8 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
   {
     id: "archived:archived-chats",
     section: "archived",
-    title: "Archived chats and Roots",
-    keywords: "View and restore archived chats threads Orchestrator Roots unarchive history",
+    title: "Archived chats and Lead Rooms",
+    keywords: "View and restore archived chats threads Lead Rooms Supervised unarchive history",
     target: null,
   },
 

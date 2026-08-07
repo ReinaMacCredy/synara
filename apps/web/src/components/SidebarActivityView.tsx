@@ -593,7 +593,7 @@ export function SidebarActivityView({
   onCreateChat: () => void;
   /** Same "Add project" action the Projects section header runs. */
   onAddProject: () => void;
-  /** Orchestrator Roots share Activity presentation but do not use human Done/Undo lifecycle. */
+  /** Supervised Lead Rooms share Activity presentation but do not use human Done/Undo lifecycle. */
   settlementEnabled?: boolean | undefined;
   createActionLabel?: string | undefined;
   createActionTooltip?: string | undefined;

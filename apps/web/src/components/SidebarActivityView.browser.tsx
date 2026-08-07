@@ -313,13 +313,13 @@ describe("SidebarActivityView", () => {
     await mounted.unmount();
   });
 
-  it("uses Activity presentation without Done or Undo controls for Orchestrator Roots", async () => {
+  it("uses Activity presentation without Done or Undo controls for Supervised Lead Rooms", async () => {
     const root = makeThread(150, { settledAt: "2026-08-02T12:30:00.000Z" });
     const mounted = await render(
       renderActivity({
         threads: [root],
         settlementEnabled: false,
-        createActionLabel: "Start new Orchestrator Root",
+        createActionLabel: "Start new Lead Room",
       }),
     );
 
@@ -329,7 +329,7 @@ describe("SidebarActivityView", () => {
     expect(rootRow.parentElement?.querySelector('button[aria-label="Undo"]')).toBeNull();
     expect(document.body.textContent).not.toContain("Done");
     expect(
-      page.getByRole("button", { name: "Start new Orchestrator Root" }).element(),
+      page.getByRole("button", { name: "Start new Lead Room" }).element(),
     ).toBeTruthy();
     await mounted.unmount();
   });

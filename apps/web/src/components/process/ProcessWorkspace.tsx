@@ -191,8 +191,8 @@ export function ProcessWorkspace(props: { readonly processId: TaskProcessId }) {
     const target = resolveTaskProcessNavigationTarget(processId, graph.process.owner);
     if (target.mode === "orchestrator") {
       void navigate({
-        to: "/orchestrator/$rootThreadId/tasks/$processId",
-        params: { rootThreadId: target.rootThreadId, processId: target.processId },
+        to: "/supervised/$roomId/tasks/$processId",
+        params: { roomId: target.rootThreadId, processId: target.processId },
       });
       return;
     }

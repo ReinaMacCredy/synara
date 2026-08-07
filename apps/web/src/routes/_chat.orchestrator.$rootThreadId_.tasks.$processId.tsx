@@ -1,15 +1,12 @@
-import { TaskProcessId } from "@synara/contracts";
-import { createFileRoute } from "@tanstack/react-router";
-
-import { ProcessWorkspace } from "~/components/process/ProcessWorkspace";
-
-function OrchestratorTasksRouteView() {
-  const processId = Route.useParams({
-    select: (params) => TaskProcessId.makeUnsafe(params.processId),
-  });
-  return <ProcessWorkspace processId={processId} />;
-}
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/_chat/orchestrator/$rootThreadId_/tasks/$processId")({
-  component: OrchestratorTasksRouteView,
+  beforeLoad: ({ params }) => {
+    // TODO(supervised-runtime): Remove this read-only route adapter on or after 2026-11-01
+    // once saved task links no longer reference Orchestrator routes.
+    throw redirect({
+      to: "/supervised/$roomId/tasks/$processId",
+      params: { roomId: params.rootThreadId, processId: params.processId },
+    });
+  },
 });

@@ -238,8 +238,8 @@ function grantStatus(grant: HandoffSourceReadGrant) {
 }
 
 const handoffModeLabel = (mode: HandoffConversationMode | undefined) => {
-  if (mode === "orchestrator_root") return "Orchestrator Root";
-  if (mode === "orchestrator_child") return "Orchestrator child";
+  if (mode === "orchestrator_root") return "Supervised Lead Room";
+  if (mode === "orchestrator_child") return "Supervised Specialist";
   return "Projects";
 };
 
@@ -282,8 +282,8 @@ export function HandoffAccessSettingsPanel({ active }: { active: boolean }) {
   const openThread = async (threadId: ThreadId, mode: HandoffConversationMode | undefined) => {
     if (mode === "orchestrator_root" || mode === "orchestrator_child") {
       await navigate({
-        to: "/orchestrator/$rootThreadId",
-        params: { rootThreadId: rootThreadIdFor(threadId, threadById) },
+        to: "/supervised/$roomId",
+        params: { roomId: rootThreadIdFor(threadId, threadById) },
       });
       return;
     }

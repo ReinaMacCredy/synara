@@ -258,7 +258,7 @@ describe("composerDraftStore project draft thread mapping", () => {
       ).toMatchObject({ threadId: supervisedThreadId, entryPoint: "supervised" });
   });
 
-  it("retains a separate Orchestrator Root draft and its staged handoff source", () => {
+  it("retains a separate Supervised Lead Room draft and its staged handoff source", () => {
     const store = useComposerDraftStore.getState();
     const sourceThreadId = ThreadId.makeUnsafe("thread-source");
     store.setProjectDraftThreadId(projectId, threadId, { entryPoint: "chat" });

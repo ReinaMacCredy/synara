@@ -388,7 +388,6 @@ import {
   ComposerPickerMenuSubPopup,
 } from "./chat/ComposerPickerMenuPopup";
 import { selectSplitView, useSplitViewStore } from "../splitViewStore";
-import { useRightDockStore } from "../rightDockStore";
 import { THREAD_DRAG_MIME } from "./chat-drop-overlay/ChatPaneDropOverlay";
 import { useTemporaryThreadStore } from "../temporaryThreadStore";
 import { useThreadActivationController } from "../hooks/useThreadActivationController";
@@ -1266,7 +1265,7 @@ function SidebarActivityBellButton({
 
 const SIDEBAR_SURFACE_PICKER_COPY: Record<SidebarView, { title: string; description: string }> = {
   threads: { title: "Synara", description: "Build, debug, and ship" },
-  orchestrator: { title: "Supervised", description: "Govern Lead Rooms and specialist work" },
+  supervised: { title: "Supervised", description: "Govern Lead Rooms and specialist work" },
 };
 
 /** Lucide LayoutGrid as IconNode data (stroke, 24×24) for morphicons. */
@@ -1304,10 +1303,10 @@ function SidebarSurfaceModeToggle({
   onSelectView: (view: SidebarView) => void;
   onPrewarmView?: (view: SidebarView) => void;
 }) {
-  const isOrchestrator = activeView === "orchestrator";
-  const nextView: SidebarView = isOrchestrator ? "threads" : "orchestrator";
-  const label = isOrchestrator ? "Switch to Projects" : "Switch to Supervised";
-  const tooltip = isOrchestrator ? "Projects (chat mode)" : "Supervised";
+  const isSupervised = activeView === "supervised";
+  const nextView: SidebarView = isSupervised ? "threads" : "supervised";
+  const label = isSupervised ? "Switch to Projects" : "Switch to Supervised";
+  const tooltip = isSupervised ? "Projects (chat mode)" : "Supervised";
 
   return (
     <Tooltip>
@@ -1316,7 +1315,7 @@ function SidebarSurfaceModeToggle({
           <button
             type="button"
             aria-label={label}
-            aria-pressed={isOrchestrator}
+            aria-pressed={isSupervised}
             data-testid="sidebar-surface-mode-toggle"
             onClick={() => {
               onPrewarmView?.(nextView);
@@ -1329,7 +1328,7 @@ function SidebarSurfaceModeToggle({
               "relative inline-flex shrink-0 cursor-pointer items-center justify-center transition-colors",
               sidebarIconButtonSlotClass("header"),
               SIDEBAR_ROW_FOCUS_CLASS_NAME,
-              isOrchestrator
+              isSupervised
                 ? "bg-[color-mix(in_srgb,var(--color-text-accent)_15%,transparent)] text-[var(--color-text-accent)]"
                 : "sidebar-icon-button text-muted-foreground/75 hover:text-foreground",
             )}
@@ -1337,7 +1336,7 @@ function SidebarSurfaceModeToggle({
         }
       >
         <MorphIcon
-          icon={isOrchestrator ? SURFACE_MODE_SPARKLES_ICON : SURFACE_MODE_LAYOUT_GRID_ICON}
+          icon={isSupervised ? SURFACE_MODE_SPARKLES_ICON : SURFACE_MODE_LAYOUT_GRID_ICON}
           spring="snappy"
           size={14}
           strokeWidth={2}
@@ -1827,21 +1826,6 @@ const orchestratorRootIdByThreadId = useMemo(() => {
     }
     return counts;
   }, [orchestratorRootIdByThreadId]);
-  const openRightDockPane = useRightDockStore((store) => store.openPane);
-  const openOrchestratorTeam = useCallback(
-    (rootThreadId: ThreadId) => {
-      openRightDockPane(rootThreadId, {
-        paneId: "orchestrator-team",
-        kind: "orchestratorTeam",
-      });
-      void navigate({
-        to: "/supervised/$roomId",
-        params: { roomId: rootThreadId },
-        search: {},
-      });
-    },
-    [navigate, openRightDockPane],
-  );
   const {
     ordinaryThreads: ordinarySidebarThreads,
     orchestratorThreads: orchestratorSidebarThreads,
@@ -2599,12 +2583,12 @@ const orchestratorRootIdByThreadId = useMemo(() => {
     if (isOnSettings) {
       return;
     }
-    lastActiveSidebarSegmentRef.current = isOnOrchestrator ? "orchestrator" : "threads";
+    lastActiveSidebarSegmentRef.current = isOnOrchestrator ? "supervised" : "threads";
   }, [isOnOrchestrator, isOnSettings]);
 
   const handleBackToAppFromSettings = useCallback(() => {
-    const fromOrchestrator = lastActiveSidebarSegmentRef.current === "orchestrator";
-    if (fromOrchestrator) {
+    const fromSupervised = lastActiveSidebarSegmentRef.current === "supervised";
+    if (fromSupervised) {
       void navigate({ to: "/supervised" });
       return;
     }
@@ -2619,7 +2603,7 @@ const orchestratorRootIdByThreadId = useMemo(() => {
 
   const handleSidebarViewChange = useCallback(
     (view: SidebarView) => {
-      if (view === "orchestrator") {
+      if (view === "supervised") {
         void navigate({
           to: "/supervised",
           search: focusedProjectId ? { projectId: focusedProjectId } : {},
@@ -3181,7 +3165,7 @@ const orchestratorRootIdByThreadId = useMemo(() => {
   // in after a subscribe round-trip once the route has already swapped.
   const prewarmSidebarViewTarget = useCallback(
     (view: SidebarView) => {
-      if (view === "orchestrator") {
+      if (view === "supervised") {
         const rootThreadId = orchestratorRoots[0]?.rootThreadId;
         if (rootThreadId) prewarmThreadDetailForIntent(rootThreadId);
         return;
@@ -5518,15 +5502,6 @@ function renderThreadArchiveAction(
                 </div>
               );
             })}
-            {availableCount > 3 ? (
-              <button
-                type="button"
-                className="ml-7 mt-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                onClick={() => openOrchestratorTeam(thread.id)}
-              >
-                View all {entry.children.length} threads
-              </button>
-            ) : null}
           </div>
         </DisclosureRegion>
       </div>
@@ -6793,14 +6768,14 @@ function renderThreadArchiveAction(
           <>
             <div className="flex items-center gap-1 pt-0 pb-1 pr-2.5 pl-1.5">
               <SidebarSurfacePicker
-                views={["threads", "orchestrator"]}
-                activeView={isOnOrchestrator ? "orchestrator" : "threads"}
+                views={["threads", "supervised"]}
+                activeView={isOnOrchestrator ? "supervised" : "threads"}
                 onSelectView={handleSidebarViewChange}
                 onPrewarmView={prewarmSidebarViewTarget}
               />
               <div className="ml-auto flex items-center gap-1.5">
                 <SidebarSurfaceModeToggle
-                  activeView={isOnOrchestrator ? "orchestrator" : "threads"}
+                  activeView={isOnOrchestrator ? "supervised" : "threads"}
                   onSelectView={handleSidebarViewChange}
                   onPrewarmView={prewarmSidebarViewTarget}
                 />

@@ -41,7 +41,7 @@ function thread(input: {
 describe("buildThreadMentionComposerItems", () => {
   const projects = [project("project", "project", "Synara"), project("chats", "chat", "Home")];
 
-  it("searches project, chat, and Orchestrator child threads while excluding the current thread", () => {
+  it("searches project, chat, and Supervised Specialist threads while excluding the current thread", () => {
     const items = buildThreadMentionComposerItems({
       projects,
       currentThreadId: "current",

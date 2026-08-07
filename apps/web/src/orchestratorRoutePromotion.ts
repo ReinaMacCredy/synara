@@ -27,16 +27,6 @@ export function shouldClearPendingOrchestratorRootPromotion(input: {
   );
 }
 
-/** @deprecated Use shouldClearPendingOrchestratorRootPromotion (no auto-navigate). */
-export function shouldFlushOrchestratorRootNavigation(input: {
-  readonly pendingRootThreadId: ThreadId | null;
-  readonly currentThreadId: ThreadId;
-  readonly turnInFlight: boolean;
-  readonly turnFullySettled: boolean;
-}): boolean {
-  return shouldClearPendingOrchestratorRootPromotion(input);
-}
-
 /** Pure helper for ChatView: durable settle for deferred orchestrator URL upgrade. */
 export function isOrchestratorTurnFullySettled(input: {
   readonly messages: ReadonlyArray<{ readonly role: string }>;

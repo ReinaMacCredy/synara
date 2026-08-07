@@ -6,7 +6,6 @@ import {
   SINGLETON_PANE_KINDS,
   closePaneInState,
   createDefaultRightDockState,
-  ensurePanesInState,
   findMissingSidechatPaneIds,
   isRightDockPaneKind,
   openPaneInState,
@@ -28,9 +27,6 @@ describe("RIGHT_DOCK_PANE_KINDS (single source of truth)", () => {
       "sidechat",
       "git",
       "pullRequest",
-      "orchestratorTeam",
-      "orchestratorProcess",
-      "orchestratorRuns",
       "supervision",
     ]);
   });
@@ -53,45 +49,10 @@ describe("isRightDockPaneKind", () => {
       "sidechat",
       "git",
       "pullRequest",
-      "orchestratorTeam",
-      "orchestratorProcess",
-      "orchestratorRuns",
       "supervision",
     ]) {
       expect(isRightDockPaneKind(kind)).toBe(true);
     }
-  });
-
-  it("initializes the four fixed Orchestrator tabs without resetting their selection", () => {
-    const inputs = [
-      { paneId: "team", kind: "orchestratorTeam" as const },
-      { paneId: "process", kind: "orchestratorProcess" as const },
-      { paneId: "runs", kind: "orchestratorRuns" as const },
-    ];
-    const initialized = ensurePanesInState(createDefaultRightDockState(), inputs, "team");
-    expect(initialized.open).toBe(false);
-    expect(initialized.activePaneId).toBe("team");
-    expect(initialized.panes.map((pane) => pane.kind)).toEqual(inputs.map((input) => input.kind));
-
-    const selected = { ...initialized, activePaneId: "runs" };
-    expect(ensurePanesInState(selected, inputs, "team")).toBe(selected);
-
-    const withUnrelatedPane = {
-      ...selected,
-      panes: [
-        ...selected.panes,
-        { ...selected.panes[0]!, id: "terminal", kind: "terminal" as const },
-      ],
-    };
-    expect(ensurePanesInState(withUnrelatedPane, inputs, "team").panes).toEqual(selected.panes);
-
-    const transientlyOpenWithoutOrchestratorPanes = {
-      ...createDefaultRightDockState(),
-      open: true,
-    };
-    expect(ensurePanesInState(transientlyOpenWithoutOrchestratorPanes, inputs, "team").open).toBe(
-      false,
-    );
   });
 
   it("rejects unknown or malformed kinds", () => {

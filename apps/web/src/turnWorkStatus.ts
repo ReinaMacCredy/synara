@@ -1,6 +1,6 @@
 // FILE: turnWorkStatus.ts
 // Purpose: Single shared Working→Worked lifecycle for normal chat and
-// Orchestrator Root. Normal mode is the product; orches only adds chrome/URL.
+// Supervised Lead Room. Normal mode is the product; Supervised adds governance chrome and routing.
 // Layer: Chat turn work-status derivation
 // Exports: deriveTurnWorkStatus, per-turn remount seed helpers
 

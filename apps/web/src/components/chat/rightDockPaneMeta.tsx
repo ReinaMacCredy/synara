@@ -15,11 +15,8 @@ import {
   GitPullRequestIcon,
   GlobeIcon,
   InfoIcon,
-  ProcessIcon,
   MessageCircleIcon,
   TerminalIcon,
-  UsersIcon,
-  WorkflowIcon,
 } from "~/lib/icons";
 import {
   RIGHT_DOCK_PANE_KINDS,
@@ -47,9 +44,6 @@ export const RIGHT_DOCK_PANE_META: Record<RightDockPaneKind, RightDockPaneMeta> 
   sidechat: { label: "Side chats", Icon: MessageCircleIcon },
   git: { label: "Git", Icon: GitCommitIcon },
   pullRequest: { label: "Pull request", Icon: GitPullRequestIcon },
-  orchestratorTeam: { label: "Team", Icon: UsersIcon },
-  orchestratorProcess: { label: "Tasks", Icon: ProcessIcon },
-  orchestratorRuns: { label: "Runs", Icon: WorkflowIcon },
   supervision: { label: "Supervision", Icon: EyeIcon },
 };
 
@@ -76,8 +70,7 @@ export const RIGHT_DOCK_ADD_MENU_KINDS: readonly RightDockPaneKind[] = RIGHT_DOC
   (kind) =>
     kind !== "file" &&
     kind !== "pullRequest" &&
-    kind !== "supervision" &&
-    !kind.startsWith("orchestrator"),
+    kind !== "supervision",
 );
 
 // Empty-dock launchers prioritize the everyday workspace tools. Review only

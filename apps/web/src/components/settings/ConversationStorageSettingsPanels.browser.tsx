@@ -165,7 +165,7 @@ describe("ConversationStorageSettingsPanels", () => {
     const text = document.body.textContent ?? "";
     expect(text).toContain("Archived chats");
     expect(text).toContain("Ordinary chat");
-    expect(text).toContain("Archived Roots");
+    expect(text).toContain("Archived Lead Rooms");
     expect(text).toContain("Architecture council");
     expect(text.match(/Architecture council/g)).toHaveLength(1);
   });

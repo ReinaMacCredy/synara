@@ -18,9 +18,6 @@ export const RIGHT_DOCK_PANE_KINDS = [
   "sidechat",
   "git",
   "pullRequest",
-  "orchestratorTeam",
-  "orchestratorProcess",
-  "orchestratorRuns",
   "supervision",
 ] as const;
 
