@@ -364,6 +364,7 @@ function MermaidTopologyGraph(props: {
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const diagramId = useId().replaceAll(":", "-");
+  const renderSequenceRef = useRef(0);
   const [renderError, setRenderError] = useState<string | null>(null);
   const { resolvedTheme } = useTheme();
   const dark = resolvedTheme === "dark";
@@ -379,6 +380,8 @@ function MermaidTopologyGraph(props: {
     const host = hostRef.current;
     if (!host) return;
     let cancelled = false;
+    const renderSequence = ++renderSequenceRef.current;
+    host.replaceChildren();
 
     void import("mermaid")
       .then(async ({ default: mermaid }) => {
@@ -404,8 +407,17 @@ function MermaidTopologyGraph(props: {
             padding: 18,
           },
         });
-        const rendered = await mermaid.render(`supervised-topology-${diagramId}`, definition);
-        if (cancelled || !hostRef.current) return;
+        const rendered = await mermaid.render(
+          `supervised-topology-${diagramId}-${renderSequence}`,
+          definition,
+        );
+        if (
+          cancelled ||
+          renderSequence !== renderSequenceRef.current ||
+          !hostRef.current
+        ) {
+          return;
+        }
         hostRef.current.innerHTML = rendered.svg;
         hostRef.current.querySelectorAll<SVGGElement>("g.node").forEach((node) => {
           const diagramNodeId = [...diagramNodeIdsRef.current.keys()].find(
@@ -455,7 +467,7 @@ function MermaidTopologyGraph(props: {
   return (
     <div
       ref={hostRef}
-      className="mx-auto flex min-h-[440px] w-full min-w-0 items-center justify-center px-6 py-8 [&_svg]:h-auto [&_svg]:max-h-[460px] [&_svg]:w-full [&_.edgeLabel]:text-[11px] [&_.label]:leading-5 [&_.node]:drop-shadow-sm"
+      className="mx-auto flex min-h-[440px] w-full min-w-0 items-center justify-center px-6 py-8 [&_svg]:h-auto [&_svg]:max-h-[460px] [&_svg]:w-full [&_.edgeLabel]:text-[11px] [&_.label]:leading-5 [&_g.node]:drop-shadow-sm"
       aria-label="Room governance topology"
     />
   );
