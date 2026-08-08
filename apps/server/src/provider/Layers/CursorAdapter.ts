@@ -96,7 +96,6 @@ import {
 } from "../acp/AcpCoreRuntimeEvents.ts";
 import { parsePermissionRequest } from "../acp/AcpRuntimeModel.ts";
 import { makeAcpNativeLoggers } from "../acp/AcpNativeLogging.ts";
-import { acpOrchestratorSessionReceipt } from "../acp/AcpAdapterSessionSupport.ts";
 import {
   forkAcpTurnIdleWatchdog,
   resolveAcpTurnIdleTimeoutMs,
@@ -673,14 +672,6 @@ export function makeCursorAdapter(
               issue: `Expected provider '${PROVIDER}' but received '${input.provider}'.`,
             });
           }
-          if (input.orchestratorContext != null && agentGatewayCredentials === undefined) {
-            return yield* new ProviderAdapterValidationError({
-              provider: PROVIDER,
-              operation: "startSession",
-              issue:
-                "Cursor Orchestrator sessions require the Synara MCP gateway (install class C: session MCP).",
-            });
-          }
           const cwd = resolveCursorSessionCwd(input.cwd, serverConfig);
           if (cwd === undefined) {
             return yield* new ProviderAdapterValidationError({
@@ -738,7 +729,6 @@ export function makeCursorAdapter(
               : {}),
           };
 
-          const orchestratorSession = acpOrchestratorSessionReceipt(input.orchestratorContext);
           const acp = yield* makeCursorAcpRuntime({
             cursorSettings: effectiveCursorSettings,
             childProcessSpawner,
@@ -746,7 +736,6 @@ export function makeCursorAdapter(
             ...(resumeSessionId ? { resumeSessionId } : {}),
             clientInfo: { name: "Synara", version: "0.0.0" },
             startupTimeouts: CURSOR_ACP_STARTUP_TIMEOUTS,
-            ...(orchestratorSession ? { orchestratorSession } : {}),
             ...(agentGatewayCredentials
               ? {
                   buildMcpServers: (initializeResult) =>
@@ -1719,12 +1708,6 @@ export function makeCursorAdapter(
       capabilities: {
         sessionModelSwitch: "in-session",
         supportsRuntimeModelList: true,
-        orchestrator: {
-          authoritativeRoleInstruction: true,
-          nativeTools: true, // Synara MCP host tools (same catalog for every provider)
-          independentSession: true,
-          instructionChannel: "acp-process-system-prompt",
-        },
       },
       startSession,
       sendTurn,

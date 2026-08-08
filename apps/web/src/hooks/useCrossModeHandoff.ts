@@ -100,10 +100,10 @@ export function useCrossModeHandoff(input: {
     const api = readNativeApi();
     if (!api) throw new Error("Synara server is unavailable.");
     const destinationMode: HandoffConversationMode =
-      input.sourceMode === "project" ? "orchestrator_root" : "project";
+      input.sourceMode === "project" ? "supervised" : "project";
     const store = useComposerDraftStore.getState();
       let destinationThreadId: ThreadId;
-      if (destinationMode === "orchestrator_root") {
+      if (destinationMode === "supervised") {
         destinationThreadId = ensureSupervisedDraft({ project: sourceProject });
         await ensureSupervisedRoom({
           threadId: destinationThreadId,
@@ -130,7 +130,7 @@ export function useCrossModeHandoff(input: {
         `This destination draft already has a handoff from “${existingPacket.sourceTitle}”. Detach it before starting another handoff.`,
       );
     }
-    if (destinationMode === "orchestrator_root") {
+    if (destinationMode === "supervised") {
       await navigate({ to: "/supervised", search: { projectId: sourceProject.id } });
     } else {
       await navigate({ to: "/$threadId", params: { threadId: destinationThreadId } });

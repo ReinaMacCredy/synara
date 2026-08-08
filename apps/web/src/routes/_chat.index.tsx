@@ -6,7 +6,6 @@
 
 import { SpaceId, type ProjectId } from "@synara/contracts";
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
 
 import {
   RestoreOrCreateChatRoute,
@@ -16,10 +15,6 @@ import { readSidebarUiState } from "../components/Sidebar.uiState";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useHandleNewChat } from "../hooks/useHandleNewChat";
 import { VOID_SPACE_KEY } from "../lib/spaceGrouping";
-import {
-  collectOrchestratorThreadIds,
-  orchestratorRootsQueryOptions,
-} from "../lib/orchestratorRoots";
 import { resolveSplitViewThreadIds, useSplitViewStore } from "../splitViewStore";
 import { EMPTY_THREAD_IDS, useStore } from "../store";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
@@ -49,14 +44,6 @@ function ChatIndexRouteView() {
     landingSpaceKey === undefined ? handleNewChat({ fresh: true }) : handleNewChat();
 
   const workspacePaths = { homeDir, chatWorkspaceRoot };
-  const rootsQuery = useQuery(orchestratorRootsQueryOptions({ limit: 100 }));
-  const orchestratorThreadIds = collectOrchestratorThreadIds(
-    rootsQuery.data?.items ?? [],
-    threadIds.flatMap((threadId) => {
-      const thread = sidebarThreadSummaryById[threadId];
-      return thread ? [thread] : [];
-    }),
-  );
   // Only plain, still-unsent chat drafts qualify as restore targets: a non-"chat" entry point
   // isn't a home-chat draft, and `promotedTo` means the draft already became a real thread, so
   // its stale id is no longer valid.
@@ -86,7 +73,6 @@ function ChatIndexRouteView() {
       availableSplitViewIds,
       threadIds,
       sidebarThreadSummaryById,
-      orchestratorThreadIds,
       draftProjectIdByThreadId,
       rememberedSplitViewThreadIds: rememberedSplitView
         ? resolveSplitViewThreadIds(rememberedSplitView)

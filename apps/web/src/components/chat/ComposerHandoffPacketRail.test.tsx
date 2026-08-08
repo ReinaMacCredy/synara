@@ -33,7 +33,7 @@ const draft: HandoffDraftV1 = {
   sourceThreadId,
   sourceTitle: capsule.sourceTitle,
   sourceMode: "project",
-  destinationMode: "orchestrator_root",
+  destinationMode: "supervised",
   sourceProvider: "codex",
   sourceCursor: 12,
   sourceDigest: "source-digest",

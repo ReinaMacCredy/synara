@@ -1,7 +1,7 @@
 // FILE: -rootEventInvalidation.ts
 // Purpose: Classifies streamed orchestration events that invalidate shared query caches.
 // Layer: Root route utility
-// Exports: Event invalidation predicates for provider, project, Git, and Orchestrator caches.
+// Exports: Event invalidation predicates for provider, project, and Git caches.
 
 import { type OrchestrationEvent, type ThreadId } from "@synara/contracts";
 import { resolveThreadWorkspaceCwd } from "@synara/shared/threadEnvironment";
@@ -17,10 +17,6 @@ const FILE_CHANGE_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
 
 export function shouldInvalidateProviderQueriesForEvent(event: OrchestrationEvent): boolean {
   return FILE_CHANGE_EVENT_TYPES.has(event.type);
-}
-
-export function shouldInvalidateOrchestratorQueriesForEvent(event: OrchestrationEvent): boolean {
-  return event.aggregateKind === "orchestrator" || event.aggregateKind === "task_process";
 }
 
 export function shouldInvalidateGitQueriesForEvent(event: OrchestrationEvent): boolean {

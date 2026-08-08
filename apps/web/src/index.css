@@ -558,7 +558,7 @@
   }
 }
 
-/* One-shot entry for the sidebar's segment surface swap (Orchestrator <-> Projects).
+/* One-shot entry for the sidebar's segment surface swap (Supervised <-> Projects).
    Keyed remounts play this on the incoming surface so the switch reads
    as a movement instead of a hard cut. Enter-only by design: no exit or height
    animation, so it cannot feed back into list animation or scroll behavior. */

@@ -94,16 +94,8 @@ it.effect("accepts project script discovery requests", () =>
   }),
 );
 
-it.effect("accepts bounded Orchestrator and TaskProcess requests", () =>
+it.effect("accepts bounded TaskProcess requests", () =>
   Effect.gen(function* () {
-    const roots = yield* decode(WebSocketRequest, {
-      id: "req-roots-1",
-      body: {
-        _tag: ORCHESTRATION_WS_METHODS.listOrchestratorRoots,
-        projectId: "project-1",
-        limit: 25,
-      },
-    });
     const graph = yield* decode(WebSocketRequest, {
       id: "req-process-1",
       body: {
@@ -111,7 +103,6 @@ it.effect("accepts bounded Orchestrator and TaskProcess requests", () =>
         processId: "process-1",
       },
     });
-    assert.strictEqual(roots.body._tag, ORCHESTRATION_WS_METHODS.listOrchestratorRoots);
     assert.strictEqual(graph.body._tag, ORCHESTRATION_WS_METHODS.getTaskProcessGraph);
   }),
 );

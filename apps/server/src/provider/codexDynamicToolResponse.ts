@@ -1,4 +1,4 @@
-import type { OrchestratorToolExecutionResult } from "../orchestration/orchestrator/toolRuntime.ts";
+import type { HostToolExecutionResult } from "../orchestration/hostTools/runtime.ts";
 
 export interface CodexDynamicToolResponse {
   readonly success: true;
@@ -9,7 +9,7 @@ export interface CodexDynamicToolResponse {
 }
 
 export function codexDynamicToolResponse(
-  result: OrchestratorToolExecutionResult,
+  result: HostToolExecutionResult,
 ): CodexDynamicToolResponse {
   return {
     success: true,

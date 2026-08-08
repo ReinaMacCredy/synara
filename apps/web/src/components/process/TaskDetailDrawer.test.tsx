@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { TaskDetailDrawer } from "./TaskDetailDrawer";
 
-function graph(owner: "user" | "orchestrator"): TaskProcessGraphProjection {
+function graph(): TaskProcessGraphProjection {
   const processId = TaskProcessId.makeUnsafe("process");
   const projection = {
     task: {
@@ -40,10 +40,7 @@ function graph(owner: "user" | "orchestrator"): TaskProcessGraphProjection {
       id: processId,
       projectId: ProjectId.makeUnsafe("project"),
       title: "Build",
-      owner:
-        owner === "user"
-          ? { kind: "user" }
-          : { kind: "orchestrator", rootThreadId: "root" as never },
+      owner: { kind: "user" },
       state: "active",
       revision: 1,
       createdAt: "2026-08-01T00:00:00.000Z",
@@ -60,8 +57,7 @@ function graph(owner: "user" | "orchestrator"): TaskProcessGraphProjection {
 
 describe("TaskDetailDrawer", () => {
   it("shows direct semantic controls only for Project-owned processes", () => {
-    const projectGraph = graph("user");
-    const rootGraph = graph("orchestrator");
+    const projectGraph = graph();
     const common = {
       progress: [],
       threadOptions: [{ id: ThreadId.makeUnsafe("thread"), title: "Worker thread" }],
@@ -86,8 +82,8 @@ describe("TaskDetailDrawer", () => {
     const rootMarkup = renderToStaticMarkup(
       <TaskDetailDrawer
         {...common}
-        task={rootGraph.tasks[0]!}
-        graph={rootGraph}
+        task={projectGraph.tasks[0]!}
+        graph={projectGraph}
         canEditGraph={false}
       />,
     );

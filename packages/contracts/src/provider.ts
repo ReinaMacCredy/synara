@@ -27,11 +27,6 @@ import {
   ThreadOriginEnvelope,
 } from "./orchestration";
 import { ProviderSupervisionSessionContext } from "./supervision";
-import {
-  OrchestratorCapabilities,
-  OrchestratorProtocolVersion,
-  OrchestratorRole,
-} from "./orchestrator";
 import { ProviderMentionReference, ProviderSkillReference } from "./providerDiscovery";
 import { AcceptedCrossModeHandoffV1 } from "./handoff";
 
@@ -58,19 +53,6 @@ export const ProviderSession = Schema.Struct({
 });
 export type ProviderSession = typeof ProviderSession.Type;
 
-/**
- * Server-derived Orchestrator authority installed into one standalone provider
- * session. Clients never author this value: the provider command reactor
- * resolves it from the active Root and ownership projections.
- */
-export const ProviderOrchestratorSessionContext = Schema.Struct({
-  protocolVersion: OrchestratorProtocolVersion,
-  rootThreadId: ThreadId,
-  role: OrchestratorRole,
-  capabilities: OrchestratorCapabilities,
-});
-export type ProviderOrchestratorSessionContext = typeof ProviderOrchestratorSessionContext.Type;
-
 export const ProviderSessionStartInput = Schema.Struct({
   threadId: ThreadId,
   provider: Schema.optional(ProviderKind),
@@ -81,7 +63,6 @@ export const ProviderSessionStartInput = Schema.Struct({
   approvalPolicy: Schema.optional(ProviderApprovalPolicy),
   sandboxMode: Schema.optional(ProviderSandboxMode),
   providerOptions: Schema.optional(ProviderStartOptions),
-  orchestratorContext: Schema.optional(Schema.NullOr(ProviderOrchestratorSessionContext)),
   supervisionContext: Schema.optional(Schema.NullOr(ProviderSupervisionSessionContext)),
   handoffContext: Schema.optional(Schema.NullOr(AcceptedCrossModeHandoffV1)),
   runtimeMode: RuntimeMode,

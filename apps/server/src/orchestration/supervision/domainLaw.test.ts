@@ -44,7 +44,7 @@ it.effect("filters Peer noise and coalesces a Lead event burst by episode", () =
   Effect.sync(() => {
     assert.equal(
       isEligibleSupervisionWake({
-        eventType: "orchestrator.assignment.status-reported",
+        eventType: "supervised.specialist.created",
         aggregateThreadId: "root-a",
         leadThreadIds: new Set(["root-a"]),
         peerThreadIds: new Set(["peer-a"]),

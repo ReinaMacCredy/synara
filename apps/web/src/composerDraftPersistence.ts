@@ -71,10 +71,8 @@ const DraftThreadEnvModeSchema = Schema.Literals(["local", "worktree"]);
 const DraftThreadEntryPointSchema = Schema.Literals([
   "chat",
   "terminal",
-    "orchestrator",
-    "supervisor",
-    "supervised",
-  ]);
+  "supervised",
+]);
 
 function cloneBrowserAnnotation(annotation: BrowserAnnotationDraft): BrowserAnnotationDraft {
   return {
@@ -317,8 +315,8 @@ const PersistedDraftThreadState = Schema.Struct({
   ),
   profilePresetId: Schema.optionalKey(Schema.NullOr(ProfilePresetId)),
   leadSeatId: Schema.optionalKey(Schema.NullOr(LeadSeatId)),
-  orchestratorSourceThreadId: Schema.optionalKey(Schema.NullOr(ThreadId)),
-  orchestratorHandoffMessages: Schema.optionalKey(Schema.Array(ThreadHandoffImportedMessage)),
+  supervisedSourceThreadId: Schema.optionalKey(Schema.NullOr(ThreadId)),
+  supervisedHandoffMessages: Schema.optionalKey(Schema.Array(ThreadHandoffImportedMessage)),
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
   workingDirectory: Schema.optionalKey(Schema.NullOr(Schema.String)),
@@ -769,21 +767,21 @@ function normalizePersistedDraftThreads(
         candidateDraftThread.leadSeatId.trim().length > 0
           ? LeadSeatId.makeUnsafe(candidateDraftThread.leadSeatId)
           : null;
-      const orchestratorSourceThreadId =
-        typeof candidateDraftThread.orchestratorSourceThreadId === "string" &&
-        candidateDraftThread.orchestratorSourceThreadId.length > 0
-          ? (candidateDraftThread.orchestratorSourceThreadId as ThreadId)
-          : candidateDraftThread.orchestratorSourceThreadId === null
+      const supervisedSourceThreadId =
+        typeof candidateDraftThread.supervisedSourceThreadId === "string" &&
+        candidateDraftThread.supervisedSourceThreadId.length > 0
+          ? (candidateDraftThread.supervisedSourceThreadId as ThreadId)
+          : candidateDraftThread.supervisedSourceThreadId === null
             ? null
             : undefined;
-      let orchestratorHandoffMessages: ReadonlyArray<ThreadHandoffImportedMessage> | undefined;
-      if (Array.isArray(candidateDraftThread.orchestratorHandoffMessages)) {
+      let supervisedHandoffMessages: ReadonlyArray<ThreadHandoffImportedMessage> | undefined;
+      if (Array.isArray(candidateDraftThread.supervisedHandoffMessages)) {
         try {
-          orchestratorHandoffMessages = Schema.decodeUnknownSync(
+          supervisedHandoffMessages = Schema.decodeUnknownSync(
             Schema.Array(ThreadHandoffImportedMessage),
-          )(candidateDraftThread.orchestratorHandoffMessages);
+          )(candidateDraftThread.supervisedHandoffMessages);
         } catch {
-          orchestratorHandoffMessages = undefined;
+          supervisedHandoffMessages = undefined;
         }
       }
       if (typeof projectId !== "string" || projectId.length === 0) {
@@ -807,8 +805,8 @@ function normalizePersistedDraftThreads(
         supervisionMode,
         profilePresetId,
         leadSeatId,
-        ...(orchestratorSourceThreadId !== undefined ? { orchestratorSourceThreadId } : {}),
-        ...(orchestratorHandoffMessages !== undefined ? { orchestratorHandoffMessages } : {}),
+        ...(supervisedSourceThreadId !== undefined ? { supervisedSourceThreadId } : {}),
+        ...(supervisedHandoffMessages !== undefined ? { supervisedHandoffMessages } : {}),
         branch: typeof branch === "string" ? branch : null,
         worktreePath: normalizedWorktreePath,
         workingDirectory: typeof workingDirectory === "string" ? workingDirectory : null,

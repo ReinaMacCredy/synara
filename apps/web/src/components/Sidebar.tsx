@@ -83,7 +83,6 @@ import {
   MAX_PINNED_PROJECTS,
   type DesktopUpdateState,
   type OrchestrationShellSnapshot,
-  type OrchestratorRoot,
   type Room,
   PROVIDER_DISPLAY_NAMES,
   ProjectId,
@@ -164,15 +163,6 @@ import {
   readNativeApiServerCapability,
 } from "../nativeApi";
 import { isHomeChatContainerProject, prewarmHomeChatProject } from "../lib/chatProjects";
-import {
-  collectOrchestratorThreadIds,
-  orchestratorContainmentParentId,
-  orchestratorQueryKeys,
-  orchestratorRootQueryOptions,
-  orchestratorRootsQueryOptions,
-  partitionThreadsByOrchestratorMembership,
-  sortOrchestratorRoots,
-} from "../lib/orchestratorRoots";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useLatestProjectStore } from "../latestProjectStore";
 import { resolveThreadEnvironmentPresentation } from "../lib/threadEnvironment";
@@ -219,11 +209,6 @@ import { ThreadPinToggleButton } from "./ThreadPinToggleButton";
 import { ThreadActivityGlyph, type ThreadActivityState } from "./ThreadActivityGlyph";
 import { ProviderIcon } from "./ProviderIcon";
 import { DisclosureRegion } from "./ui/DisclosureRegion";
-import {
-  projectOrchestratorSidebarChildren,
-  visibleOrchestratorSidebarChildren,
-  type OrchestratorSidebarChild,
-} from "./orchestrator/orchestratorSidebarProjection";
 import { createSidebarThreadRowGestures } from "./sidebarThreadRowGestures";
 import {
   SidebarThreadRowContent,
@@ -306,7 +291,6 @@ import {
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import {
   buildProjectThreadTree,
-  buildOrchestratorSignalStack,
   derivePinnedProjectIdsForSidebar,
   deriveSidebarProjectData,
   createSidebarThreadHoverAnchorId,
@@ -348,7 +332,6 @@ import {
   shouldPrunePinnedThreads,
   shouldClearThreadSelectionOnMouseDown,
   sortProjectsForSidebar,
-  sortOrchestratorRootThreadsForSidebar,
   sortThreadsForSidebar,
 } from "./Sidebar.logic";
 import type { LastThreadRoute } from "../chatRouteRestore";
@@ -1486,9 +1469,7 @@ export default function Sidebar() {
   const isOnSettings = useLocation({
     select: (loc) => loc.pathname === "/settings",
   });
-  const isOnOrchestratorRoute =
-    pathname.startsWith("/supervised") ||
-    pathname.startsWith("/orchestrator");
+  const isOnSupervisedRoute = pathname.startsWith("/supervised");
   const isOnAutomations = pathname.startsWith("/automations");
   const isOnPullRequests = pathname.startsWith("/pull-requests");
   const isOnTasks = pathname.startsWith("/tasks") || pathname.includes("/tasks/");
@@ -1540,7 +1521,7 @@ export default function Sidebar() {
     [automationListQuery.data],
   );
   const { settings: appSettings, updateSettings } = useAppSettings();
-  // Projects and Orchestrator are always available; the standalone Chats footer is optional.
+  // Projects and Supervised are always available; the standalone Chats footer is optional.
   const chatsSectionVisible = appSettings.showChatsSection;
   const { handleNewThread } = useHandleNewThread();
   const { handleNewChat } = useHandleNewChat();
@@ -1671,7 +1652,7 @@ export default function Sidebar() {
   const { activeProjectId: focusedProjectId } = useFocusedChatContext();
   const latestProjectId = useLatestProjectStore((state) => state.latestProjectId);
   const [createProjectDialogOpen, setCreateProjectDialogOpen] = useState(false);
-  const [createProjectReturnToOrchestrator, setCreateProjectReturnToOrchestrator] = useState(false);
+  const [createProjectReturnToSupervised, setCreateProjectReturnToSupervised] = useState(false);
   const [searchPaletteOpen, setSearchPaletteOpen] = useState(false);
   const openFeedbackDialog = useFeedbackDialogStore((state) => state.openDialog);
   const [searchPaletteMode, setSearchPaletteMode] = useState<SidebarSearchPaletteMode>("search");
@@ -1687,15 +1668,15 @@ export default function Sidebar() {
   const [chatSectionExpanded, setChatSectionExpanded] = useState(
     () => readSidebarUiState().chatSectionExpanded,
   );
-  const [orchestratorRootsSectionExpanded] = useState(
-    () => readSidebarUiState().orchestratorRootsSectionExpanded,
+  const [supervisedRoomsSectionExpanded] = useState(
+    () => readSidebarUiState().supervisedRoomsSectionExpanded,
   );
-  const [orchestratorExpandedRootIds, setOrchestratorExpandedRootIds] = useState<
+  const [supervisedExpandedRoomIds, setSupervisedExpandedRoomIds] = useState<
     ReadonlySet<ThreadId>
   >(
     () =>
       new Set(
-        readSidebarUiState().orchestratorExpandedRootIds.map((id) => ThreadId.makeUnsafe(id)),
+        readSidebarUiState().supervisedExpandedRoomIds.map((id) => ThreadId.makeUnsafe(id)),
       ),
   );
   const [chatThreadListExtraPages, setChatThreadListExtraPages] = useState(
@@ -1775,90 +1756,43 @@ export default function Sidebar() {
   const visualActiveSidebarThreadId = optimisticActiveThreadId ?? routeThreadId;
   const selectSidebarThreads = useMemo(() => createSidebarThreadSummariesSelector(), []);
   const selectSidebarTreeThreads = useMemo(() => createSidebarTreeThreadsSelector(), []);
-const sidebarThreads = useStore(selectSidebarThreads);
-const sidebarTreeThreads = useStore(selectSidebarTreeThreads);
-const orchestratorRootsQuery = useQuery(orchestratorRootsQueryOptions({ limit: 100 }));
-const supervisedRuntimeQuery = useQuery(supervisedRuntimeQueryOptions());
-const supervisedRooms = useMemo(
-  () => supervisedRuntimeQuery.data?.rooms ?? [],
-  [supervisedRuntimeQuery.data?.rooms],
-);
-const orchestratorRoots = useMemo(
-  () => sortOrchestratorRoots(orchestratorRootsQuery.data?.items ?? []),
-  [orchestratorRootsQuery.data?.items],
-);
-const selectProjectLastActivityAt = useMemo(() => createProjectLastActivityAtSelector(), []);
-const projectLastActivityAt = useStore(selectProjectLastActivityAt);
-  const orchestratorThreadIds = useMemo(
-    () => collectOrchestratorThreadIds(orchestratorRoots, sidebarTreeThreads),
-    [orchestratorRoots, sidebarTreeThreads],
+  const sidebarThreads = useStore(selectSidebarThreads);
+  const sidebarTreeThreads = useStore(selectSidebarTreeThreads);
+  const supervisedRuntimeQuery = useQuery(supervisedRuntimeQueryOptions());
+  const supervisedRooms = useMemo(
+    () => supervisedRuntimeQuery.data?.rooms ?? [],
+    [supervisedRuntimeQuery.data?.rooms],
   );
-  const orchestratorRootIdSet = useMemo(
-    () => new Set(orchestratorRoots.map((root) => root.rootThreadId)),
-    [orchestratorRoots],
+  const supervisedThreadIds = useMemo(
+    () => new Set(supervisedRooms.map((room) => ThreadId.makeUnsafe(room.id))),
+    [supervisedRooms],
   );
-  const orchestratorRootByThreadId = useMemo(
-    () => new Map(orchestratorRoots.map((root) => [root.rootThreadId, root] as const)),
-    [orchestratorRoots],
+  const ordinarySidebarThreads = useMemo(
+    () => sidebarThreads.filter((thread) => !supervisedThreadIds.has(thread.id)),
+    [sidebarThreads, supervisedThreadIds],
   );
-const orchestratorRootIdByThreadId = useMemo(() => {
-    const roots = new Map<ThreadId, ThreadId>(
-      orchestratorRoots.map((root) => [root.rootThreadId, root.rootThreadId] as const),
-    );
-  let changed = true;
-    while (changed) {
-      changed = false;
-      for (const thread of sidebarTreeThreads) {
-        const containmentParentId = orchestratorContainmentParentId(thread);
-        if (!containmentParentId || roots.has(thread.id)) continue;
-        const rootThreadId = roots.get(containmentParentId);
-        if (!rootThreadId) continue;
-        roots.set(thread.id, rootThreadId);
-        changed = true;
-      }
-    }
-    return roots;
-  }, [orchestratorRoots, sidebarTreeThreads]);
-  const orchestratorThreadCountByRootId = useMemo(() => {
-    const counts = new Map<ThreadId, number>();
-    for (const rootThreadId of orchestratorRootIdByThreadId.values()) {
-      counts.set(rootThreadId, (counts.get(rootThreadId) ?? 0) + 1);
-    }
-    return counts;
-  }, [orchestratorRootIdByThreadId]);
-  const {
-    ordinaryThreads: ordinarySidebarThreads,
-    orchestratorThreads: orchestratorSidebarThreads,
-  } = useMemo(
-    () => partitionThreadsByOrchestratorMembership(sidebarThreads, orchestratorThreadIds),
-    [orchestratorThreadIds, sidebarThreads],
+  const ordinarySidebarTreeThreads = useMemo(
+    () => sidebarTreeThreads.filter((thread) => !supervisedThreadIds.has(thread.id)),
+    [sidebarTreeThreads, supervisedThreadIds],
   );
-  const { ordinaryThreads: ordinarySidebarTreeThreads } = useMemo(
-    () => partitionThreadsByOrchestratorMembership(sidebarTreeThreads, orchestratorThreadIds),
-    [orchestratorThreadIds, sidebarTreeThreads],
-  );
-  const orchestratorRootThreads = useMemo(
+  const supervisedRoomThreads = useMemo(
     () =>
-      orchestratorRoots.flatMap((root) => {
-        const thread = sidebarThreadSummaryById[root.rootThreadId];
+      supervisedRooms.flatMap((room) => {
+        const thread = sidebarThreadSummaryById[room.id];
         return thread && (thread.archivedAt ?? null) === null ? [thread] : [];
       }),
-    [orchestratorRoots, sidebarThreadSummaryById],
+    [sidebarThreadSummaryById, supervisedRooms],
   );
+  const selectProjectLastActivityAt = useMemo(() => createProjectLastActivityAtSelector(), []);
+  const projectLastActivityAt = useStore(selectProjectLastActivityAt);
   // Drives the unread dot on the header Activity bell.
   const hasUnreadOrdinaryActivity = useMemo(
     () => hasUnreadActivityOutsideActiveThread(ordinarySidebarThreads, activeSidebarThreadId),
     [activeSidebarThreadId, ordinarySidebarThreads],
   );
-  const hasUnreadOrchestratorActivity = useMemo(
-    () =>
-      hasUnreadActivityOutsideActiveThread(
-        orchestratorRootThreads,
-        activeSidebarThreadId
-          ? (orchestratorRootIdByThreadId.get(activeSidebarThreadId) ?? activeSidebarThreadId)
-          : null,
-      ),
-    [activeSidebarThreadId, orchestratorRootIdByThreadId, orchestratorRootThreads],
+  const hasUnreadSupervisedActivity = useMemo(
+    () => hasUnreadActivityOutsideActiveThread(supervisedRoomThreads, activeSidebarThreadId),
+    [activeSidebarThreadId, supervisedRoomThreads],
   );
   const dismissThreadStatus = useCallback(
     (threadId: ThreadId, statusKey: string | null | undefined) => {
@@ -1985,66 +1919,7 @@ const orchestratorRootIdByThreadId = useMemo(() => {
     sidebarThreadSummaryById,
     threadsHydrated,
   });
-  const archiveOrchestratorRoot = useCallback(
-    async (root: OrchestratorRoot, options: { confirm: boolean }) => {
-      const api = readNativeApi();
-      if (!api) return;
-      const threadTitle = sidebarThreadSummaryById[root.rootThreadId]?.title ?? "Lead Room";
-      if (options.confirm && appSettings.confirmThreadArchive) {
-        const confirmed = await api.dialogs.confirm(
-          [
-            `Archive Root "${threadTitle}"?`,
-            "The Root and its root thread will move to Settings > Archived chats, where they can be restored together.",
-          ].join("\n"),
-        );
-        if (!confirmed) return;
-      }
-      try {
-        await api.orchestration.archiveOrchestratorRoot({
-          command: {
-            type: "orchestrator.root.archive",
-            commandId: newCommandId(),
-            rootThreadId: root.rootThreadId,
-            projectId: root.projectId,
-            actor: { kind: "user", actorId: "owner" },
-            protocolVersion: root.protocolVersion,
-            expectedRevision: root.revision,
-            reason: null,
-            createdAt: new Date().toISOString(),
-          },
-        });
-        const shellSnapshot = await api.orchestration.getShellSnapshot();
-        syncServerShellSnapshot(shellSnapshot);
-        if (
-          routePathname === `/supervised/${root.rootThreadId}` ||
-          routePathname === `/orchestrator/${root.rootThreadId}`
-        ) {
-          await navigate({ to: "/supervised", search: { projectId: root.projectId } });
-        }
-        queryClient.removeQueries({ queryKey: orchestratorQueryKeys.root(root.rootThreadId) });
-        await queryClient.invalidateQueries({ queryKey: orchestratorQueryKeys.all });
-        toastManager.add({
-          type: "success",
-          title: "Root archived",
-          description: "Restore it from Settings > Archived chats.",
-        });
-      } catch (error) {
-        toastManager.add({
-          type: "error",
-          title: "Could not archive Root",
-          description: error instanceof Error ? error.message : "Unable to archive the Root.",
-        });
-      }
-    },
-    [
-      appSettings.confirmThreadArchive,
-      navigate,
-      queryClient,
-      routePathname,
-      sidebarThreadSummaryById,
-      syncServerShellSnapshot,
-    ],
-  );
+
   const {
     projectRunsByProjectId,
     projectRunServerByProjectId,
@@ -2074,25 +1949,7 @@ const orchestratorRootIdByThreadId = useMemo(() => {
   const activeRouteProject = activeRouteProjectId
     ? (projectById.get(activeRouteProjectId) ?? null)
     : null;
-  const isOnOrchestrator =
-    isOnOrchestratorRoute || (routeThreadId !== null && orchestratorThreadIds.has(routeThreadId));
-  const orchestratorRootSnapshotQueries = useQueries({
-    queries: orchestratorRoots.map((root) => ({
-      ...orchestratorRootQueryOptions(root.rootThreadId),
-      enabled: isOnOrchestrator,
-      staleTime: 5_000,
-      placeholderData: (previousData: unknown) => previousData,
-    })),
-  });
-  const orchestratorSnapshotByRootId = useMemo(() => {
-    const snapshots = new Map<ThreadId, (typeof orchestratorRootSnapshotQueries)[number]["data"]>();
-    for (let index = 0; index < orchestratorRoots.length; index += 1) {
-      const root = orchestratorRoots[index];
-      const result = orchestratorRootSnapshotQueries[index]?.data;
-      if (root && result) snapshots.set(root.rootThreadId, result);
-    }
-    return snapshots;
-  }, [orchestratorRootSnapshotQueries, orchestratorRoots]);
+  const isOnSupervised = isOnSupervisedRoute;
   const ordinarySpaceProjects = useMemo(
     () =>
       projects.filter((project) => isOrdinarySpaceProject(project, { homeDir, chatWorkspaceRoot })),
@@ -2117,10 +1974,10 @@ const orchestratorRootIdByThreadId = useMemo(() => {
   );
   const pinnedThreads = useMemo(
     () =>
-      isOnOrchestrator
+      isOnSupervised
         ? []
         : getPinnedThreadsForSidebar(activeSpaceOrdinarySidebarTreeThreads, pinnedThreadIds),
-    [activeSpaceOrdinarySidebarTreeThreads, isOnOrchestrator, pinnedThreadIds],
+    [activeSpaceOrdinarySidebarTreeThreads, isOnSupervised, pinnedThreadIds],
   );
   const openPrLink = useCallback((event: MouseEvent<HTMLElement>, prUrl: string) => {
     event.preventDefault();
@@ -2583,8 +2440,8 @@ const orchestratorRootIdByThreadId = useMemo(() => {
     if (isOnSettings) {
       return;
     }
-    lastActiveSidebarSegmentRef.current = isOnOrchestrator ? "supervised" : "threads";
-  }, [isOnOrchestrator, isOnSettings]);
+    lastActiveSidebarSegmentRef.current = isOnSupervised ? "supervised" : "threads";
+  }, [isOnSupervised, isOnSettings]);
 
   const handleBackToAppFromSettings = useCallback(() => {
     const fromSupervised = lastActiveSidebarSegmentRef.current === "supervised";
@@ -2632,10 +2489,10 @@ const orchestratorRootIdByThreadId = useMemo(() => {
   const handleCreateHomeChat = useCallback(async () => {
     await handleNewChat({ fresh: true });
   }, [handleNewChat]);
-  const handleCreateOrchestrator = useCallback(() => {
-    const projectId = focusedProjectId ?? orchestratorRoots[0]?.projectId ?? null;
+  const handleCreateSupervised = useCallback(() => {
+    const projectId = focusedProjectId ?? supervisedRooms[0]?.projectId ?? projects[0]?.id ?? null;
     if (!projectId) {
-      setCreateProjectReturnToOrchestrator(true);
+      setCreateProjectReturnToSupervised(true);
       setCreateProjectDialogOpen(true);
       return;
     }
@@ -2643,7 +2500,7 @@ const orchestratorRootIdByThreadId = useMemo(() => {
       to: "/supervised",
       search: { projectId },
     });
-  }, [focusedProjectId, navigate, orchestratorRoots]);
+  }, [focusedProjectId, navigate, projects, supervisedRooms]);
 
   const addProjectFromPath = useCallback(
     async (
@@ -2651,7 +2508,7 @@ const orchestratorRootIdByThreadId = useMemo(() => {
       options: {
         createIfMissing?: boolean;
         spaceId?: SpaceId | null;
-        surface?: "project" | "orchestrator";
+        surface?: "project" | "supervised";
       } = {},
     ) => {
       const cwd = rawCwd.trim();
@@ -2669,7 +2526,7 @@ const orchestratorRootIdByThreadId = useMemo(() => {
         created: boolean,
       ): Promise<boolean> => {
         syncServerShellSnapshot(snapshot);
-        if (options.surface === "orchestrator") {
+        if (options.surface === "supervised") {
           setProjectExpanded(projectId, true);
           await navigate({ to: "/supervised", search: { projectId } });
           return true;
@@ -2678,7 +2535,7 @@ const orchestratorRootIdByThreadId = useMemo(() => {
           ? openOrCreateProjectThreadFromSnapshot(projectId, snapshot)
           : openExistingProjectFromSnapshot(projectId, snapshot);
       };
-      const recoverForOrchestrator = async (
+      const recoverForSupervised = async (
         recovery: Promise<{
           project: OrchestrationShellSnapshot["projects"][number] | null;
           snapshot: OrchestrationShellSnapshot | null;
@@ -2694,12 +2551,12 @@ const orchestratorRootIdByThreadId = useMemo(() => {
         return openResolvedProject(project.id, snapshot, false);
       };
       const recoverByProjectId = (projectId: ProjectId) =>
-        options.surface === "orchestrator"
-          ? recoverForOrchestrator(waitForProjectInSnapshot(api, projectId))
+        options.surface === "supervised"
+          ? recoverForSupervised(waitForProjectInSnapshot(api, projectId))
           : recoverExistingProjectFromServer(api, projectId);
       const recoverByWorkspaceRoot = (workspaceRoot: string) =>
-        options.surface === "orchestrator"
-          ? recoverForOrchestrator(waitForProjectWorkspaceRootInSnapshot(api, workspaceRoot))
+        options.surface === "supervised"
+          ? recoverForSupervised(waitForProjectWorkspaceRootInSnapshot(api, workspaceRoot))
           : recoverExistingProjectByWorkspaceRootFromServer(api, workspaceRoot);
 
     // The flow lives in a nested function that the exclusive lock helper merely awaits: React
@@ -2758,7 +2615,7 @@ const orchestratorRootIdByThreadId = useMemo(() => {
         // snapshot is just slow to catch up, preserve the initiating surface while the
         // domain-event stream catches the shared project list up.
         setProjectExpanded(creationResult.projectId, true);
-        if (options.surface === "orchestrator") {
+        if (options.surface === "supervised") {
           await navigate({
             to: "/supervised",
             search: { projectId: creationResult.projectId },
@@ -2792,8 +2649,8 @@ const orchestratorRootIdByThreadId = useMemo(() => {
     setCreateProjectDialogOpen(true);
   }, []);
 
-  const handleStartAddProjectForOrchestrator = useCallback(() => {
-    setCreateProjectReturnToOrchestrator(true);
+  const handleStartAddProjectForSupervised = useCallback(() => {
+    setCreateProjectReturnToSupervised(true);
     setCreateProjectDialogOpen(true);
   }, []);
 
@@ -2822,24 +2679,16 @@ const orchestratorRootIdByThreadId = useMemo(() => {
       }),
     [currentProjectShortcutTargetId, latestUsableProjectId],
   );
-  const activeOrchestratorRootId = routeThreadId
-    ? (orchestratorRootIdByThreadId.get(routeThreadId) ?? null)
-    : null;
-  const activeOrchestratorRoot = activeOrchestratorRootId
-    ? (orchestratorRootByThreadId.get(activeOrchestratorRootId) ?? null)
-    : null;
   const tasksProjectId = primaryNewThreadTarget?.projectId ?? null;
   const taskProcessesQuery = useQuery(
     taskProcessesQueryOptions({
       projectId: tasksProjectId ?? ProjectId.makeUnsafe("sidebar-tasks-pending"),
       includeArchived: false,
-      enabled: !isOnOrchestrator && tasksProjectId !== null,
+      enabled: tasksProjectId !== null,
     }),
   );
   const projectTaskProcessId = resolveUserOwnedTaskProcessId(taskProcessesQuery.data?.items ?? []);
-  const activeTaskProcessId = isOnOrchestrator
-    ? (activeOrchestratorRoot?.activeProcessId ?? null)
-    : projectTaskProcessId;
+  const activeTaskProcessId = projectTaskProcessId;
   const taskProcessSummaryQuery = useQuery({
     ...taskProcessSummaryQueryOptions(
       activeTaskProcessId ?? TaskProcessId.makeUnsafe("sidebar-task-summary-pending"),
@@ -2881,23 +2730,6 @@ const orchestratorRootIdByThreadId = useMemo(() => {
   );
 
   const handleOpenTasks = useCallback(() => {
-    if (isOnOrchestrator) {
-      const rootThreadId = activeOrchestratorRoot?.rootThreadId;
-      const processId = activeOrchestratorRoot?.activeProcessId;
-      if (!rootThreadId || !processId) {
-        toastManager.add({
-          type: "info",
-          title: "No active task plan",
-          description: "This Root has not created a task plan yet.",
-        });
-        return;
-      }
-      void navigate({
-        to: "/supervised/$roomId/tasks/$processId",
-        params: { roomId: rootThreadId, processId },
-      });
-      return;
-    }
     if (!tasksProjectId) {
       handleStartAddProject();
       return;
@@ -2910,10 +2742,7 @@ const orchestratorRootIdByThreadId = useMemo(() => {
       });
     });
   }, [
-    activeOrchestratorRoot,
     handleStartAddProject,
-    isOnOrchestrator,
-    navigate,
     openOrCreateProjectTasks,
     tasksProjectId,
   ]);
@@ -3166,15 +2995,15 @@ const orchestratorRootIdByThreadId = useMemo(() => {
   const prewarmSidebarViewTarget = useCallback(
     (view: SidebarView) => {
       if (view === "supervised") {
-        const rootThreadId = orchestratorRoots[0]?.rootThreadId;
-        if (rootThreadId) prewarmThreadDetailForIntent(rootThreadId);
+        const roomId = supervisedRooms[0]?.id;
+        if (roomId) prewarmThreadDetailForIntent(ThreadId.makeUnsafe(roomId));
         return;
       }
       const target = resolveBackToThreadsTarget();
       if (target.kind === "thread")
         prewarmThreadDetailForIntent(ThreadId.makeUnsafe(target.threadId));
     },
-    [orchestratorRoots, prewarmThreadDetailForIntent, resolveBackToThreadsTarget],
+    [prewarmThreadDetailForIntent, resolveBackToThreadsTarget, supervisedRooms],
   );
 
   const copyThreadIdToClipboard = useCopyThreadIdToClipboard();
@@ -3214,7 +3043,6 @@ const orchestratorRootIdByThreadId = useMemo(() => {
       const thread = getThreadFromState(useStore.getState(), threadId);
       if (!thread) return;
       const threadSummary = sidebarThreadSummaryById[threadId];
-      const orchestratorRoot = orchestratorRootByThreadId.get(threadId) ?? null;
       const isPinned = pinnedThreadIdSet.has(threadId);
       const hasPendingApprovals =
         threadSummary?.hasPendingApprovals ??
@@ -3242,9 +3070,9 @@ const orchestratorRootIdByThreadId = useMemo(() => {
         label: `Handoff to ${PROVIDER_DISPLAY_NAMES[provider]}`,
         separatorBefore: index === 0,
       }));
-      const canCreateOrchestratorFromThread =
+      const canCreateSupervisedFromThread =
         projectById.get(thread.projectId)?.kind === "project" &&
-        !orchestratorThreadIds.has(threadId) &&
+        !supervisedThreadIds.has(threadId) &&
         buildThreadHandoffImportedMessages(thread).length > 0;
       const threadWorkspacePath = resolveThreadWorkspaceCwd({
         projectCwd: projectCwdById.get(thread.projectId) ?? null,
@@ -3259,10 +3087,10 @@ const orchestratorRootIdByThreadId = useMemo(() => {
             ? [{ id: "clear-notification", label: "Clear notification" }]
             : []),
           { id: "mark-unread", label: "Mark unread" },
-          ...(canCreateOrchestratorFromThread
+          ...(canCreateSupervisedFromThread
             ? [
                 {
-                  id: "create-orchestrator",
+                  id: "create-supervised",
                   label: "Create Lead Room from thread",
                   separatorBefore: true,
                 },
@@ -3283,20 +3111,16 @@ const orchestratorRootIdByThreadId = useMemo(() => {
             : [
                 {
                   id: "archive",
-                  label: orchestratorRoot ? "Archive Root" : "Archive",
+                  label: "Archive",
                   separatorBefore: true,
                 },
               ]),
-          ...(orchestratorRoot
-            ? []
-            : [
-                {
-                  id: "delete",
-                  label: "Delete",
-                  destructive: true,
-                  ...(thread.parentThreadId ? { separatorBefore: true } : {}),
-                },
-              ]),
+          {
+            id: "delete",
+            label: "Delete",
+            destructive: true,
+            ...(thread.parentThreadId ? { separatorBefore: true } : {}),
+          },
         ],
         position,
       );
@@ -3319,7 +3143,7 @@ const orchestratorRootIdByThreadId = useMemo(() => {
         clearThreadNotification(threadId);
         return;
       }
-      if (clicked === "create-orchestrator") {
+      if (clicked === "create-supervised") {
         await navigate({
           to: "/supervised",
           search: { projectId: thread.projectId, sourceThreadId: threadId },
@@ -3439,11 +3263,7 @@ const orchestratorRootIdByThreadId = useMemo(() => {
         return;
       }
       if (clicked === "archive") {
-        if (orchestratorRoot) {
-          await archiveOrchestratorRoot(orchestratorRoot, { confirm: true });
-        } else {
-          await confirmAndArchiveThread(threadId);
-        }
+        await confirmAndArchiveThread(threadId);
         return;
       }
       if (clicked !== "delete") return;
@@ -3451,7 +3271,6 @@ const orchestratorRootIdByThreadId = useMemo(() => {
     },
     [
       confirmAndArchiveThread,
-      archiveOrchestratorRoot,
       confirmAndDeleteThread,
       copyPathToClipboard,
       copyThreadIdToClipboard,
@@ -3461,13 +3280,12 @@ const orchestratorRootIdByThreadId = useMemo(() => {
       markThreadUnread,
       navigate,
       openRenameThreadDialog,
-      orchestratorThreadIds,
-      orchestratorRootByThreadId,
       pinnedThreadIdSet,
       projectById,
       projectCwdById,
       resolveThreadStatusForSidebar,
       sidebarThreadSummaryById,
+      supervisedThreadIds,
       toggleThreadPinned,
     ],
   );
@@ -3574,8 +3392,8 @@ const orchestratorRootIdByThreadId = useMemo(() => {
       setLastThreadRoute(nextLastThreadRoute);
       persistSidebarUiState({
         chatSectionExpanded,
-        orchestratorRootsSectionExpanded,
-        orchestratorExpandedRootIds: [...orchestratorExpandedRootIds],
+        supervisedRoomsSectionExpanded,
+        supervisedExpandedRoomIds: [...supervisedExpandedRoomIds],
         chatThreadListExtraPages,
         projectThreadListExtraPagesByCwd: Object.fromEntries(threadListExtraPagesByProjectCwd),
         dismissedThreadStatusKeyByThreadId,
@@ -3588,8 +3406,8 @@ const orchestratorRootIdByThreadId = useMemo(() => {
       chatSectionExpanded,
       chatThreadListExtraPages,
       dismissedThreadStatusKeyByThreadId,
-      orchestratorExpandedRootIds,
-      orchestratorRootsSectionExpanded,
+      supervisedExpandedRoomIds,
+      supervisedRoomsSectionExpanded,
       threadListExtraPagesByProjectCwd,
     ],
   );
@@ -3622,15 +3440,14 @@ const orchestratorRootIdByThreadId = useMemo(() => {
     });
   const activateThreadFromSidebarIntent = useCallback(
     (threadId: ThreadId) => {
-      const rootThreadId = orchestratorRootIdByThreadId.get(threadId);
-      if (rootThreadId) {
+      if (supervisedThreadIds.has(threadId)) {
         clearSelection();
         openChatThreadPage(threadId);
         setOptimisticActiveThreadId(threadId);
         void navigate({
           to: "/supervised/$roomId",
-          params: { roomId: rootThreadId },
-          search: threadId === rootThreadId ? {} : { selectedThreadId: threadId },
+          params: { roomId: threadId },
+          search: {},
         });
         return;
       }
@@ -3641,7 +3458,7 @@ const orchestratorRootIdByThreadId = useMemo(() => {
       clearSelection,
       navigate,
       openChatThreadPage,
-      orchestratorRootIdByThreadId,
+      supervisedThreadIds,
     ],
   );
 
@@ -3710,7 +3527,7 @@ const orchestratorRootIdByThreadId = useMemo(() => {
               if (!project || !snapshot) return false;
 
             handleSelectSpaceForIncomingProject(project.spaceId ?? null);
-            if (createProjectReturnToOrchestrator) {
+            if (createProjectReturnToSupervised) {
               setProjectExpanded(project.id, true);
               await navigate({ to: "/supervised", search: { projectId: project.id } });
               return true;
@@ -3771,7 +3588,7 @@ const orchestratorRootIdByThreadId = useMemo(() => {
           await addProjectFromPath(value.workspaceRoot, {
             createIfMissing: value.createIfMissing,
             spaceId: value.spaceId,
-            ...(createProjectReturnToOrchestrator ? { surface: "orchestrator" as const } : {}),
+            ...(createProjectReturnToSupervised ? { surface: "supervised" as const } : {}),
           });
         }
       };
@@ -3781,8 +3598,8 @@ const orchestratorRootIdByThreadId = useMemo(() => {
       // new project's thread instead of bouncing back to the previous space.
       try {
         await runCreateProject();
-        if (createProjectReturnToOrchestrator) {
-          setCreateProjectReturnToOrchestrator(false);
+        if (createProjectReturnToSupervised) {
+          setCreateProjectReturnToSupervised(false);
         }
       } catch (error) {
         // Project creation is one UI transaction: a failed command must not
@@ -3794,7 +3611,7 @@ const orchestratorRootIdByThreadId = useMemo(() => {
     [
       activeSpaceId,
       addProjectFromPath,
-    createProjectReturnToOrchestrator,
+    createProjectReturnToSupervised,
     handleSelectSpaceForIncomingProject,
       homeDir,
       navigate,
@@ -4093,66 +3910,6 @@ const orchestratorRootIdByThreadId = useMemo(() => {
     () => visibleChatThreadRows.map((row) => row.thread.id),
     [visibleChatThreadRows],
   );
-  const orchestratorRootPresentations = useMemo(
-    () =>
-      orchestratorRootThreads.map((thread) => {
-        const snapshotResult = orchestratorSnapshotByRootId.get(thread.id);
-        const descendantThreads = orchestratorSidebarThreads
-          .filter(
-            (candidate) =>
-              candidate.id !== thread.id &&
-              orchestratorRootIdByThreadId.get(candidate.id) === thread.id,
-          )
-          .map(
-            (candidate): SidebarThreadSummary => ({
-              ...candidate,
-              parentThreadId: orchestratorContainmentParentId(candidate),
-            }),
-          );
-        const children = projectOrchestratorSidebarChildren({
-          rootThreadId: thread.id,
-          threads: descendantThreads,
-          assignments: snapshotResult?.snapshot.assignments ?? [],
-          childProjections: snapshotResult?.snapshot.childProjections ?? [],
-        });
-        const root = orchestratorRootByThreadId.get(thread.id);
-        return {
-          id: thread.id,
-          thread,
-          snapshot: snapshotResult?.snapshot ?? null,
-          children,
-          visibleChildren: visibleOrchestratorSidebarChildren(children),
-          isPinned: pinnedThreadIdSet.has(thread.id),
-          pinnedOrder: pinnedThreadIds.indexOf(thread.id),
-          pinnedAt:
-            (root as (OrchestratorRoot & { pinnedAt?: string | null }) | undefined)?.pinnedAt ??
-            null,
-          lastMeaningfulActivityAt:
-            (root as (OrchestratorRoot & { lastMeaningfulActivityAt?: string | null }) | undefined)
-              ?.lastMeaningfulActivityAt ?? thread.updatedAt,
-          createdAt: thread.createdAt,
-          updatedAt: thread.updatedAt,
-        };
-      }),
-    [
-      orchestratorRootByThreadId,
-      orchestratorRootIdByThreadId,
-      orchestratorRootThreads,
-      orchestratorSidebarThreads,
-      orchestratorSnapshotByRootId,
-      pinnedThreadIdSet,
-      pinnedThreadIds,
-    ],
-  );
-  const orchestratorRootPresentationsByProjectId = useMemo(() => {
-    const byProjectId = new Map<ProjectId, Array<(typeof orchestratorRootPresentations)[number]>>();
-    for (const entry of orchestratorRootPresentations) {
-      const bucket = byProjectId.get(entry.thread.projectId);
-      if (bucket) bucket.push(entry);
-      else byProjectId.set(entry.thread.projectId, [entry]);
-    }
-    return byProjectId;
-  }, [orchestratorRootPresentations]);
   const supervisedRoomsByProjectId = useMemo(() => {
     const byProjectId = new Map<ProjectId, Room[]>();
     for (const room of supervisedRooms) {
@@ -4165,78 +3922,34 @@ const orchestratorRootIdByThreadId = useMemo(() => {
     }
     return byProjectId;
   }, [supervisedRooms]);
-  const noProjectOrchestratorRootPresentations = useMemo(
-    () =>
-      orchestratorRootPresentations.filter(
-        (entry) => projectById.get(entry.thread.projectId)?.kind !== "project",
-      ),
-    [orchestratorRootPresentations, projectById],
-  );
   const noProjectSupervisedRooms = useMemo(
     () =>
       supervisedRooms.filter((room) => projectById.get(room.projectId)?.kind !== "project"),
     [projectById, supervisedRooms],
   );
-  const orchestratorSearchEntries = useMemo(
+  const supervisedSearchEntries = useMemo(
     () =>
-      orchestratorRootThreads.flatMap((rootThread) => {
-        const snapshotResult = orchestratorSnapshotByRootId.get(rootThread.id);
-        const descendants = orchestratorSidebarThreads
-          .filter(
-            (candidate) =>
-              candidate.id !== rootThread.id &&
-              orchestratorRootIdByThreadId.get(candidate.id) === rootThread.id,
-          )
-          .map(
-            (candidate): SidebarThreadSummary => ({
-              ...candidate,
-              parentThreadId: orchestratorContainmentParentId(candidate),
-            }),
-          );
-        const children = projectOrchestratorSidebarChildren({
-          rootThreadId: rootThread.id,
-          threads: descendants,
-          assignments: snapshotResult?.snapshot.assignments ?? [],
-          childProjections: snapshotResult?.snapshot.childProjections ?? [],
-        });
-        return [
-          {
-            threadId: rootThread.id,
-            rootBreadcrumb: rootThread.title || "Lead Room",
-            lifecycle: "Root",
-            model: rootThread.modelSelection.model,
-          },
-          ...children.map((child) => ({
-            threadId: child.thread.id,
-            rootBreadcrumb: `${rootThread.title || "Lead Room"} › Specialist`,
-            lifecycle: childStateLabel(child),
-            model: child.thread.modelSelection.model,
-          })),
-        ];
-      }),
-    [
-      orchestratorRootIdByThreadId,
-      orchestratorRootThreads,
-      orchestratorSidebarThreads,
-      orchestratorSnapshotByRootId,
-    ],
+      supervisedRoomThreads.map((thread) => ({
+        threadId: thread.id,
+        rootBreadcrumb: thread.title || "Lead Room",
+        lifecycle: "Lead Room",
+        model: thread.modelSelection.model,
+      })),
+    [supervisedRoomThreads],
   );
-  const orchestratorRootThreadIds = useMemo(
-    () => orchestratorRootPresentations.map((entry) => entry.thread.id),
-    [orchestratorRootPresentations],
-  );
-  const selectedOrchestratorRootId = activeSidebarThreadId
-    ? (orchestratorRootIdByThreadId.get(activeSidebarThreadId) ?? null)
-    : null;
+  const selectedSupervisedRoomId =
+    activeSidebarThreadId && supervisedThreadIds.has(activeSidebarThreadId)
+      ? activeSidebarThreadId
+      : null;
   useEffect(() => {
-    if (!selectedOrchestratorRootId) return;
-    setOrchestratorExpandedRootIds((current) => {
-      if (current.has(selectedOrchestratorRootId)) return current;
+    if (!selectedSupervisedRoomId) return;
+    setSupervisedExpandedRoomIds((current) => {
+      if (current.has(selectedSupervisedRoomId)) return current;
       const next = new Set(current);
-      next.add(selectedOrchestratorRootId);
+      next.add(selectedSupervisedRoomId);
       return next;
     });
-  }, [selectedOrchestratorRootId]);
+  }, [selectedSupervisedRoomId]);
   const visibleChatPreviewEntries = useMemo(
     () =>
       visibleChatThreadRows.map((row) => ({
@@ -4402,8 +4115,8 @@ const orchestratorRootIdByThreadId = useMemo(() => {
   useEffect(() => {
     persistSidebarUiState({
       chatSectionExpanded,
-      orchestratorRootsSectionExpanded,
-      orchestratorExpandedRootIds: [...orchestratorExpandedRootIds],
+      supervisedRoomsSectionExpanded,
+      supervisedExpandedRoomIds: [...supervisedExpandedRoomIds],
       chatThreadListExtraPages,
       projectThreadListExtraPagesByCwd: Object.fromEntries(threadListExtraPagesByProjectCwd),
       dismissedThreadStatusKeyByThreadId,
@@ -4415,8 +4128,8 @@ const orchestratorRootIdByThreadId = useMemo(() => {
     chatSectionExpanded,
     chatThreadListExtraPages,
     dismissedThreadStatusKeyByThreadId,
-    orchestratorExpandedRootIds,
-    orchestratorRootsSectionExpanded,
+    supervisedExpandedRoomIds,
+    supervisedRoomsSectionExpanded,
     threadListExtraPagesByProjectCwd,
     lastThreadRoute,
   ]);
@@ -4477,7 +4190,7 @@ const orchestratorRootIdByThreadId = useMemo(() => {
       addVisibleThreadId(thread.id);
     }
 
-    if (!isOnOrchestrator) {
+    if (!isOnSupervised) {
       for (const project of surfaceProjects) {
         const projectSidebarData = surfaceProjectSidebarDataById.get(project.id);
         if (!projectSidebarData) {
@@ -4497,14 +4210,14 @@ const orchestratorRootIdByThreadId = useMemo(() => {
       }
     }
 
-  for (const threadId of orchestratorRootThreadIds) {
-      addVisibleThreadId(threadId);
-  }
+    for (const thread of supervisedRoomThreads) {
+      addVisibleThreadId(thread.id);
+    }
 
   return [...visibleThreadIdSet];
 }, [
-    isOnOrchestrator,
-    orchestratorRootThreadIds,
+    isOnSupervised,
+    supervisedRoomThreads,
     pinnedThreads,
     surfaceProjectSidebarDataById,
     surfaceProjects,
@@ -4517,9 +4230,9 @@ const orchestratorRootIdByThreadId = useMemo(() => {
       new Set(
         activityViewEnabled
           ? visibleSidebarThreadIds
-          : [...visibleSidebarThreadIds, ...visibleChatThreadIds, ...orchestratorRootThreadIds],
+          : [...visibleSidebarThreadIds, ...visibleChatThreadIds, ...supervisedThreadIds],
       ),
-    [activityViewEnabled, orchestratorRootThreadIds, visibleChatThreadIds, visibleSidebarThreadIds],
+    [activityViewEnabled, supervisedThreadIds, visibleChatThreadIds, visibleSidebarThreadIds],
 );
   const visibleSidebarThreads = useMemo(
     // Tree source so an active subagent row also gets PR badges and git targets.
@@ -4701,18 +4414,12 @@ function renderThreadArchiveAction(
       compact?: boolean;
   },
 ) {
-  const orchestratorRoot = orchestratorRootByThreadId.get(threadId) ?? null;
-
-  return (
+    return (
       <ThreadArchiveActionButton
         threadId={threadId}
-      toneClassName={toneClassName}
-      compact={options?.compact === true}
-      onArchive={() =>
-          orchestratorRoot
-            ? void archiveOrchestratorRoot(orchestratorRoot, { confirm: false })
-          : void archiveThreadWithUndo(threadId)
-      }
+        toneClassName={toneClassName}
+        compact={options?.compact === true}
+        onArchive={() => void archiveThreadWithUndo(threadId)}
       />
     );
   }
@@ -5267,247 +4974,6 @@ function renderThreadArchiveAction(
     return "idle";
   }
 
-  function childStateLabel(child: OrchestratorSidebarChild<SidebarThreadSummary>): string {
-    switch (child.state) {
-      case "ready":
-        return "Ready to review";
-      case "waiting":
-        return "Waiting via parent";
-      case "blocked":
-        return "Blocked · Root handling";
-      case "failed":
-        return "Failed · Root handling";
-      case "working":
-        return "Working";
-      case "available":
-        return "Available";
-    }
-  }
-
-  function childActivityState(
-    child: OrchestratorSidebarChild<SidebarThreadSummary>,
-  ): ThreadActivityState {
-    switch (child.state) {
-      case "ready":
-        return "ready";
-      case "blocked":
-        return "blocked";
-      case "failed":
-        return "failed";
-      case "working":
-      case "waiting":
-        return "working";
-      case "available":
-        return "available";
-    }
-  }
-
-  function askRootAboutChild(rootThreadId: ThreadId, child: SidebarThreadSummary) {
-    const store = useComposerDraftStore.getState();
-    const existing = store.draftsByThreadId[rootThreadId]?.prompt.trim() ?? "";
-    const reference = `@child[${child.title || child.id}](${child.id})`;
-    store.setPrompt(rootThreadId, existing ? `${existing}\n${reference} ` : `${reference} `);
-    activateThreadFromSidebarIntent(rootThreadId);
-  }
-
-  function renderOrchestratorChildRow(child: OrchestratorSidebarChild<SidebarThreadSummary>) {
-    const thread = child.thread;
-    const isActive = visualActiveSidebarThreadId === thread.id;
-    const provider = thread.session?.provider ?? thread.modelSelection.provider;
-    return (
-      <div key={thread.id} className="group/thread-row relative ml-5">
-        <button
-          type="button"
-          data-thread-item
-          className={cn(
-            "flex min-h-10 w-full items-center gap-2 rounded-lg px-2 py-1.5 pr-16 text-left transition-colors",
-            isActive
-              ? SIDEBAR_ROW_ACTIVE_CLASS_NAME
-              : cn(SIDEBAR_ROW_IDLE_TEXT_CLASS_NAME, SIDEBAR_ROW_HOVER_CLASS_NAME),
-          )}
-          onClick={() => activateThreadFromSidebarIntent(thread.id)}
-        >
-          <ProviderIcon provider={provider} className="size-3.5 shrink-0" />
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-[length:var(--app-font-size-ui,12px)]">
-              {thread.title}
-            </span>
-            <span className="flex min-w-0 items-center gap-1.5 truncate text-[length:var(--app-font-size-ui-meta,10px)] text-muted-foreground/48">
-              <span className="truncate">{childStateLabel(child)}</span>
-              {child.projection?.diffSummary?.additions !== undefined &&
-              child.projection.diffSummary.deletions !== undefined ? (
-                <span
-                  className="shrink-0 font-mono tabular-nums"
-                  title="Changes attributed to this child's current assignment"
-                >
-                  <span className="text-emerald-600/75 dark:text-emerald-400/75">
-                    +{child.projection.diffSummary.additions}
-                  </span>{" "}
-                  <span className="text-red-600/70 dark:text-red-400/70">
-                    -{child.projection.diffSummary.deletions}
-                  </span>
-                </span>
-              ) : null}
-            </span>
-          </span>
-        </button>
-        <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1">
-          <span
-            className={cn(
-              "inline-flex size-4 items-center justify-center leading-none",
-              sidebarHoverRevealHideClassName("thread-row"),
-            )}
-          >
-            <ThreadActivityGlyph state={childActivityState(child)} />
-          </span>
-          <SidebarRowHoverActions threadId={thread.id}>
-            <div className="pointer-events-auto inline-flex items-center gap-1">
-              <SidebarIconButton
-                icon={ChatBubbleIcon}
-                label="Ask Root"
-                tooltip="Ask Root"
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  askRootAboutChild(child.rootThreadId, thread);
-                }}
-              />
-              <SidebarIconButton
-                icon={CopyIcon}
-                label="Copy child reference"
-                tooltip="Copy child reference"
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  void navigator.clipboard.writeText(
-                    `@child[${thread.title || thread.id}](${thread.id})`,
-                  );
-                }}
-              />
-            </div>
-          </SidebarRowHoverActions>
-        </div>
-      </div>
-    );
-  }
-
-  function renderOrchestratorRootHistoryRow(entry: (typeof orchestratorRootPresentations)[number]) {
-    const thread = entry.thread;
-    const expanded = orchestratorExpandedRootIds.has(thread.id);
-    const provider = thread.session?.provider ?? thread.modelSelection.provider;
-    const isActive = selectedOrchestratorRootId === thread.id;
-    const availableCount = entry.children.filter((child) => child.lane === "available").length;
-    const visibleByLane = {
-      ready: entry.visibleChildren.filter((child) => child.lane === "ready"),
-      working: entry.visibleChildren.filter((child) => child.lane === "working"),
-      available: entry.visibleChildren.filter((child) => child.lane === "available"),
-    } as const;
-    const childCounts = {
-      blocked: entry.children.filter(
-        (child) => child.state === "blocked" || child.state === "failed",
-      ).length,
-      ready: entry.children.filter((child) => child.lane === "ready").length,
-      working: entry.children.filter((child) => child.lane === "working").length,
-      available: entry.children.filter((child) => child.lane === "available").length,
-    };
-    const childSummary =
-      childCounts.blocked > 0
-        ? `${childCounts.blocked} blocked · Root handling`
-        : childCounts.ready > 0
-          ? `${childCounts.ready} ready to review`
-          : childCounts.working > 0
-            ? `${childCounts.working} working`
-            : childCounts.available > 0
-              ? `${childCounts.available} available`
-              : "No children";
-    const childSummaryDetails = `${childCounts.blocked} blocked · ${childCounts.ready} ready · ${childCounts.working} working · ${childCounts.available} available`;
-    return (
-      <div key={thread.id} className="group/root-row">
-        <div className="group/thread-row relative flex items-center">
-          <button
-            type="button"
-            aria-label={expanded ? "Collapse Root" : "Expand Root"}
-            aria-expanded={expanded}
-            className="absolute left-1 z-10 inline-flex size-6 items-center justify-center text-muted-foreground/60"
-            onClick={() => {
-              setOrchestratorExpandedRootIds((current) => {
-                const next = new Set(current);
-                if (expanded) next.delete(thread.id);
-                else next.add(thread.id);
-                return next;
-              });
-            }}
-          >
-            <DisclosureChevron open={expanded} />
-          </button>
-          <button
-            type="button"
-            data-thread-item
-            className={cn(
-              "flex min-h-11 w-full items-center gap-2 rounded-lg py-1.5 pl-8 pr-16 text-left transition-colors",
-              isActive
-                ? SIDEBAR_ROW_ACTIVE_CLASS_NAME
-                : cn(SIDEBAR_ROW_IDLE_TEXT_CLASS_NAME, SIDEBAR_ROW_HOVER_CLASS_NAME),
-            )}
-            onClick={() => activateThreadFromSidebarIntent(thread.id)}
-            onDoubleClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              openRenameThreadDialog(thread.id);
-            }}
-          >
-            <ProviderIcon provider={provider} className="size-3.5 shrink-0" />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-[length:var(--app-font-size-ui,12px)]">
-                {thread.title}
-              </span>
-              <span
-                className="block truncate text-[length:var(--app-font-size-ui-meta,10px)] text-muted-foreground/48"
-                title={childSummaryDetails}
-              >
-                {childSummary}
-              </span>
-            </span>
-          </button>
-          <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1">
-            <span
-              className={cn(
-                "inline-flex size-4 items-center justify-center leading-none",
-                sidebarHoverRevealHideClassName("thread-row"),
-              )}
-            >
-              <ThreadActivityGlyph state={threadActivityState(thread)} />
-            </span>
-            {renderThreadHoverActions({
-              threadId: thread.id,
-              toneClassName: "text-muted-foreground/50",
-              isPinned: entry.isPinned,
-            })}
-          </div>
-        </div>
-        <DisclosureRegion open={expanded}>
-          <div className="pb-1">
-            {(["ready", "working", "available"] as const).map((lane) => {
-              const children = visibleByLane[lane];
-              if (children.length === 0) return null;
-              const label =
-                lane === "ready" ? "Ready to review" : lane === "working" ? "Working" : "Available";
-              return (
-                <div key={lane} className="pt-1">
-                  <div className="flex items-center justify-between px-7 py-1 text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground/52">
-                    <span>{label}</span>
-                    <span>{lane === "available" ? availableCount : children.length}</span>
-                  </div>
-                  {children.map(renderOrchestratorChildRow)}
-                </div>
-              );
-            })}
-          </div>
-        </DisclosureRegion>
-      </div>
-    );
-  }
-
   function renderSupervisedRoomHistoryRow(room: Room) {
     const isActive = pathname === `/supervised/${room.id}`;
     const thread = sidebarTreeThreads.find((candidate) => candidate.id === room.id);
@@ -5569,10 +5035,9 @@ function renderThreadArchiveAction(
   function renderProjectItem(
     project: (typeof sortedProjects)[number],
     dragHandleProps: SortableProjectHandleProps | null,
-    surface: "project" | "orchestrator",
+    surface: "project" | "supervised",
   ) {
-    const isOrchestratorProject = surface === "orchestrator";
-    const orchestratorRootEntries = orchestratorRootPresentationsByProjectId.get(project.id) ?? [];
+    const isSupervisedProject = surface === "supervised";
     const supervisedRoomEntries = supervisedRoomsByProjectId.get(project.id) ?? [];
     const isProjectPinned = pinnedProjectIdSet.has(project.id);
     const projectSidebarData = surfaceProjectSidebarDataById.get(project.id);
@@ -5588,13 +5053,9 @@ function renderThreadArchiveAction(
       canShowMoreThreads,
       canShowLessThreads,
     } = projectSidebarData;
-    const projectStatus = isOrchestratorProject
-      ? resolveProjectStatusIndicator(
-          orchestratorRootEntries.map((entry) => resolveThreadStatusForSidebar(entry.thread)),
-        )
-      : ordinaryProjectStatus;
-    const projectItemCount = isOrchestratorProject
-      ? supervisedRoomEntries.length + orchestratorRootEntries.length
+    const projectStatus = isSupervisedProject ? null : ordinaryProjectStatus;
+    const projectItemCount = isSupervisedProject
+      ? supervisedRoomEntries.length
       : allProjectThreadCount;
     const projectFolderIconClassName = isProjectPinned
       ? "opacity-0"
@@ -5736,7 +5197,7 @@ function renderThreadArchiveAction(
               <PinStatusIcon pinned={isProjectPinned} className="size-3.5" />
             </button>
             <SidebarSectionToolbar placement="overlay" revealOnHover>
-              {isOrchestratorProject ? (
+              {isSupervisedProject ? (
                 <SidebarIconButton
                   icon={NewThreadIcon}
                   label={`New Lead Room in ${project.name}`}
@@ -5820,7 +5281,7 @@ function renderThreadArchiveAction(
           {renderProjectHoverCardPopup(
             project,
             projectItemCount,
-            isOrchestratorProject ? "Root" : "chat",
+            isSupervisedProject ? "Root" : "chat",
           )}
         </PreviewCard>
 
@@ -5838,12 +5299,9 @@ function renderThreadArchiveAction(
                 disclosureContentClassName(project.expanded),
               )}
             >
-              {isOrchestratorProject ? (
-                supervisedRoomEntries.length > 0 || orchestratorRootEntries.length > 0 ? (
-                  <>
-                    {supervisedRoomEntries.map(renderSupervisedRoomHistoryRow)}
-                    {orchestratorRootEntries.map(renderOrchestratorRootHistoryRow)}
-                  </>
+              {isSupervisedProject ? (
+                supervisedRoomEntries.length > 0 ? (
+                  supervisedRoomEntries.map(renderSupervisedRoomHistoryRow)
                 ) : (
                   <SidebarMenuSubItem className="w-full px-8 py-1 text-[10px] text-muted-foreground/52">
                     No Lead Rooms yet
@@ -5855,7 +5313,7 @@ function renderThreadArchiveAction(
                 )
               )}
 
-              {!isOrchestratorProject && (canShowMoreThreads || canShowLessThreads) && (
+              {!isSupervisedProject && (canShowMoreThreads || canShowLessThreads) && (
                 <SidebarMenuSubItem className="w-full">
                   <div className="flex w-full items-center gap-1">
                     {canShowMoreThreads && (
@@ -5900,7 +5358,7 @@ function renderThreadArchiveAction(
     );
   }
 
-  function renderProjectFolderList(surface: "project" | "orchestrator") {
+  function renderProjectFolderList(surface: "project" | "supervised") {
     if (isManualProjectSorting) {
       return (
         <DndContext
@@ -6058,7 +5516,7 @@ function renderThreadArchiveAction(
       if (command === "sidebar.addProject") {
         event.preventDefault();
         event.stopPropagation();
-        setCreateProjectReturnToOrchestrator(isOnOrchestrator);
+        setCreateProjectReturnToSupervised(isOnSupervised);
         setCreateProjectDialogOpen(true);
         return;
       }
@@ -6079,7 +5537,7 @@ function renderThreadArchiveAction(
         return;
       }
       if (command === "space.previous" || command === "space.next") {
-        if (!isProjectsSidebarSurface({ isOnSettings, isOnOrchestrator })) return;
+        if (!isProjectsSidebarSurface({ isOnSettings, isOnSupervised })) return;
         event.preventDefault();
         event.stopPropagation();
         const orderedSpaceIds: ReadonlyArray<SpaceId | null> = [
@@ -6094,7 +5552,7 @@ function renderThreadArchiveAction(
       }
       const spaceJumpIndex = spaceJumpIndexFromCommand(command ?? "");
       if (spaceJumpIndex !== null) {
-        if (!isProjectsSidebarSurface({ isOnSettings, isOnOrchestrator })) return;
+        if (!isProjectsSidebarSurface({ isOnSettings, isOnSupervised })) return;
         // Index 0 is Void, then spaces in strip order — the chord addresses what you see.
         const orderedSpaceIds: ReadonlyArray<SpaceId | null> = [
           null,
@@ -6181,7 +5639,7 @@ function renderThreadArchiveAction(
     getCurrentSidebarShortcutContext,
     homeDir,
     isOnSettings,
-    isOnOrchestrator,
+    isOnSupervised,
     navigate,
     searchPaletteMode,
     setActivityViewEnabledSmoothly,
@@ -6769,13 +6227,13 @@ function renderThreadArchiveAction(
             <div className="flex items-center gap-1 pt-0 pb-1 pr-2.5 pl-1.5">
               <SidebarSurfacePicker
                 views={["threads", "supervised"]}
-                activeView={isOnOrchestrator ? "supervised" : "threads"}
+                activeView={isOnSupervised ? "supervised" : "threads"}
                 onSelectView={handleSidebarViewChange}
                 onPrewarmView={prewarmSidebarViewTarget}
               />
               <div className="ml-auto flex items-center gap-1.5">
                 <SidebarSurfaceModeToggle
-                  activeView={isOnOrchestrator ? "supervised" : "threads"}
+                  activeView={isOnSupervised ? "supervised" : "threads"}
                   onSelectView={handleSidebarViewChange}
                   onPrewarmView={prewarmSidebarViewTarget}
                 />
@@ -6793,7 +6251,7 @@ function renderThreadArchiveAction(
                 <SidebarActivityBellButton
                   active={activityViewEnabled}
                   showUnreadDot={
-                    isOnOrchestrator ? hasUnreadOrchestratorActivity : hasUnreadOrdinaryActivity
+                    isOnSupervised ? hasUnreadSupervisedActivity : hasUnreadOrdinaryActivity
                   }
                   shortcutLabel={activityShortcutLabel}
                   onClick={() => setActivityViewEnabledSmoothly(!activityViewEnabled)}
@@ -6801,15 +6259,15 @@ function renderThreadArchiveAction(
               </div>
             </div>
             {/* The keyed content remounts with a short enter animation while the picker
-                stays mounted across Projects and Orchestrator. */}
+                stays mounted across Projects and Supervised. */}
             <div
               key={
                 activityViewEnabled
-                  ? isOnOrchestrator
-                    ? "orchestrator-activity"
+                  ? isOnSupervised
+                    ? "supervised-activity"
                     : "activity"
-                  : isOnOrchestrator
-                    ? "orchestrator"
+                  : isOnSupervised
+                    ? "supervised"
                   : "threads"
               }
               className="sidebar-surface-enter"
@@ -6817,13 +6275,13 @@ function renderThreadArchiveAction(
               {/* Primary sidebar actions stay limited to features we currently ship. */}
               <SidebarGroup className="px-1.5 pt-1 pb-1.5">
                 <SidebarMenu className="gap-0.5">
-                  {isOnOrchestrator ? (
+                  {isOnSupervised ? (
                     <>
                   <SidebarPrimaryAction
                     icon={NewThreadIcon}
                     iconClassName="size-3.5"
                     label="New Lead Room"
-                        onClick={handleCreateOrchestrator}
+                        onClick={handleCreateSupervised}
                       />
                       <SidebarPrimaryAction
                         icon={ProcessIcon}
@@ -6881,35 +6339,28 @@ function renderThreadArchiveAction(
               {activityViewEnabled ? (
                 <SidebarGroup className="px-1.5 py-1.5">
                   <SidebarActivityView
-                    threads={isOnOrchestrator ? orchestratorRootThreads : ordinarySidebarThreads}
+                    threads={isOnSupervised ? supervisedRoomThreads : ordinarySidebarThreads}
                     projectById={projectById}
                     activeThreadId={
-                      isOnOrchestrator ? selectedOrchestratorRootId : visualActiveSidebarThreadId
+                      isOnSupervised ? selectedSupervisedRoomId : visualActiveSidebarThreadId
                     }
                     pinnedThreadIdSet={pinnedThreadIdSet}
                     settledOverrideByThreadId={settledOverrideByThreadId}
-                    settlementEnabled={!isOnOrchestrator}
+                    settlementEnabled={!isOnSupervised}
                     createActionLabel={
-                      isOnOrchestrator
+                      isOnSupervised
                         ? "Start new Lead Room"
                         : "Start new chat in last used project"
                     }
-                    createActionTooltip={isOnOrchestrator ? "New Lead Room" : "New chat"}
+                    createActionTooltip={isOnSupervised ? "New Lead Room" : "New chat"}
                     threadsHydrated={
-                      isOnOrchestrator ? !orchestratorRootsQuery.isPending : threadsHydrated
+                      isOnSupervised ? !supervisedRuntimeQuery.isPending : threadsHydrated
                     }
                     resolveThreadStatus={resolveThreadStatusForSidebar}
                     onOpenThread={activateThreadFromSidebarIntent}
-                    onSetThreadSettled={isOnOrchestrator ? undefined : setThreadSettledWithToast}
+                    onSetThreadSettled={isOnSupervised ? undefined : setThreadSettledWithToast}
                     onToggleThreadPinned={toggleThreadPinned}
-                    onArchiveThread={(threadId) => {
-                      const orchestratorRoot = orchestratorRootByThreadId.get(threadId) ?? null;
-                      if (orchestratorRoot) {
-                        void archiveOrchestratorRoot(orchestratorRoot, { confirm: false });
-                        return;
-                      }
-                      void archiveThreadWithUndo(threadId);
-                    }}
+                    onArchiveThread={(threadId) => void archiveThreadWithUndo(threadId)}
                     onMarkThreadRead={markThreadVisited}
                     onRenameThread={openRenameThreadDialog}
                     onThreadRenamePointerUp={handleThreadRenamePointerUp}
@@ -6923,22 +6374,22 @@ function renderThreadArchiveAction(
                       renderThreadHoverCardPopup(
                         thread,
                         anchorId,
-                        (isOnOrchestrator
-                          ? selectedOrchestratorRootId
+                        (isOnSupervised
+                          ? selectedSupervisedRoomId
                           : visualActiveSidebarThreadId) === thread.id,
                       )
                     }
                     onCreateChat={
-                      isOnOrchestrator ? handleCreateOrchestrator : handlePrimaryNewThread
+                      isOnSupervised ? handleCreateSupervised : handlePrimaryNewThread
                     }
                     onAddProject={
-                      isOnOrchestrator
-                        ? handleStartAddProjectForOrchestrator
+                      isOnSupervised
+                        ? handleStartAddProjectForSupervised
                         : handleStartAddProject
                     }
                   />
                 </SidebarGroup>
-              ) : isOnOrchestrator ? (
+              ) : isOnSupervised ? (
                 <SidebarGroup className="px-1.5 py-1.5">
                   {renderListSectionHeader(
                     "Projects",
@@ -6971,33 +6422,28 @@ function renderThreadArchiveAction(
                         label="Add project"
                         tooltip="Add project"
                         tooltipSide="right"
-                        onClick={handleStartAddProjectForOrchestrator}
+                        onClick={handleStartAddProjectForSupervised}
                       />
                     </>,
                   )}
 
-                  {renderProjectFolderList("orchestrator")}
+                  {renderProjectFolderList("supervised")}
 
-                  {noProjectSupervisedRooms.length > 0 ||
-                  noProjectOrchestratorRootPresentations.length > 0 ? (
+                  {noProjectSupervisedRooms.length > 0 ? (
                     <div className="mt-3">
                       <div className="px-2 pb-1 text-[length:var(--app-font-size-ui,12px)] font-normal text-muted-foreground/58">
                         No project
                       </div>
                       <div className="flex flex-col gap-0.5">
                         {noProjectSupervisedRooms.map(renderSupervisedRoomHistoryRow)}
-                        {noProjectOrchestratorRootPresentations.map(
-                          renderOrchestratorRootHistoryRow,
-                        )}
                       </div>
                     </div>
                   ) : null}
 
                   {standardProjects.length === 0 &&
-                  noProjectSupervisedRooms.length === 0 &&
-                  noProjectOrchestratorRootPresentations.length === 0 ? (
+                  noProjectSupervisedRooms.length === 0 ? (
                     <div className="px-2 pt-4 text-center text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/58">
-                      {orchestratorRootsQuery.isPending ? "Loading projects..." : "No projects yet"}
+                      {supervisedRuntimeQuery.isPending ? "Loading projects..." : "No projects yet"}
                     </div>
                   ) : null}
                   </SidebarGroup>
@@ -7101,8 +6547,8 @@ function renderThreadArchiveAction(
             </div>
           </>
         )}
-      {!isOnSettings && !isOnOrchestrator && !activityViewEnabled && chatsSectionVisible ? (
-        // sidebar-surface-enter: mounts on the Orchestrator -> Projects switch, so it
+      {!isOnSettings && !isOnSupervised && !activityViewEnabled && chatsSectionVisible ? (
+        // sidebar-surface-enter: mounts on the Supervised -> Projects switch, so it
           // animates in step with the keyed surface wrapper above.
           <SidebarGroup className="sidebar-surface-enter px-1.5 pt-1 pb-2">
             <div className="group/collapsible">
@@ -7301,7 +6747,7 @@ function renderThreadArchiveAction(
         activeSpaceId={activeSpaceId}
     onOpenChange={(open) => {
       setCreateProjectDialogOpen(open);
-      if (!open) setCreateProjectReturnToOrchestrator(false);
+      if (!open) setCreateProjectReturnToSupervised(false);
     }}
     defaultCloneParent={homeDir ?? "~"}
         onSubmit={handleCreateProjectSubmit}
@@ -7499,11 +6945,11 @@ function renderThreadArchiveAction(
                 <ProjectContextMenuIcon icon={PinIcon} />
                 <span>{pinActionLabel("project", projectContextMenuIsPinned)}</span>
               </MenuItem>
-              {!isOnOrchestrator &&
+              {!isOnSupervised &&
               (projectContextMenuHasArchivableThreads || projectContextMenuHasAnyThreads) ? (
                 <MenuSeparator />
               ) : null}
-              {!isOnOrchestrator && projectContextMenuHasArchivableThreads ? (
+              {!isOnSupervised && projectContextMenuHasArchivableThreads ? (
                 <MenuItem
                   className={PROJECT_CONTEXT_MENU_ITEM_CLASS_NAME}
                   onClick={() =>
@@ -7517,7 +6963,7 @@ function renderThreadArchiveAction(
                   <span>Archive threads</span>
                 </MenuItem>
               ) : null}
-              {!isOnOrchestrator && projectContextMenuHasAnyThreads ? (
+              {!isOnSupervised && projectContextMenuHasAnyThreads ? (
                 <MenuItem
                   className={PROJECT_CONTEXT_MENU_ITEM_CLASS_NAME}
                   onClick={() =>
@@ -7662,15 +7108,15 @@ function renderThreadArchiveAction(
           actions={searchPaletteActions}
           projects={searchPaletteProjects}
           projectById={projectById}
-          orchestratorEntries={orchestratorSearchEntries}
+          supervisedEntries={supervisedSearchEntries}
           onCreateChat={() =>
-            void (isOnOrchestrator ? handleCreateOrchestrator() : handleCreateHomeChat())
+            void (isOnSupervised ? handleCreateSupervised() : handleCreateHomeChat())
           }
           onCreateThread={handlePrimaryNewThread}
           onAddProjectPath={(path, options) =>
             addProjectFromPath(path, {
               ...options,
-              ...(isOnOrchestrator ? { surface: "orchestrator" as const } : {}),
+              ...(isOnSupervised ? { surface: "supervised" as const } : {}),
             })
           }
           homeDir={homeDir}
@@ -7703,7 +7149,7 @@ function SidebarSearchPaletteController(props: {
   actions: readonly SidebarSearchAction[];
   projects: readonly SidebarSearchProject[];
   projectById: ReadonlyMap<ProjectId, { name: string; remoteName: string }>;
-  orchestratorEntries: readonly {
+  supervisedEntries: readonly {
     threadId: ThreadId;
     rootBreadcrumb: string;
     lifecycle: string;
@@ -7734,14 +7180,14 @@ function SidebarSearchPaletteController(props: {
   ).filter((provider, index) => supportsThreadImport(importProviderCapabilityQueries[index]?.data));
   const searchPaletteThreads = useMemo<SidebarSearchThread[]>(() => {
     const threadById = new Map(threads.map((thread) => [thread.id, thread] as const));
-    const orchestratorEntryById = new Map(
-      props.orchestratorEntries.map((entry) => [entry.threadId, entry] as const),
+    const supervisedEntryById = new Map(
+      props.supervisedEntries.map((entry) => [entry.threadId, entry] as const),
     );
     const searchProjectById = new Map(
       props.projects.map((project) => [project.id, project] as const),
     );
     const ordinaryThreads = sidebarDisplayThreads.flatMap((threadSummary) => {
-      if (orchestratorEntryById.has(threadSummary.id)) return [];
+      if (supervisedEntryById.has(threadSummary.id)) return [];
       const thread = threadById.get(threadSummary.id);
       if (!thread) {
         return [];
@@ -7765,7 +7211,7 @@ function SidebarSearchPaletteController(props: {
         },
       ];
     });
-    const orchestratorThreads = props.orchestratorEntries.flatMap((entry) => {
+    const supervisedThreads = props.supervisedEntries.flatMap((entry) => {
       const thread = threadById.get(entry.threadId);
       if (!thread || thread.archivedAt) return [];
       return [
@@ -7775,7 +7221,7 @@ function SidebarSearchPaletteController(props: {
           projectId: thread.projectId,
           projectName: entry.rootBreadcrumb,
           projectRemoteName: entry.rootBreadcrumb,
-          spaceName: "Orchestrator",
+          spaceName: "Supervised",
           provider: thread.modelSelection.provider,
           model: entry.model,
           rootBreadcrumb: entry.rootBreadcrumb,
@@ -7786,9 +7232,9 @@ function SidebarSearchPaletteController(props: {
         },
       ];
     });
-    return [...ordinaryThreads, ...orchestratorThreads];
+    return [...ordinaryThreads, ...supervisedThreads];
   }, [
-    props.orchestratorEntries,
+    props.supervisedEntries,
     props.projectById,
     props.projects,
     sidebarDisplayThreads,

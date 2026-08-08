@@ -28,7 +28,7 @@ const MAX_WAKE_ATTEMPTS = 3;
 const commandId = (suffix: string) => CommandId.makeUnsafe(`server:supervision-wake:${suffix}`);
 
 const eventLeadCandidates = (event: OrchestrationEvent, leads: readonly LeadSeat[]): LeadSeat[] => {
-  if (event.aggregateKind === "thread" || event.aggregateKind === "orchestrator") {
+  if (event.aggregateKind === "thread") {
     return leads.filter((lead) => lead.activeThreadId === event.aggregateId);
   }
   const payload = event.payload as Record<string, unknown>;
@@ -231,16 +231,14 @@ export const makeSupervisionWakeReactor = Effect.gen(function* () {
     const leadThreadIds = new Set(leads.map((lead) => lead.activeThreadId as string));
     const peerThreadIds = new Set(
       readModel.threads
-        .filter((thread) => thread.creationSource === "orchestrator_native")
+        .filter((thread) => thread.creationSource === "supervised_native")
         .map((thread) => thread.id as string),
     );
     if (
       !isEligibleSupervisionWake({
         eventType: event.type,
         aggregateThreadId:
-          event.aggregateKind === "thread" || event.aggregateKind === "orchestrator"
-            ? event.aggregateId
-            : null,
+          event.aggregateKind === "thread" ? event.aggregateId : null,
         leadThreadIds,
         peerThreadIds,
       })

@@ -68,23 +68,17 @@ interface HotPathModule {
 
 const HOT_PATH_MODULES: readonly HotPathModule[] = [
   { relativePath: "ChatView.tsx", allowedBailoutReasons: [] },
-  {
-    relativePath: "Sidebar.tsx",
-    // The synced upstream Sidebar currently has three exact ref-propagation
-    // bailouts at its project/chat row render helpers. Keep the count exact so
-    // new bailouts still fail while the helpers are moved to component boundaries.
-    allowedBailoutReasons: [
-      "Cannot access refs during render",
-      "Cannot access refs during render",
-      "Cannot access refs during render",
-    ],
-  },
+  { relativePath: "Sidebar.tsx", allowedBailoutReasons: [] },
   {
     relativePath: "chat/MessagesTimeline.tsx",
-    // `useStableRows` deliberately reads and rewrites a previous-state ref inside
-    // its memo to reuse row identities across streaming updates. That pattern is
-    // documented in place and costs memoization only for that one small hook.
-    allowedBailoutReasons: ["Cannot access refs during render"],
+    // Three timeline helpers deliberately retain render-time refs for stable row
+    // identity, non-regressing elapsed labels, and same-paint settle transitions.
+    // Removing the retired thread-message component exposed all of those existing
+    // compiler boundaries, so keep the exact count locked while they are split out.
+    allowedBailoutReasons: Array.from(
+      { length: 14 },
+      () => "Cannot access refs during render",
+    ),
   },
   { relativePath: "chat/TimelineWorkEntryRow.tsx", allowedBailoutReasons: [] },
   { relativePath: "chat/ChatTranscriptPane.tsx", allowedBailoutReasons: [] },

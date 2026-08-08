@@ -24,7 +24,7 @@ type ProcessDbRow = {
   readonly processId: string;
   readonly projectId: string;
   readonly title: string;
-  readonly ownerKind: "user" | "orchestrator";
+  readonly ownerKind: "user";
   readonly ownerRootThreadId: string | null;
   readonly state: "active" | "paused" | "completed" | "archived";
   readonly revision: number;
@@ -117,17 +117,7 @@ const toProcessRecord = (row: ProcessDbRow): ProjectionTaskProcessRecord => ({
     id: TaskProcessId.makeUnsafe(row.processId),
     projectId: row.projectId as ProjectionTaskProcessRecord["process"]["projectId"],
     title: row.title,
-    owner:
-      row.ownerKind === "user"
-        ? { kind: "user" }
-        : {
-            kind: "orchestrator",
-            rootThreadId: row.ownerRootThreadId as NonNullable<
-              ProjectionTaskProcessRecord["process"]["owner"] & {
-                readonly kind: "orchestrator";
-              }
-            >["rootThreadId"],
-          },
+    owner: { kind: "user" },
     state: row.state,
     revision: row.revision,
     createdAt: row.createdAt,
@@ -205,8 +195,6 @@ const makeProjectionTaskProcessRepository = Effect.gen(function* () {
 
   const upsertProcess: ProjectionTaskProcessRepositoryShape["upsertProcess"] = (row) =>
     Effect.gen(function* () {
-      const ownerRootThreadId =
-        row.process.owner.kind === "orchestrator" ? row.process.owner.rootThreadId : null;
       yield* sql`
         INSERT INTO projection_task_processes (
           process_id, project_id, title, owner_kind, owner_root_thread_id,
@@ -214,15 +202,12 @@ const makeProjectionTaskProcessRepository = Effect.gen(function* () {
         )
         SELECT
           ${row.process.id}, ${row.process.projectId}, ${row.process.title},
-          ${row.process.owner.kind}, ${ownerRootThreadId}, ${row.process.state},
+          ${row.process.owner.kind}, ${null}, ${row.process.state},
           ${row.process.revision}, ${row.graphRevision}, ${row.highWaterCursor},
           ${row.process.createdAt}, ${row.process.updatedAt}
         FROM projection_projects
         WHERE project_id = ${row.process.projectId}
-          AND (
-            kind = 'project'
-            OR (kind = 'chat' AND ${row.process.owner.kind} = 'orchestrator')
-          )
+          AND kind = 'project'
           AND deleted_at IS NULL
         ON CONFLICT (process_id) DO UPDATE SET
           title = excluded.title,

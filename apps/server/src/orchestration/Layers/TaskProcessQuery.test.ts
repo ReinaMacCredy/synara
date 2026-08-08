@@ -19,10 +19,6 @@ import {
   type OrchestrationEventStoreShape,
 } from "../../persistence/Services/OrchestrationEventStore.ts";
 import {
-  ProjectionOrchestratorRepository,
-  type ProjectionOrchestratorRepositoryShape,
-} from "../../persistence/Services/ProjectionOrchestrator.ts";
-import {
   ProjectionTaskProcessRepository,
   type ProjectionTaskProcessRecord,
   type ProjectionTaskProcessRepositoryShape,
@@ -36,7 +32,6 @@ import { TaskProcessQueryLive } from "./TaskProcessQuery.ts";
 
 const projectId = ProjectId.makeUnsafe("project-query");
 const processId = TaskProcessId.makeUnsafe("process-query");
-const rootThreadId = ThreadId.makeUnsafe("thread-root");
 const childThreadId = ThreadId.makeUnsafe("thread-child");
 const reviewerThreadId = ThreadId.makeUnsafe("thread-reviewer");
 const occurredAt = "2026-08-01T10:00:00.000Z";
@@ -96,7 +91,7 @@ const process = (id: TaskProcessId, updatedAt: string): TaskProcess => ({
   id,
   projectId,
   title: `Process ${id}`,
-  owner: { kind: "orchestrator", rootThreadId },
+  owner: { kind: "user" },
   state: "active",
   revision: 7,
   createdAt: occurredAt,
@@ -187,7 +182,12 @@ const taskProcesses = {
   },
   getGraph: (requestedProcessId: TaskProcessId) =>
     Effect.succeed(requestedProcessId === processId ? Option.some(graph) : Option.none()),
-  findActiveProcessForThread: () => Effect.succeed(Option.none()),
+  findActiveProcessForThread: (threadId: ThreadId) =>
+    Effect.succeed(
+      threadId === childThreadId || threadId === reviewerThreadId
+        ? Option.some(processId)
+        : Option.none(),
+    ),
   listProgress: () =>
     Effect.succeed([
       {
@@ -203,21 +203,6 @@ const taskProcesses = {
       },
     ]),
 } as unknown as ProjectionTaskProcessRepositoryShape;
-
-const orchestrators = {
-  findRootForThread: (threadId: ThreadId) =>
-    Effect.succeed(
-      threadId === rootThreadId || threadId === childThreadId || threadId === reviewerThreadId
-        ? Option.some(rootThreadId)
-        : Option.none(),
-    ),
-  getCore: (requestedRootThreadId: ThreadId) =>
-    Effect.succeed(
-      requestedRootThreadId === rootThreadId
-        ? Option.some({ root: { root: { activeProcessId: processId } } } as never)
-        : Option.none(),
-    ),
-} as unknown as ProjectionOrchestratorRepositoryShape;
 
 const eventStore = {
   getHighWaterSequence: () => Effect.succeed(20),
@@ -239,7 +224,6 @@ const snapshots = {
 
 const TestLayer = TaskProcessQueryLive.pipe(
   Layer.provide(Layer.succeed(OrchestrationEventStore, eventStore)),
-  Layer.provide(Layer.succeed(ProjectionOrchestratorRepository, orchestrators)),
   Layer.provide(Layer.succeed(ProjectionTaskProcessRepository, taskProcesses)),
   Layer.provide(Layer.succeed(ProjectionSnapshotQuery, snapshots)),
 );
@@ -297,7 +281,7 @@ it.effect("returns revisioned summary and full graph with an explicit projection
 );
 
 it.effect(
-  "keeps child focus bounded to its task and direct steps while Root gets active focus",
+  "keeps a bound thread focused on its task and direct steps",
   () =>
     Effect.gen(function* () {
       const query = yield* TaskProcessQuery;
@@ -314,15 +298,5 @@ it.effect(
         child.progress!.boundThreads.map((thread) => thread.provider),
         ["codex", "claudeAgent"],
       );
-
-      const root = yield* query.getSessionProgress({ threadId: rootThreadId, limit: 1 });
-      expect(root.progress).not.toBeNull();
-      assert.deepStrictEqual(
-        root.progress!.visibleTasks.map(({ task: item }) => item.task.id),
-        [parentTask.task.id],
-      );
-      assert.equal(root.progress!.completedCount, 1);
-      assert.equal(root.progress!.totalCount, 3);
-      assert.isTrue(root.progress!.hasMore);
     }).pipe(Effect.provide(TestLayer)),
 );

@@ -23,7 +23,7 @@ import { makeDurableProviderServiceLive } from "./Layers/ProviderService";
 import { ProviderSessionDirectoryLive } from "./Layers/ProviderSessionDirectory";
 import { ProviderSessionRuntimeRepositoryLive } from "../persistence/Layers/ProviderSessionRuntime";
 import { ProviderRuntimeEventRepositoryLive } from "../persistence/Layers/ProviderRuntimeEvents";
-import { OrchestratorToolRuntimeConfiguredLive } from "../orchestration/Layers/OrchestratorToolRuntime";
+import { HostToolRuntimeConfiguredLive } from "../orchestration/Layers/HostToolRuntime";
 
 export function makeServerProviderLayer(
   options: {
@@ -56,14 +56,14 @@ export function makeServerProviderLayer(
       nativeEventLogger ? { nativeEventLogger } : undefined,
     ).pipe(
       Layer.provide(agentGatewayCredentialsLayer),
-      Layer.provide(OrchestratorToolRuntimeConfiguredLive),
+      Layer.provide(HostToolRuntimeConfiguredLive),
     );
     const claudeAdapterLayer = makeClaudeAdapterLive(
       nativeEventLogger ? { nativeEventLogger } : undefined,
     ).pipe(
       Layer.provide(agentGatewayCredentialsLayer),
       // Install class B: in-process SDK MCP needs the shared tool runtime + discovery.
-      Layer.provide(OrchestratorToolRuntimeConfiguredLive),
+      Layer.provide(HostToolRuntimeConfiguredLive),
     );
     const openCodeAdapterLayer = makeOpenCodeAdapterLive({
       ...(nativeEventLogger ? { nativeEventLogger } : {}),

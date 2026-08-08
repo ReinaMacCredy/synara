@@ -43,10 +43,7 @@ export const ActorIdentity = Schema.Union([
 ]);
 export type ActorIdentity = typeof ActorIdentity.Type;
 
-export const TaskProcessOwner = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("user") }),
-  Schema.Struct({ kind: Schema.Literal("orchestrator"), rootThreadId: ThreadId }),
-]);
+export const TaskProcessOwner = Schema.Struct({ kind: Schema.Literal("user") });
 export type TaskProcessOwner = typeof TaskProcessOwner.Type;
 
 export const TaskProcessState = Schema.Literals(["active", "paused", "completed", "archived"]);
@@ -315,7 +312,6 @@ export const TaskProcessCreateCommand = Schema.Struct({
   type: Schema.Literal("task-process.create"),
   title: ShortText,
   owner: TaskProcessOwner,
-  rootExpectedRevision: Schema.optional(NonNegativeInt),
 });
 export const TaskProcessPauseCommand = Schema.Struct({
   ...TaskProcessCommandBase,

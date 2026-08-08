@@ -28,9 +28,7 @@ import {
   type ProviderEvent,
   type ProviderSession,
   type ProviderSessionStartInput,
-  type ProviderOrchestratorSessionContext,
   type ProviderSupervisionSessionContext,
-  type ProviderKind,
   type ProviderTurnStartResult,
   RuntimeMode,
   ProviderInteractionMode,
@@ -58,14 +56,13 @@ import {
   SYNARA_AGENT_GATEWAY_TOKEN_ENV,
 } from "./agentGateway/mcpInjection.ts";
 import { SYNARA_GATEWAY_HARNESS_POLICY } from "./agentGateway/harnessPolicy.ts";
-import { orchestratorInstructionForSession } from "./orchestration/orchestrator/protocolV1.ts";
 import { supervisionInstructionForSession } from "./orchestration/supervision/protocolV1.ts";
 import { codexProfileConfigArgs } from "./orchestration/supervision/profileResolver.ts";
-import type { OrchestratorToolRuntimeShape } from "./orchestration/Services/OrchestratorToolRuntime.ts";
+import type { HostToolRuntimeShape } from "./orchestration/Services/HostToolRuntime.ts";
 import {
-  OrchestratorToolError,
-  type OrchestratorToolInvocationContext,
-} from "./orchestration/orchestrator/toolRuntime.ts";
+  HostToolError,
+  type HostToolInvocationContext,
+} from "./orchestration/hostTools/runtime.ts";
 import {
   AGENT_GATEWAY_TURN_AUTHORITY_RETIRED,
   type AgentGatewaySessionLease,
@@ -97,14 +94,8 @@ import {
   parseCodexPluginReadResponse,
   parseCodexSkillsListResponse,
 } from "./provider/codexDiscoveryCatalog.ts";
-import { makeOrchestratorProviderCapabilities } from "./provider/orchestratorCapabilities.ts";
 import { codexDynamicToolResponse } from "./provider/codexDynamicToolResponse.ts";
 import { buildHandoffDestinationInstruction } from "./handoff/handoffDestinationInstruction.ts";
-import { ProviderDiscoveryService } from "./provider/Services/ProviderDiscoveryService.ts";
-import {
-  listAllOrchestratorProviderCapabilities,
-  resolveOrchestratorProviderCapability,
-} from "./orchestration/orchestrator/providerCapabilityDiscovery.ts";
 
 const log = createLogger("codex");
 
@@ -191,8 +182,8 @@ interface CodexSessionContext {
   session: ProviderSession;
   lifecycleGeneration?: string;
   supervisionContext?: ProviderSupervisionSessionContext;
-  orchestratorInstruction?: string | null;
-  orchestratorToolRuntime?: OrchestratorToolRuntimeShape;
+  nativeInstruction?: string | null;
+  hostToolRuntime?: HostToolRuntimeShape;
   activeTurnDispatchOrigin?: MessageDispatchOrigin;
   account: CodexAccountSnapshot;
   child: ChildProcessWithoutNullStreams;
@@ -309,11 +300,10 @@ export interface CodexAppServerStartSessionInput {
   readonly serviceTier?: string;
   readonly resumeCursor?: unknown;
   readonly providerOptions?: ProviderSessionStartInput["providerOptions"];
-  readonly orchestratorContext?: ProviderOrchestratorSessionContext | null;
   readonly supervisionContext?: ProviderSessionStartInput["supervisionContext"];
   readonly handoffContext?: AcceptedCrossModeHandoffV1 | null;
   /** Session-scoped native tools for ephemeral system work such as handoff preparation. */
-  readonly nativeToolRuntime?: OrchestratorToolRuntimeShape;
+  readonly nativeToolRuntime?: HostToolRuntimeShape;
   readonly developerInstructions?: string;
   readonly runtimeMode: RuntimeMode;
 }
@@ -787,20 +777,11 @@ export function buildCodexInitializeParams() {
   } as const;
 }
 
-export function buildCodexOrchestratorThreadOpenOverrides(
-  context: ProviderOrchestratorSessionContext | null | undefined,
-): { readonly developerInstructions?: string | null } {
-  if (context === undefined) return {};
-  return {
-    developerInstructions: context === null ? null : orchestratorInstructionForSession(context),
-  };
-}
-
 function buildCodexCollaborationMode(input: {
   readonly interactionMode?: "default" | "plan";
   readonly model?: string;
   readonly effort?: string;
-  readonly orchestratorInstruction?: string | null;
+  readonly nativeInstruction?: string | null;
 }):
   | {
       mode: "default" | "plan";
@@ -811,7 +792,7 @@ function buildCodexCollaborationMode(input: {
       };
     }
   | undefined {
-  if (input.interactionMode === undefined && !input.orchestratorInstruction) {
+  if (input.interactionMode === undefined && !input.nativeInstruction) {
     return undefined;
   }
   const model = normalizeCodexModelSlug(input.model) ?? "gpt-5.3-codex";
@@ -825,8 +806,8 @@ function buildCodexCollaborationMode(input: {
     settings: {
       model,
       reasoning_effort: input.effort ?? "medium",
-      developer_instructions: input.orchestratorInstruction
-        ? `${modeInstruction}\n\n${input.orchestratorInstruction}`
+      developer_instructions: input.nativeInstruction
+        ? `${modeInstruction}\n\n${input.nativeInstruction}`
         : modeInstruction,
     },
   };
@@ -1008,7 +989,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         readonly acquireSessionLease: (threadId: ThreadId) => AgentGatewaySessionLease;
       }
     | undefined;
-  private readonly orchestratorToolRuntime: OrchestratorToolRuntimeShape | undefined;
+  private readonly hostToolRuntime: HostToolRuntimeShape | undefined;
   private readonly teardownProcessTree: typeof teardownProviderProcessTree;
   private readonly taskCompleteFallbackGraceMs: number;
   constructor(
@@ -1019,7 +1000,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         readonly endpointUrl: () => string;
         readonly acquireSessionLease: (threadId: ThreadId) => AgentGatewaySessionLease;
       };
-      readonly orchestratorToolRuntime?: OrchestratorToolRuntimeShape;
+      readonly hostToolRuntime?: HostToolRuntimeShape;
       readonly teardownProcessTree?: typeof teardownProviderProcessTree;
       readonly taskCompleteFallbackGraceMs?: number;
     },
@@ -1028,14 +1009,13 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     this.runPromise = services ? Effect.runPromiseWith(services) : Effect.runPromise;
     this.synaraSkillsDir = options?.synaraSkillsDir;
     this.agentGatewayMcp = options?.agentGatewayMcp;
-    this.orchestratorToolRuntime = options?.orchestratorToolRuntime;
+    this.hostToolRuntime = options?.hostToolRuntime;
     this.teardownProcessTree = options?.teardownProcessTree ?? teardownProviderProcessTree;
     this.taskCompleteFallbackGraceMs = Math.max(0, options?.taskCompleteFallbackGraceMs ?? 750);
   }
 
-  // Non-Orchestrator sessions keep the Synara MCP server on the shared overlay config,
-  // while the per-thread bearer token travels through the app-server process
-  // env referenced by `bearer_token_env_var`.
+  // The per-thread bearer token travels through the app-server process env
+  // referenced by `bearer_token_env_var`.
   private async buildSessionProcessEnv(
     homePath: string | undefined,
     gatewayBearerToken: string | undefined,
@@ -1096,9 +1076,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         createdAt: now,
         updatedAt: now,
       };
-      const defaultOrchestratorInstruction = buildCodexOrchestratorThreadOpenOverrides(
-        input.orchestratorContext,
-      ).developerInstructions;
       const defaultHandoffInstruction = input.handoffContext
         ? buildHandoffDestinationInstruction(input.handoffContext)
         : undefined;
@@ -1106,26 +1083,19 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         ? supervisionInstructionForSession(input.supervisionContext)
         : undefined;
       const combinedNativeInstruction = [
-        defaultOrchestratorInstruction,
         defaultSupervisionInstruction,
         defaultHandoffInstruction,
       ]
         .filter((value): value is string => typeof value === "string" && value.length > 0)
         .join("\n\n");
-      const orchestratorInstruction =
+      const nativeInstruction =
         input.developerInstructions ??
         (combinedNativeInstruction.length > 0 ? combinedNativeInstruction : undefined);
-      const isOrchestratorSession = input.orchestratorContext != null;
-      // Install matrix — Codex class: native dynamic tools (not remote MCP).
-      // Claude uses in-process SDK MCP; ACP agents use session MCP. One catalog
-      // (OrchestratorToolRuntime), three install paths.
       const needsHostTools =
-        isOrchestratorSession ||
-        input.supervisionContext != null ||
-        input.handoffContext != null;
+        input.supervisionContext != null || input.handoffContext != null;
       const nativeToolRuntime =
         input.nativeToolRuntime ??
-        (needsHostTools ? this.orchestratorToolRuntime : undefined);
+        (needsHostTools ? this.hostToolRuntime : undefined);
       const isNativeToolSession = nativeToolRuntime !== undefined;
       if (needsHostTools && !nativeToolRuntime) {
         throw new Error("Native Synara tool runtime is unavailable.");
@@ -1172,8 +1142,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         ...(input.supervisionContext !== undefined
           ? { supervisionContext: input.supervisionContext }
           : {}),
-        ...(orchestratorInstruction !== undefined ? { orchestratorInstruction } : {}),
-        ...(nativeToolRuntime ? { orchestratorToolRuntime: nativeToolRuntime } : {}),
+        ...(nativeInstruction !== undefined ? { nativeInstruction } : {}),
+        ...(nativeToolRuntime ? { hostToolRuntime: nativeToolRuntime } : {}),
         account: {
           type: "unknown",
           planType: null,
@@ -1232,16 +1202,16 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
               sandbox: input.supervisionContext.profileSnapshot.runtime.sandboxMode,
             }
           : mapCodexRuntimeMode(input.runtimeMode ?? "full-access")),
-        ...(orchestratorInstruction !== undefined
-          ? { developerInstructions: orchestratorInstruction }
+        ...(nativeInstruction !== undefined
+          ? { developerInstructions: nativeInstruction }
           : {}),
       };
 
-      const dynamicTools = context.orchestratorToolRuntime
+      const dynamicTools = context.hostToolRuntime
         ? (
             (await this.runPromise(
-              context.orchestratorToolRuntime
-                .list(this.makeOrchestratorToolContext(context, null))
+              context.hostToolRuntime
+                .list(this.makeHostToolContext(context, null))
                 .pipe(Effect.orDie),
             )) as ReadonlyArray<{
               readonly name: string;
@@ -1444,8 +1414,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
       ...(normalizedModel !== undefined ? { model: normalizedModel } : {}),
       ...(input.effort !== undefined ? { effort: input.effort } : {}),
-      ...(context.orchestratorInstruction !== undefined
-        ? { orchestratorInstruction: context.orchestratorInstruction }
+      ...(context.nativeInstruction !== undefined
+        ? { nativeInstruction: context.nativeInstruction }
         : {}),
     });
     if (collaborationMode) {
@@ -3404,42 +3374,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
   }
 
-  private makeOrchestratorToolContext(
+  private makeHostToolContext(
     context: CodexSessionContext,
     turnId: string | null,
-  ): OrchestratorToolInvocationContext {
-    const listCodexOnlyCapabilities = () =>
-      Effect.tryPromise({
-        try: async () => {
-          const discovered = await this.listModels();
-          return makeOrchestratorProviderCapabilities({
-            provider: "codex",
-            models: discovered.models,
-            source: discovered.source ?? "codex-app-server",
-            flags: {
-              orchestratorCapable: true,
-              authoritativeRoleInstruction: true,
-              nativeTools: context.orchestratorToolRuntime !== undefined,
-              independentSession: true,
-            },
-          });
-        },
-        catch: (cause) =>
-          new OrchestratorToolError(
-            "provider_capability_unavailable",
-            cause instanceof Error
-              ? cause.message
-              : "Codex model discovery failed during native tool execution.",
-          ),
-      });
-    const listOrchestratorCapabilities = () =>
-      Effect.gen(function* () {
-        const discovery = yield* Effect.serviceOption(ProviderDiscoveryService);
-        if (Option.isSome(discovery)) {
-          return yield* listAllOrchestratorProviderCapabilities(discovery.value);
-        }
-        return yield* listCodexOnlyCapabilities();
-      });
+  ): HostToolInvocationContext {
     return {
       callerThreadId: context.session.threadId,
       callerSessionKey: `codex:${context.session.threadId}`,
@@ -3450,45 +3388,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       context.activeTurnDispatchOrigin !== undefined
         ? { callerDispatchOrigin: context.activeTurnDispatchOrigin }
         : {}),
-      listOrchestratorCapabilities,
-      resolveOrchestratorCapability: (input: {
-        readonly provider: ProviderKind;
-        readonly model: string;
-      }) =>
-        Effect.gen(function* () {
-          const discovery = yield* Effect.serviceOption(ProviderDiscoveryService);
-          if (Option.isSome(discovery)) {
-            return yield* resolveOrchestratorProviderCapability({
-              discovery: discovery.value,
-              provider: input.provider,
-              model: input.model,
-            });
-          }
-          if (input.provider !== "codex") {
-            return yield* Effect.fail(
-              new OrchestratorToolError(
-                "provider_native_tools_unsupported",
-                `Provider "${input.provider}" is not available without multi-provider discovery.`,
-              ),
-            );
-          }
-          const capabilities = yield* listCodexOnlyCapabilities();
-          const capability = capabilities.find((entry) => entry.model === input.model);
-          return capability
-            ? capability
-            : yield* Effect.fail(
-                new OrchestratorToolError(
-                  "provider_model_unavailable",
-                  `Model "${input.model}" is not an exact available Codex model slug.`,
-                ),
-              );
-        }),
       assertCallerTurnActive: () =>
         context.session.activeTurnId !== undefined &&
         (turnId === null || context.session.activeTurnId === turnId)
           ? Effect.void
           : Effect.fail(
-              new OrchestratorToolError(
+              new HostToolError(
                 "caller_turn_inactive",
                 "The originating Codex turn is no longer active.",
               ),
@@ -3496,11 +3401,11 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     };
   }
 
-  private async handleOrchestratorToolCall(
+  private async handleHostToolCall(
     context: CodexSessionContext,
     request: JsonRpcRequest,
   ): Promise<void> {
-    const runtime = context.orchestratorToolRuntime;
+    const runtime = context.hostToolRuntime;
     const params = this.readObject(request.params);
     const tool = this.readString(params, "tool");
     const turnId = this.readString(params, "turnId") ?? null;
@@ -3516,7 +3421,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
               text: JSON.stringify({
                 error: {
                   code: "invalid_native_tool_call",
-                  message: "The native Orchestrator tool call is incomplete or unavailable.",
+                  message: "The native Host tool call is incomplete or unavailable.",
                 },
               }),
             },
@@ -3530,7 +3435,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         .execute({
           name: tool,
           arguments: args,
-          context: this.makeOrchestratorToolContext(context, turnId),
+          context: this.makeHostToolContext(context, turnId),
         })
         .pipe(Effect.orDie),
     )) as { readonly ok: boolean; readonly value?: unknown; readonly error?: unknown };
@@ -3545,7 +3450,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     request: JsonRpcRequest,
   ): Promise<void> {
     if (request.method === "item/tool/call") {
-      await this.handleOrchestratorToolCall(context, request);
+      await this.handleHostToolCall(context, request);
       return;
     }
     const rawRoute = this.readRouteFields(request.params);

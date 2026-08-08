@@ -75,8 +75,6 @@ import {
 } from "../acp/AcpAdapterSupport.ts";
 import {
   acceptAcpPlanUpdate,
-  acpOrchestratorSessionReceipt,
-  buildAcpOrchestratorSystemPrompt,
   clearAcpActiveTurn,
   finalizeAcpActiveTurnCost,
   makeAcpThreadLock,
@@ -782,14 +780,6 @@ export function makeDroidAdapter(
               issue: `Expected provider '${PROVIDER}' but received '${input.provider}'.`,
             });
           }
-          if (input.orchestratorContext != null && agentGatewayCredentials === undefined) {
-            return yield* new ProviderAdapterValidationError({
-              provider: PROVIDER,
-              operation: "startSession",
-              issue:
-                "Droid Orchestrator sessions require the Synara MCP gateway (install class C: session MCP).",
-            });
-          }
           yield* sessionTeardownGate.awaitPending(input.threadId);
           const cwd = resolveDroidSessionCwd(input.cwd, serverConfig);
           if (cwd === undefined) {
@@ -841,15 +831,8 @@ export function makeDroidAdapter(
             shouldMirrorIncomingRaw: (payload) => payload.includes("droidShell"),
           });
           const providerDroidOptions = input.providerOptions?.droid;
-          const orchestratorSystemPrompt = buildAcpOrchestratorSystemPrompt({
-            baseInstruction: DROID_RESOURCE_DISCIPLINE_PROMPT,
-            ...(input.orchestratorContext !== undefined
-              ? { context: input.orchestratorContext }
-              : {}),
-          });
-          const orchestratorSession = acpOrchestratorSessionReceipt(input.orchestratorContext);
           const effectiveDroidSettings: DroidAcpRuntimeSettings = {
-            ...(orchestratorSystemPrompt ? { appendSystemPrompt: orchestratorSystemPrompt } : {}),
+            appendSystemPrompt: DROID_RESOURCE_DISCIPLINE_PROMPT,
             ...(droidSettings.binaryPath !== undefined
               ? { binaryPath: droidSettings.binaryPath }
               : {}),
@@ -880,7 +863,6 @@ export function makeDroidAdapter(
             ...(resumeSessionId ? { resumeSessionId } : {}),
             clientCapabilities: { elicitation: { form: {} } },
             clientInfo: { name: "Synara", version: "0.0.0" },
-            ...(orchestratorSession ? { orchestratorSession } : {}),
             ...(agentGatewayCredentials
               ? {
                   buildMcpServers: (initializeResult: Acp.InitializeResponse) =>
@@ -2298,12 +2280,6 @@ export function makeDroidAdapter(
       capabilities: {
         sessionModelSwitch: "restart-session",
         conversationRollback: "restart-session",
-        orchestrator: {
-          authoritativeRoleInstruction: true,
-          nativeTools: true, // Synara MCP host tools (same catalog for every provider)
-          independentSession: true,
-          instructionChannel: "acp-process-system-prompt",
-        },
       },
       startSession,
       sendTurn,

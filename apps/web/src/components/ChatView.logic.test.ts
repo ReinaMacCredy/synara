@@ -837,7 +837,7 @@ describe("voice helpers", () => {
 });
 
 describe("environment panel visibility", () => {
-  it("treats an adjacent Orchestrator dock as constrained on the first render", () => {
+  it("treats an adjacent Supervised dock as constrained on the first render", () => {
     expect(
       resolveEnvironmentPanelFloatingOverlay({
         isTerminalEnvironmentContext: false,

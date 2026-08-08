@@ -179,7 +179,7 @@ export function resolveTurnWorkKey(input: {
 }
 
 /**
- * Shared turn work-status for normal + orchestrator. Presentation stays in
+ * Shared turn work-status for normal and Supervised sessions. Presentation stays in
  * MessagesTimeline (Working→Worked from 66f9b3f8); this only feeds its gates.
  */
 export function deriveTurnWorkStatus(input: {
@@ -194,7 +194,7 @@ export function deriveTurnWorkStatus(input: {
   readonly hasLiveTurnTail: boolean;
   /**
    * Assistant text still streaming on the open turn. Keeps the live Working row
-   * mounted when session "running" flaps off early (common on orchestrator /
+   * mounted when session "running" flaps off early (common on delegated /
    * Grok) so the status does not blank mid-turn.
    */
   readonly hasStreamingAssistantText?: boolean;
@@ -254,7 +254,7 @@ export function deriveTurnWorkStatus(input: {
   });
 
   // Streaming assistant keeps the live Working row even if session status
-  // briefly leaves "running" (orchestrator provider flaps → blank flick).
+  // briefly leaves "running" (provider status flaps can otherwise cause a blank flick).
   const streamingOpenTurn =
     input.hasStreamingAssistantText === true && lastRole === "assistant";
 

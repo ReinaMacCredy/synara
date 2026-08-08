@@ -321,7 +321,7 @@ describe("threadDetailSubscriptionRetention", () => {
   });
 
   it("admits a mounted draft before its shell projection exists", () => {
-    const draftThreadId = ThreadId.makeUnsafe("orchestrator-draft");
+    const draftThreadId = ThreadId.makeUnsafe("supervised-draft");
     const release = retainPreShellThreadDetailSubscription(draftThreadId);
 
     expect(getPreShellThreadDetailIdsSnapshot()).toEqual([draftThreadId]);

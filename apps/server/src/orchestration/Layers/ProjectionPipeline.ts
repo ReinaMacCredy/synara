@@ -1,7 +1,6 @@
 import {
   ApprovalRequestId,
   CommandId,
-  OrchestratorDomainEvent,
   TaskProcessDomainEvent,
   SupervisionDomainEvent,
   SupervisedDomainEvent,
@@ -36,8 +35,6 @@ import {
   ProjectionPendingInteractionRepository,
 } from "../../persistence/Services/ProjectionPendingInteractions.ts";
 import { ProjectionProjectRepository } from "../../persistence/Services/ProjectionProjects.ts";
-import { ProjectionOrchestratorRepository } from "../../persistence/Services/ProjectionOrchestrator.ts";
-import { OrchestratorArtifactRepository } from "../../persistence/Services/OrchestratorArtifacts.ts";
 import { ProjectionTaskProcessRepository } from "../../persistence/Services/ProjectionTaskProcess.ts";
 import { ProjectionSupervisionRepository } from "../../persistence/Services/ProjectionSupervision.ts";
 import { SupervisedRuntimeRepository } from "../../persistence/Services/SupervisedRuntimeRepository.ts";
@@ -64,8 +61,6 @@ import {
 } from "../../persistence/Services/ProjectionThreads.ts";
 import { ProjectionPendingInteractionRepositoryLive } from "../../persistence/Layers/ProjectionPendingInteractions.ts";
 import { ProjectionProjectRepositoryLive } from "../../persistence/Layers/ProjectionProjects.ts";
-import { ProjectionOrchestratorRepositoryLive } from "../../persistence/Layers/ProjectionOrchestrator.ts";
-import { OrchestratorArtifactRepositoryLive } from "../../persistence/Layers/OrchestratorArtifacts.ts";
 import { ProjectionTaskProcessRepositoryLive } from "../../persistence/Layers/ProjectionTaskProcess.ts";
 import { ProjectionSupervisionRepositoryLive } from "../../persistence/Layers/ProjectionSupervision.ts";
 import { SupervisedRuntimeRepositoryLive } from "../../persistence/Layers/SupervisedRuntimeRepository.ts";
@@ -124,7 +119,6 @@ export const ORCHESTRATION_PROJECTOR_NAMES = {
   // Preserve the established cursor identity. Migration 062 resets it so the
   // widened projector replays approval and user-input history exactly once.
   pendingInteractions: "projection.pending-approvals",
-  orchestrator: "projection.orchestrator",
   taskProcess: "projection.task-process",
   supervision: "projection.supervision",
   supervised: "projection.supervised",
@@ -494,8 +488,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
   const managedAttachments = yield* ManagedAttachmentRepository;
   const projectionStateRepository = yield* ProjectionStateRepository;
   const projectionProjectRepository = yield* ProjectionProjectRepository;
-  const projectionOrchestratorRepository = yield* ProjectionOrchestratorRepository;
-  const orchestratorArtifactRepository = yield* OrchestratorArtifactRepository;
   const projectionTaskProcessRepository = yield* ProjectionTaskProcessRepository;
   const projectionSupervisionRepository = yield* ProjectionSupervisionRepository;
   const supervisedRuntimeRepository = yield* SupervisedRuntimeRepository;
@@ -597,79 +589,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
   const applySupervisedProjection: ProjectorDefinition["apply"] = (event) => {
     if (!Schema.is(SupervisedDomainEvent)(event)) return Effect.void;
     return supervisedRuntimeRepository.applyDomainEvent(event);
-  };
-
-  const applyOrchestratorProjection: ProjectorDefinition["apply"] = (event) => {
-    if (!Schema.is(OrchestratorDomainEvent)(event)) return Effect.void;
-
-    return Effect.gen(function* () {
-      const root = event.payload.root;
-      if (root === undefined) {
-        return yield* new PersistenceSqlError({
-          operation: "ProjectionPipeline.applyOrchestratorProjection:root",
-          detail: `Orchestrator event ${event.type} is missing its Root snapshot.`,
-        });
-      }
-      yield* projectionOrchestratorRepository.upsertRoot({
-        root,
-        highWaterCursor: String(event.sequence),
-      });
-
-      const ownershipEdge = event.payload.ownershipEdge;
-      if (ownershipEdge !== undefined) {
-        if (event.type === "orchestrator.child.reparented") {
-          yield* projectionOrchestratorRepository.retireActiveOwnershipForChild({
-            rootThreadId: root.rootThreadId,
-            childThreadId: ownershipEdge.childThreadId,
-            retiredAt: event.occurredAt,
-          });
-        }
-        yield* projectionOrchestratorRepository.upsertOwnershipEdge(ownershipEdge);
-      }
-
-      if (event.payload.link !== undefined) {
-        yield* projectionOrchestratorRepository.upsertCommunicationLink(event.payload.link);
-      }
-      if (event.payload.assignment !== undefined) {
-        if (root.activeProcessId === null) {
-          return yield* new PersistenceSqlError({
-            operation: "ProjectionPipeline.applyOrchestratorProjection:assignment",
-            detail: `Orchestrator assignment event ${event.type} has no active TaskProcess.`,
-          });
-        }
-        yield* projectionOrchestratorRepository.upsertAssignmentVersion({
-          rootThreadId: root.rootThreadId,
-          processId: root.activeProcessId,
-          contract: event.payload.assignment,
-        });
-      }
-      if (event.payload.childResult !== undefined) {
-        yield* projectionOrchestratorRepository.upsertChildResult(event.payload.childResult);
-      }
-      if (event.payload.message !== undefined) {
-        yield* projectionOrchestratorRepository.upsertMessage(event.payload.message);
-      }
-      if (event.payload.artifact !== undefined) {
-        if (event.type === "orchestrator.artifact.published") {
-          yield* orchestratorArtifactRepository.publish(event.payload.artifact);
-        } else if (event.type === "orchestrator.artifact.released") {
-          yield* orchestratorArtifactRepository.release({
-            rootThreadId: root.rootThreadId,
-            artifactId: event.payload.artifact.id,
-            visibility: event.payload.artifact.visibility,
-          });
-        }
-      }
-      if (event.payload.run !== undefined) {
-        yield* projectionOrchestratorRepository.upsertRun(event.payload.run);
-      }
-      if (event.payload.monitor !== undefined) {
-        yield* projectionOrchestratorRepository.upsertMonitor(event.payload.monitor);
-      }
-      if (event.payload.writerClaim !== undefined) {
-        yield* projectionOrchestratorRepository.upsertWriterClaim(event.payload.writerClaim);
-      }
-    });
   };
 
   const applyProjectsProjection: ProjectorDefinition["apply"] = (event, _attachmentSideEffects) => {
@@ -825,25 +744,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               updatedAt: event.payload.updatedAt,
             };
           });
-          if (event.payload.isPinned !== undefined) {
-            const rootThreadId = yield* projectionOrchestratorRepository.findRootForThread(
-              event.payload.threadId,
-            );
-            if (Option.isSome(rootThreadId) && rootThreadId.value === event.payload.threadId) {
-              const rootRecord = yield* projectionOrchestratorRepository.getRoot(
-                rootThreadId.value,
-              );
-              if (Option.isSome(rootRecord)) {
-                yield* projectionOrchestratorRepository.upsertRoot({
-                  ...rootRecord.value,
-                  root: {
-                    ...rootRecord.value.root,
-                    pinnedAt: event.payload.isPinned ? event.payload.updatedAt : null,
-                  },
-                });
-              }
-            }
-          }
           return;
         }
 
@@ -1023,35 +923,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             latestUserMessageAt: maxIso(thread.latestUserMessageAt, event.payload.createdAt),
             updatedAt: event.occurredAt,
           }));
-          if (
-            !event.payload.streaming &&
-            (event.payload.role === "user" || event.payload.role === "assistant")
-          ) {
-            const rootThreadId = yield* projectionOrchestratorRepository.findRootForThread(
-              event.payload.threadId,
-            );
-            if (Option.isSome(rootThreadId)) {
-              const rootRecord = yield* projectionOrchestratorRepository.getRoot(
-                rootThreadId.value,
-              );
-              if (Option.isSome(rootRecord)) {
-                yield* projectionOrchestratorRepository.upsertRoot({
-                  ...rootRecord.value,
-                  root: {
-                    ...rootRecord.value.root,
-                    lastMeaningfulActivityAt: maxIso(
-                      rootRecord.value.root.lastMeaningfulActivityAt,
-                      event.payload.createdAt,
-                    ),
-                    latestActivityRevision: Math.max(
-                      rootRecord.value.root.latestActivityRevision ?? 0,
-                      event.sequence,
-                    ),
-                  },
-                });
-              }
-            }
-          }
           return;
         }
 
@@ -2056,12 +1927,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
       apply: applyThreadsProjection,
     },
     {
-      name: ORCHESTRATION_PROJECTOR_NAMES.orchestrator,
-      phase: "hot",
-      shouldApply: Schema.is(OrchestratorDomainEvent),
-      apply: applyOrchestratorProjection,
-    },
-    {
       name: ORCHESTRATION_PROJECTOR_NAMES.threadSessions,
       phase: "hot",
       shouldApply: (event) =>
@@ -2478,8 +2343,6 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
 ).pipe(
   Layer.provideMerge(NodeServices.layer),
   Layer.provideMerge(ProjectionProjectRepositoryLive),
-  Layer.provideMerge(ProjectionOrchestratorRepositoryLive),
-  Layer.provideMerge(OrchestratorArtifactRepositoryLive),
   Layer.provideMerge(ProjectionTaskProcessRepositoryLive),
   Layer.provideMerge(ProjectionSupervisionRepositoryLive),
   Layer.provideMerge(SupervisedRuntimeRepositoryLive),

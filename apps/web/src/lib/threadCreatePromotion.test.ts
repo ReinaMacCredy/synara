@@ -66,7 +66,7 @@ describe("threadCreatePromotion", () => {
         {
           id: "message-promoted-detail" as never,
           role: "user",
-          text: "first Orchestrator message",
+          text: "first Supervised message",
           turnId: null,
           createdAt: "2026-05-06T20:00:01.000Z",
           updatedAt: "2026-05-06T20:00:01.000Z",
@@ -83,7 +83,7 @@ describe("threadCreatePromotion", () => {
     await expect(prehydratePromotedThreadDetail(threadId, api)).resolves.toBe(true);
     expect(useStore.getState().threadDetailSyncById?.[threadId]).toBe("synced");
     expect(getThreadFromState(useStore.getState(), threadId)?.messages[0]?.text).toBe(
-      "first Orchestrator message",
+      "first Supervised message",
     );
   });
 

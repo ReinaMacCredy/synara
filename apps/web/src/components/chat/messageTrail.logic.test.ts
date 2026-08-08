@@ -45,7 +45,7 @@ function messageEntry(
 function dispatchedUserEntry(
   id: string,
   text: string,
-  dispatchOrigin: "agent" | "orchestrator" | "automation",
+  dispatchOrigin: "agent" | "agent" | "automation",
 ): TimelineEntry {
   const entry = messageEntry(id, "user", text) as Extract<TimelineEntry, { kind: "message" }>;
   return {
@@ -88,7 +88,7 @@ describe("deriveMessageTrailItems", () => {
     const items = deriveMessageTrailItems([
       messageEntry("u1", "user", "direct prompt"),
       dispatchedUserEntry("peer-agent", "peer prompt", "agent"),
-      dispatchedUserEntry("peer-orchestrator", "root prompt", "orchestrator"),
+      dispatchedUserEntry("peer-agent", "root prompt", "agent"),
       dispatchedUserEntry("automation", "scheduled notification", "automation"),
       messageEntry("automation-reply", "assistant", "scheduled result"),
     ]);
@@ -96,7 +96,7 @@ describe("deriveMessageTrailItems", () => {
     expect(items.map((item) => item.id)).toEqual([
       MessageId.makeUnsafe("u1"),
       MessageId.makeUnsafe("peer-agent"),
-      MessageId.makeUnsafe("peer-orchestrator"),
+      MessageId.makeUnsafe("peer-agent"),
     ]);
     expect(items.at(-1)?.responsePreview).toBe("");
   });

@@ -1,6 +1,4 @@
 import type {
-  AssignmentContract,
-  OrchestratorMonitor,
   ProjectTask,
   ProjectTaskExecutionHealth,
   TaskProgressEntry,
@@ -20,20 +18,10 @@ export interface TaskExecutionHealthInput {
   readonly task: ProjectTask;
   readonly bindings: ReadonlyArray<TaskThreadBinding>;
   readonly progress: ReadonlyArray<TaskProgressEntry>;
-  readonly assignments?: ReadonlyArray<AssignmentContract>;
   readonly runtimeByThread?: ReadonlyMap<ThreadId, BoundThreadRuntimeState>;
-  readonly monitors?: ReadonlyArray<OrchestratorMonitor>;
   readonly now?: string;
   readonly staleAfterMs?: number;
 }
-
-const WAITING_ASSIGNMENT_STATES = new Set([
-  "waiting_on_thread",
-  "waiting_on_user",
-  "needs_permission",
-  "blocked",
-  "reported_complete",
-]);
 
 export const deriveExecutionHealth = (
   input: TaskExecutionHealthInput,
@@ -44,19 +32,12 @@ export const deriveExecutionHealth = (
   );
   if (bindings.length === 0) return "idle";
 
-  const assignmentIds = new Set(
-    bindings.flatMap((binding) => (binding.assignmentId === null ? [] : [binding.assignmentId])),
-  );
-  const assignments = (input.assignments ?? []).filter((assignment) =>
-    assignmentIds.has(assignment.assignmentId),
-  );
   const runtimeStates = bindings.map(
     (binding) => input.runtimeByThread?.get(binding.threadId) ?? "unknown",
   );
   if (runtimeStates.includes("running")) return "running";
   if (
-    runtimeStates.includes("waiting") ||
-    assignments.some((assignment) => WAITING_ASSIGNMENT_STATES.has(assignment.state))
+    runtimeStates.includes("waiting")
   ) {
     return "waiting";
   }
@@ -73,17 +54,7 @@ export const deriveExecutionHealth = (
   }
   if (latest?.kind === "failure") return "stalled";
 
-  const heartbeatExpired = (input.monitors ?? []).some(
-    (monitor) =>
-      monitor.kind === "heartbeat" &&
-      monitor.targetThreadId !== null &&
-      bindings.some((binding) => binding.threadId === monitor.targetThreadId) &&
-      (monitor.state === "expired" || (input.now !== undefined && monitor.expiresAt <= input.now)),
-  );
-  if (
-    heartbeatExpired ||
-    runtimeStates.some((state) => state === "crashed" || state === "retired")
-  ) {
+  if (runtimeStates.some((state) => state === "crashed" || state === "retired")) {
     return "stalled";
   }
 
@@ -100,7 +71,6 @@ export const deriveExecutionHealth = (
   }
 
   if (
-    assignments.some((assignment) => assignment.state === "running") ||
     input.task.lifecycle === "in_progress" ||
     input.task.lifecycle === "review"
   ) {

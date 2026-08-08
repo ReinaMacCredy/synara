@@ -240,19 +240,15 @@ describe("composerDraftStore project draft thread mapping", () => {
     );
   });
 
-    it("tracks chat, Supervised, and legacy Orchestrator drafts independently", () => {
+    it("tracks chat and Supervised drafts independently", () => {
       const store = useComposerDraftStore.getState();
       const supervisedThreadId = ThreadId.makeUnsafe("thread-supervised");
       store.setProjectDraftThreadId(projectId, threadId, { entryPoint: "chat" });
-      store.setProjectDraftThreadId(projectId, otherThreadId, { entryPoint: "orchestrator" });
       store.setProjectDraftThreadId(projectId, supervisedThreadId, { entryPoint: "supervised" });
 
     expect(
       useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, "chat"),
     ).toMatchObject({ threadId, entryPoint: "chat" });
-    expect(
-      useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, "orchestrator"),
-    ).toMatchObject({ threadId: otherThreadId, entryPoint: "orchestrator" });
       expect(
         useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, "supervised"),
       ).toMatchObject({ threadId: supervisedThreadId, entryPoint: "supervised" });
@@ -263,8 +259,8 @@ describe("composerDraftStore project draft thread mapping", () => {
     const sourceThreadId = ThreadId.makeUnsafe("thread-source");
     store.setProjectDraftThreadId(projectId, threadId, { entryPoint: "chat" });
     store.setProjectDraftThreadId(projectId, otherThreadId, {
-      entryPoint: "orchestrator",
-      orchestratorSourceThreadId: sourceThreadId,
+      entryPoint: "supervised",
+      supervisedSourceThreadId: sourceThreadId,
       workingDirectory: "/workspace/a",
     });
     store.setPrompt(otherThreadId, "Design the orchestration plan");
@@ -273,11 +269,11 @@ describe("composerDraftStore project draft thread mapping", () => {
       useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, "chat"),
     ).toMatchObject({ threadId, entryPoint: "chat" });
     expect(
-      useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, "orchestrator"),
+      useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, "supervised"),
     ).toMatchObject({
       threadId: otherThreadId,
-      entryPoint: "orchestrator",
-      orchestratorSourceThreadId: sourceThreadId,
+      entryPoint: "supervised",
+      supervisedSourceThreadId: sourceThreadId,
       workingDirectory: "/workspace/a",
     });
 
@@ -287,7 +283,7 @@ describe("composerDraftStore project draft thread mapping", () => {
       useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, "chat"),
     ).toBeNull();
     expect(
-      useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, "orchestrator")
+      useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, "supervised")
         ?.threadId,
     ).toBe(otherThreadId);
     expect(useComposerDraftStore.getState().draftsByThreadId[otherThreadId]?.prompt).toBe(
@@ -299,9 +295,9 @@ describe("composerDraftStore project draft thread mapping", () => {
     const store = useComposerDraftStore.getState();
     const sourceThreadId = ThreadId.makeUnsafe("thread-source");
     store.setProjectDraftThreadId(projectId, otherThreadId, {
-      entryPoint: "orchestrator",
-      orchestratorSourceThreadId: sourceThreadId,
-      orchestratorHandoffMessages: [],
+      entryPoint: "supervised",
+      supervisedSourceThreadId: sourceThreadId,
+      supervisedHandoffMessages: [],
     });
     store.setPrompt(otherThreadId, "Continue without the packet");
     store.setHandoffDraft(otherThreadId, { handoffId: "handoff-1" } as never);
@@ -313,9 +309,9 @@ describe("composerDraftStore project draft thread mapping", () => {
       handoffDraft: null,
     });
     expect(useComposerDraftStore.getState().getDraftThread(otherThreadId)).toMatchObject({
-      entryPoint: "orchestrator",
-      orchestratorSourceThreadId: null,
-      orchestratorHandoffMessages: [],
+      entryPoint: "supervised",
+      supervisedSourceThreadId: null,
+      supervisedHandoffMessages: [],
     });
   });
 
@@ -464,19 +460,19 @@ describe("composerDraftStore project draft thread mapping", () => {
 
   it("restores a failed promotion to the same per-project draft slot", () => {
     const store = useComposerDraftStore.getState();
-    store.setProjectDraftThreadId(projectId, threadId, { entryPoint: "orchestrator" });
+    store.setProjectDraftThreadId(projectId, threadId, { entryPoint: "supervised" });
     store.setPrompt(threadId, "retry this Root");
     store.markDraftThreadPromoting(threadId);
 
     expect(
-      useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, "orchestrator"),
+      useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, "supervised"),
     ).toBeNull();
 
     useComposerDraftStore.getState().rollbackDraftThreadPromotion(threadId);
 
     expect(
-      useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, "orchestrator"),
-    ).toMatchObject({ threadId, entryPoint: "orchestrator" });
+      useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, "supervised"),
+    ).toMatchObject({ threadId, entryPoint: "supervised" });
     expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.prompt).toBe(
       "retry this Root",
     );
@@ -522,7 +518,7 @@ describe("composerDraftStore project draft thread mapping", () => {
   it("persists Supervise mode and its profile selection independently of interaction mode", () => {
     const store = useComposerDraftStore.getState();
     store.setProjectDraftThreadId(projectId, threadId, {
-      entryPoint: "orchestrator",
+      entryPoint: "supervised",
       interactionMode: "default",
       supervisionMode: "supervise",
       profilePresetId: ProfilePresetId.makeUnsafe("profile-lead"),
@@ -530,7 +526,7 @@ describe("composerDraftStore project draft thread mapping", () => {
     });
 
     expect(useComposerDraftStore.getState().getDraftThread(threadId)).toMatchObject({
-      entryPoint: "orchestrator",
+      entryPoint: "supervised",
       interactionMode: "default",
       supervisionMode: "supervise",
       profilePresetId: "profile-lead",

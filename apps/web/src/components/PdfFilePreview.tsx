@@ -4,7 +4,7 @@
 //          pdf.js-rendered pages — replacing the browser's built-in PDF iframe so
 //          the chrome matches the rest of Synara. Modeled on how Codex vendors a
 //          custom pdf.js viewer (canvas + text layer + clickable links).
-//          This component is the orchestrator: document load, container
+//          This component is the controller: document load, container
 //          measurement, page navigation, and zoom each live in their own hook
 //          (usePdfDocument / useContainerSize / usePdfPageNavigation /
 //          usePdfZoomController) and are composed here.

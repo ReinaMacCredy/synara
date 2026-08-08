@@ -17,7 +17,6 @@ import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProviderValidationError } from "../Errors.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
-import { isProviderAdapterOrchestratorCapable } from "../Services/ProviderAdapter.ts";
 import {
   ProviderDiscoveryService,
   type ProviderDiscoveryServiceShape,
@@ -27,7 +26,6 @@ import {
   filterDisabledSkills,
   mergeSkillsIntoCatalog,
 } from "../skillsCatalog.ts";
-import { makeOrchestratorProviderCapabilities } from "../orchestratorCapabilities.ts";
 
 const decodeInputOrValidationError = <S extends Schema.Top>(input: {
   readonly operation: string;
@@ -224,44 +222,6 @@ const make = Effect.gen(function* () {
       return yield* adapter.listModels(parsed);
     });
 
-  const listOrchestratorCapabilities: ProviderDiscoveryServiceShape["listOrchestratorCapabilities"] =
-    (input) =>
-      Effect.gen(function* () {
-        const parsed = yield* decodeInputOrValidationError({
-          operation: "ProviderDiscoveryService.listOrchestratorCapabilities",
-          schema: ProviderListModelsInput,
-          payload: input,
-        });
-        const models = yield* listModels(parsed);
-        const adapter = yield* registry.getByProvider(parsed.provider);
-        const adapterOrchestrator = adapter.capabilities.orchestrator;
-        return makeOrchestratorProviderCapabilities({
-          provider: parsed.provider,
-          models: models.models,
-          source: models.source ?? "provider-model-discovery",
-          flags: {
-            orchestratorCapable: isProviderAdapterOrchestratorCapable(adapter.capabilities),
-            authoritativeRoleInstruction:
-              adapterOrchestrator?.authoritativeRoleInstruction === true,
-            nativeTools: adapterOrchestrator?.nativeTools === true,
-            independentSession: adapterOrchestrator?.independentSession === true,
-          },
-        });
-      });
-
-  const getOrchestratorCapability: ProviderDiscoveryServiceShape["getOrchestratorCapability"] = (
-    input,
-  ) =>
-    Effect.gen(function* () {
-      const capabilities = yield* listOrchestratorCapabilities(input);
-      const capability = capabilities.find((entry) => entry.model === input.model);
-      if (capability) return capability;
-      return yield* new ProviderValidationError({
-        operation: "ProviderDiscoveryService.getOrchestratorCapability",
-        issue: `Model '${input.model}' is not available from provider '${input.provider}'.`,
-      });
-    });
-
   const listAgents: ProviderDiscoveryServiceShape["listAgents"] = (input) =>
     Effect.gen(function* () {
       const parsed = yield* decodeInputOrValidationError({
@@ -287,8 +247,6 @@ const make = Effect.gen(function* () {
     listPlugins,
     readPlugin,
     listModels,
-    listOrchestratorCapabilities,
-    getOrchestratorCapability,
     listAgents,
   } satisfies ProviderDiscoveryServiceShape;
 });

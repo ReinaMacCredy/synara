@@ -17,7 +17,6 @@ import {
   useNavigate,
   useParams,
   useRouterState,
-  useSearch,
 } from "@tanstack/react-router";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -51,7 +50,6 @@ import {
   serverSettingsQueryOptions,
   taskProcessQueryKeys,
 } from "../lib/serverReactQuery";
-import { orchestratorQueryKeys } from "../lib/orchestratorRoots";
 import { ensureNativeApi, readNativeApi } from "../nativeApi";
 import {
   finalizePromotedDraftThreads,
@@ -136,7 +134,6 @@ import {
   getProjectFileInvalidationThreadIdForEvent,
   resolveGitInvalidationCwdForThreadId,
   shouldInvalidateGitQueriesForEvent,
-  shouldInvalidateOrchestratorQueriesForEvent,
   shouldInvalidateProviderQueriesForEvent,
 } from "./-rootEventInvalidation";
 
@@ -1026,12 +1023,6 @@ function EventRouter() {
       return value ? ThreadId.makeUnsafe(value) : null;
     },
   });
-  const untypedRouteSearch = useSearch({ strict: false }) as Record<string, unknown>;
-  const orchestratorSelectedThreadId =
-    typeof untypedRouteSearch.selectedThreadId === "string" &&
-    untypedRouteSearch.selectedThreadId.trim().length > 0
-      ? ThreadId.makeUnsafe(untypedRouteSearch.selectedThreadId)
-      : null;
   const routeSearch = useDiffRouteSearch();
   const activeSplitView = useSplitViewStore(
     useMemo(() => selectSplitView(routeSearch.splitViewId ?? null), [routeSearch.splitViewId]),
@@ -1040,12 +1031,11 @@ function EventRouter() {
     () =>
       resolveRouteVisibleThreadIds({
         routeThreadId,
-        orchestratorSelectedThreadId,
         ...(activeSplitView
           ? { splitViewThreadIds: resolveSplitViewThreadIds(activeSplitView) }
           : {}),
       }),
-    [activeSplitView, orchestratorSelectedThreadId, routeThreadId],
+    [activeSplitView, routeThreadId],
   );
   // Right-dock sidechat panes render a full ChatView for their embedded thread,
   // so they need a detail lease exactly like split-view panes: without one the
@@ -1106,7 +1096,7 @@ function EventRouter() {
     if (!api) return;
     let disposed = false;
     let needsProviderInvalidation = false;
-    let needsOrchestratorInvalidation = false;
+    let needsTaskProcessInvalidation = false;
     let needsBroadGitInvalidation = false;
     let pendingGitInvalidationThreadIds = new Set<ThreadId>();
     let pendingProjectFileInvalidationThreadIds = new Set<ThreadId>();
@@ -1425,9 +1415,8 @@ function EventRouter() {
           void queryClient.invalidateQueries({ queryKey: projectQueryKeys.all });
         }
       }
-      if (needsOrchestratorInvalidation) {
-        needsOrchestratorInvalidation = false;
-        void queryClient.invalidateQueries({ queryKey: orchestratorQueryKeys.all });
+      if (needsTaskProcessInvalidation) {
+        needsTaskProcessInvalidation = false;
         void queryClient.invalidateQueries({ queryKey: taskProcessQueryKeys.all });
       }
       if (needsBroadGitInvalidation) {
@@ -1460,8 +1449,8 @@ function EventRouter() {
       if (shouldInvalidateProviderQueriesForEvent(event)) {
         needsProviderInvalidation = true;
       }
-      if (shouldInvalidateOrchestratorQueriesForEvent(event)) {
-        needsOrchestratorInvalidation = true;
+      if (event.aggregateKind === "task_process") {
+        needsTaskProcessInvalidation = true;
       }
       const projectFileThreadId = getProjectFileInvalidationThreadIdForEvent(event);
       if (projectFileThreadId) {
@@ -1619,7 +1608,7 @@ function EventRouter() {
       enqueueThreadSubscriptionReconcile(threadIds);
 
     const unsubAggregateDomainEvent = api.orchestration.onDomainEvent((event) => {
-      if (shouldInvalidateOrchestratorQueriesForEvent(event)) {
+      if (event.aggregateKind === "task_process") {
         queueDomainEvent(event);
       }
     });
@@ -2005,7 +1994,7 @@ function EventRouter() {
       window.clearTimeout(shellBootstrapFallbackTimer);
       window.clearInterval(threadDetailCatchupInterval);
       needsProviderInvalidation = false;
-      needsOrchestratorInvalidation = false;
+      needsTaskProcessInvalidation = false;
       needsBroadGitInvalidation = false;
       pendingGitInvalidationThreadIds = new Set();
       threadProjectionReconcileInFlight.clear();

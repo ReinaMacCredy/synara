@@ -3,16 +3,14 @@ import type {
   OrchestrationEvent,
   OrchestrationAggregateKind,
   OrchestrationReadModel,
-  TaskProcessId,
   ThreadId,
 } from "@synara/contracts";
 import {
   OrchestrationCommand,
-  OrchestratorCommand,
-  OrchestratorDomainEvent,
   TaskProcessCommand,
   TaskProcessDomainEvent,
   ORCHESTRATION_WS_METHODS,
+  MessageId,
   SupervisionAggregateId,
   SupervisionCommand,
   SupervisedCommand,
@@ -71,20 +69,12 @@ import {
   usesReservedCommandAdmission,
 } from "../orchestrationAdmission.ts";
 import { decideOrchestrationCommand } from "../decider.ts";
-import { decideOrchestratorCommand } from "../orchestrator/decider.ts";
-import {
-  createEmptyOrchestratorState,
-  projectOrchestratorEvent,
-  replayOrchestratorEvents,
-} from "../orchestrator/projector.ts";
-import type { OrchestratorAggregateState } from "../orchestrator/projector.ts";
-import { canonicalizeWriterClaimScope } from "../orchestrator/writerClaims.ts";
 import { decideTaskProcessCommand } from "../taskProcess/decider.ts";
-import { assignmentStatusProgressCommand } from "../taskProcess/progress.ts";
 import { createEmptyTaskProcessState, replayTaskProcessEvents } from "../taskProcess/projector.ts";
 import { PROJECT_METADATA_SNAPSHOT_PROJECTORS } from "../projectMetadataProjection.ts";
 import { createEmptyReadModel, projectEvent } from "../projector.ts";
 import { decideSupervisionCommand } from "../supervision/decider.ts";
+import { decideSupervisedCommand } from "../supervised/decider.ts";
 import {
   OrchestrationProjectionPipeline,
   type ShellMetadataOrchestrationEvent,
@@ -161,10 +151,11 @@ function commandToAggregateRef(command: OrchestrationCommand): {
           return "context_workspace" as const;
         case "supervised.rlm.upsert":
           return "rlm_episode" as const;
-        case "supervised.patch.upsert":
-          return "harness_patch" as const;
-        case "supervised.specialist.upsert":
-          return "specialist" as const;
+          case "supervised.patch.upsert":
+            return "harness_patch" as const;
+          case "supervised.specialist.create":
+          case "supervised.specialist.upsert":
+            return "specialist" as const;
         case "supervised.kernel.session-upsert":
         case "supervised.kernel.execution-upsert":
           return "kernel_session" as const;
@@ -206,39 +197,6 @@ function commandToAggregateRef(command: OrchestrationCommand): {
       return {
         aggregateKind: "project",
         aggregateId: command.projectId,
-      };
-    case "orchestrator.root.create":
-    case "orchestrator.root.archive":
-    case "orchestrator.root.restore":
-    case "orchestrator.root.active-process.set":
-    case "orchestrator.child.create":
-    case "orchestrator.child.attach":
-    case "orchestrator.child.retire":
-    case "orchestrator.child.reparent":
-    case "orchestrator.link.request":
-    case "orchestrator.link.set":
-    case "orchestrator.assignment.create":
-    case "orchestrator.assignment.contract.update":
-    case "orchestrator.assignment.status.report":
-    case "orchestrator.assignment.verify":
-    case "orchestrator.assignment.accept":
-    case "orchestrator.assignment.reopen":
-    case "orchestrator.message.enqueue":
-    case "orchestrator.message.delivery.mark":
-    case "orchestrator.message.response.mark":
-    case "orchestrator.artifact.publish":
-    case "orchestrator.artifact.release":
-    case "orchestrator.run.create":
-    case "orchestrator.run.advance":
-    case "orchestrator.run.disposition.set":
-    case "orchestrator.monitor.register":
-    case "orchestrator.monitor.cancel":
-    case "orchestrator.monitor.fire":
-    case "orchestrator.writer-claim.acquire":
-    case "orchestrator.writer-claim.release":
-      return {
-        aggregateKind: "orchestrator",
-        aggregateId: command.rootThreadId,
       };
     case "task-process.create":
     case "task-process.pause":
@@ -848,84 +806,6 @@ const makeOrchestrationEngine = Effect.gen(function* () {
               ...threadBootstrapDecision,
               sequence: baseDeciderReadModel.snapshotSequence,
             });
-      if (command.type === "orchestrator.writer-claim.acquire") {
-        const canonical = yield* Effect.tryPromise({
-          try: () =>
-            canonicalizeWriterClaimScope({
-              workspaceRoot: command.claim.workspaceRoot,
-              pathPrefix: command.claim.normalizedPathPrefix,
-            }),
-          catch: (cause) =>
-            new OrchestrationCommandInvariantError({
-              commandType: command.type,
-              detail: `Writer claim path cannot be canonicalized inside its workspace: ${cause instanceof Error ? cause.message : String(cause)}`,
-            }),
-        });
-        if (
-          canonical.workspaceRoot !== command.claim.workspaceRoot ||
-          canonical.normalizedPathPrefix !== command.claim.normalizedPathPrefix
-        ) {
-          return yield* new OrchestrationCommandInvariantError({
-            commandType: command.type,
-            detail: "Writer claim paths must already be canonical real paths inside the workspace.",
-          });
-        }
-      }
-      const rootBootstrapDecision =
-        command.type === "thread.turn.start" && command.orchestratorRoot !== undefined
-          ? yield* Effect.gen(function* () {
-              const storedRootEvents = yield* eventStore
-                .readAggregateEvents({
-                  aggregateKind: "orchestrator",
-                  aggregateId: command.threadId,
-                })
-                .pipe(
-                  Effect.mapError((error) =>
-                    makeCommandInternalError(
-                      command,
-                      `Failed to load Orchestrator aggregate: ${error.message}`,
-                    ),
-                  ),
-                );
-              const orchestratorEvents = storedRootEvents.filter(
-                Schema.is(OrchestratorDomainEvent),
-              );
-              if (orchestratorEvents.length !== storedRootEvents.length) {
-                return yield* makeCommandInternalError(
-                  command,
-                  "Orchestrator stream contains an event with the wrong aggregate schema.",
-                );
-              }
-              const state = replayOrchestratorEvents(orchestratorEvents);
-              const rootThread = deciderReadModel.threads.find(
-                (thread) => thread.id === command.threadId && thread.deletedAt === null,
-              );
-              if (!rootThread) {
-                return yield* new OrchestrationCommandInvariantError({
-                  commandType: command.type,
-                  detail: "The Root draft thread must exist before its first turn starts.",
-                });
-              }
-              const rootDecision = yield* decideOrchestratorCommand({
-                command: {
-                  type: "orchestrator.root.create",
-                  commandId: command.commandId,
-                  rootThreadId: command.threadId,
-                  projectId: rootThread.projectId,
-                  actor: { kind: "user", actorId: "owner" },
-                  protocolVersion: command.orchestratorRoot.protocolVersion,
-                  expectedRevision: 0,
-                  createdAt: command.createdAt,
-                  modelTarget: command.orchestratorRoot.modelTarget,
-                  title: command.orchestratorRoot.title,
-                  activeProcessId: null,
-                },
-                state,
-                readModel: deciderReadModel,
-              });
-              return rootDecision;
-            })
-          : null;
       const supervisionBootstrapDecision =
         command.type === "thread.turn.start" && command.supervisionBootstrap !== undefined
           ? yield* Effect.gen(function* () {
@@ -966,387 +846,133 @@ const makeOrchestrationEngine = Effect.gen(function* () {
               });
             })
           : null;
-      const commandEventBase = Schema.is(SupervisionCommand)(command)
-        ? yield* decideSupervisionCommand({ command, state: deciderReadModel.supervision })
-        : Schema.is(OrchestratorCommand)(command)
+        const commandEventBase = command.type === "supervised.specialist.create"
           ? yield* Effect.gen(function* () {
-              const storedEvents = yield* eventStore
-                .readAggregateEvents({
-                  aggregateKind: "orchestrator",
-                  aggregateId: command.rootThreadId,
-                })
-                .pipe(
-                  Effect.mapError((error) =>
-                    makeCommandInternalError(
-                      command,
-                      `Failed to load Orchestrator aggregate: ${error.message}`,
-                    ),
-                  ),
-                );
-              const orchestratorEvents = storedEvents.filter(Schema.is(OrchestratorDomainEvent));
-              if (orchestratorEvents.length !== storedEvents.length) {
-                return yield* makeCommandInternalError(
-                  command,
-                  "Orchestrator stream contains an event with the wrong aggregate schema.",
-                );
-              }
-              const state =
-                orchestratorEvents.length === 0
-                  ? createEmptyOrchestratorState()
-                  : replayOrchestratorEvents(orchestratorEvents);
-              const loadProcess = (processId: TaskProcessId) =>
-                eventStore
-                  .readAggregateEvents({ aggregateKind: "task_process", aggregateId: processId })
-                  .pipe(
-                    Effect.mapError((error) =>
-                      makeCommandInternalError(
-                        command,
-                        `Failed to load TaskProcess ${processId}: ${error.message}`,
-                      ),
-                    ),
-                    Effect.flatMap((events) => {
-                      const typed = events.filter(Schema.is(TaskProcessDomainEvent));
-                      return typed.length === events.length
-                        ? Effect.succeed(replayTaskProcessEvents(typed))
-                        : Effect.fail(
-                            makeCommandInternalError(
-                              command,
-                              `TaskProcess ${processId} stream contains an invalid event.`,
-                            ),
-                          );
-                    }),
-                  );
-              if (command.type === "orchestrator.root.active-process.set") {
-                if (command.activeProcessId !== null) {
-                  const target = yield* loadProcess(command.activeProcessId);
-                  if (
-                    target.process?.projectId !== command.projectId ||
-                    target.process.owner.kind !== "orchestrator" ||
-                    target.process.owner.rootThreadId !== command.rootThreadId ||
-                    target.process.state !== "active"
-                  ) {
-                    return yield* new OrchestrationCommandInvariantError({
-                      commandType: command.type,
-                      detail:
-                        "Selected process must be an active process owned by this Root and project.",
-                    });
-                  }
-                }
-                if (
-                  state.root?.activeProcessId !== null &&
-                  state.root?.activeProcessId !== undefined &&
-                  state.root.activeProcessId !== command.activeProcessId
-                ) {
-                  const current = yield* loadProcess(state.root.activeProcessId);
-                  if (current.process?.state === "active" || current.process?.state === "paused") {
-                    return yield* new OrchestrationCommandInvariantError({
-                      commandType: command.type,
-                      detail:
-                        "Complete or archive the current active process before selecting another.",
-                    });
-                  }
-                }
-              }
-              const orchestratorDecision =
-                command.type === "orchestrator.child.create"
-                  ? yield* Effect.gen(function* () {
-                      const threadDecision = yield* decideOrchestrationCommand({
-                        command: {
-                          type: "thread.create",
-                          commandId: command.commandId,
-                          threadId: command.childThreadId,
-                          projectId: command.projectId,
-                          title: command.title,
-                          modelSelection: {
-                            provider: command.modelTarget.provider as never,
-                            model: command.modelTarget.model,
-                            options: command.modelTarget.providerOptions ?? {},
-                          },
-                          runtimeMode: command.modelTarget.runtimeMode as never,
-                          interactionMode: "default",
-                          envMode: "local",
-                          branch: null,
-                          worktreePath: null,
-                          workingDirectory: command.modelTarget.workspaceRoot,
-                          parentThreadId: null,
-                          creationSource: "orchestrator_native" as never,
-                          sourceThreadId: command.parentThreadId,
-                          subagentAgentId: null,
-                          subagentNickname: null,
-                          subagentRole: null,
-                          lastKnownPr: null,
-                          createdAt: command.createdAt,
-                        },
-                        readModel: deciderReadModel,
-                        workspacePaths: deciderWorkspacePaths,
-                      });
-                      const readModelWithChild = yield* projectEvent(deciderReadModel, {
-                        ...threadDecision,
-                        sequence: 0,
-                      });
-                      const attachDecision = yield* decideOrchestratorCommand({
-                        command: {
-                          type: "orchestrator.child.attach",
-                          commandId: command.commandId,
-                          rootThreadId: command.rootThreadId,
-                          projectId: command.projectId,
-                          actor: command.actor,
-                          protocolVersion: command.protocolVersion,
-                          expectedRevision: command.expectedRevision,
-                          createdAt: command.createdAt,
-                          parentThreadId: command.parentThreadId,
-                          childThreadId: command.childThreadId,
-                          role: command.role,
-                          capabilities: command.capabilities,
-                          continuity: command.continuity,
-                          modelTarget: command.modelTarget,
-                          decisionReason: command.decisionReason,
-                        },
-                        state,
-                        readModel: readModelWithChild,
-                      });
-                      const attachEvents = Array.isArray(attachDecision)
-                        ? attachDecision
-                        : [attachDecision];
-                      const peerBootstrap = command.supervisionPeerBootstrap;
-                      const peerDecision =
-                        peerBootstrap === undefined
-                          ? null
-                          : yield* Effect.gen(function* () {
-                              if (
-                                peerBootstrap.peer.threadId !== command.childThreadId ||
-                                peerBootstrap.peer.projectId !== command.projectId ||
-                                peerBootstrap.peer.rootThreadId !== command.rootThreadId
-                              ) {
-                                return yield* new OrchestrationCommandInvariantError({
-                                  commandType: command.type,
-                                  detail:
-                                    "Peer profile binding must match the created child, Project, and active Lead Root.",
-                                });
-                              }
-                              if (peerBootstrap.profileSnapshot === undefined) {
-                                return yield* new OrchestrationCommandInvariantError({
-                                  commandType: command.type,
-                                  detail: "Server-resolved Peer profile snapshot is required.",
-                                });
-                              }
-                              return yield* decideSupervisionCommand({
-                                state: deciderReadModel.supervision,
-                                command: {
-                                  type: "supervision.peer.bind",
-                                  commandId: command.commandId,
-                                  aggregateId: SupervisionAggregateId.makeUnsafe("supervision"),
-                                  actor: { kind: "user", actorId: "owner" },
-                                  expectedRevision: 0,
-                                  createdAt: command.createdAt,
-                                  profilePresetId: peerBootstrap.profilePresetId,
-                                  profileSnapshot: peerBootstrap.profileSnapshot,
-                                  peer: peerBootstrap.peer,
-                                },
-                              });
-                            });
-                      const peerEvents =
-                        peerDecision === null
-                          ? []
-                          : Array.isArray(peerDecision)
-                            ? peerDecision
-                            : [peerDecision];
-                      if (command.initialMessage === undefined) {
-                        return [threadDecision, ...attachEvents, ...peerEvents];
-                      }
-                      const stateWithChild = attachEvents.reduce(
-                        (current, event) =>
-                          projectOrchestratorEvent(current, {
-                            ...event,
-                            sequence: 0,
-                          } as OrchestratorDomainEvent),
-                        state,
-                      );
-                      const messageDecision = yield* decideOrchestratorCommand({
-                        command: {
-                          type: "orchestrator.message.enqueue",
-                          commandId: command.commandId,
-                          rootThreadId: command.rootThreadId,
-                          projectId: command.projectId,
-                          actor: command.actor,
-                          protocolVersion: command.protocolVersion,
-                          expectedRevision: stateWithChild.revision,
-                          createdAt: command.createdAt,
-                          message: {
-                            messageId: command.initialMessage.messageId,
-                            rootThreadId: command.rootThreadId,
-                            senderThreadId: command.parentThreadId,
-                            targetThreadId: command.childThreadId,
-                            assignmentId: null,
-                            runId: null,
-                            correlationId: null,
-                            replyToMessageId: null,
-                            hopCount: 0,
-                            expiresAt: command.initialMessage.expiresAt,
-                            body: command.initialMessage.body,
-                            artifactRefs: [],
-                            deliveryState: "queued",
-                            deliveryAttemptId: null,
-                            createdAt: command.createdAt,
-                            updatedAt: command.createdAt,
-                          },
-                        },
-                        state: stateWithChild,
-                        readModel: readModelWithChild,
-                      });
-                      return [
-                        threadDecision,
-                        ...attachEvents,
-                        ...peerEvents,
-                        ...(Array.isArray(messageDecision) ? messageDecision : [messageDecision]),
-                      ];
-                    })
-                  : yield* decideOrchestratorCommand({
-                      command,
-                      state,
-                      readModel: deciderReadModel,
-                    });
-              if (
-                command.type === "orchestrator.root.archive" ||
-                command.type === "orchestrator.root.restore"
-              ) {
-                const rootThread = deciderReadModel.threads.find(
-                  (thread) => thread.id === command.rootThreadId && thread.deletedAt === null,
-                );
-                const shouldUpdateThread =
-                  rootThread !== undefined &&
-                  (command.type === "orchestrator.root.archive"
-                    ? rootThread.archivedAt === null
-                    : rootThread.archivedAt !== null);
-                if (!shouldUpdateThread) {
-                  return orchestratorDecision;
-                }
-                const threadDecision = yield* decideOrchestrationCommand({
-                  command: {
-                    type:
-                      command.type === "orchestrator.root.archive"
-                        ? "thread.archive"
-                        : "thread.unarchive",
-                    commandId: command.commandId,
-                    threadId: command.rootThreadId,
-                  },
-                  readModel: deciderReadModel,
-                  workspacePaths: deciderWorkspacePaths,
-                });
-                return [
-                  ...(Array.isArray(orchestratorDecision)
-                    ? orchestratorDecision
-                    : [orchestratorDecision]),
-                  ...(Array.isArray(threadDecision) ? threadDecision : [threadDecision]),
-                ];
-              }
-              if (
-                command.type !== "orchestrator.assignment.create" &&
-                command.type !== "orchestrator.assignment.status.report"
-              ) {
-                return orchestratorDecision;
-              }
-              if (state.root?.activeProcessId !== command.processId) {
+              if (command.profileSnapshot === undefined) {
                 return yield* new OrchestrationCommandInvariantError({
                   commandType: command.type,
-                  detail: "Assignment process must be the Root's selected active process.",
+                  detail: "Server-resolved Specialist profile snapshot is required.",
                 });
               }
-              const taskProcessState = yield* loadProcess(command.processId);
-              if (
-                taskProcessState.process?.owner.kind !== "orchestrator" ||
-                taskProcessState.process.owner.rootThreadId !== command.rootThreadId ||
-                taskProcessState.process.projectId !== command.projectId ||
-                taskProcessState.process.state !== "active" ||
-                taskProcessState.revision !== command.expectedProcessRevision ||
-                !taskProcessState.tasks.some(
-                  ({ task }) =>
-                    task.id ===
-                    (command.type === "orchestrator.assignment.create"
-                      ? command.contract.taskId
-                      : command.taskId),
-                )
-              ) {
+              const room = deciderReadModel.supervised.rooms.find(
+                (candidate) =>
+                  candidate.id === command.roomId &&
+                  candidate.projectId === command.projectId &&
+                  candidate.leadSeatId === command.leadSeatId,
+              );
+              const lead = deciderReadModel.supervision.leads.find(
+                (candidate) =>
+                  candidate.id === command.leadSeatId &&
+                  candidate.projectId === command.projectId &&
+                  candidate.activeThreadId === command.leadThreadId &&
+                  candidate.status === "active",
+              );
+              if (!room || !lead) {
                 return yield* new OrchestrationCommandInvariantError({
                   commandType: command.type,
-                  detail:
-                    "Assignment requires an existing task in the active Root-owned process at the expected graph revision.",
+                  detail: "Specialist creation requires the Room's active Lead authority.",
                 });
               }
-              if (command.type === "orchestrator.assignment.status.report") {
-                const requiredProgressKind = assignmentStatusProgressCommand({
-                  commandId: command.commandId,
-                  processId: command.processId,
-                  projectId: command.projectId,
-                  actor: command.actor,
-                  expectedRevision: command.expectedProcessRevision,
-                  createdAt: command.createdAt,
-                  progressId: command.progressId,
-                  taskId: command.taskId,
-                  assignmentId: command.assignmentId,
-                  threadId: command.actor.kind === "thread" ? command.actor.threadId : null,
-                  state: command.state,
-                  summary: command.summary,
-                  evidenceRefs: command.progressEvidenceRefs,
-                }).kind;
-                if (command.progressKind !== requiredProgressKind) {
-                  return yield* new OrchestrationCommandInvariantError({
-                    commandType: command.type,
-                    detail: `Assignment state ${command.state} requires progress kind ${requiredProgressKind}.`,
-                  });
-                }
-                const progressDecision = yield* decideTaskProcessCommand({
-                  state: taskProcessState,
-                  readModel: deciderReadModel,
-                  command: assignmentStatusProgressCommand({
-                    commandId: command.commandId,
-                    processId: command.processId,
-                    projectId: command.projectId,
-                    actor: command.actor,
-                    expectedRevision: command.expectedProcessRevision,
-                    createdAt: command.createdAt,
-                    progressId: command.progressId,
-                    taskId: command.taskId,
-                    assignmentId: command.assignmentId,
-                    threadId: command.actor.kind === "thread" ? command.actor.threadId : null,
-                    state: command.state,
-                    summary: command.summary,
-                    evidenceRefs: command.progressEvidenceRefs,
-                  }),
-                });
-                return [
-                  ...(Array.isArray(orchestratorDecision)
-                    ? orchestratorDecision
-                    : [orchestratorDecision]),
-                  ...(Array.isArray(progressDecision) ? progressDecision : [progressDecision]),
-                ];
-              }
-              const bindingDecision = yield* decideTaskProcessCommand({
-                state: taskProcessState,
-                readModel: deciderReadModel,
+              const runtimeMode =
+                command.profileSnapshot.runtime.sandboxMode === "danger-full-access"
+                  ? ("full-access" as const)
+                  : ("approval-required" as const);
+              const threadDecision = yield* decideOrchestrationCommand({
                 command: {
-                  type: "project-task.thread.bind",
+                  type: "thread.create",
                   commandId: command.commandId,
-                  processId: command.processId,
+                  threadId: command.threadId,
                   projectId: command.projectId,
-                  actor: command.actor,
-                  expectedRevision: command.expectedProcessRevision,
+                  title: command.title,
+                  modelSelection: {
+                    provider: command.profileSnapshot.runtime.provider,
+                    model: command.profileSnapshot.runtime.model,
+                    options: command.profileSnapshot.runtime.providerOptions ?? {},
+                  } as never,
+                  runtimeMode,
+                  interactionMode: "default",
+                  envMode: "local",
+                  branch: null,
+                  worktreePath: null,
+                  workingDirectory: command.workingDirectory,
+                  parentThreadId: command.leadThreadId,
+                  creationSource: "supervised_native",
+                  sourceThreadId: command.leadThreadId,
+                  subagentAgentId: null,
+                  subagentNickname: null,
+                  subagentRole: "specialist",
+                  lastKnownPr: null,
                   createdAt: command.createdAt,
-                  bindingId: command.bindingId,
-                  taskId: command.contract.taskId,
-                  threadId: command.contract.assigneeThreadId,
-                  assignmentId: command.contract.assignmentId,
-                  role: command.bindingRole,
+                },
+                readModel: deciderReadModel,
+                workspacePaths: deciderWorkspacePaths,
+              });
+              const readModelWithThread = yield* projectEvent(deciderReadModel, {
+                ...threadDecision,
+                sequence: deciderReadModel.snapshotSequence,
+              });
+              const peerDecision = yield* decideSupervisionCommand({
+                state: readModelWithThread.supervision,
+                command: {
+                  type: "supervision.peer.bind",
+                  commandId: command.commandId,
+                  aggregateId: SupervisionAggregateId.makeUnsafe("supervision"),
+                  actor: { kind: "user", actorId: "owner" },
+                  expectedRevision: 0,
+                  createdAt: command.createdAt,
+                  profilePresetId: command.profilePresetId,
+                  profileSnapshot: command.profileSnapshot,
+                  peer: {
+                    threadId: command.threadId,
+                    projectId: command.projectId,
+                    leadSeatId: command.leadSeatId,
+                    rootThreadId: command.leadThreadId,
+                    profileSnapshotId: command.profileSnapshot.id,
+                    status: "active",
+                    createdAt: command.createdAt,
+                    updatedAt: command.createdAt,
+                    archivedAt: null,
+                    revision: 0,
+                  },
                 },
               });
+              const specialistDecision = yield* decideSupervisedCommand({
+                command,
+                state: readModelWithThread.supervised,
+              });
+              const turnDecision =
+                command.initialPrompt === undefined
+                  ? []
+                  : yield* decideOrchestrationCommand({
+                      command: {
+                        type: "thread.turn.start",
+                        commandId: command.commandId,
+                        threadId: command.threadId,
+                        message: {
+                          messageId: MessageId.makeUnsafe(`specialist:${command.specialist.id}:initial`),
+                          role: "user",
+                          text: command.initialPrompt,
+                          attachments: [],
+                        },
+                        dispatchMode: "send",
+                        dispatchOrigin: "agent",
+                        runtimeMode,
+                        interactionMode: "default",
+                        createdAt: command.createdAt,
+                      },
+                      readModel: readModelWithThread,
+                      workspacePaths: deciderWorkspacePaths,
+                    });
               return [
-                ...(Array.isArray(orchestratorDecision)
-                  ? orchestratorDecision
-                  : [orchestratorDecision]),
-                ...(Array.isArray(bindingDecision) ? bindingDecision : [bindingDecision]),
+                threadDecision,
+                ...(Array.isArray(peerDecision) ? peerDecision : [peerDecision]),
+                ...(Array.isArray(specialistDecision) ? specialistDecision : [specialistDecision]),
+                ...(Array.isArray(turnDecision) ? turnDecision : [turnDecision]),
               ];
             })
-          : Schema.is(TaskProcessCommand)(command)
+          : Schema.is(SupervisionCommand)(command)
+            ? yield* decideSupervisionCommand({ command, state: deciderReadModel.supervision })
+            : Schema.is(TaskProcessCommand)(command)
             ? yield* Effect.gen(function* () {
                 const storedEvents = yield* eventStore
                   .readAggregateEvents({
@@ -1367,95 +993,22 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                     command,
                     "TaskProcess stream contains an event with the wrong aggregate schema.",
                   );
-                }
-                const state = replayTaskProcessEvents(taskProcessEvents);
-                let orchestratorRoot: OrchestratorAggregateState | undefined;
-                if (
-                  command.type === "task-process.create" &&
-                  command.owner.kind === "orchestrator"
-                ) {
-                  const rootEvents = yield* eventStore
-                    .readAggregateEvents({
-                      aggregateKind: "orchestrator",
-                      aggregateId: command.owner.rootThreadId,
-                    })
-                    .pipe(
-                      Effect.mapError((error) =>
-                        makeCommandInternalError(
-                          command,
-                          `Failed to load owning Orchestrator Root: ${error.message}`,
-                        ),
-                      ),
-                    );
-                  const typedRootEvents = rootEvents.filter(Schema.is(OrchestratorDomainEvent));
-                  if (typedRootEvents.length !== rootEvents.length) {
-                    return yield* makeCommandInternalError(
-                      command,
-                      "Owning Orchestrator stream contains an event with the wrong aggregate schema.",
-                    );
                   }
-                  orchestratorRoot = replayOrchestratorEvents(typedRootEvents);
-                }
-                const taskProcessDecision = yield* decideTaskProcessCommand({
-                  command,
-                  state,
-                  readModel: deciderReadModel,
-                  ...(orchestratorRoot === undefined ? {} : { orchestratorRoot }),
-                });
-                if (
-                  command.type !== "task-process.create" ||
-                  command.owner.kind !== "orchestrator"
-                ) {
-                  return taskProcessDecision;
-                }
-                if (
-                  orchestratorRoot === undefined ||
-                  orchestratorRoot.root === null ||
-                  command.rootExpectedRevision === undefined ||
-                  orchestratorRoot.revision !== command.rootExpectedRevision
-                ) {
-                  return yield* new OrchestrationCommandInvariantError({
-                    commandType: command.type,
-                    detail: "Root revision conflict while creating its active TaskProcess.",
+                  const state = replayTaskProcessEvents(taskProcessEvents);
+                  return yield* decideTaskProcessCommand({
+                    command,
+                    state,
+                    readModel: deciderReadModel,
                   });
-                }
-                const activeProcessDecision = yield* decideOrchestratorCommand({
-                  command: {
-                    type: "orchestrator.root.active-process.set",
-                    commandId: command.commandId,
-                    rootThreadId: command.owner.rootThreadId,
-                    projectId: command.projectId,
-                    actor: command.actor,
-                    protocolVersion: orchestratorRoot.root.protocolVersion,
-                    expectedRevision: command.rootExpectedRevision,
-                    activeProcessId: command.processId,
-                    createdAt: command.createdAt,
-                  },
-                  state: orchestratorRoot,
-                  readModel: deciderReadModel,
-                });
-                return [
-                  ...(Array.isArray(taskProcessDecision)
-                    ? taskProcessDecision
-                    : [taskProcessDecision]),
-                  ...(Array.isArray(activeProcessDecision)
-                    ? activeProcessDecision
-                    : [activeProcessDecision]),
-                ];
-              })
+                })
             : yield* decideOrchestrationCommand({
                 command,
                 readModel: deciderReadModel,
                 workspacePaths: deciderWorkspacePaths,
               });
-      const eventBase = [
-        ...(threadBootstrapDecision === null ? [] : [threadBootstrapDecision]),
-        ...(rootBootstrapDecision === null
-          ? []
-          : Array.isArray(rootBootstrapDecision)
-            ? rootBootstrapDecision
-            : [rootBootstrapDecision]),
-        ...(supervisionBootstrapDecision === null
+        const eventBase = [
+          ...(threadBootstrapDecision === null ? [] : [threadBootstrapDecision]),
+          ...(supervisionBootstrapDecision === null
           ? []
           : Array.isArray(supervisionBootstrapDecision)
             ? supervisionBootstrapDecision

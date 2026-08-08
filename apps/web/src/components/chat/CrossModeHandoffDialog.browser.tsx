@@ -72,7 +72,7 @@ describe("CrossModeHandoffDialog", () => {
         <CrossModeHandoffDialog
           open
           threadId={ThreadId.makeUnsafe("handoff-source-thread")}
-          destinationLabel="Orchestrator"
+          destinationLabel="Supervised"
           onOpenChange={() => undefined}
           onContinue={harness.onContinue}
         />
@@ -90,7 +90,7 @@ describe("CrossModeHandoffDialog", () => {
       await picker.click();
       await page.getByRole("menuitem", { name: "GPT-5.6 Luna" }).click();
       await page.getByRole("menuitemradio", { name: "GPT-5.6 Sol" }).click();
-      await page.getByRole("button", { name: "Continue in Orchestrator" }).click();
+      await page.getByRole("button", { name: "Continue in Supervised" }).click();
 
       await vi.waitFor(() => {
         expect(harness.onContinue).toHaveBeenCalledWith("", {

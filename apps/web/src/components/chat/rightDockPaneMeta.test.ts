@@ -22,7 +22,7 @@ describe("RIGHT_DOCK_ADD_MENU_KINDS", () => {
           kind !== "file" &&
           kind !== "pullRequest" &&
           kind !== "supervision" &&
-          !kind.startsWith("orchestrator"),
+          !kind.startsWith("supervised"),
       ),
     );
   });

@@ -7,7 +7,6 @@ import type {
   ProviderListCommandsResult,
   ProviderListModelsInput,
   ProviderListModelsResult,
-  OrchestratorProviderCapability,
   ProviderListPluginsInput,
   ProviderListPluginsResult,
   ProviderListSkillsInput,
@@ -48,13 +47,6 @@ export interface ProviderDiscoveryServiceShape {
   readonly listModels: (
     input: ProviderListModelsInput,
   ) => Effect.Effect<ProviderListModelsResult, ProviderDiscoveryError>;
-  /** Mechanical provider/model conformance and telemetry facts for Root reasoning. */
-  readonly listOrchestratorCapabilities: (
-    input: ProviderListModelsInput,
-  ) => Effect.Effect<ReadonlyArray<OrchestratorProviderCapability>, ProviderDiscoveryError>;
-  readonly getOrchestratorCapability: (
-    input: ProviderListModelsInput & { readonly model: string },
-  ) => Effect.Effect<OrchestratorProviderCapability, ProviderDiscoveryError>;
   readonly listAgents: (
     input: ProviderListAgentsInput,
   ) => Effect.Effect<ProviderListAgentsResult, ProviderDiscoveryError>;

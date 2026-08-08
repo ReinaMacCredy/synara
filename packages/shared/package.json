@@ -271,10 +271,6 @@
     "./browserAnnotations": {
       "types": "./src/browserAnnotations.ts",
       "import": "./src/browserAnnotations.ts"
-    },
-    "./orchestratorThreadAlias": {
-      "types": "./src/orchestratorThreadAlias.ts",
-      "import": "./src/orchestratorThreadAlias.ts"
     }
   },
   "scripts": {

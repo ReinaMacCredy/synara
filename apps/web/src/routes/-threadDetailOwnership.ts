@@ -7,7 +7,6 @@ import type { ThreadId } from "@synara/contracts";
 
 export function resolveRouteVisibleThreadIds(input: {
   readonly routeThreadId: ThreadId | null;
-  readonly orchestratorSelectedThreadId?: ThreadId | null | undefined;
   readonly splitViewThreadIds?: readonly ThreadId[] | undefined;
 }): ThreadId[] {
   if (input.splitViewThreadIds) {
@@ -17,10 +16,7 @@ export function resolveRouteVisibleThreadIds(input: {
   if (!primaryThreadId) {
     return [];
   }
-  return input.orchestratorSelectedThreadId &&
-    input.orchestratorSelectedThreadId !== primaryThreadId
-    ? [primaryThreadId, input.orchestratorSelectedThreadId]
-    : [primaryThreadId];
+  return [primaryThreadId];
 }
 
 /**

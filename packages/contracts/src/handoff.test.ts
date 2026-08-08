@@ -55,7 +55,7 @@ describe("StartHandoffPreparationInput", () => {
   const input = {
     sourceThreadId: ThreadId.makeUnsafe("source-thread"),
     destinationDraftThreadId: ThreadId.makeUnsafe("destination-thread"),
-    destinationMode: "orchestrator_root",
+    destinationMode: "supervised",
     handoffPrompt: "Preserve dissent",
   } as const;
 

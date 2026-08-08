@@ -259,10 +259,6 @@ import {
   resolveComposerSlashRootBranch,
 } from "../composerSlashCommands";
 import {
-  isOrchestratorTurnFullySettled,
-  shouldClearPendingOrchestratorRootPromotion,
-} from "../orchestratorRoutePromotion";
-import {
   clearTurnWorkStartedAt,
   deriveTurnWorkStatus,
   readTurnWorkStartedAt,
@@ -379,7 +375,6 @@ import { runProjectCommandInTerminal } from "~/projectTerminalRunner";
 import { newCommandId, newMessageId, newProjectId, newThreadId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { prehydratePromotedThreadDetail, promoteThreadCreate } from "~/lib/threadCreatePromotion";
-import { orchestratorQueryKeys, orchestratorRootQueryOptions } from "~/lib/orchestratorRoots";
 import { readFavoriteModelSlugs } from "~/lib/modelFavorites";
 import {
   getCustomBinaryPathForProvider,
@@ -550,8 +545,6 @@ import { ComposerSessionProgress } from "./chat/ComposerSessionProgress";
 import { SessionProgressCheckpoint } from "./process/SessionProgress";
 import { deriveSessionProgressActivity } from "./process/sessionProgressPresentation";
 import { ComposerSubagentStrip } from "./chat/ComposerSubagentStrip";
-import { ComposerOrchestratorChildStrip } from "./chat/ComposerOrchestratorChildStrip";
-import { deriveComposerOrchestratorChildStripItems } from "./chat/ComposerOrchestratorChildStrip.logic";
 import { AdvisorPopoverButton } from "./chat/AdvisorPopoverButton";
 import { ComposerAdvisorCardPresence } from "./chat/ComposerAdvisorCard";
 import { ComposerAdvisorReturnBar } from "./chat/ComposerAdvisorReturnBar";
@@ -1162,14 +1155,8 @@ interface ChatViewProps {
   onCloseThreadPane?: () => void;
   adjacentRightDockOpen?: boolean;
   onAdjacentRightDockOpenChange?: (open: boolean) => void;
-  orchestratorRootDraft?: {
-    readonly onSelectProject: (projectId: ProjectId) => void;
-    readonly onResetProject: () => void;
-  };
   onOpenSessionProgressProcess?: () => void;
-  orchestratorMode?: boolean;
-  /** Select a child (or root) thread while staying on the Orchestrator surface. */
-  onSelectOrchestratorThread?: (threadId: ThreadId) => void;
+  supervisedMode?: boolean;
   inspectOnly?: boolean;
 }
 
@@ -1232,10 +1219,8 @@ export default function ChatView({
   onCloseThreadPane,
   adjacentRightDockOpen: adjacentRightDockOpenProp,
   onAdjacentRightDockOpenChange,
-  orchestratorRootDraft,
   onOpenSessionProgressProcess,
-  orchestratorMode: orchestratorModeProp,
-  onSelectOrchestratorThread,
+  supervisedMode: supervisedModeProp,
   inspectOnly: inspectOnlyProp,
 }: ChatViewProps) {
   // Prop defaults are resolved here instead of in the destructuring pattern: an
@@ -1249,7 +1234,7 @@ export default function ChatView({
   const viewModeAction = viewModeActionProp ?? null;
   const inspectOnly = inspectOnlyProp ?? false;
   const adjacentRightDockOpen = adjacentRightDockOpenProp ?? false;
-  const orchestratorMode = orchestratorModeProp ?? false;
+  const supervisedMode = supervisedModeProp ?? false;
   const markThreadVisited = useStore((store) => store.markThreadVisited);
   const syncServerShellSnapshot = useStore((store) => store.syncServerShellSnapshot);
   const setStoreThreadError = useStore((store) => store.setError);
@@ -1408,9 +1393,7 @@ export default function ChatView({
   );
   const isThreadTemporary = draftThread?.isTemporary === true || hasTemporaryThreadMarker;
   const supervision = useStore((store) => store.supervision);
-  // TODO(synara): Remove the legacy `peers` projection on or after 2026-11-01 once
-  // persisted Orchestrator snapshots have migrated to Supervised Specialist records.
-  const legacySpecialists = supervision.peers ?? [];
+  const specialists = supervision.peers ?? [];
   const markWorkflowRunPaused = useWorkflowRunUiStore((store) => store.markPaused);
   const markWorkflowRunDismissed = useWorkflowRunUiStore((store) => store.markDismissed);
   const serverThread = useStore(useMemo(() => createThreadSelector(threadId), [threadId]));
@@ -1465,11 +1448,6 @@ export default function ChatView({
     Record<ThreadId, string | null>
   >({});
   const [localDispatch, setLocalDispatch] = useState<LocalDispatchSnapshot | null>(null);
-  // After orchestrator draft promote, hold /orchestrator/$root navigation until
-  // the turn is idle so ChatView is not remounted mid Working→Worked (normal path).
-  // State (not only a ref) so scheduling the promotion re-runs the flush effect.
-  const [pendingOrchestratorRootNavigation, setPendingOrchestratorRootNavigation] =
-    useState<ThreadId | null>(null);
   const failedWorktreeSetupDispatchStartedAtRef = useRef<string | null>(null);
   const [isLocalConnecting, _setIsLocalConnecting] = useState(false);
   const [isRevertingCheckpoint, setIsRevertingCheckpoint] = useState(false);
@@ -1495,7 +1473,6 @@ export default function ChatView({
   const [planSidebarOpen, setPlanSidebarOpen] = useState(false);
   const [activeTaskListCompact, setActiveTaskListCompact] = useState(false);
   const [subagentStripCompact, setSubagentStripCompact] = useState(false);
-  const [orchestratorChildStripCompact, setOrchestratorChildStripCompact] = useState(false);
   const [workflowRunCardCompact, setWorkflowRunCardCompact] = useState(false);
   const [advisorCreating, setAdvisorCreating] = useState(false);
   const [isComposerFooterCompact, setIsComposerFooterCompact] = useState(false);
@@ -1919,7 +1896,6 @@ export default function ChatView({
     composerDraft.interactionMode ?? activeThread?.interactionMode ?? DEFAULT_INTERACTION_MODE;
   const isServerThread = serverThread !== undefined;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
-  const isOrchestratorRootDraft = isLocalDraftThread && draftThread?.entryPoint === "orchestrator";
   const isSupervisedRoomDraft = isLocalDraftThread && draftThread?.entryPoint === "supervised";
   const supervisionDraftMode = draftThread?.supervisionMode ?? "orchestrate";
   const selectedSupervisionProfile = useMemo(() => {
@@ -1932,14 +1908,14 @@ export default function ChatView({
     );
   }, [draftThread?.profilePresetId, supervision.profiles]);
   const durableSupervisionRole = useMemo(() => {
-    if (!isServerThread || !orchestratorMode) return null;
+    if (!isServerThread || !supervisedMode) return null;
     if (
       supervision.leads.some((seat) => seat.activeThreadId === threadId)
     ) {
       return "Lead" as const;
     }
     if (
-      legacySpecialists.some(
+      specialists.some(
         (specialist) => specialist.threadId === threadId && specialist.status === "active",
       )
     ) {
@@ -1948,16 +1924,16 @@ export default function ChatView({
     return "Lead" as const;
   }, [
     isServerThread,
-    orchestratorMode,
+    supervisedMode,
     supervision.leads,
-    legacySpecialists,
+    specialists,
     threadId,
   ]);
   const durableSupervisionProfileSnapshot = useMemo(() => {
-    if (!isServerThread || !orchestratorMode) return null;
+    if (!isServerThread || !supervisedMode) return null;
     const seat =
       supervision.leads.find((candidate) => candidate.activeThreadId === threadId) ??
-      legacySpecialists.find((candidate) => candidate.threadId === threadId) ??
+      specialists.find((candidate) => candidate.threadId === threadId) ??
       null;
     return seat
       ? (supervision.profileSnapshots.find((snapshot) => snapshot.id === seat.profileSnapshotId) ??
@@ -1965,21 +1941,21 @@ export default function ChatView({
       : null;
   }, [
     isServerThread,
-    orchestratorMode,
+    supervisedMode,
     supervision.leads,
-    legacySpecialists,
+    specialists,
     supervision.profileSnapshots,
     threadId,
   ]);
   useLayoutEffect(() => {
-    if (!isOrchestratorRootDraft) return;
+    if (!isSupervisedRoomDraft) return;
     const releaseWarmDetail = retainThreadDetailSubscription(threadId);
     const releasePreShellLease = retainPreShellThreadDetailSubscription(threadId);
     return () => {
       releasePreShellLease();
       releaseWarmDetail();
     };
-  }, [isOrchestratorRootDraft, threadId]);
+  }, [isSupervisedRoomDraft, threadId]);
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
   const diffOpen = rawSearch.panel === "diff";
   const browserOpen = rawSearch.panel === "browser";
@@ -2110,11 +2086,7 @@ export default function ChatView({
     },
     [],
   );
-  const sourceHandoffMode = orchestratorMode
-    ? activeThread?.parentThreadId
-      ? ("orchestrator_child" as const)
-      : ("orchestrator_root" as const)
-    : ("project" as const);
+  const sourceHandoffMode = supervisedMode ? ("supervised" as const) : ("project" as const);
   const hasComposerHandoffRail = composerDraft.handoffDraft !== null;
   const startCrossModeHandoff = useCrossModeHandoff({
     sourceThread: activeThread,
@@ -3030,63 +3002,7 @@ export default function ChatView({
     stripParentThread,
     stripWorkLogEntries,
   ]);
-  // Orchestrator Root child strip: containment children of the open root (same
-  // membership as Sidebar), stacked above the composer like the subagent strip.
-  const orchestratorChildStripEnabled =
-    orchestratorMode && isServerThread && !inspectOnly && !isOrchestratorRootDraft;
-  const orchestratorRootSnapshotQuery = useQuery({
-    ...orchestratorRootQueryOptions(threadId),
-    enabled: orchestratorChildStripEnabled,
-  });
-  const sidebarThreadSummaryById = useStore((state) => state.sidebarThreadSummaryById);
-  const composerOrchestratorChildStrip = useMemo(() => {
-    if (!orchestratorChildStripEnabled) {
-      return null;
-    }
-    const snapshot = orchestratorRootSnapshotQuery.data?.snapshot;
-    if (!snapshot || snapshot.root.rootThreadId !== threadId) {
-      return null;
-    }
-    // Pass containment fields so MCP-spawned children (sourceThreadId + creationSource)
-    // match Sidebar's "2 available" under the root — not raw parentThreadId alone.
-    const threads = Object.values(sidebarThreadSummaryById).map((summary) => ({
-      id: summary.id,
-      title: summary.title,
-      parentThreadId: summary.parentThreadId ?? null,
-      sourceThreadId: summary.sourceThreadId ?? null,
-      creationSource: summary.creationSource ?? null,
-      createdAt: summary.createdAt,
-      updatedAt: summary.updatedAt ?? null,
-    }));
-    const model = deriveComposerOrchestratorChildStripItems({
-      rootThreadId: threadId,
-      threads,
-      assignments: snapshot.assignments,
-      ...(snapshot.childProjections ? { childProjections: snapshot.childProjections } : {}),
-      viewedThreadId: null,
-    });
-    return model.items.length > 0 ? model : null;
-  }, [
-    orchestratorChildStripEnabled,
-    orchestratorRootSnapshotQuery.data?.snapshot,
-    sidebarThreadSummaryById,
-    threadId,
-  ]);
-  const onOpenOrchestratorChildThread = useCallback(
-    (childThreadId: ThreadId) => {
-      if (onSelectOrchestratorThread) {
-        onSelectOrchestratorThread(childThreadId);
-        return;
-      }
-      void navigate({
-        to: "/supervised/$roomId",
-        params: { roomId: threadId },
-        search: { selectedThreadId: childThreadId },
-        replace: true,
-      });
-    },
-    [navigate, onSelectOrchestratorThread, threadId],
-  );
+
   // Links workflow agent rows to their subagent child threads (and models) when the
   // Task tool_use_id produced one; agents spawned without a tool call stay unlinked.
   const workflowSubagentThreadsByToolUseId = useMemo(() => {
@@ -3229,7 +3145,7 @@ export default function ChatView({
   const hasStreamingAssistantText =
     activeThread?.messages.some((message) => message.role === "assistant" && message.streaming) ??
     false;
-  // Shared Working→Worked lifecycle (normal + orchestrator). Presentation stays
+  // Shared Working→Worked lifecycle across Normal and Supervised surfaces.
   // in MessagesTimeline; this only feeds activeTurnInProgress / startedAt.
   const turnWorkStatusMessages =
     optimisticUserMessages.length > 0
@@ -3258,39 +3174,7 @@ export default function ChatView({
   // Composer/busy chrome: morning semantics (session running), not only the
   // transcript work-status gate. Transcript uses activeTurnInProgress separately.
   const isWorking = hasLiveTurn || isSendBusy || isConnecting || isRevertingCheckpoint;
-  const orchestratorTurnInFlight = activeTurnInProgress || isSendBusy;
-  const orchestratorTurnFullySettled = isOrchestratorTurnFullySettled({
-    messages: turnWorkStatusMessages,
-    latestTurn: activeLatestTurn,
-    threadError: activeThread?.error ?? null,
-  });
-  // After first-send promote: clear pending only. Do **not** navigate to
-  // /orchestrator/$root — that remounts ChatView and blinks Worked (reload).
-  // Stay on the draft surface so Working→Worked matches normal (one instance).
-  useEffect(() => {
-    if (
-      !shouldClearPendingOrchestratorRootPromotion({
-        pendingRootThreadId: pendingOrchestratorRootNavigation,
-        currentThreadId: threadId,
-        turnInFlight: orchestratorTurnInFlight,
-        turnFullySettled: orchestratorTurnFullySettled,
-      })
-    ) {
-      return;
-    }
-    const rootThreadId = pendingOrchestratorRootNavigation;
-    if (rootThreadId == null) {
-      return;
-    }
-    setPendingOrchestratorRootNavigation((current) =>
-      current === rootThreadId ? null : current,
-    );
-  }, [
-    orchestratorTurnFullySettled,
-    orchestratorTurnInFlight,
-    pendingOrchestratorRootNavigation,
-    threadId,
-  ]);
+
   const isComposerApprovalState = activePendingApproval !== null;
   const isComposerEditorDisabled = isConnecting || isComposerApprovalState;
   const canCollapsePastedTextToDraft = shouldEnableComposerPastedTextCollapse({
@@ -3539,7 +3423,7 @@ export default function ChatView({
       ),
     [activeThread?.proposedPlans, agentActivityTimelineState.timelineWorkEntries, timelineMessages],
   );
-  // Per-turn remount seed: same path for normal + orchestrator. New user send
+  // Per-turn remount seed: same path for Normal and Supervised. New user send
   // gets a new turnKey so elapsed never carries multi-minute from a prior turn.
   useEffect(() => {
     if (activeTurnInProgress && activeWorkStartedAt && turnWorkStatus.turnKey) {
@@ -7815,7 +7699,7 @@ export default function ChatView({
         setPendingAutomationConversation(null);
       }
     }
-    if (isOrchestratorRootDraft && supervisionDraftMode === "supervise") {
+    if (isSupervisedRoomDraft && supervisionDraftMode === "supervise") {
       const activeLead = supervision.leads.find(
         (lead) => lead.projectId === draftThread?.projectId && lead.status !== "archived",
       );
@@ -7827,7 +7711,7 @@ export default function ChatView({
         return true;
       }
     }
-    const promoteToLead = isOrchestratorRootDraft && supervisionDraftMode === "supervise";
+    const promoteToLead = isSupervisedRoomDraft && supervisionDraftMode === "supervise";
     const supervisionProfileForSend = promoteToLead ? selectedSupervisionProfile : null;
     if (promoteToLead && supervisionProfileForSend === null) {
       setStoreThreadError(activeThread.id, "Choose an active supervision profile before sending.");
@@ -8360,15 +8244,15 @@ export default function ChatView({
           projectInstructions: inheritedProjectInstructions,
         });
         const stagedCrossModeHandoff = composerHandoffDraftSnapshot;
-        const orchestratorSourceThreadId = isOrchestratorRootDraft
-          ? (draftThread?.orchestratorSourceThreadId ?? null)
+        const supervisedSourceThreadId = isSupervisedRoomDraft
+          ? (draftThread?.supervisedSourceThreadId ?? null)
           : null;
         const handoffSourceThreadId =
-          stagedCrossModeHandoff?.sourceThreadId ?? orchestratorSourceThreadId;
+          stagedCrossModeHandoff?.sourceThreadId ?? supervisedSourceThreadId;
         const shouldAtomicallyBootstrapSupervisedThread =
           handoffSourceThreadId === null && promoteToLead;
         if (handoffSourceThreadId) {
-          const importedMessages = draftThread?.orchestratorHandoffMessages ?? [];
+          const importedMessages = draftThread?.supervisedHandoffMessages ?? [];
           if (!stagedCrossModeHandoff && importedMessages.length === 0) {
             throw new Error(
               "The source thread has no completed user or assistant messages to hand off.",
@@ -8521,6 +8405,18 @@ export default function ChatView({
         });
       }
 
+      if (supervisedMode) {
+        await activateSupervisedRoom({
+          threadId: threadIdForSend,
+          projectId: targetProjectIdForSend,
+          ...(promotedLeadSeatId !== null
+            ? { leadSeatId: promotedLeadSeatId }
+            : draftThread?.leadSeatId !== undefined
+              ? { leadSeatId: draftThread.leadSeatId }
+              : {}),
+        });
+      }
+
       beginLocalDispatch(
         baseBranchForWorktree
           ? { worktreeSetupStepId: "start-session", setupScriptName: worktreeSetupScriptName }
@@ -8557,20 +8453,6 @@ export default function ChatView({
           interactionMode: interactionModeForSend,
           ...(sourceProposedPlanForSend ? { sourceProposedPlan: sourceProposedPlanForSend } : {}),
           ...(atomicThreadBootstrap ? { threadBootstrap: atomicThreadBootstrap } : {}),
-          ...(isOrchestratorRootDraft
-            ? {
-                orchestratorRoot: {
-                  protocolVersion: 1 as const,
-                  modelTarget: {
-                    provider: threadCreateModelSelection.provider,
-                    model: threadCreateModelSelection.model,
-                    runtimeMode: nextRuntimeModeForSend,
-                    workspaceRoot: targetProjectCwdForSend,
-                  },
-                  title,
-                },
-              }
-            : {}),
           ...(promotedLeadSeatId !== null && supervisionProfileForSend !== null
             ? {
                 supervisionBootstrap: {
@@ -8597,21 +8479,6 @@ export default function ChatView({
         }),
       );
       turnStartSucceeded = true;
-      if (isSupervisedRoomDraft) {
-        await activateSupervisedRoom({
-          threadId: threadIdForSend,
-          projectId: targetProjectIdForSend,
-        }).catch((error: unknown) => {
-          toastManager.add({
-            type: "warning",
-            title: "Lead Room needs attention",
-            description:
-              error instanceof Error
-                ? error.message
-                : "The thread started, but its Room status could not be updated.",
-          });
-        });
-      }
       if (atomicThreadBootstrap) {
         markPromotedDraftThreads(new Set([threadIdForSend]));
         if (atomicBootstrapThreadNotes) {
@@ -8620,19 +8487,10 @@ export default function ChatView({
           );
         }
       }
-      if (isOrchestratorRootDraft) {
+      if (isSupervisedRoomDraft) {
         const shellSnapshot = await api.orchestration.getShellSnapshot();
         syncServerShellSnapshot(shellSnapshot);
         await prehydratePromotedThreadDetail(threadIdForSend, api);
-      }
-      if (isOrchestratorRootDraft) {
-        await queryClient.invalidateQueries({ queryKey: orchestratorQueryKeys.all });
-        await queryClient
-          .fetchQuery(orchestratorRootQueryOptions(threadIdForSend))
-          .catch(() => undefined);
-        // Do not navigate mid-turn — same ChatView stays mounted (localDispatch +
-        // Working for Ns continuous). Route upgrades after settle (see effect).
-        setPendingOrchestratorRootNavigation(threadIdForSend);
       }
       // Steers on providers without native mid-turn steering interrupt the live
       // turn before re-dispatching; hold queued auto-dispatch through that gap
@@ -8659,35 +8517,6 @@ export default function ChatView({
         setRestoredQueuedSourceProposedPlan(threadIdForSend, null);
       }
     })().catch(async (err: unknown) => {
-      if (isOrchestratorRootDraft && createdServerThreadForLocalDraft && !turnStartSucceeded) {
-        const recovered = await Promise.all([
-          api.orchestration.getShellSnapshot(),
-          api.orchestration.listOrchestratorRoots({
-            projectId: targetProjectIdForSend,
-            includeArchived: true,
-            limit: 100,
-          }),
-        ]).then(
-          ([shellSnapshot, roots]) => {
-            if (!roots.items.some((root) => root.rootThreadId === threadIdForSend)) {
-              return false;
-            }
-            syncServerShellSnapshot(shellSnapshot);
-            return true;
-          },
-          () => false,
-        );
-        if (recovered) {
-          turnStartSucceeded = true;
-          await prehydratePromotedThreadDetail(threadIdForSend, api);
-          await queryClient.invalidateQueries({ queryKey: orchestratorQueryKeys.all });
-          await queryClient
-            .fetchQuery(orchestratorRootQueryOptions(threadIdForSend))
-            .catch(() => undefined);
-          setPendingOrchestratorRootNavigation(threadIdForSend);
-          return;
-        }
-      }
       // Uploads start in parallel with workspace/session preparation. If any
       // earlier step fails, settle that promise and release every staged blob.
       await turnAttachmentsPromise.then(
@@ -9945,7 +9774,7 @@ export default function ChatView({
     [handleModelPickerOpenChange],
   );
   const supervisionProfilePickerActive =
-    isOrchestratorRootDraft && supervisionDraftMode === "supervise";
+    isSupervisedRoomDraft && supervisionDraftMode === "supervise";
   const composerPickerControls = supervisionProfilePickerActive ? (
     <ComposerProfilePicker
       profiles={supervision.profiles}
@@ -10126,10 +9955,6 @@ export default function ChatView({
     // Picker-menu resets still restore focus because the editor is no longer active in that path.
     const restoreComposerFocus = !composerEditorRef.current?.isFocused();
     if (isLocalDraftThread) {
-    if (isOrchestratorRootDraft && orchestratorRootDraft) {
-      orchestratorRootDraft.onResetProject();
-      return;
-      }
       if (!isHomeChatContainer) {
         return (async () => {
           if (!homeDir) {
@@ -10195,9 +10020,8 @@ export default function ChatView({
     homeDir,
     isHomeChatContainer,
     isLocalDraftThread,
-    isOrchestratorRootDraft,
+    isSupervisedRoomDraft,
     moveEmptyDraftToLocalProject,
-    orchestratorRootDraft,
     scheduleComposerFocus,
     setDraftThreadContext,
     setStoreThreadWorkspace,
@@ -10249,18 +10073,13 @@ export default function ChatView({
         scheduleComposerFocus();
         return;
       }
-      if (isOrchestratorRootDraft && orchestratorRootDraft) {
-        orchestratorRootDraft.onSelectProject(projectId);
-        return;
-      }
       moveEmptyDraftToLocalProject(projectId);
     },
     [
       draftThread?.projectId,
       isLocalDraftThread,
-      isOrchestratorRootDraft,
+      isSupervisedRoomDraft,
       moveEmptyDraftToLocalProject,
-      orchestratorRootDraft,
       scheduleComposerFocus,
     ],
   );
@@ -11330,7 +11149,7 @@ export default function ChatView({
         onAddAttachments={addComposerAttachments}
         onToggleFastMode={toggleFastMode}
         onSetPlanMode={setPlanMode}
-        showPlanMode={!isOrchestratorRootDraft}
+        showPlanMode={!isSupervisedRoomDraft}
       />
       {!isVoiceRecording && !isVoiceTranscribing ? (
         <RuntimeUsageControls
@@ -11550,22 +11369,17 @@ export default function ChatView({
     composerProcessActivity !== null &&
     composerProcessActivity.state !== "inactive" &&
     composerProcessActivity.state !== "completed";
-  const sessionProgressCheckpoint = useMemo(
-    () =>
-      sessionProgress ? (
-        <SessionProgressCheckpoint
-          projection={sessionProgress}
-          onOpenProcess={openSessionProgressProcess}
-        />
-      ) : null,
-    [openSessionProgressProcess, sessionProgress],
-  );
+  const sessionProgressCheckpoint = sessionProgress ? (
+    <SessionProgressCheckpoint
+      projection={sessionProgress}
+      onOpenProcess={openSessionProgressProcess}
+    />
+  ) : null;
   const showComposerActiveTaskListCard = Boolean(
     activeTaskList && !planSidebarOpen && !showComposerSessionProgress,
   );
   const showComposerWorkflowRunCard = workflowRunState !== null;
   const showComposerSubagentStrip = composerSubagentStripItems.length > 0;
-  const showComposerOrchestratorChildStrip = composerOrchestratorChildStrip !== null;
   // Type 3 agent-auto Advisor (origin=agent) renders as B strip/receipt in the
   // transcript. Composer card stays type 1 (user) and type 2 (pending-user-input).
   const showComposerAdvisorCard =
@@ -11658,21 +11472,6 @@ export default function ChatView({
                   }
                 />
               ) : null}
-              {showComposerOrchestratorChildStrip && composerOrchestratorChildStrip ? (
-                <ComposerOrchestratorChildStrip
-                  items={composerOrchestratorChildStrip.items}
-                  counts={composerOrchestratorChildStrip.counts}
-                  compact={orchestratorChildStripCompact}
-                  onCompactChange={setOrchestratorChildStripCompact}
-                  onOpenThread={onOpenOrchestratorChildThread}
-                  attachedToPrevious={
-                    showComposerLiveChangesHeader ||
-                    showComposerActiveTaskListCard ||
-                    showComposerWorkflowRunCard ||
-                    showComposerSubagentStrip
-                  }
-                />
-              ) : null}
               <ComposerAdvisorCardPresence
                 consultation={advisorConsultation}
                 open={showComposerAdvisorCard}
@@ -11682,8 +11481,7 @@ export default function ChatView({
                   showComposerLiveChangesHeader ||
                   showComposerActiveTaskListCard ||
                   showComposerWorkflowRunCard ||
-                  showComposerSubagentStrip ||
-                  showComposerOrchestratorChildStrip
+                  showComposerSubagentStrip
                 }
               />
               {composerDraft.handoffDraft ? (
@@ -11694,7 +11492,6 @@ export default function ChatView({
                     showComposerActiveTaskListCard ||
                     showComposerWorkflowRunCard ||
                     showComposerSubagentStrip ||
-                    showComposerOrchestratorChildStrip ||
                     showComposerAdvisorCard
                   }
                   onDetach={() => {
@@ -11756,7 +11553,6 @@ export default function ChatView({
                   showComposerActiveTaskListCard ||
                   showComposerWorkflowRunCard ||
                   showComposerSubagentStrip ||
-                  showComposerOrchestratorChildStrip ||
                   showComposerAdvisorCard ||
                   hasComposerHandoffRail
                 }
@@ -11769,7 +11565,6 @@ export default function ChatView({
                     showComposerActiveTaskListCard ||
                     showComposerWorkflowRunCard ||
                     showComposerSubagentStrip ||
-                    showComposerOrchestratorChildStrip ||
                     showComposerAdvisorCard ||
                     hasComposerHandoffRail ||
                     queuedComposerTurns.length > 0
@@ -12502,7 +12297,7 @@ export default function ChatView({
                         "What should we work on?"
                       ) : (
                         <>
-                          {isOrchestratorRootDraft
+                          {isSupervisedRoomDraft
                             ? "What should we orchestrate in "
                             : "What should we do in "}
                           {showEmptyLandingProjectPicker ? (

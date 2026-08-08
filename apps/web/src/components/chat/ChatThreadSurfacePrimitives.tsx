@@ -123,13 +123,8 @@ export function DeferredChatView(props: {
   adjacentRightDockOpen?: boolean;
   onAdjacentRightDockOpenChange?: (open: boolean) => void;
   onMounted?: () => void;
-  orchestratorRootDraft?: {
-    readonly onSelectProject: (projectId: ProjectId) => void;
-    readonly onResetProject: () => void;
-  };
   onOpenSessionProgressProcess?: () => void;
-  orchestratorMode?: boolean;
-  onSelectOrchestratorThread?: (threadId: ThreadId) => void;
+  supervisedMode?: boolean;
   inspectOnly?: boolean;
 }) {
   const onMounted = props.onMounted ?? noopChatSurfaceAction;
@@ -187,16 +182,10 @@ export function DeferredChatView(props: {
       {...(props.onAdjacentRightDockOpenChange
         ? { onAdjacentRightDockOpenChange: props.onAdjacentRightDockOpenChange }
         : {})}
-      {...(props.orchestratorRootDraft
-        ? { orchestratorRootDraft: props.orchestratorRootDraft }
-        : {})}
       {...(props.onOpenSessionProgressProcess
         ? { onOpenSessionProgressProcess: props.onOpenSessionProgressProcess }
         : {})}
-      orchestratorMode={props.orchestratorMode ?? false}
-      {...(props.onSelectOrchestratorThread
-        ? { onSelectOrchestratorThread: props.onSelectOrchestratorThread }
-        : {})}
+      supervisedMode={props.supervisedMode ?? false}
       inspectOnly={props.inspectOnly ?? false}
     />
   );

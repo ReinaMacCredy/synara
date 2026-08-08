@@ -14,9 +14,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   LOCAL_SERVERS_VISIBLE_REFETCH_INTERVAL_MS,
-  orchestratorArtifactsQueryOptions,
-  orchestratorAuditQueryOptions,
-  orchestratorExchangesQueryOptions,
   reconcileServerProviderStatuses,
   refreshServerConfigAfterTransportOpen,
   serverAllProviderUsageQueryOptions,
@@ -30,7 +27,6 @@ import {
   taskProcessesQueryOptions,
   taskProcessSummaryQueryOptions,
 } from "./serverReactQuery";
-import { orchestratorQueryKeys } from "./orchestratorRoots";
 
 const READY_CODEX_STATUS = {
   provider: "codex",
@@ -39,22 +35,6 @@ const READY_CODEX_STATUS = {
   authStatus: "authenticated",
   checkedAt: "2026-07-26T16:41:38.945Z",
 } satisfies ServerProviderStatus;
-
-describe("Orchestrator bounded read queries", () => {
-  it("uses one Root-scoped cache hierarchy and reconnect refresh", () => {
-    const rootThreadId = ThreadId.makeUnsafe("root-a");
-    const exchanges = orchestratorExchangesQueryOptions(rootThreadId);
-    const artifacts = orchestratorArtifactsQueryOptions(rootThreadId);
-    const audit = orchestratorAuditQueryOptions(rootThreadId);
-
-    expect(exchanges.queryKey).toEqual(orchestratorQueryKeys.exchanges(rootThreadId));
-    expect(artifacts.queryKey).toEqual(orchestratorQueryKeys.artifacts(rootThreadId));
-    expect(audit.queryKey).toEqual(orchestratorQueryKeys.audit(rootThreadId));
-    expect(exchanges.refetchOnReconnect).toBe(true);
-    expect(artifacts.refetchOnReconnect).toBe(true);
-    expect(audit.refetchOnReconnect).toBe(true);
-  });
-});
 
 describe("TaskProcess projection queries", () => {
   it("separates bounded lists, summaries, graphs, and session progress", () => {

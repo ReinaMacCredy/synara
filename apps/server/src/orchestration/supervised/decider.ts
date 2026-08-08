@@ -761,8 +761,16 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
           patch: command.patch,
         });
       }
-      case "supervised.specialist.upsert": {
-        yield* requireHuman(command, "Only the Human may retain or restore specialists.");
+        case "supervised.specialist.create":
+        case "supervised.specialist.upsert": {
+          if (command.type === "supervised.specialist.upsert") {
+            yield* requireHuman(command, "Only the Human may retain or restore specialists.");
+          } else if (
+            command.actor.kind !== "seat" ||
+            command.actor.seatId !== command.leadSeatId
+          ) {
+            return yield* reject(command, "Only the Room's active Lead may create a Specialist.");
+          }
         const current = state.specialists.find(
           (specialist) => specialist.id === command.specialist.id,
         );

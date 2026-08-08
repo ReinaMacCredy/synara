@@ -417,7 +417,7 @@ describe("buildActivityViewModel", () => {
 
     it("keeps settled Supervised Lead Rooms in active history when settlement is disabled", () => {
     const root = makeThread({
-      id: "orchestrator-root",
+      id: "supervised-room",
       settledAt: "2026-08-01T09:50:00.000Z",
       latestTurn: completedTurn("2026-08-01T09:30:00.000Z"),
       lastVisitedAt: "2026-08-01T10:00:00.000Z",
@@ -429,7 +429,7 @@ describe("buildActivityViewModel", () => {
       includeSettled: false,
     });
 
-      expect(model.active.map((thread) => thread.id)).toEqual(["orchestrator-root"]);
+      expect(model.active.map((thread) => thread.id)).toEqual(["supervised-room"]);
       expect(model.settled).toEqual([]);
     });
 });

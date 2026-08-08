@@ -19,7 +19,6 @@ import {
   ProviderRuntimeEvent,
   ThreadId,
   TurnId,
-  type ProviderOrchestratorSessionContext,
 } from "@synara/contracts";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Exit, Fiber, Layer, Random, Stream } from "effect";
@@ -508,60 +507,6 @@ describe("ClaudeAdapterLive", () => {
         systemPrompt.append ?? "",
         "exact thread-scoped Electron page Synara surfaces to the user",
       );
-    }).pipe(
-      Effect.provideService(Random.Random, makeDeterministicRandomService()),
-      Effect.provide(harness.layer),
-    );
-  });
-
-  it.effect("starts Orchestrator sessions when Synara MCP is available", () => {
-    const gateway = makeGatewayCredentialsHarness();
-    const harness = makeMultiQueryHarness({ gatewayCredentials: gateway.credentials });
-    const orchestratorContext = {
-      protocolVersion: 1,
-      rootThreadId: THREAD_ID,
-      role: "root",
-      capabilities: ["state.read", "child.assign", "message.send"],
-    } satisfies ProviderOrchestratorSessionContext;
-
-    return Effect.gen(function* () {
-      const adapter = yield* ClaudeAdapter;
-      const session = yield* adapter.startSession({
-        threadId: THREAD_ID,
-        provider: "claudeAgent",
-        runtimeMode: "full-access",
-        orchestratorContext,
-      });
-      assert.equal(session.provider, "claudeAgent");
-      assert.isAtLeast(harness.createInputs.length, 1);
-      assert.equal(adapter.capabilities.orchestrator?.nativeTools, true);
-    }).pipe(
-      Effect.provideService(Random.Random, makeDeterministicRandomService()),
-      Effect.provide(harness.layer),
-    );
-  });
-
-  it.effect("fails Orchestrator sessions closed when Synara MCP is unavailable", () => {
-    const harness = makeMultiQueryHarness({});
-    const orchestratorContext = {
-      protocolVersion: 1,
-      rootThreadId: THREAD_ID,
-      role: "root",
-      capabilities: ["state.read", "child.assign", "message.send"],
-    } satisfies ProviderOrchestratorSessionContext;
-
-    return Effect.gen(function* () {
-      const adapter = yield* ClaudeAdapter;
-      const exit = yield* Effect.exit(
-        adapter.startSession({
-          threadId: THREAD_ID,
-          provider: "claudeAgent",
-          runtimeMode: "full-access",
-          orchestratorContext,
-        }),
-      );
-      assert.isTrue(exit._tag === "Failure");
-      assert.lengthOf(harness.createInputs, 0);
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),

@@ -42,11 +42,6 @@ import {
   ProviderRuntimeEventRepository,
   type PersistedProviderRuntimeEvent,
 } from "../../persistence/Services/ProviderRuntimeEvents.ts";
-import { OrchestratorArtifactRepository } from "../../persistence/Services/OrchestratorArtifacts.ts";
-import {
-  ProjectionOrchestratorRepository,
-  type ProjectionOrchestratorCore,
-} from "../../persistence/Services/ProjectionOrchestrator.ts";
 import { ProjectionTaskProcessRepository } from "../../persistence/Services/ProjectionTaskProcess.ts";
 import { ThreadDiagnosticsQuery } from "../../diagnostics/Services/ThreadDiagnosticsQuery.ts";
 import type {
@@ -288,7 +283,6 @@ function makeHarnessLayer(
       readonly id: string;
       readonly automationId: AutomationDefinition["id"];
     };
-    readonly orchestratorCore?: ProjectionOrchestratorCore;
     readonly taskProcessGraph?: TaskProcessGraphProjection;
   } = {},
 ) {
@@ -1139,25 +1133,9 @@ function makeHarnessLayer(
         };
       }),
   } as unknown as (typeof ProjectionTurnRepository)["Service"]);
-  const orchestratorRepositoryLayer = Layer.succeed(ProjectionOrchestratorRepository, {
-    findRootForThread: (threadId: ThreadIdType) => {
-      const core = options.orchestratorCore;
-      const belongs =
-        core !== undefined &&
-        (core.root.root.rootThreadId === threadId ||
-          core.ownershipEdges.some(
-            (edge) => edge.childThreadId === threadId && edge.retiredAt === null,
-          ));
-      return Effect.succeed(belongs ? Option.some(core.root.root.rootThreadId) : Option.none());
-    },
-    getCore: () => Effect.succeed(Option.fromNullishOr(options.orchestratorCore)),
-  } as unknown as (typeof ProjectionOrchestratorRepository)["Service"]);
   const taskProcessRepositoryLayer = Layer.succeed(ProjectionTaskProcessRepository, {
     getGraph: () => Effect.succeed(Option.fromNullishOr(options.taskProcessGraph)),
   } as unknown as (typeof ProjectionTaskProcessRepository)["Service"]);
-  const artifactRepositoryLayer = Layer.succeed(OrchestratorArtifactRepository, {
-    list: () => Effect.succeed([]),
-  } as unknown as (typeof OrchestratorArtifactRepository)["Service"]);
 
   const gatewayLayer = AgentGatewayLive.pipe(
     Layer.provide(credentialsLayer),
@@ -1174,9 +1152,7 @@ function makeHarnessLayer(
     Layer.provide(eventStoreLayer),
     Layer.provide(eventDeliveriesLayer),
     Layer.provide(providerRuntimeEventsLayer),
-    Layer.provide(orchestratorRepositoryLayer),
     Layer.provide(taskProcessRepositoryLayer),
-    Layer.provide(artifactRepositoryLayer),
     Layer.provide(ServerConfig.layerTest(process.cwd(), process.cwd())),
     Layer.provide(NodeServices.layer),
   );
@@ -1567,10 +1543,7 @@ describe("AgentGateway", () => {
     }).pipe(Effect.provide(gatewayLayer));
   });
 
-  it.effect("omits Orchestrator tools from MCP when the runtime is not mounted", () => {
-    // Without OrchestratorToolRuntime in the gateway layer, tools/list stays ordinary.
-    // When the runtime is mounted (production), role-visible Orchestrator tools appear
-    // so Claude/ACP hosts can call the same registry Codex installs natively.
+  it.effect("omits Host tools from MCP when the runtime is not mounted", () => {
     const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
     return Effect.gen(function* () {
       const harness = yield* makeHarness;

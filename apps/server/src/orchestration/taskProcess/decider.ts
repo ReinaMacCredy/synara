@@ -21,7 +21,6 @@ import {
   wouldCreateTaskHierarchyCycle,
 } from "./invariants.ts";
 import { projectTaskProcessEvent, type TaskProcessAggregateState } from "./projector.ts";
-import type { OrchestratorAggregateState } from "../orchestrator/projector.ts";
 
 type UnsequencedTaskProcessEvent = Omit<TaskProcessDomainEvent, "sequence">;
 
@@ -67,9 +66,7 @@ const taskById = (state: TaskProcessAggregateState, taskId: ProjectTaskId) =>
 const ownerCanMutate = (state: TaskProcessAggregateState, command: TaskProcessCommand): boolean => {
   const owner = state.process?.owner;
   if (!owner) return false;
-  return owner.kind === "user"
-    ? command.actor.kind === "user"
-    : command.actor.kind === "thread" && command.actor.threadId === owner.rootThreadId;
+  return owner.kind === "user" && command.actor.kind === "user";
 };
 
 const updatedProcess = (
@@ -127,7 +124,6 @@ export const decideTaskProcessCommand = Effect.fn("decideTaskProcessCommand")(fu
   readonly command: TaskProcessCommand;
   readonly state: TaskProcessAggregateState;
   readonly readModel: OrchestrationReadModel;
-  readonly orchestratorRoot?: OrchestratorAggregateState;
 }): Effect.fn.Return<
   UnsequencedTaskProcessEvent | ReadonlyArray<UnsequencedTaskProcessEvent>,
   OrchestrationCommandInvariantError
@@ -143,47 +139,14 @@ export const decideTaskProcessCommand = Effect.fn("decideTaskProcessCommand")(fu
     const project = readModel.projects.find(
       (candidate) => candidate.id === command.projectId && candidate.deletedAt === null,
     );
-    const hasSupportedWorkspace =
-      project?.kind === "project" ||
-      (project?.kind === "chat" && command.owner.kind === "orchestrator");
-    if (!hasSupportedWorkspace) {
+    if (project?.kind !== "project") {
       return yield* reject(
         command.type,
-        "TaskProcess requires a real Project unless it is owned by an Orchestrator Root.",
+        "TaskProcess requires a real Project.",
       );
     }
-    if (
-      (command.owner.kind === "user" && command.actor.kind !== "user") ||
-      (command.owner.kind === "orchestrator" &&
-        (command.actor.kind !== "thread" || command.actor.threadId !== command.owner.rootThreadId))
-    ) {
+    if (command.actor.kind !== "user") {
       return yield* reject(command.type, "Process creator does not match the declared owner.");
-    }
-    if (command.owner.kind === "orchestrator") {
-      const ownerRootThreadId = command.owner.rootThreadId;
-      const orchestratorRoot = input.orchestratorRoot?.root;
-      const rootThread = readModel.threads.find(
-        (thread) =>
-          thread.id === ownerRootThreadId &&
-          thread.projectId === command.projectId &&
-          thread.deletedAt === null,
-      );
-      if (!rootThread || rootThread.subagentAgentId) {
-        return yield* reject(command.type, "Orchestrator owner must be a standalone Root thread.");
-      }
-      if (
-        !orchestratorRoot ||
-        orchestratorRoot.rootThreadId !== ownerRootThreadId ||
-        orchestratorRoot.projectId !== command.projectId ||
-        orchestratorRoot.state !== "active" ||
-        (orchestratorRoot.activeProcessId !== null &&
-          orchestratorRoot.activeProcessId !== command.processId)
-      ) {
-        return yield* reject(
-          command.type,
-          "Orchestrator-owned process conflicts with the active process pinned by that Root.",
-        );
-      }
     }
     const process: TaskProcess = {
       id: command.processId,

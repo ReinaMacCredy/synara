@@ -1,15 +1,15 @@
 import type { HandoffCapsuleItemV1 } from "@synara/contracts";
 import { Effect } from "effect";
 
-import type { OrchestratorToolRuntimeShape } from "../orchestration/Services/OrchestratorToolRuntime.ts";
-import type { OrchestratorToolDefinition } from "../orchestration/orchestrator/toolRuntime.ts";
+import type { HostToolRuntimeShape } from "../orchestration/Services/HostToolRuntime.ts";
+import type { HostToolDefinition } from "../orchestration/hostTools/runtime.ts";
 
 const definition = (
   name: string,
   displayName: string,
   description: string,
   inputSchema: Record<string, unknown>,
-): OrchestratorToolDefinition =>
+): HostToolDefinition =>
   ({
     name,
     displayName,
@@ -17,7 +17,7 @@ const definition = (
     inputSchema,
     readOnly: true,
     providerSupport: { codex: "native", claude: "unsupported" },
-  }) as OrchestratorToolDefinition;
+  }) as HostToolDefinition;
 
 export const HANDOFF_NATIVE_TOOL_CATALOG = [
   definition(
@@ -55,7 +55,7 @@ export const HANDOFF_NATIVE_TOOL_CATALOG = [
 
 export function makeHandoffToolRuntime(
   items: ReadonlyArray<HandoffCapsuleItemV1>,
-): OrchestratorToolRuntimeShape {
+): HostToolRuntimeShape {
   const byRef = new Map(items.map((item) => [item.ref, item]));
   return {
     catalog: HANDOFF_NATIVE_TOOL_CATALOG,

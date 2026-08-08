@@ -1,5 +1,4 @@
 import type {
-  ArtifactId,
   ProviderKind,
   ProjectId,
   ServerConfig,
@@ -11,7 +10,6 @@ import type {
 } from "@synara/contracts";
 import { mutationOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
 import { ensureNativeApi } from "~/nativeApi";
-import { orchestratorQueryKeys } from "~/lib/orchestratorRoots";
 
 export const LOCAL_SERVERS_VISIBLE_REFETCH_INTERVAL_MS = 10_000;
 const LOCAL_SERVERS_DEFAULT_STALE_TIME_MS = 3_000;
@@ -225,61 +223,6 @@ export function sidebarLocalServersQueryOptions(input: {
   return serverLocalServersQueryOptions({
     enabled,
     refetchInterval: input.hasActiveProjectRun ? LOCAL_SERVERS_VISIBLE_REFETCH_INTERVAL_MS : false,
-  });
-}
-
-export function orchestratorExchangesQueryOptions(rootThreadId: ThreadId) {
-  return queryOptions({
-    queryKey: orchestratorQueryKeys.exchanges(rootThreadId),
-    queryFn: async () => {
-      const api = ensureNativeApi();
-      return api.orchestration.listOrchestratorExchanges({ rootThreadId, limit: 100 });
-    },
-    staleTime: 5_000,
-    refetchOnReconnect: true,
-  });
-}
-
-export function orchestratorArtifactsQueryOptions(rootThreadId: ThreadId) {
-  return queryOptions({
-    queryKey: orchestratorQueryKeys.artifacts(rootThreadId),
-    queryFn: async () => {
-      const api = ensureNativeApi();
-      return api.orchestration.listOrchestratorArtifacts({ rootThreadId, limit: 100 });
-    },
-    staleTime: 10_000,
-    refetchOnReconnect: true,
-  });
-}
-
-export function orchestratorArtifactQueryOptions(input: {
-  rootThreadId: ThreadId;
-  artifactId: ArtifactId;
-  enabled?: boolean;
-}) {
-  return queryOptions({
-    queryKey: orchestratorQueryKeys.artifact(input.rootThreadId, input.artifactId),
-    queryFn: async () => {
-      const api = ensureNativeApi();
-      return api.orchestration.readOrchestratorArtifact({
-        rootThreadId: input.rootThreadId,
-        artifactId: input.artifactId,
-      });
-    },
-    enabled: input.enabled ?? true,
-    staleTime: Infinity,
-  });
-}
-
-export function orchestratorAuditQueryOptions(rootThreadId: ThreadId) {
-  return queryOptions({
-    queryKey: orchestratorQueryKeys.audit(rootThreadId),
-    queryFn: async () => {
-      const api = ensureNativeApi();
-      return api.orchestration.listOrchestratorAuditEvents({ rootThreadId, limit: 100 });
-    },
-    staleTime: 10_000,
-    refetchOnReconnect: true,
   });
 }
 

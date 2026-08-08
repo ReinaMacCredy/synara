@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  buildOrchestratorSignalStack,
   buildProjectThreadTree,
   createSidebarThreadHoverAnchorId,
   derivePinnedProjectIdsForSidebar,
@@ -52,7 +51,6 @@ import {
   shouldPrunePinnedThreads,
   shouldClearThreadSelectionOnMouseDown,
   sortProjectsForSidebar,
-  sortOrchestratorRootThreadsForSidebar,
   sortThreadsForSidebar,
 } from "./Sidebar.logic";
 import { ProjectId, ThreadId } from "@synara/contracts";
@@ -80,9 +78,9 @@ function makeLatestTurn(overrides?: {
 
 describe("isProjectsSidebarSurface", () => {
   it("enables Space shortcuts only where the Space switcher is visible", () => {
-    expect(isProjectsSidebarSurface({ isOnSettings: false, isOnOrchestrator: false })).toBe(true);
-    expect(isProjectsSidebarSurface({ isOnSettings: false, isOnOrchestrator: true })).toBe(false);
-    expect(isProjectsSidebarSurface({ isOnSettings: true, isOnOrchestrator: false })).toBe(false);
+    expect(isProjectsSidebarSurface({ isOnSettings: false, isOnSupervised: false })).toBe(true);
+    expect(isProjectsSidebarSurface({ isOnSettings: false, isOnSupervised: true })).toBe(false);
+    expect(isProjectsSidebarSurface({ isOnSettings: true, isOnSupervised: false })).toBe(false);
   });
 });
 
@@ -1321,58 +1319,6 @@ describe("buildProjectThreadTree", () => {
   });
 });
 
-describe("buildOrchestratorSignalStack", () => {
-  it("keeps the Root and prioritizes selected, attention, running, unseen, then one quiet child", () => {
-    const rootId = ThreadId.makeUnsafe("thread-root");
-    const rows = buildOrchestratorSignalStack({
-      rootThreadIds: [rootId],
-      selectedThreadId: ThreadId.makeUnsafe("thread-selected"),
-      threads: [
-        makeSidebarThreadSummary({ id: rootId, parentThreadId: null, title: "Root" }),
-        makeSidebarThreadSummary({
-          id: ThreadId.makeUnsafe("thread-quiet-new"),
-          parentThreadId: rootId,
-          updatedAt: "2026-03-09T10:06:00.000Z",
-        }),
-        makeSidebarThreadSummary({
-          id: ThreadId.makeUnsafe("thread-unseen"),
-          parentThreadId: rootId,
-          lastVisitedAt: "2026-03-09T10:01:00.000Z",
-          latestTurn: makeLatestTurn({ completedAt: "2026-03-09T10:05:00.000Z" }),
-        }),
-        makeSidebarThreadSummary({
-          id: ThreadId.makeUnsafe("thread-running"),
-          parentThreadId: rootId,
-          hasLiveTailWork: true,
-        }),
-        makeSidebarThreadSummary({
-          id: ThreadId.makeUnsafe("thread-attention"),
-          parentThreadId: rootId,
-          hasPendingApprovals: true,
-        }),
-        makeSidebarThreadSummary({
-          id: ThreadId.makeUnsafe("thread-selected"),
-          parentThreadId: rootId,
-        }),
-        makeSidebarThreadSummary({
-          id: ThreadId.makeUnsafe("thread-quiet-old"),
-          parentThreadId: rootId,
-          updatedAt: "2026-03-09T10:00:00.000Z",
-        }),
-      ],
-    });
-
-    expect(rows.map((row) => [row.thread.id, row.depth])).toEqual([
-      [rootId, 0],
-      [ThreadId.makeUnsafe("thread-selected"), 1],
-      [ThreadId.makeUnsafe("thread-attention"), 1],
-      [ThreadId.makeUnsafe("thread-running"), 1],
-      [ThreadId.makeUnsafe("thread-unseen"), 1],
-      [ThreadId.makeUnsafe("thread-quiet-new"), 1],
-    ]);
-  });
-});
-
 describe("getVisibleSidebarEntriesForPreview", () => {
   it("caps preview by rendered rows, not root-thread count", () => {
     const result = getVisibleSidebarEntriesForPreview({
@@ -2172,27 +2118,6 @@ describe("sortThreadsForSidebar", () => {
       ThreadId.makeUnsafe("thread-running"),
       ThreadId.makeUnsafe("thread-newer"),
     ]);
-  });
-});
-
-describe("sortOrchestratorRootThreadsForSidebar", () => {
-  it("keeps pinned roots above newer unpinned roots", () => {
-    const pinnedRoot = makeThread({
-      id: ThreadId.makeUnsafe("root-pinned"),
-      createdAt: "2026-03-09T09:00:00.000Z",
-      updatedAt: "2026-03-09T09:00:00.000Z",
-    });
-    const newerRoot = makeThread({
-      id: ThreadId.makeUnsafe("root-newer"),
-      createdAt: "2026-03-09T11:00:00.000Z",
-      updatedAt: "2026-03-09T11:00:00.000Z",
-    });
-
-    expect(
-      sortOrchestratorRootThreadsForSidebar([newerRoot, pinnedRoot], "updated_at", [
-        pinnedRoot.id,
-      ]).map((thread) => thread.id),
-    ).toEqual([pinnedRoot.id, newerRoot.id]);
   });
 });
 

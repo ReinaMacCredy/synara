@@ -51,7 +51,7 @@ function graph(): TaskProcessGraphProjection {
       id: processId,
       projectId: ProjectId.makeUnsafe("project-browser"),
       title: "Browser Process",
-      owner: { kind: "orchestrator", rootThreadId: ThreadId.makeUnsafe("root-browser") },
+      owner: { kind: "user" },
       state: "active",
       revision: 1,
       createdAt: "2026-08-01T00:00:00.000Z",

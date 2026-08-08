@@ -41,7 +41,6 @@ import {
   type ProviderRuntimeTurnStatus,
   type ProviderSendTurnInput,
   type ProviderSession,
-  type ProviderOrchestratorSessionContext,
   type ProviderSupervisionSessionContext,
   type ThreadTokenUsageSnapshot,
   type ProviderUserInputAnswers,
@@ -91,13 +90,11 @@ import {
   Stream,
 } from "effect";
 
-import { buildClaudeHostMcpServers } from "../claudeOrchestratorSdkMcp.ts";
+import { buildClaudeHostMcpServers } from "../claudeHostSdkMcp.ts";
 import { renderSynaraHarnessPolicy } from "../../agentGateway/harnessPolicy.ts";
-import { orchestratorInstructionForSession } from "../../orchestration/orchestrator/protocolV1.ts";
 import { supervisionInstructionForSession } from "../../orchestration/supervision/protocolV1.ts";
 import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
-import { OrchestratorToolRuntime } from "../../orchestration/Services/OrchestratorToolRuntime.ts";
-import { ProviderDiscoveryService } from "../Services/ProviderDiscoveryService.ts";
+import { HostToolRuntime } from "../../orchestration/Services/HostToolRuntime.ts";
 import { PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY } from "../Services/ProviderAdapter.ts";
 import {
   acquireAgentGatewaySessionLease,
@@ -1058,7 +1055,6 @@ const CLAUDE_CONTEXT_USAGE_TIMEOUT_MS = 1_000;
 const CLAUDE_INTERRUPT_TIMEOUT = Duration.seconds(10);
 export const buildEmbeddedClaudeSystemPromptAppend = (
   gatewayControlAvailable: boolean,
-  orchestratorContext?: ProviderOrchestratorSessionContext | null,
   supervisionContext?: ProviderSupervisionSessionContext | null,
 ) =>
   [
@@ -1068,15 +1064,14 @@ export const buildEmbeddedClaudeSystemPromptAppend = (
     "When the user asks about the current project, codebase, or repository, proactively inspect files in the current working directory before asking the user where to look.",
     "When spawning subagents, set the Agent tool's `model` parameter and pick reasoning effort by choosing a worker-<tier> subagent type (worker-low, worker-medium, worker-high, worker-xhigh).",
     "Honor explicit user instructions about a subagent's model or effort verbatim; otherwise match task complexity: mechanical work → haiku or worker-low, standard work → sonnet or worker-medium, hard reasoning → opus or fable with worker-high and above.",
-    "Provider-native subagents are provider-owned helpers, not standalone Synara Orchestrator threads. They must not claim a Synara ownership role or call Synara Orchestrator native mutation tools.",
+    "Provider-native subagents are provider-owned helpers, not standalone Synara supervised seats. They must not claim Synara authority or call governed Host tools outside their granted scope.",
     renderSynaraHarnessPolicy({ gatewayControlAvailable }),
-    ...(orchestratorContext ? [orchestratorInstructionForSession(orchestratorContext)] : []),
     ...(supervisionContext ? [supervisionInstructionForSession(supervisionContext)] : []),
   ].join("\n");
 
 const CLAUDE_WORKER_EFFORT_TIERS = ["low", "medium", "high", "xhigh"] as const;
 const CLAUDE_WORKER_PROMPT =
-  "You are a provider-native general-purpose worker, not a standalone Synara Orchestrator thread. Do not claim Synara ownership authority or call Synara Orchestrator native mutation tools. Complete the assigned task end to end with the available tools, then return a concise report covering what you did, key findings, and any remaining risks.";
+  "You are a provider-native general-purpose worker, not a standalone Synara supervised seat. Do not claim Synara authority or call governed Host tools outside your granted scope. Complete the assigned task end to end with the available tools, then return a concise report covering what you did, key findings, and any remaining risks.";
 
 function claudeWorkerEffortFromSubagentType(subagentType: string): string | undefined {
   return (CLAUDE_WORKER_EFFORT_TIERS as readonly string[]).find(
@@ -1098,7 +1093,7 @@ function buildClaudeSdkSubagents(): Record<string, AgentDefinition> {
 
     agents[alias.agentName] = {
       description: alias.description,
-      prompt: `${alias.prompt}\n\nYou are a provider-native helper, not a standalone Synara Orchestrator thread. Do not claim Synara ownership authority or call Synara Orchestrator native mutation tools.`,
+      prompt: `${alias.prompt}\n\nYou are a provider-native helper, not a standalone Synara supervised seat. Do not claim Synara authority or call governed Host tools outside your granted scope.`,
       ...(alias.tools ? { tools: [...alias.tools] } : {}),
       ...(alias.disallowedTools ? { disallowedTools: [...alias.disallowedTools] } : {}),
       ...(alias.model ? { model: alias.model } : {}),
@@ -1719,8 +1714,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
     const agentGatewayCredentials = Option.getOrUndefined(
       yield* Effect.serviceOption(AgentGatewayCredentials),
     );
-    const orchestratorToolRuntime = yield* Effect.serviceOption(OrchestratorToolRuntime);
-    const providerDiscovery = yield* Effect.serviceOption(ProviderDiscoveryService);
+    const hostToolRuntime = yield* Effect.serviceOption(HostToolRuntime);
     const nativeEventLogger =
       options?.nativeEventLogger ??
       (options?.nativeEventLogPath !== undefined
@@ -4671,15 +4665,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             issue: `Expected provider '${PROVIDER}' but received '${input.provider}'.`,
           });
         }
-        if (input.orchestratorContext != null && agentGatewayCredentials === undefined) {
-          return yield* new ProviderAdapterValidationError({
-            provider: PROVIDER,
-            operation: "startSession",
-            issue:
-              "Claude Orchestrator sessions require the Synara MCP gateway so the Root/Child can call Orchestrator tools.",
-          });
-        }
-
         const startedAt = yield* nowIso;
         const resumeState = readClaudeResumeState(input.resumeCursor);
         const threadId = input.threadId;
@@ -5139,7 +5124,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             preset: "claude_code",
             append: buildEmbeddedClaudeSystemPromptAppend(
               agentGatewayCredentials !== undefined,
-              input.orchestratorContext,
               input.supervisionContext,
             ),
             // Strip per-user dynamic sections (working directory, auto-memory
@@ -5181,10 +5165,10 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                     bearerToken: gatewaySessionLease.connection.bearerToken,
                   }
                 : null,
-              orchestratorRuntime: orchestratorToolRuntime,
-              discovery: providerDiscovery,
+              hostRuntime: hostToolRuntime,
               threadId,
-              isOrchestratorSession: input.orchestratorContext != null,
+              enableHostTools:
+                input.supervisionContext != null || input.handoffContext != null,
             });
             return Object.keys(mcpServers).length > 0
               ? { mcpServers: mcpServers as NonNullable<ClaudeQueryOptions["mcpServers"]> }
@@ -6313,15 +6297,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         supportsRuntimeModelList: true,
         supportsTurnSteering: true,
         supportsLiveTurnDiffPatch: false,
-        orchestrator: {
-          authoritativeRoleInstruction: true,
-          // Install class B: in-process SDK MCP from OrchestratorToolRuntime
-          // (+ HTTP Synara MCP for ordinary host tools when the gateway is up).
-          nativeTools:
-            Option.isSome(orchestratorToolRuntime) || agentGatewayCredentials !== undefined,
-          independentSession: true,
-          instructionChannel: "claude-system-prompt",
-        },
       },
       startSession,
       sendTurn,

@@ -7,13 +7,13 @@ import { Cause, Effect, Option } from "effect";
 
 import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import {
-  OrchestratorToolError,
-  orchestratorToolFailure,
-  orchestratorToolSuccess,
-  type OrchestratorToolEntry,
-  type OrchestratorToolExecutionResult,
-  type OrchestratorToolInvocationContext,
-} from "../orchestration/orchestrator/toolRuntime.ts";
+  HostToolError,
+  hostToolFailure as hostToolFailure,
+  hostToolSuccess as hostToolSuccess,
+  type HostToolEntry,
+  type HostToolExecutionResult,
+  type HostToolInvocationContext,
+} from "../orchestration/hostTools/runtime.ts";
 import { canonicalHandoffSourceItems, handoffSourceDigest } from "./handoffSourceMaterial.ts";
 
 const MAX_ROWS = 50;
@@ -93,7 +93,7 @@ const encodeCursor = (payload: CursorPayload): string =>
 function decodeCursor(value: unknown, grant: HandoffSourceReadGrant, operation: string): number {
   if (value === undefined) return 0;
   if (typeof value !== "string") {
-    throw new OrchestratorToolError(
+    throw new HostToolError(
       "handoff_cursor_invalid",
       "The handoff cursor must be a string.",
     );
@@ -111,7 +111,7 @@ function decodeCursor(value: unknown, grant: HandoffSourceReadGrant, operation: 
     }
     return decoded.offset;
   } catch {
-    throw new OrchestratorToolError(
+    throw new HostToolError(
       "handoff_cursor_invalid",
       "The handoff cursor is invalid or belongs to another grant revision.",
     );
@@ -121,7 +121,7 @@ function decodeCursor(value: unknown, grant: HandoffSourceReadGrant, operation: 
 const readString = (args: Record<string, unknown>, name: string): string => {
   const value = args[name];
   if (typeof value !== "string" || value.trim().length === 0) {
-    throw new OrchestratorToolError("handoff_input_invalid", `'${name}' is required.`);
+    throw new HostToolError("handoff_input_invalid", `'${name}' is required.`);
   }
   return value.trim();
 };
@@ -130,7 +130,7 @@ const readLimit = (args: Record<string, unknown>, fallback: number, maximum: num
   const value = args.limit;
   if (value === undefined) return fallback;
   if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > maximum) {
-    throw new OrchestratorToolError(
+    throw new HostToolError(
       "handoff_input_invalid",
       `'limit' must be an integer between 1 and ${maximum}.`,
     );
@@ -162,8 +162,8 @@ interface AuthorizedSource {
 
 export function makeHandoffDestinationTools(input: {
   readonly snapshotQuery: ProjectionSnapshotQueryShape;
-}): ReadonlyArray<OrchestratorToolEntry> {
-  const resolveDestinationHandoff = (context: OrchestratorToolInvocationContext) =>
+}): ReadonlyArray<HostToolEntry> {
+  const resolveDestinationHandoff = (context: HostToolInvocationContext) =>
     Effect.gen(function* () {
       const destinationOption = yield* input.snapshotQuery.getThreadDetailSnapshotById(
         context.callerThreadId as never,
@@ -176,14 +176,14 @@ export function makeHandoffDestinationTools(input: {
 
   const resolveAuthorizedSource = (
     args: Record<string, unknown>,
-    context: OrchestratorToolInvocationContext,
-  ): Effect.Effect<AuthorizedSource, OrchestratorToolError | unknown> =>
+    context: HostToolInvocationContext,
+  ): Effect.Effect<AuthorizedSource, HostToolError | unknown> =>
     Effect.gen(function* () {
       const handoff = yield* resolveDestinationHandoff(context);
       const grantId = readString(args, "grantId");
       if (!handoff || handoff.grant.grantId !== grantId) {
         return yield* Effect.fail(
-          new OrchestratorToolError(
+          new HostToolError(
             "handoff_grant_not_found",
             "No source grant with that identifier is authorized for this destination thread.",
           ),
@@ -191,7 +191,7 @@ export function makeHandoffDestinationTools(input: {
       }
       if (handoff.grant.status !== "active") {
         return yield* Effect.fail(
-          new OrchestratorToolError(
+          new HostToolError(
             `handoff_grant_${handoff.grant.status}`,
             `The handoff source grant is ${handoff.grant.status}.`,
           ),
@@ -202,7 +202,7 @@ export function makeHandoffDestinationTools(input: {
       );
       if (Option.isNone(sourceOption)) {
         return yield* Effect.fail(
-          new OrchestratorToolError(
+          new HostToolError(
             "handoff_source_missing",
             "The handoff source is no longer available.",
           ),
@@ -212,7 +212,7 @@ export function makeHandoffDestinationTools(input: {
       const items = canonicalHandoffSourceItems(source.thread.messages, handoff.capsule.sealedAt);
       if (handoffSourceDigest(items) !== handoff.sourceDigest) {
         return yield* Effect.fail(
-          new OrchestratorToolError(
+          new HostToolError(
             "handoff_source_snapshot_changed",
             "The frozen source snapshot can no longer be reconstructed safely.",
           ),
@@ -237,17 +237,17 @@ export function makeHandoffDestinationTools(input: {
     hasNewerActivity: source.currentSequence > source.grant.grantedThroughCursor,
   });
 
-  const visible = (context: OrchestratorToolInvocationContext) =>
+  const visible = (context: HostToolInvocationContext) =>
     resolveDestinationHandoff(context).pipe(
       Effect.map((handoff) => handoff !== null && handoff.grant.status !== "revoked"),
       Effect.catch(() => Effect.succeed(false)),
     );
 
   const executeSafely = (
-    effect: Effect.Effect<OrchestratorToolExecutionResult, unknown>,
-  ): Effect.Effect<OrchestratorToolExecutionResult> =>
+    effect: Effect.Effect<HostToolExecutionResult, unknown>,
+  ): Effect.Effect<HostToolExecutionResult> =>
     effect.pipe(
-      Effect.catchCause((cause) => Effect.succeed(orchestratorToolFailure(Cause.squash(cause)))),
+      Effect.catchCause((cause) => Effect.succeed(hostToolFailure(Cause.squash(cause)))),
     );
 
   return [
@@ -259,12 +259,12 @@ export function makeHandoffDestinationTools(input: {
           Effect.gen(function* () {
             const handoff = yield* resolveDestinationHandoff(context);
             if (!handoff || handoff.grant.status === "revoked") {
-              return orchestratorToolSuccess([]);
+              return hostToolSuccess([]);
             }
             const sourceOption = yield* input.snapshotQuery.getThreadDetailSnapshotById(
               handoff.grant.sourceThreadId,
             );
-            return orchestratorToolSuccess([
+            return hostToolSuccess([
               {
                 grantId: handoff.grant.grantId,
                 sourceThreadId: handoff.grant.sourceThreadId,
@@ -290,22 +290,22 @@ export function makeHandoffDestinationTools(input: {
             const source = yield* resolveAuthorizedSource(args, context);
             const view = readString(args, "view");
             if (!source.grant.allowedViews.includes(view as never)) {
-              return orchestratorToolFailure(
-                new OrchestratorToolError(
+              return hostToolFailure(
+                new HostToolError(
                   "handoff_view_denied",
                   `The '${view}' view is not authorized by this grant.`,
                 ),
               );
             }
-            if (view === "status") return orchestratorToolSuccess(metadata(source));
+            if (view === "status") return hostToolSuccess(metadata(source));
             if (view === "last_message") {
-              return orchestratorToolSuccess({
+              return hostToolSuccess({
                 ...metadata(source),
                 item: source.items.at(-1) ?? null,
               });
             }
             if (view === "artifacts" || view === "activity") {
-              return orchestratorToolSuccess({
+              return hostToolSuccess({
                 ...metadata(source),
                 items: [],
                 nextCursor: null,
@@ -313,8 +313,8 @@ export function makeHandoffDestinationTools(input: {
               });
             }
             if (view !== "transcript" && view !== "tail_since_cursor") {
-              return orchestratorToolFailure(
-                new OrchestratorToolError(
+              return hostToolFailure(
+                new HostToolError(
                   "handoff_view_invalid",
                   `Unknown handoff view '${view}'.`,
                 ),
@@ -324,7 +324,7 @@ export function makeHandoffDestinationTools(input: {
             const limit = readLimit(args, 20, MAX_ROWS);
             const page = byteBounded(source.items.slice(offset), limit);
             const nextOffset = offset + page.items.length;
-            return orchestratorToolSuccess({
+            return hostToolSuccess({
               ...metadata(source),
               items: page.items,
               nextCursor:
@@ -357,7 +357,7 @@ export function makeHandoffDestinationTools(input: {
             );
             const page = byteBounded(matches.slice(offset), limit);
             const nextOffset = offset + page.items.length;
-            return orchestratorToolSuccess({
+            return hostToolSuccess({
               ...metadata(source),
               items: page.items.map((item) => ({
                 ref: item.ref,

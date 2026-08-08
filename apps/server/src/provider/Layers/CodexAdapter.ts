@@ -71,10 +71,9 @@ import { extractProposedPlanMarkdown } from "../planMode.ts";
 import { appendFileAttachmentsPromptBlock } from "../attachmentProjection.ts";
 import { synaraSkillsDir } from "../skillsCatalog.ts";
 import {
-  OrchestratorToolRuntime,
-  type OrchestratorToolRuntimeShape,
-} from "../../orchestration/Services/OrchestratorToolRuntime.ts";
-import { orchestratorToolDisplayName } from "../../orchestration/orchestrator/toolCatalog.ts";
+  HostToolRuntime,
+  type HostToolRuntimeShape,
+} from "../../orchestration/Services/HostToolRuntime.ts";
 import { makeBoundedCallbackIngress } from "../boundedCallbackIngress.ts";
 import { assignDerivedProviderRuntimeEventIds } from "../providerRuntimeEventIdentity.ts";
 import {
@@ -148,7 +147,7 @@ export interface CodexAdapterLiveOptions {
   readonly makeManager?: (services?: ServiceMap.ServiceMap<never>) => CodexAppServerManager;
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: EventNdjsonLogger;
-  readonly orchestratorToolRuntime?: OrchestratorToolRuntimeShape;
+  readonly hostToolRuntime?: HostToolRuntimeShape;
 }
 
 function toMessage(cause: unknown, fallback: string): string {
@@ -863,7 +862,7 @@ function mapItemLifecycle(
     canonicalItemType === "dynamic_tool_call"
       ? firstStringValue(source, ["tool", "toolName", "name"])
       : undefined;
-  const nativeToolTitle = nativeToolName ? orchestratorToolDisplayName(nativeToolName) : null;
+  const nativeToolTitle = nativeToolName;
 
   return {
     ...(generatedImageReference
@@ -1699,13 +1698,13 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
   Effect.gen(function* () {
     const serverConfig = yield* Effect.service(ServerConfig);
     // Optional so adapter tests can run without the gateway layer. The gateway
-    // remains available only to non-Orchestrator sessions.
+    // remains available only to ordinary sessions.
     const agentGatewayCredentials = Option.getOrUndefined(
       yield* Effect.serviceOption(AgentGatewayCredentials),
     );
-    const orchestratorToolRuntime =
-      options?.orchestratorToolRuntime ??
-      Option.getOrUndefined(yield* Effect.serviceOption(OrchestratorToolRuntime));
+    const hostToolRuntime =
+      options?.hostToolRuntime ??
+      Option.getOrUndefined(yield* Effect.serviceOption(HostToolRuntime));
     const nativeEventLogger =
       options?.nativeEventLogger ??
       (options?.nativeEventLogPath !== undefined
@@ -1724,7 +1723,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
           options?.makeManager?.(services) ??
           new CodexAppServerManager(services, {
             synaraSkillsDir: synaraSkillsDir(serverConfig.baseDir),
-            ...(orchestratorToolRuntime ? { orchestratorToolRuntime } : {}),
+            ...(hostToolRuntime ? { hostToolRuntime } : {}),
             ...(agentGatewayCredentials
               ? {
                   agentGatewayMcp: {
@@ -1884,9 +1883,6 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
         ...(input.cwd !== undefined ? { cwd: input.cwd } : {}),
         ...(input.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
         ...(input.providerOptions !== undefined ? { providerOptions: input.providerOptions } : {}),
-        ...(input.orchestratorContext !== undefined
-          ? { orchestratorContext: input.orchestratorContext }
-          : {}),
         ...(input.supervisionContext !== undefined
           ? { supervisionContext: input.supervisionContext }
           : {}),
@@ -2283,13 +2279,6 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
         supportsRuntimeModelList: true,
         supportsTurnSteering: true,
         supportsLiveTurnDiffPatch: true,
-        orchestrator: {
-          authoritativeRoleInstruction: true,
-          // Install class A: Codex app-server dynamicTools + native callbacks.
-          nativeTools: orchestratorToolRuntime !== undefined,
-          independentSession: true,
-          instructionChannel: "codex-developer-instructions",
-        },
       },
       startSession,
       sendTurn,

@@ -5,7 +5,6 @@ import { Effect, Schema } from "effect";
 import {
   ClientOrchestrationCommand,
   OrchestrationShellStreamEvent,
-  OrchestratorToolName,
   ProviderInteractionMode,
   SupervisionCommand,
   SupervisionSnapshot,
@@ -44,12 +43,12 @@ it.effect("round-trips a many-target mission and durable wake queue", () =>
           missionId: "mission-release",
           supervisorSeatId: "supervisor-c",
           leadSeatId: "lead-tech",
-          episodeKind: "orchestrator.assignment.status-reported",
+          episodeKind: "supervised.specialist.created",
           pointers: [
             {
               sequence: 41,
-              eventType: "orchestrator.assignment.status-reported",
-              aggregateKind: "orchestrator",
+              eventType: "supervised.specialist.created",
+              aggregateKind: "specialist",
               aggregateId: "root-tech",
             },
           ],
@@ -116,16 +115,6 @@ it.effect("decodes atomic Lead first-send bootstrap on a client turn", () =>
         worktreePath: null,
         createdAt: now,
       },
-      orchestratorRoot: {
-        protocolVersion: 1,
-        modelTarget: {
-          provider: "codex",
-          model: "gpt-5.6-sol",
-          runtimeMode: "full-access",
-          workspaceRoot: "/workspace/tech",
-        },
-        title: "Tech release",
-      },
       supervisionBootstrap: {
         kind: "lead",
         profilePresetId: "profile-lead-default",
@@ -181,15 +170,5 @@ it.effect("decodes server-only queue and rotation lifecycle commands", () =>
       },
     });
     assert.equal(command.type, "supervision.wake.enqueue");
-  }),
-);
-
-it.effect("publishes bounded supervision tools without Peer transcript or acceptance tools", () =>
-  Effect.gen(function* () {
-    assert.ok(Schema.is(OrchestratorToolName)("read_supervision_state"));
-    assert.ok(Schema.is(OrchestratorToolName)("request_lead_replacement"));
-    assert.ok(Schema.is(OrchestratorToolName)("revoke_supervision_workflow"));
-    assert.ok(!Schema.is(OrchestratorToolName)("read_peer_transcript"));
-    assert.ok(!Schema.is(OrchestratorToolName)("accept_project_outcome"));
   }),
 );

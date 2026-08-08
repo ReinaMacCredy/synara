@@ -7,20 +7,18 @@ import {
 } from "./-threadDetailOwnership";
 
 describe("resolveRouteVisibleThreadIds", () => {
-  it("leases both a Supervised Lead Room and its selected Specialist", () => {
+  it("leases the visible Supervised Lead Room", () => {
     expect(
       resolveRouteVisibleThreadIds({
         routeThreadId: "root" as ThreadId,
-        orchestratorSelectedThreadId: "child" as ThreadId,
       }),
-    ).toEqual(["root", "child"]);
+    ).toEqual(["root"]);
   });
 
   it("lets split view ownership take precedence", () => {
     expect(
       resolveRouteVisibleThreadIds({
         routeThreadId: "root" as ThreadId,
-        orchestratorSelectedThreadId: "child" as ThreadId,
         splitViewThreadIds: ["split-a", "split-b", "split-a"] as ThreadId[],
       }),
     ).toEqual(["split-a", "split-b"]);

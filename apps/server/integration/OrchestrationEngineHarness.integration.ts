@@ -29,10 +29,8 @@ import { GitCoreLive } from "../src/git/Layers/GitCore.ts";
 import { GitCore, type GitCoreShape } from "../src/git/Services/GitCore.ts";
 import { TextGeneration, type TextGenerationShape } from "../src/git/Services/TextGeneration.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../src/persistence/Layers/OrchestrationCommandReceipts.ts";
-import { OrchestrationEventDeliveryRepositoryLive } from "../src/persistence/Layers/OrchestrationEventDeliveries.ts";
 import { OrchestrationEventStoreLive } from "../src/persistence/Layers/OrchestrationEventStore.ts";
 import { ProjectionCheckpointRepositoryLive } from "../src/persistence/Layers/ProjectionCheckpoints.ts";
-import { ProjectionOrchestratorRepositoryLive } from "../src/persistence/Layers/ProjectionOrchestrator.ts";
 import { ProjectionPendingInteractionRepositoryLive } from "../src/persistence/Layers/ProjectionPendingInteractions.ts";
 import { ProviderSessionRuntimeRepositoryLive } from "../src/persistence/Layers/ProviderSessionRuntime.ts";
 import { makeSqlitePersistenceLive } from "../src/persistence/Layers/Sqlite.ts";
@@ -52,10 +50,9 @@ import { OrchestrationProjectionPipelineLive } from "../src/orchestration/Layers
 import { OrchestrationProjectionSnapshotQueryLive } from "../src/orchestration/Layers/ProjectionSnapshotQuery.ts";
 import { RuntimeReceiptBusLive } from "../src/orchestration/Layers/RuntimeReceiptBus.ts";
 import { OrchestrationReactorLive } from "../src/orchestration/Layers/OrchestrationReactor.ts";
-import { OrchestratorMailboxLive } from "../src/orchestration/Layers/OrchestratorMailbox.ts";
-import { OrchestratorMonitorLive } from "../src/orchestration/Layers/OrchestratorMonitor.ts";
 import { ProviderCommandReactorLive } from "../src/orchestration/Layers/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionLive } from "../src/orchestration/Layers/ProviderRuntimeIngestion.ts";
+import { SupervisionWakeReactorLive } from "../src/orchestration/Layers/SupervisionWakeReactor.ts";
 import { TurnCheckpointCoordinatorLive } from "../src/orchestration/Layers/TurnCheckpointCoordinator.ts";
 import {
   OrchestrationEngineService,
@@ -323,23 +320,14 @@ export const makeOrchestrationIntegrationHarness = (
     const checkpointReactorLayer = CheckpointReactorLive.pipe(
       Layer.provideMerge(runtimeServicesLayer),
     );
-    const orchestratorMailboxLayer = OrchestratorMailboxLive.pipe(
+    const supervisionWakeReactorLayer = SupervisionWakeReactorLive.pipe(
       Layer.provideMerge(runtimeServicesLayer),
-      Layer.provideMerge(OrchestrationCommandReceiptRepositoryLive),
-      Layer.provideMerge(ProjectionOrchestratorRepositoryLive),
-      Layer.provideMerge(OrchestrationEventDeliveryRepositoryLive),
-    );
-    const orchestratorMonitorLayer = OrchestratorMonitorLive.pipe(
-      Layer.provideMerge(runtimeServicesLayer),
-      Layer.provideMerge(OrchestrationCommandReceiptRepositoryLive),
-      Layer.provideMerge(ProjectionOrchestratorRepositoryLive),
     );
     const orchestrationReactorLayer = OrchestrationReactorLive.pipe(
       Layer.provideMerge(runtimeIngestionLayer),
       Layer.provideMerge(providerCommandReactorLayer),
       Layer.provideMerge(checkpointReactorLayer),
-      Layer.provideMerge(orchestratorMailboxLayer),
-      Layer.provideMerge(orchestratorMonitorLayer),
+      Layer.provideMerge(supervisionWakeReactorLayer),
     );
     const layer = orchestrationReactorLayer.pipe(
       Layer.provide(persistenceLayer),

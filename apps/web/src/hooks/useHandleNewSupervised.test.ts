@@ -1,4 +1,9 @@
-import { emptySupervisedRuntimeSnapshot, ProjectId, ThreadId } from "@synara/contracts";
+import {
+  emptySupervisedRuntimeSnapshot,
+  LeadSeatId,
+  ProjectId,
+  ThreadId,
+} from "@synara/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useComposerDraftStore } from "../composerDraftStore";
@@ -40,7 +45,7 @@ describe("ensureSupervisedDraft", () => {
     nativeApiMocks.readNativeApi.mockReset();
   });
 
-  it("retains a normal composer draft isolated from legacy Orchestrator state", () => {
+  it("reuses the project Supervised draft", () => {
     const project = makeProject("project");
     const firstThreadId = ensureSupervisedDraft({ project });
     const secondThreadId = ensureSupervisedDraft({ project });
@@ -53,8 +58,8 @@ describe("ensureSupervisedDraft", () => {
       workingDirectory: project.cwd,
     });
     expect(
-      useComposerDraftStore.getState().getDraftThreadByProjectId(project.id, "orchestrator"),
-    ).toBeNull();
+      useComposerDraftStore.getState().getDraftThreadByProjectId(project.id, "supervised"),
+    ).toMatchObject({ threadId: firstThreadId, entryPoint: "supervised" });
   });
 
   it("converges when room creation committed before its projection became readable", async () => {
@@ -93,6 +98,7 @@ describe("ensureSupervisedDraft", () => {
     const at = "2026-08-07T00:00:00.000Z";
     const projectId = ProjectId.makeUnsafe("project-workspace");
     const threadId = ThreadId.makeUnsafe("room-thread");
+    const leadSeatId = LeadSeatId.makeUnsafe("lead-seat");
     const dispatchCommand = vi.fn().mockResolvedValue(undefined);
     nativeApiMocks.readNativeApi.mockReturnValue({
       orchestration: {
@@ -116,17 +122,137 @@ describe("ensureSupervisedDraft", () => {
       },
     });
 
-    await expect(activateSupervisedRoom({ threadId, projectId })).resolves.toBe(threadId);
+    await expect(activateSupervisedRoom({ threadId, projectId, leadSeatId })).resolves.toBe(threadId);
     expect(dispatchCommand).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "supervised.room.update",
         aggregateId: threadId,
         expectedRevision: 2,
-        idempotencyKey: "room-activate:room-thread:2",
+        idempotencyKey: "room-activate:room-thread:lead-seat:2",
         room: expect.objectContaining({
-          leadSeatId: threadId,
+          leadSeatId,
           status: "active",
         }),
+      }),
+    );
+  });
+
+  it("rebinds a draft Room when the owner selects a different Project before sending", async () => {
+    const at = "2026-08-07T00:00:00.000Z";
+    const projectId = ProjectId.makeUnsafe("selected-project");
+    const threadId = ThreadId.makeUnsafe("room-thread");
+    const leadSeatId = LeadSeatId.makeUnsafe("lead-seat");
+    const dispatchCommand = vi.fn().mockResolvedValue(undefined);
+    nativeApiMocks.readNativeApi.mockReturnValue({
+      orchestration: {
+        getSupervisedRuntime: vi.fn().mockResolvedValue({
+          ...emptySupervisedRuntimeSnapshot(at),
+          rooms: [
+            {
+              id: threadId,
+              projectId: ProjectId.makeUnsafe("original-project"),
+              title: "Lead Room",
+              leadSeatId: null,
+              status: "draft",
+              graphRevision: 0,
+              revision: 1,
+              createdAt: at,
+              updatedAt: at,
+            },
+          ],
+        }),
+        dispatchCommand,
+      },
+    });
+
+    await expect(activateSupervisedRoom({ threadId, projectId, leadSeatId })).resolves.toBe(threadId);
+    expect(dispatchCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "supervised.room.update",
+        room: expect.objectContaining({
+          projectId,
+          leadSeatId,
+          status: "active",
+        }),
+      }),
+    );
+  });
+
+  it("repairs an active Room bound to a stale Lead seat", async () => {
+    const at = "2026-08-07T00:00:00.000Z";
+    const projectId = ProjectId.makeUnsafe("project-workspace");
+    const threadId = ThreadId.makeUnsafe("room-thread");
+    const leadSeatId = LeadSeatId.makeUnsafe("lead-current");
+    const dispatchCommand = vi.fn().mockResolvedValue(undefined);
+    nativeApiMocks.readNativeApi.mockReturnValue({
+      orchestration: {
+        getSupervisedRuntime: vi.fn().mockResolvedValue({
+          ...emptySupervisedRuntimeSnapshot(at),
+          rooms: [
+            {
+              id: threadId,
+              projectId,
+              title: "Lead Room",
+              leadSeatId: LeadSeatId.makeUnsafe("lead-stale"),
+              status: "active",
+              graphRevision: 0,
+              revision: 3,
+              createdAt: at,
+              updatedAt: at,
+            },
+          ],
+        }),
+        dispatchCommand,
+      },
+    });
+
+    await expect(activateSupervisedRoom({ threadId, projectId, leadSeatId })).resolves.toBe(threadId);
+    expect(dispatchCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedRevision: 3,
+        room: expect.objectContaining({ leadSeatId, status: "active" }),
+      }),
+    );
+  });
+
+  it("recovers the durable Lead seat after the local draft was reloaded", async () => {
+    const at = "2026-08-07T00:00:00.000Z";
+    const projectId = ProjectId.makeUnsafe("project-workspace");
+    const threadId = ThreadId.makeUnsafe("room-thread");
+    const leadSeatId = LeadSeatId.makeUnsafe("lead-durable");
+    const dispatchCommand = vi.fn().mockResolvedValue(undefined);
+    nativeApiMocks.readNativeApi.mockReturnValue({
+      orchestration: {
+        getSnapshot: vi.fn().mockResolvedValue({
+          supervision: {
+            leads: [{ id: leadSeatId, activeThreadId: threadId, status: "active" }],
+          },
+        }),
+        getSupervisedRuntime: vi.fn().mockResolvedValue({
+          ...emptySupervisedRuntimeSnapshot(at),
+          rooms: [
+            {
+              id: threadId,
+              projectId,
+              title: "Lead Room",
+              leadSeatId: LeadSeatId.makeUnsafe("room-thread"),
+              status: "active",
+              graphRevision: 0,
+              revision: 4,
+              createdAt: at,
+              updatedAt: at,
+            },
+          ],
+        }),
+        dispatchCommand,
+      },
+    });
+
+    await expect(activateSupervisedRoom({ threadId, projectId })).resolves.toBe(threadId);
+    expect(dispatchCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        idempotencyKey: "room-activate:room-thread:lead-durable:4",
+        room: expect.objectContaining({ leadSeatId }),
       }),
     );
   });

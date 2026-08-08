@@ -12,11 +12,8 @@ import { CheckpointDiffQueryLive } from "./checkpointing/Layers/CheckpointDiffQu
 import { CheckpointStoreLive } from "./checkpointing/Layers/CheckpointStore";
 import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor";
 import { OrchestrationReactorLive } from "./orchestration/Layers/OrchestrationReactor";
-import { OrchestratorMailboxLive } from "./orchestration/Layers/OrchestratorMailbox";
-import { OrchestratorMonitorLive } from "./orchestration/Layers/OrchestratorMonitor";
 import { SupervisionWakeReactorLive } from "./orchestration/Layers/SupervisionWakeReactor";
-import { LeadRotationReactorLive } from "./orchestration/Layers/LeadRotationReactor";
-import { OrchestratorToolRuntimeConfiguredLive } from "./orchestration/Layers/OrchestratorToolRuntime";
+import { HostToolRuntimeConfiguredLive } from "./orchestration/Layers/HostToolRuntime";
 import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderCommandReactor";
 import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRuntimeIngestion";
 import { RuntimeReceiptBusLive } from "./orchestration/Layers/RuntimeReceiptBus";
@@ -53,10 +50,7 @@ import { ProjectPullRequestPinsLive } from "./persistence/Layers/ProjectPullRequ
 import { ProjectionTurnRepositoryLive } from "./persistence/Layers/ProjectionTurns";
 import { OrchestrationEventDeliveryRepositoryLive } from "./persistence/Layers/OrchestrationEventDeliveries";
 import { ProviderRuntimeEventRepositoryLive } from "./persistence/Layers/ProviderRuntimeEvents";
-import { OrchestratorArtifactRepositoryLive } from "./persistence/Layers/OrchestratorArtifacts";
-import { ProjectionOrchestratorRepositoryLive } from "./persistence/Layers/ProjectionOrchestrator";
 import { ProjectionTaskProcessRepositoryLive } from "./persistence/Layers/ProjectionTaskProcess";
-import { QueuedTurnPromotionRepositoryLive } from "./persistence/Layers/QueuedTurnPromotions";
 import { ThreadDiagnosticsQueryLive } from "./diagnostics/Layers/ThreadDiagnosticsQuery";
 import { ManagedAttachmentCleanupLive } from "./managedAttachmentCleanup";
 import { PullRequestServiceLive } from "./pullRequests/Layers/PullRequestService";
@@ -82,7 +76,7 @@ export function makeServerRuntimeServicesLayer(
 
   const runtimeServicesLayer = Layer.mergeAll(
     OrchestrationLayerLive,
-    OrchestratorToolRuntimeConfiguredLive,
+    HostToolRuntimeConfiguredLive,
     checkpointStoreLayer,
     checkpointDiffQueryLayer,
     RuntimeReceiptBusLive,
@@ -104,22 +98,8 @@ export function makeServerRuntimeServicesLayer(
   const checkpointReactorLayer = CheckpointReactorLive.pipe(
     Layer.provideMerge(runtimeServicesLayer),
   );
-  const orchestratorMailboxLayer = OrchestratorMailboxLive.pipe(
-    Layer.provideMerge(runtimeServicesLayer),
-    Layer.provideMerge(ProjectionOrchestratorRepositoryLive),
-    Layer.provideMerge(OrchestrationEventDeliveryRepositoryLive),
-  );
-  const orchestratorMonitorLayer = OrchestratorMonitorLive.pipe(
-    Layer.provideMerge(runtimeServicesLayer),
-    Layer.provideMerge(ProjectionOrchestratorRepositoryLive),
-    Layer.provideMerge(QueuedTurnPromotionRepositoryLive),
-  );
   const supervisionWakeReactorLayer = SupervisionWakeReactorLive.pipe(
     Layer.provideMerge(runtimeServicesLayer),
-  );
-  const leadRotationReactorLayer = LeadRotationReactorLive.pipe(
-    Layer.provideMerge(runtimeServicesLayer),
-    Layer.provideMerge(ProjectionOrchestratorRepositoryLive),
   );
   const profileStatsArchiveLayer = ProfileStatsArchiveLive.pipe(
     Layer.provideMerge(checkpointStoreLayer),
@@ -128,19 +108,14 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(runtimeIngestionLayer),
     Layer.provideMerge(providerCommandReactorLayer),
     Layer.provideMerge(checkpointReactorLayer),
-    Layer.provideMerge(orchestratorMailboxLayer),
-    Layer.provideMerge(orchestratorMonitorLayer),
     Layer.provideMerge(supervisionWakeReactorLayer),
-    Layer.provideMerge(leadRotationReactorLayer),
   );
   const taskProcessQueryLayer = TaskProcessQueryLive.pipe(
     Layer.provideMerge(runtimeServicesLayer),
-    Layer.provideMerge(ProjectionOrchestratorRepositoryLive),
     Layer.provideMerge(ProjectionTaskProcessRepositoryLive),
   );
   const handoffPreparationLayer = HandoffPreparationServiceLive.pipe(
     Layer.provideMerge(OrchestrationLayerLive),
-    Layer.provideMerge(ProjectionOrchestratorRepositoryLive),
     Layer.provideMerge(ServerSettingsLive),
   );
   const threadDeletionReactorLayer = ThreadDeletionReactorLive.pipe(
@@ -209,8 +184,6 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(AgentGatewayOperationRepositoryLive),
     Layer.provideMerge(OrchestrationEventDeliveryRepositoryLive),
     Layer.provideMerge(ProviderRuntimeEventRepositoryLive),
-    Layer.provideMerge(OrchestratorArtifactRepositoryLive),
-    Layer.provideMerge(ProjectionOrchestratorRepositoryLive),
     Layer.provideMerge(ProjectionTaskProcessRepositoryLive),
     Layer.provideMerge(ThreadDiagnosticsQueryLive),
     Layer.provideMerge(ServerSettingsLive),
@@ -240,10 +213,7 @@ export function makeServerRuntimeServicesLayer(
     ProjectPullRequestPinsLive,
     pullRequestServiceLayer,
     orchestrationReactorLayer,
-    orchestratorMailboxLayer,
-    orchestratorMonitorLayer,
     supervisionWakeReactorLayer,
-    leadRotationReactorLayer,
     taskProcessQueryLayer,
     handoffPreparationLayer,
     providerCommandReactorLayer,

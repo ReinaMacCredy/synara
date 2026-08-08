@@ -201,28 +201,6 @@ import type {
   TestSubscriptionResult,
 } from "./supervised";
 import type {
-  ArchiveOrchestratorRootInput,
-  CreateOrchestratorRootInput,
-  DetachOrchestratorChildInput,
-  GetOrchestratorSnapshotInput,
-  GetOrchestratorSnapshotResult,
-  ListOrchestratorArtifactsInput,
-  ListOrchestratorArtifactsResult,
-  ListOrchestratorAuditEventsInput,
-  ListOrchestratorAuditEventsResult,
-  ListOrchestratorExchangesInput,
-  ListOrchestratorExchangesResult,
-  ListOrchestratorRootsInput,
-  ListOrchestratorRootsResult,
-  ListNativeOrchestratorToolsInput,
-  ListNativeOrchestratorToolsResult,
-  OrchestratorArtifact,
-  OrchestratorCommandResult,
-  ReadOrchestratorArtifactInput,
-  RestoreOrchestratorRootInput,
-  UpgradeOrchestratorRootInput,
-} from "./orchestrator";
-import type {
   DispatchTaskProcessCommandInput,
   DispatchTaskProcessCommandResult,
   GetSessionProgressInput,
@@ -832,42 +810,6 @@ export interface NativeApi {
     unsubscribeShell: () => Promise<void>;
     subscribeThread: (input: OrchestrationSubscribeThreadInput) => Promise<void>;
     unsubscribeThread: (input: OrchestrationUnsubscribeThreadInput) => Promise<void>;
-    listOrchestratorRoots: (
-      input: ListOrchestratorRootsInput,
-    ) => Promise<ListOrchestratorRootsResult>;
-    listNativeOrchestratorTools: (
-      input?: ListNativeOrchestratorToolsInput,
-    ) => Promise<ListNativeOrchestratorToolsResult>;
-    getOrchestratorSnapshot: (
-      input: GetOrchestratorSnapshotInput,
-    ) => Promise<GetOrchestratorSnapshotResult>;
-    listOrchestratorExchanges: (
-      input: ListOrchestratorExchangesInput,
-    ) => Promise<ListOrchestratorExchangesResult>;
-    listOrchestratorArtifacts: (
-      input: ListOrchestratorArtifactsInput,
-    ) => Promise<ListOrchestratorArtifactsResult>;
-    readOrchestratorArtifact: (
-      input: ReadOrchestratorArtifactInput,
-    ) => Promise<OrchestratorArtifact>;
-    listOrchestratorAuditEvents: (
-      input: ListOrchestratorAuditEventsInput,
-    ) => Promise<ListOrchestratorAuditEventsResult>;
-    createOrchestratorRoot: (
-      input: CreateOrchestratorRootInput,
-    ) => Promise<OrchestratorCommandResult>;
-    archiveOrchestratorRoot: (
-      input: ArchiveOrchestratorRootInput,
-    ) => Promise<OrchestratorCommandResult>;
-    restoreOrchestratorRoot: (
-      input: RestoreOrchestratorRootInput,
-    ) => Promise<OrchestratorCommandResult>;
-    detachOrchestratorChild: (
-      input: DetachOrchestratorChildInput,
-    ) => Promise<OrchestratorCommandResult>;
-    upgradeOrchestratorRoot: (
-      input: UpgradeOrchestratorRootInput,
-    ) => Promise<OrchestratorCommandResult>;
     listTaskProcesses: (input: ListTaskProcessesInput) => Promise<ListTaskProcessesResult>;
     getTaskProcessSummary: (input: GetTaskProcessInput) => Promise<GetTaskProcessSummaryResult>;
     getTaskProcessGraph: (input: GetTaskProcessInput) => Promise<GetTaskProcessGraphResult>;

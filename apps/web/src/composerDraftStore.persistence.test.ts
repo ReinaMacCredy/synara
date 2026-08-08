@@ -96,11 +96,11 @@ describe("composerDraftStore persisted-state hydration", () => {
     ]);
   });
 
-  it("hydrates a retained Orchestrator draft with its locally staged handoff", () => {
-    const projectId = ProjectId.makeUnsafe("project-orchestrator-draft");
-    const threadId = ThreadId.makeUnsafe("thread-orchestrator-draft");
-    const sourceThreadId = ThreadId.makeUnsafe("thread-orchestrator-source");
-    const mappingKey = `${projectId}::orchestrator`;
+  it("hydrates a retained Supervised draft with its locally staged handoff", () => {
+    const projectId = ProjectId.makeUnsafe("project-supervised-draft");
+    const threadId = ThreadId.makeUnsafe("thread-supervised-draft");
+    const sourceThreadId = ThreadId.makeUnsafe("thread-supervised-source");
+    const mappingKey = `${projectId}::supervised`;
     const hydrated = normalizeCurrentPersistedComposerDraftStoreState({
       draftsByThreadId: {
         [threadId]: { prompt: "Continue the architecture discussion", attachments: [] },
@@ -111,12 +111,12 @@ describe("composerDraftStore persisted-state hydration", () => {
           createdAt: "2026-08-01T00:00:00.000Z",
           runtimeMode: "approval-required",
           interactionMode: "default",
-          entryPoint: "orchestrator",
+          entryPoint: "supervised",
           supervisionMode: "supervise",
           profilePresetId: ProfilePresetId.makeUnsafe("profile-lead"),
           leadSeatId: LeadSeatId.makeUnsafe("lead-seat"),
-          orchestratorSourceThreadId: sourceThreadId,
-          orchestratorHandoffMessages: [
+          supervisedSourceThreadId: sourceThreadId,
+          supervisedHandoffMessages: [
             {
               messageId: "handoff-message-1",
               role: "assistant",
@@ -137,53 +137,17 @@ describe("composerDraftStore persisted-state hydration", () => {
     expect(hydrated.projectDraftThreadIdByProjectId[mappingKey]).toBe(threadId);
     expect(hydrated.draftThreadsByThreadId[threadId]).toMatchObject({
       projectId,
-      entryPoint: "orchestrator",
+      entryPoint: "supervised",
       supervisionMode: "supervise",
       profilePresetId: "profile-lead",
       leadSeatId: "lead-seat",
-      orchestratorSourceThreadId: sourceThreadId,
-      orchestratorHandoffMessages: [
+      supervisedSourceThreadId: sourceThreadId,
+      supervisedHandoffMessages: [
         {
           role: "assistant",
           text: "Use a durable Root aggregate.",
         },
       ],
-    });
-  });
-
-  it("folds a legacy Supervisor draft into the single Supervised draft slot", () => {
-    const projectId = ProjectId.makeUnsafe("project-supervisor-draft");
-    const threadId = ThreadId.makeUnsafe("thread-supervisor-draft");
-    const hydrated = normalizeCurrentPersistedComposerDraftStoreState({
-      draftsByThreadId: {
-        [threadId]: { prompt: "Keep supervising this Project", attachments: [] },
-      },
-      draftThreadsByThreadId: {
-        [threadId]: {
-          projectId,
-          createdAt: "2026-08-03T00:00:00.000Z",
-          runtimeMode: "full-access",
-          interactionMode: "default",
-          entryPoint: "supervisor",
-          supervisionMode: "supervise",
-          profilePresetId: ProfilePresetId.makeUnsafe("profile-supervisor"),
-          branch: null,
-          worktreePath: null,
-          workingDirectory: "/workspace/project",
-          envMode: "local",
-        },
-      },
-      projectDraftThreadIdByProjectId: { [projectId]: threadId },
-    });
-
-    expect(hydrated.projectDraftThreadIdByProjectId).toEqual({
-      [`${projectId}::supervised`]: threadId,
-    });
-    expect(hydrated.draftThreadsByThreadId[threadId]).toMatchObject({
-      projectId,
-      entryPoint: "supervised",
-      supervisionMode: "supervise",
-      profilePresetId: "profile-supervisor",
     });
   });
 
@@ -203,7 +167,7 @@ describe("composerDraftStore persisted-state hydration", () => {
             sourceThreadId,
             sourceTitle: "Source",
             sourceMode: "project",
-            destinationMode: "orchestrator_root",
+            destinationMode: "supervised",
             sourceProvider: "codex",
             sourceCursor: 7,
             sourceDigest: "source-digest",

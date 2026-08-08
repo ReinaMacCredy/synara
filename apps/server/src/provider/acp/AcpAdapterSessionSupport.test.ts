@@ -1,14 +1,7 @@
-import {
-  ThreadId,
-  TurnId,
-  type ProviderOrchestratorSessionContext,
-  type ProviderSession,
-} from "@synara/contracts";
+import { ThreadId, TurnId, type ProviderSession } from "@synara/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
-  acpOrchestratorSessionReceipt,
-  buildAcpOrchestratorSystemPrompt,
   clearAcpActiveTurn,
   finalizeAcpActiveTurnCost,
   recordAcpSessionCost,
@@ -21,34 +14,6 @@ import {
 } from "./AcpAdapterSessionSupport.ts";
 
 describe("ACP adapter session support", () => {
-  it("builds an authoritative ACP process prompt and auditable session receipt", () => {
-    const context = {
-      protocolVersion: 1,
-      rootThreadId: ThreadId.makeUnsafe("root-1"),
-      role: "participant",
-      capabilities: ["state.read", "message.send"],
-    } satisfies ProviderOrchestratorSessionContext;
-
-    const prompt = buildAcpOrchestratorSystemPrompt({
-      baseInstruction: "Provider base instruction",
-      context,
-    });
-    expect(prompt).toContain("Provider base instruction");
-    expect(prompt).toContain("ORCHESTRATOR_PROTOCOL_V1");
-    expect(prompt).toContain("Role: participant");
-    expect(prompt).toContain('"rootThreadId":"root-1"');
-    expect(acpOrchestratorSessionReceipt(context)).toEqual({
-      protocolVersion: 1,
-      rootThreadId: "root-1",
-      role: "participant",
-      instructionChannel: "acp-process-system-prompt",
-    });
-    expect(buildAcpOrchestratorSystemPrompt({ baseInstruction: "base", context: null })).toBe(
-      "base",
-    );
-    expect(acpOrchestratorSessionReceipt(null)).toBeUndefined();
-  });
-
   it("resolves plan, approval, full-access, and fallback ACP modes in policy order", () => {
     const aliases = {
       plan: ["plan", "architect"],

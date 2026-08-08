@@ -1,5 +1,5 @@
 // FILE: PullRequestDetailPanel.tsx
-// Purpose: Orchestrator for the pull request detail surface — owns the queries, gh-backed
+// Purpose: controller for the pull request detail surface — owns the queries, gh-backed
 //          actions (merge/ready/draft/close/reopen, fix findings, copy link), the header with
 //          its Summary/Timeline/Code tab switcher, the Code tab's diff viewport, and the
 //          confirm dialogs. Summary and Timeline rendering live in their own tab components.

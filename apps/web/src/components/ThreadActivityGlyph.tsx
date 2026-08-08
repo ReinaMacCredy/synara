@@ -1,5 +1,5 @@
 // FILE: ThreadActivityGlyph.tsx
-// Purpose: Shared lifecycle glyph for Project and Orchestrator sidebar rows.
+// Purpose: Shared lifecycle glyph for Project and Supervised sidebar rows.
 // Layer: Sidebar UI primitive
 
 import { Check, CircleAlert, X } from "lucide-react";

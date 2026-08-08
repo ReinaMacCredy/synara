@@ -26,7 +26,6 @@ import {
   ProviderStartReviewInput,
   ProviderSteerTurnInput,
   ProviderSessionStartInput,
-  ProviderOrchestratorSessionContext,
   ProviderStopSessionInput,
   ProviderStartOptions,
   TurnId,
@@ -58,7 +57,6 @@ import { nonEmptyTrimmed } from "@synara/shared/text";
 
 import { ProviderValidationError } from "../Errors.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
-import { isProviderAdapterOrchestratorCapable } from "../Services/ProviderAdapter.ts";
 import { ProviderService, type ProviderServiceShape } from "../Services/ProviderService.ts";
 import {
   ProviderSessionDirectory,
@@ -246,7 +244,6 @@ function toRuntimePayloadFromSession(
   extra?: {
     readonly modelSelection?: unknown;
     readonly providerOptions?: unknown;
-    readonly orchestratorContext?: unknown;
     readonly lastRuntimeEvent?: string;
     readonly lastRuntimeEventAt?: string;
     readonly lifecycleGeneration?: string;
@@ -262,9 +259,6 @@ function toRuntimePayloadFromSession(
     lastError: nonEmptyTrimmed(session.lastError) ?? null,
     ...(extra?.modelSelection !== undefined ? { modelSelection: extra.modelSelection } : {}),
     ...(extra?.providerOptions !== undefined ? { providerOptions: extra.providerOptions } : {}),
-    ...(extra?.orchestratorContext !== undefined
-      ? { orchestratorContext: extra.orchestratorContext }
-      : {}),
     ...(extra?.lastRuntimeEvent !== undefined ? { lastRuntimeEvent: extra.lastRuntimeEvent } : {}),
     ...(extra?.lastRuntimeEventAt !== undefined
       ? { lastRuntimeEventAt: extra.lastRuntimeEventAt }
@@ -287,17 +281,6 @@ function readPersistedProviderOptions(
 ): ProviderStartOptions | undefined {
   const raw = runtimePayloadRecord(runtimePayload).providerOptions;
   return Option.getOrUndefined(Schema.decodeUnknownOption(ProviderStartOptions)(raw));
-}
-
-function readPersistedOrchestratorContext(
-  runtimePayload: ProviderRuntimeBinding["runtimePayload"],
-): typeof ProviderOrchestratorSessionContext.Type | null | undefined {
-  const record = runtimePayloadRecord(runtimePayload);
-  if (!Object.hasOwn(record, "orchestratorContext")) return undefined;
-  if (record.orchestratorContext === null) return null;
-  return Option.getOrUndefined(
-    Schema.decodeUnknownOption(ProviderOrchestratorSessionContext)(record.orchestratorContext),
-  );
 }
 
 function readPersistedCwd(
@@ -743,7 +726,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         readonly lifecycleGeneration?: string;
         readonly modelSelection?: unknown;
         readonly providerOptions?: unknown;
-        readonly orchestratorContext?: unknown;
         readonly lastRuntimeEvent?: string;
         readonly lastRuntimeEventAt?: string;
       },
@@ -1378,19 +1360,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             const persistedCwd = readPersistedCwd(binding.runtimePayload);
             const persistedModelSelection = readPersistedModelSelection(binding.runtimePayload);
             const persistedProviderOptions = readPersistedProviderOptions(binding.runtimePayload);
-            const persistedOrchestratorContext = readPersistedOrchestratorContext(
-              binding.runtimePayload,
-            );
-            if (
-              persistedOrchestratorContext !== undefined &&
-              persistedOrchestratorContext !== null &&
-              !isProviderAdapterOrchestratorCapable(adapter.capabilities)
-            ) {
-              return yield* toValidationError(
-                input.operation,
-                `Provider '${binding.provider}' no longer satisfies the Orchestrator session conformance contract.`,
-              );
-            }
             yield* validateAutoRuntimeMode(
               input.operation,
               binding.provider,
@@ -1404,9 +1373,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
               ...(persistedCwd ? { cwd: persistedCwd } : {}),
               ...(persistedModelSelection ? { modelSelection: persistedModelSelection } : {}),
               ...(persistedProviderOptions ? { providerOptions: persistedProviderOptions } : {}),
-              ...(persistedOrchestratorContext !== undefined
-                ? { orchestratorContext: persistedOrchestratorContext }
-                : {}),
               ...(hasPersistedResumeCursor ? { resumeCursor: binding.resumeCursor } : {}),
               runtimeMode: binding.runtimeMode ?? "full-access",
             });
@@ -1423,7 +1389,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                 lifecycleGeneration: lease.generation,
                 modelSelection: persistedModelSelection,
                 providerOptions: persistedProviderOptions,
-                orchestratorContext: persistedOrchestratorContext,
               }).pipe(
                 Effect.andThen(
                   requiresCredentialRotation
@@ -1622,25 +1587,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
               (persistedBinding?.provider === input.provider
                 ? readPersistedProviderOptions(persistedBinding.runtimePayload)
                 : undefined);
-            const effectiveOrchestratorContext =
-              input.orchestratorContext !== undefined
-                ? input.orchestratorContext
-                : persistedBinding?.provider === input.provider
-                  ? readPersistedOrchestratorContext(persistedBinding.runtimePayload) == null
-                    ? undefined
-                    : null
-                  : undefined;
             const adapter = yield* registry.getByProvider(input.provider);
-            if (
-              effectiveOrchestratorContext !== undefined &&
-              effectiveOrchestratorContext !== null &&
-              !isProviderAdapterOrchestratorCapable(adapter.capabilities)
-            ) {
-              return yield* toValidationError(
-                "ProviderService.startSession",
-                `Provider '${input.provider}' cannot host Orchestrator sessions because it does not prove an authoritative role instruction channel, authenticated Synara MCP, and independent session lifecycle.`,
-              );
-            }
             let replacementStarted = false;
             const startAndPersistReplacement = Effect.gen(function* () {
               // A provider start that never returns holds this thread's
@@ -1656,9 +1603,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                     : {}),
                   ...(effectiveResumeCursor !== undefined
                     ? { resumeCursor: effectiveResumeCursor }
-                    : {}),
-                  ...(effectiveOrchestratorContext !== undefined
-                    ? { orchestratorContext: effectiveOrchestratorContext }
                     : {}),
                 })
                 .pipe(Effect.timeoutOption(PROVIDER_START_SESSION_TIMEOUT));
@@ -1700,7 +1644,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                 upsertSessionBinding(session, threadId, {
                   modelSelection: input.modelSelection,
                   providerOptions: effectiveProviderOptions,
-                  orchestratorContext: effectiveOrchestratorContext,
                   lifecycleGeneration: lease.generation,
                 }).pipe(
                   Effect.andThen(
@@ -1741,9 +1684,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             const previousProviderOptions = readPersistedProviderOptions(
               persistedBinding.runtimePayload,
             );
-            const previousOrchestratorContext = readPersistedOrchestratorContext(
-              persistedBinding.runtimePayload,
-            );
             const previousCwd = readPersistedCwd(persistedBinding.runtimePayload);
             yield* previousAdapter.stopSession(threadId);
 
@@ -1770,9 +1710,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                         ...(previousProviderOptions !== undefined
                           ? { providerOptions: previousProviderOptions }
                           : {}),
-                        ...(previousOrchestratorContext !== undefined
-                          ? { orchestratorContext: previousOrchestratorContext }
-                          : {}),
                         ...(persistedBinding.resumeCursor !== undefined
                           ? { resumeCursor: persistedBinding.resumeCursor }
                           : {}),
@@ -1789,7 +1726,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                           lifecycleGeneration: previousGeneration,
                           modelSelection: previousModelSelection,
                           providerOptions: previousProviderOptions,
-                          orchestratorContext: previousOrchestratorContext,
                         }),
                       );
                       // The restored runtime stamps its events with the exact

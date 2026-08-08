@@ -1,7 +1,6 @@
 import {
   ProjectId,
   TaskProcessId,
-  ThreadId,
   type TaskProcessGraphProjection,
 } from "@synara/contracts";
 import { describe, expect, it } from "vitest";
@@ -32,22 +31,11 @@ function process(
 }
 
 describe("ProcessWorkspace", () => {
-  it("derives user and Root authority from the durable process owner", () => {
+  it("derives Project authority from the durable process owner", () => {
     expect(resolveProcessAuthority(process({ kind: "user" }))).toEqual({
       mode: "project",
       canEditGraph: true,
       canCreateProcess: true,
-      canPauseProcess: true,
-      canCancelOrReopenTask: true,
-    });
-    expect(
-      resolveProcessAuthority(
-        process({ kind: "orchestrator", rootThreadId: ThreadId.makeUnsafe("root") }),
-      ),
-    ).toEqual({
-      mode: "orchestrator",
-      canEditGraph: false,
-      canCreateProcess: false,
       canPauseProcess: true,
       canCancelOrReopenTask: true,
     });

@@ -5,8 +5,7 @@ import { CheckpointReactor } from "../Services/CheckpointReactor.ts";
 import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
 import { OrchestrationReactor } from "../Services/OrchestrationReactor.ts";
-import { OrchestratorMailbox } from "../Services/OrchestratorMailbox.ts";
-import { OrchestratorMonitor } from "../Services/OrchestratorMonitor.ts";
+import { SupervisionWakeReactor } from "../Services/SupervisionWakeReactor.ts";
 import { makeOrchestrationReactor } from "./OrchestrationReactor.ts";
 
 describe("OrchestrationReactor", () => {
@@ -27,61 +26,14 @@ describe("OrchestrationReactor", () => {
     runtime = ManagedRuntime.make(
       Layer.effect(OrchestrationReactor, makeOrchestrationReactor).pipe(
         Layer.provideMerge(
-          Layer.succeed(OrchestratorMailbox, {
+          Layer.succeed(SupervisionWakeReactor, {
             start: Effect.acquireRelease(
               Effect.sync(() => {
-                started.push("orchestrator-mailbox");
+                started.push("supervision-wake-reactor");
               }),
-              () => Effect.sync(() => stopped.push("orchestrator-mailbox")),
+              () => Effect.sync(() => stopped.push("supervision-wake-reactor")),
             ),
-            reconcileRoot: () =>
-              Effect.succeed({
-                rootsVisited: 1,
-                messagesDelivered: 0,
-                messagesExpired: 0,
-                messagesFailed: 0,
-                responsesCorrelated: 0,
-              }),
-            reconcileAll: Effect.succeed({
-              rootsVisited: 0,
-              messagesDelivered: 0,
-              messagesExpired: 0,
-              messagesFailed: 0,
-              responsesCorrelated: 0,
-            }),
-          }),
-        ),
-        Layer.provideMerge(
-          Layer.succeed(OrchestratorMonitor, {
-            start: Effect.acquireRelease(
-              Effect.sync(() => {
-                started.push("orchestrator-monitor");
-              }),
-              () => Effect.sync(() => stopped.push("orchestrator-monitor")),
-            ),
-            reconcileRoot: () =>
-              Effect.succeed({
-                rootsVisited: 1,
-                monitorsFired: 0,
-                monitorsExpired: 0,
-                monitorsCancelled: 0,
-                wakesDispatched: 0,
-              }),
-            reconcileEvent: () =>
-              Effect.succeed({
-                rootsVisited: 0,
-                monitorsFired: 0,
-                monitorsExpired: 0,
-                monitorsCancelled: 0,
-                wakesDispatched: 0,
-              }),
-            reconcileAll: Effect.succeed({
-              rootsVisited: 0,
-              monitorsFired: 0,
-              monitorsExpired: 0,
-              monitorsCancelled: 0,
-              wakesDispatched: 0,
-            }),
+            drain: Effect.void,
           }),
         ),
         Layer.provideMerge(
@@ -133,8 +85,7 @@ describe("OrchestrationReactor", () => {
     expect(started).toEqual([
       "checkpoint-reactor",
       "provider-runtime-ingestion",
-      "orchestrator-mailbox",
-      "orchestrator-monitor",
+      "supervision-wake-reactor",
       "provider-command-reactor",
     ]);
     expect(reconciledOpenTurns).toBe(1);
@@ -142,8 +93,7 @@ describe("OrchestrationReactor", () => {
     await Effect.runPromise(Scope.close(scope, Exit.void));
     expect(stopped).toEqual([
       "provider-command-reactor",
-      "orchestrator-monitor",
-      "orchestrator-mailbox",
+      "supervision-wake-reactor",
       "provider-runtime-ingestion",
       "checkpoint-reactor",
     ]);

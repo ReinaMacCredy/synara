@@ -9,6 +9,7 @@ import {
   MissionGrant,
   MissionScopeList,
   ProfileSnapshotId,
+  SpecialistId,
   SupervisionAdviceId,
   SupervisionAggregateId,
   SupervisionMissionId,
@@ -22,12 +23,12 @@ import { Effect, Option, Schema } from "effect";
 
 import type { OrchestrationEngineShape } from "../Services/OrchestrationEngine.ts";
 import type { ProjectionSnapshotQueryShape } from "../Services/ProjectionSnapshotQuery.ts";
-import type { OrchestratorToolEntry } from "../orchestrator/toolRuntime.ts";
 import {
-  OrchestratorToolError,
-  orchestratorToolFailure,
-  orchestratorToolSuccess,
-} from "../orchestrator/toolRuntime.ts";
+  HostToolError,
+  hostToolFailure as hostToolFailure,
+  hostToolSuccess as hostToolSuccess,
+  type HostToolEntry,
+} from "../hostTools/runtime.ts";
 import { missionScopeContainsLead } from "./missionScope.ts";
 import { profileLaunchIssue, resolveProfilePreset } from "./profileResolver.ts";
 import { currentTurnHasHumanOrigin, resolveSupervisionCallerAuthority } from "./toolPolicy.ts";
@@ -41,7 +42,7 @@ const objectSchema = (
 const stringArg = (args: Record<string, unknown>, key: string): string => {
   const value = args[key];
   if (typeof value !== "string" || value.trim().length === 0) {
-    throw new OrchestratorToolError("supervision_tool_input_invalid", `${key} is required.`);
+    throw new HostToolError("supervision_tool_input_invalid", `${key} is required.`);
   }
   return value.trim();
 };
@@ -49,7 +50,7 @@ const stringArg = (args: Record<string, unknown>, key: string): string => {
 const intArg = (args: Record<string, unknown>, key: string): number => {
   const value = args[key];
   if (!Number.isInteger(value) || (value as number) < 0) {
-    throw new OrchestratorToolError(
+    throw new HostToolError(
       "supervision_tool_input_invalid",
       `${key} must be a non-negative integer.`,
     );
@@ -61,7 +62,7 @@ const decode = <S extends Schema.Top>(schema: S, value: unknown, label: string):
   try {
     return Schema.decodeUnknownSync(schema)(value);
   } catch (error) {
-    throw new OrchestratorToolError(
+    throw new HostToolError(
       "supervision_tool_input_invalid",
       `${label} is invalid.`,
       error instanceof Error ? error.message : String(error),
@@ -76,14 +77,14 @@ export interface SupervisionToolsInput {
 
 export function makeSupervisionTools(
   input: SupervisionToolsInput,
-): ReadonlyArray<OrchestratorToolEntry> {
+): ReadonlyArray<HostToolEntry> {
   const load = () =>
     input.snapshotQuery
       .getSnapshot()
       .pipe(
         Effect.mapError(
           (error) =>
-            new OrchestratorToolError(
+            new HostToolError(
               "supervision_state_unavailable",
               error instanceof Error ? error.message : String(error),
             ),
@@ -100,7 +101,7 @@ export function makeSupervisionTools(
       });
       if (!authority) {
         return yield* Effect.fail(
-          new OrchestratorToolError(
+          new HostToolError(
             "supervision_role_required",
             "The caller does not own an active Supervisor or Lead seat.",
           ),
@@ -109,14 +110,14 @@ export function makeSupervisionTools(
       return { state, authority };
     });
 
-  const loadHumanOrigin = (context: Parameters<OrchestratorToolEntry["execute"]>[1]) =>
+  const loadHumanOrigin = (context: Parameters<HostToolEntry["execute"]>[1]) =>
     Effect.gen(function* () {
       if (context.callerDispatchOrigin === "user") {
         return context.callerTurnId;
       }
       if (context.callerDispatchOrigin !== undefined) {
         return yield* Effect.fail(
-          new OrchestratorToolError(
+          new HostToolError(
             "supervision_human_origin_required",
             "This operation requires the current authenticated owner turn.",
           ),
@@ -127,7 +128,7 @@ export function makeSupervisionTools(
         .pipe(
           Effect.mapError(
             (error) =>
-              new OrchestratorToolError(
+              new HostToolError(
                 "supervision_state_unavailable",
                 error instanceof Error ? error.message : String(error),
               ),
@@ -138,7 +139,7 @@ export function makeSupervisionTools(
         !currentTurnHasHumanOrigin({ thread: detail.value, callerTurnId: context.callerTurnId })
       ) {
         return yield* Effect.fail(
-          new OrchestratorToolError(
+          new HostToolError(
             "supervision_human_origin_required",
             "This operation requires the current authenticated owner turn.",
           ),
@@ -152,7 +153,7 @@ export function makeSupervisionTools(
       );
       if (!source) {
         return yield* Effect.fail(
-          new OrchestratorToolError(
+          new HostToolError(
             "supervision_human_origin_required",
             "The source owner message is unavailable.",
           ),
@@ -167,7 +168,7 @@ export function makeSupervisionTools(
       .pipe(
         Effect.mapError(
           (error) =>
-            new OrchestratorToolError(
+            new HostToolError(
               "supervision_command_rejected",
               error instanceof Error ? error.message : String(error),
             ),
@@ -175,12 +176,12 @@ export function makeSupervisionTools(
       );
 
   const entry = (
-    definition: OrchestratorToolEntry["definition"],
+    definition: HostToolEntry["definition"],
     handlers: {
       readonly visible: (state: OrchestrationReadModel, role: "supervisor" | "lead") => boolean;
-      readonly execute: OrchestratorToolEntry["execute"];
+      readonly execute: HostToolEntry["execute"];
     },
-  ): OrchestratorToolEntry => ({
+  ): HostToolEntry => ({
     definition,
     isVisible: (context) =>
       loadAuthority(context.callerThreadId).pipe(
@@ -190,7 +191,7 @@ export function makeSupervisionTools(
     execute: (args, context) =>
       handlers
         .execute(args, context)
-        .pipe(Effect.catch((error) => Effect.succeed(orchestratorToolFailure(error)))),
+        .pipe(Effect.catch((error) => Effect.succeed(hostToolFailure(error)))),
   });
 
   const readState = entry(
@@ -215,7 +216,7 @@ export function makeSupervisionTools(
                 missionScopeContainsLead({ scope: mission.scope, lead, projects: state.projects }),
               ),
             );
-            return orchestratorToolSuccess({
+            return hostToolSuccess({
               role: authority.role,
               supervisorSeatId: authority.supervisorSeatId,
               missions: authority.missions,
@@ -232,7 +233,7 @@ export function makeSupervisionTools(
               ),
             });
           }
-          return orchestratorToolSuccess({
+          return hostToolSuccess({
             role: authority.role,
             leadSeatId: authority.leadSeatId,
             missions: authority.missions.map((mission) => ({
@@ -296,7 +297,7 @@ export function makeSupervisionTools(
           ]);
           if (authority.role !== "supervisor") {
             return yield* Effect.fail(
-              new OrchestratorToolError("supervision_role_required", "Supervisor role required."),
+              new HostToolError("supervision_role_required", "Supervisor role required."),
             );
           }
           const now = new Date().toISOString();
@@ -330,7 +331,7 @@ export function makeSupervisionTools(
             createdAt: now,
             mission,
           });
-          return orchestratorToolSuccess({ sequence: receipt.sequence, mission });
+          return hostToolSuccess({ sequence: receipt.sequence, mission });
         }),
     },
   );
@@ -378,7 +379,7 @@ export function makeSupervisionTools(
             const { state, authority } = yield* loadAuthority(context.callerThreadId);
             if (authority.role !== "supervisor") {
               return yield* Effect.fail(
-                new OrchestratorToolError("supervision_role_required", "Supervisor role required."),
+                new HostToolError("supervision_role_required", "Supervisor role required."),
               );
             }
             const current = state.supervision.missions.find(
@@ -388,7 +389,7 @@ export function makeSupervisionTools(
             );
             if (!current) {
               return yield* Effect.fail(
-                new OrchestratorToolError("supervision_mission_missing", "Mission not found."),
+                new HostToolError("supervision_mission_missing", "Mission not found."),
               );
             }
             const next: SupervisionMission = {
@@ -431,7 +432,7 @@ export function makeSupervisionTools(
               createdAt: new Date().toISOString(),
               mission: next,
             });
-            return orchestratorToolSuccess({ sequence: receipt.sequence, mission: next });
+            return hostToolSuccess({ sequence: receipt.sequence, mission: next });
           }),
       },
     );
@@ -457,7 +458,7 @@ export function makeSupervisionTools(
           const { state, authority } = yield* loadAuthority(context.callerThreadId);
           if (authority.role !== "supervisor") {
             return yield* Effect.fail(
-              new OrchestratorToolError("supervision_role_required", "Supervisor role required."),
+              new HostToolError("supervision_role_required", "Supervisor role required."),
             );
           }
           const mission = authority.missions.find(
@@ -474,7 +475,7 @@ export function makeSupervisionTools(
             !missionScopeContainsLead({ scope: mission.scope, lead, projects: state.projects })
           ) {
             return yield* Effect.fail(
-              new OrchestratorToolError(
+              new HostToolError(
                 "supervision_scope_denied",
                 "Mission does not cover this Lead with lead.advise authority.",
               ),
@@ -502,7 +503,7 @@ export function makeSupervisionTools(
             createdAt: now,
             advice,
           });
-          return orchestratorToolSuccess({ sequence: receipt.sequence, advice });
+          return hostToolSuccess({ sequence: receipt.sequence, advice });
         }),
     },
   );
@@ -533,7 +534,7 @@ export function makeSupervisionTools(
           const { state, authority } = yield* loadAuthority(context.callerThreadId);
           if (authority.role !== "supervisor")
             return yield* Effect.fail(
-              new OrchestratorToolError("supervision_role_required", "Supervisor role required."),
+              new HostToolError("supervision_role_required", "Supervisor role required."),
             );
           const mission = authority.missions.find(
             (candidate) => candidate.id === stringArg(args, "missionId"),
@@ -547,7 +548,7 @@ export function makeSupervisionTools(
             !missionScopeContainsLead({ scope: mission.scope, lead, projects: state.projects })
           ) {
             return yield* Effect.fail(
-              new OrchestratorToolError(
+              new HostToolError(
                 "supervision_scope_denied",
                 "Mission does not cover this Lead with workflow.apply authority.",
               ),
@@ -556,7 +557,7 @@ export function makeSupervisionTools(
           const humanOrigin = yield* Effect.result(loadHumanOrigin(context));
           if (!mission.grants.includes("workflow.apply") && humanOrigin._tag === "Failure") {
             return yield* Effect.fail(
-              new OrchestratorToolError(
+              new HostToolError(
                 "supervision_authority_denied",
                 "Authenticated owner origin or workflow.apply mission grant required.",
               ),
@@ -595,7 +596,7 @@ export function makeSupervisionTools(
             createdAt: now,
             directive,
           });
-          return orchestratorToolSuccess({ sequence: receipt.sequence, directive });
+          return hostToolSuccess({ sequence: receipt.sequence, directive });
         }),
     },
   );
@@ -626,14 +627,14 @@ export function makeSupervisionTools(
           const { state, authority } = yield* loadAuthority(context.callerThreadId);
           if (authority.role !== "supervisor")
             return yield* Effect.fail(
-              new OrchestratorToolError("supervision_role_required", "Supervisor role required."),
+              new HostToolError("supervision_role_required", "Supervisor role required."),
             );
           const lead = state.supervision.leads.find(
             (candidate) => candidate.id === stringArg(args, "leadSeatId"),
           );
           if (!lead)
             return yield* Effect.fail(
-              new OrchestratorToolError("supervision_lead_missing", "Lead seat not found."),
+              new HostToolError("supervision_lead_missing", "Lead seat not found."),
             );
           const mission =
             typeof args.missionId === "string"
@@ -648,7 +649,7 @@ export function makeSupervisionTools(
             !missionScopeContainsLead({ scope: mission.scope, lead, projects: state.projects })
           ) {
             return yield* Effect.fail(
-              new OrchestratorToolError(
+              new HostToolError(
                 "supervision_scope_denied",
                 "Mission does not cover this Lead.",
               ),
@@ -660,13 +661,13 @@ export function makeSupervisionTools(
           );
           if (!preset) {
             return yield* Effect.fail(
-              new OrchestratorToolError("supervision_profile_missing", "Profile preset not found."),
+              new HostToolError("supervision_profile_missing", "Profile preset not found."),
             );
           }
           const launchIssue = profileLaunchIssue(preset);
           if (launchIssue !== null) {
             return yield* Effect.fail(
-              new OrchestratorToolError("supervision_profile_unsupported", launchIssue),
+              new HostToolError("supervision_profile_unsupported", launchIssue),
             );
           }
           const replacementProfileSnapshotId = ProfileSnapshotId.makeUnsafe(randomUUID());
@@ -710,7 +711,134 @@ export function makeSupervisionTools(
             profilePresetId: preset.id,
             replacementProfileSnapshot,
           });
-          return orchestratorToolSuccess({ sequence: receipt.sequence, rotation });
+          return hostToolSuccess({ sequence: receipt.sequence, rotation });
+        }),
+    },
+  );
+
+  const createSpecialist = entry(
+    {
+      name: "create_specialist",
+      displayName: "Create Specialist",
+      description:
+        "Create and start a bounded Specialist in the current Lead Room using a retained Supervised profile.",
+      inputSchema: objectSchema(
+        {
+          profilePresetId: { type: "string" },
+          title: { type: "string", maxLength: 512 },
+          concern: { type: "string", maxLength: 512 },
+          initialPrompt: { type: "string", maxLength: 32_768 },
+        },
+        ["profilePresetId", "title", "concern", "initialPrompt"],
+      ),
+      readOnly: false,
+      providerSupport: { codex: "native", claude: "unsupported" },
+    },
+    {
+      visible: (_state, role) => role === "lead",
+      execute: (args, context) =>
+        Effect.gen(function* () {
+          yield* context.assertCallerTurnActive();
+          const { state, authority } = yield* loadAuthority(context.callerThreadId);
+          if (authority.role !== "lead") {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_lead_required",
+                "Only an active Lead may create a Specialist.",
+              ),
+            );
+          }
+          const lead = state.supervision.leads.find(
+            (candidate) =>
+              candidate.id === authority.leadSeatId &&
+              candidate.activeThreadId === authority.callerThreadId &&
+              candidate.status === "active",
+          );
+          const room = state.supervised.rooms.find(
+            (candidate) =>
+              candidate.leadSeatId === authority.leadSeatId && candidate.status !== "archived",
+          );
+          const project = lead
+            ? state.projects.find(
+                (candidate) => candidate.id === lead.projectId && candidate.deletedAt === null,
+              )
+            : undefined;
+          if (!lead || !room || !project) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_room_unavailable",
+                "The active Lead Room and Project must exist before creating a Specialist.",
+              ),
+            );
+          }
+          const profilePresetId = stringArg(args, "profilePresetId");
+          const preset = state.supervision.profiles.find(
+            (candidate) => candidate.id === profilePresetId,
+          );
+          if (!preset) {
+            return yield* Effect.fail(
+              new HostToolError("supervised_profile_missing", "Profile preset not found."),
+            );
+          }
+          const launchIssue = profileLaunchIssue(preset);
+          if (launchIssue !== null) {
+            return yield* Effect.fail(
+              new HostToolError("supervised_profile_unsupported", launchIssue),
+            );
+          }
+          const createdAt = new Date().toISOString();
+          const specialistId = SpecialistId.makeUnsafe(randomUUID());
+          const threadId = ThreadId.makeUnsafe(`specialist:${randomUUID()}`);
+          const profileSnapshot = resolveProfilePreset({
+            preset,
+            snapshotId: ProfileSnapshotId.makeUnsafe(randomUUID()),
+            createdAt,
+          });
+          const receipt = yield* dispatch({
+            type: "supervised.specialist.create",
+            commandId: CommandId.makeUnsafe(randomUUID()),
+            aggregateId: specialistId,
+            actor: {
+              kind: "seat",
+              actorId: context.callerThreadId,
+              seatId: lead.id,
+            },
+            expectedRevision: 0,
+            idempotencyKey: `specialist-create:${specialistId}`,
+            createdAt,
+            roomId: room.id,
+            projectId: project.id,
+            leadSeatId: lead.id,
+            leadThreadId: lead.activeThreadId,
+            threadId,
+            title: stringArg(args, "title"),
+            workingDirectory: project.workspaceRoot,
+            profilePresetId: preset.id,
+            profileSnapshot,
+            specialist: {
+              id: specialistId,
+              profilePresetId: preset.id,
+              concern: stringArg(args, "concern"),
+              status: "active",
+              allowedScopes: [
+                { kind: "project", projectId: project.id },
+                { kind: "room", roomId: room.id },
+                { kind: "seat", role: "specialist", seatId: threadId },
+              ],
+              latestSnapshotId: null,
+              expiresAt: new Date(Date.parse(createdAt) + 24 * 60 * 60 * 1_000).toISOString(),
+              revision: 0,
+              createdAt,
+              updatedAt: createdAt,
+            },
+            initialPrompt: stringArg(args, "initialPrompt"),
+          });
+          return hostToolSuccess({
+            sequence: receipt.sequence,
+            specialistId,
+            threadId,
+            roomId: room.id,
+          });
         }),
     },
   );
@@ -739,7 +867,7 @@ export function makeSupervisionTools(
           const { state, authority } = yield* loadAuthority(context.callerThreadId);
           if (authority.role !== "supervisor") {
             return yield* Effect.fail(
-              new OrchestratorToolError("supervision_role_required", "Supervisor role required."),
+              new HostToolError("supervision_role_required", "Supervisor role required."),
             );
           }
           const directive = state.supervision.workflowDirectives.find(
@@ -747,7 +875,7 @@ export function makeSupervisionTools(
           );
           if (!directive || directive.supervisorSeatId !== authority.supervisorSeatId) {
             return yield* Effect.fail(
-              new OrchestratorToolError(
+              new HostToolError(
                 "supervision_workflow_missing",
                 "Owned workflow directive not found.",
               ),
@@ -760,7 +888,7 @@ export function makeSupervisionTools(
           const humanOrigin = yield* Effect.result(loadHumanOrigin(context));
           if (!mission && humanOrigin._tag === "Failure") {
             return yield* Effect.fail(
-              new OrchestratorToolError(
+              new HostToolError(
                 "supervision_authority_denied",
                 "Authenticated owner origin or workflow.revoke mission grant required.",
               ),
@@ -786,7 +914,7 @@ export function makeSupervisionTools(
             createdAt: new Date().toISOString(),
             directiveId: directive.id,
           });
-          return orchestratorToolSuccess({ sequence: receipt.sequence, directiveId: directive.id });
+          return hostToolSuccess({ sequence: receipt.sequence, directiveId: directive.id });
         }),
     },
   );
@@ -801,5 +929,6 @@ export function makeSupervisionTools(
     applyWorkflow,
     revokeWorkflow,
     requestReplacement,
+    createSpecialist,
   ];
 }

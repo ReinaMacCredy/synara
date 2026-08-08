@@ -10,7 +10,7 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas";
-import { LeadSeatId, ProfilePresetId } from "./supervision";
+import { LeadSeatId, ProfilePresetId, ProfileSnapshot } from "./supervision";
 
 const id = <Brand extends string>(brand: Brand) => TrimmedNonEmptyString.pipe(Schema.brand(brand));
 const ShortText = TrimmedNonEmptyString.check(Schema.isMaxLength(512));
@@ -1078,10 +1078,25 @@ export const SupervisedCommand = Schema.Union([
     type: Schema.Literal("supervised.model-session.upsert"),
     modelSession: ModelSessionTrace,
   }),
-  Schema.Struct({ ...CommandBase, type: Schema.Literal("supervised.patch.upsert"), patch: HarnessPatch }),
-  Schema.Struct({
-    ...CommandBase,
-    type: Schema.Literal("supervised.specialist.upsert"),
+    Schema.Struct({ ...CommandBase, type: Schema.Literal("supervised.patch.upsert"), patch: HarnessPatch }),
+    Schema.Struct({
+      ...CommandBase,
+      type: Schema.Literal("supervised.specialist.create"),
+      roomId: RoomId,
+      projectId: ProjectId,
+      leadSeatId: LeadSeatId,
+      leadThreadId: ThreadId,
+      threadId: ThreadId,
+      title: ShortText,
+      workingDirectory: TrimmedNonEmptyString,
+      profilePresetId: ProfilePresetId,
+      profileSnapshot: Schema.optional(ProfileSnapshot),
+      specialist: Specialist,
+      initialPrompt: Schema.optional(BoundedText),
+    }),
+    Schema.Struct({
+      ...CommandBase,
+      type: Schema.Literal("supervised.specialist.upsert"),
     specialist: Specialist,
     snapshot: Schema.optional(SpecialistSnapshot),
   }),

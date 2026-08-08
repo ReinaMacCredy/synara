@@ -524,7 +524,7 @@ describe("decider project scripts", () => {
         readModel,
         command: {
           type: "thread.turn.start",
-          commandId: CommandId.makeUnsafe("server:orchestrator-message:origin-message"),
+          commandId: CommandId.makeUnsafe("cmd-thread-origin-message"),
           threadId,
           message: {
             messageId: asMessageId("origin-message"),
@@ -533,7 +533,7 @@ describe("decider project scripts", () => {
             attachments: [],
           },
           dispatchMode: "queue",
-          dispatchOrigin: "orchestrator",
+          dispatchOrigin: "agent",
           threadOrigin: {
             messageId: "origin-message",
             rootThreadId,
@@ -559,8 +559,8 @@ describe("decider project scripts", () => {
     ]);
     expect(events[0]?.payload).toMatchObject({
       role: "thread",
-      source: "orchestrator",
-      dispatchOrigin: "orchestrator",
+      source: "native",
+      dispatchOrigin: "agent",
     });
     expect(events[1]?.payload).toMatchObject({
       threadOrigin: {

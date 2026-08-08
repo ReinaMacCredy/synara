@@ -39,8 +39,7 @@ export type HandoffGrantId = typeof HandoffGrantId.Type;
 
 export const HandoffConversationMode = Schema.Literals([
   "project",
-  "orchestrator_root",
-  "orchestrator_child",
+  "supervised",
 ]);
 export type HandoffConversationMode = typeof HandoffConversationMode.Type;
 

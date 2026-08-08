@@ -3308,172 +3308,6 @@ describe("ProviderCommandReactor", () => {
     expect(harness.listSessions).toHaveBeenCalledTimes(2);
   });
 
-  it("starts owned children as independent role-scoped sessions instead of provider forks", async () => {
-    const harness = await createHarness({
-      forkThreadResult: {
-        threadId: ThreadId.makeUnsafe("orchestrator-child-1"),
-        resumeCursor: { providerThreadId: "native-fork-must-not-be-used" },
-      },
-    });
-    const createdAt = new Date().toISOString();
-    const rootThreadId = ThreadId.makeUnsafe("thread-1");
-    const childThreadId = ThreadId.makeUnsafe("orchestrator-child-1");
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "orchestrator.root.create",
-        commandId: CommandId.makeUnsafe("cmd-reactor-orchestrator-root"),
-        rootThreadId,
-        projectId: asProjectId("project-1"),
-        actor: { kind: "user", actorId: "owner" },
-        protocolVersion: 1,
-        expectedRevision: 0,
-        createdAt,
-        modelTarget: {
-          provider: "codex",
-          model: "gpt-5-codex",
-          runtimeMode: "approval-required",
-          workspaceRoot: "/tmp/provider-project",
-        },
-        title: "Root",
-        activeProcessId: null,
-      }),
-    );
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-reactor-orchestrator-child-thread"),
-        threadId: childThreadId,
-        projectId: asProjectId("project-1"),
-        title: "Independent child",
-        modelSelection: { provider: "claudeAgent", model: "claude-opus-4-8" },
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-        runtimeMode: "approval-required",
-        parentThreadId: rootThreadId,
-        branch: null,
-        worktreePath: null,
-        createdAt,
-      }),
-    );
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "orchestrator.child.attach",
-        commandId: CommandId.makeUnsafe("cmd-reactor-orchestrator-child-attach"),
-        rootThreadId,
-        projectId: asProjectId("project-1"),
-        actor: { kind: "thread", threadId: rootThreadId },
-        protocolVersion: 1,
-        expectedRevision: 1,
-        createdAt,
-        parentThreadId: rootThreadId,
-        childThreadId,
-        role: "participant",
-        capabilities: [
-          "state.read",
-          "link.request",
-          "message.send",
-          "artifact.publish",
-          "assignment.report",
-        ],
-        continuity: {
-          kind: "clean",
-          contextBundle: {
-            id: ContextBundleId.makeUnsafe("context-reactor-child-1"),
-            version: 1,
-            assignmentId: null,
-            originalBrief: "Explore independently.",
-            immutableUserConstraints: [],
-            acceptedDecisions: [],
-            rejectedAlternatives: [],
-            ownershipClaims: [],
-            dependencyRefs: [],
-            sourceRefs: [],
-            threadMessageRefs: [],
-            artifactRefs: [],
-            capabilityCeiling: [
-              "state.read",
-              "link.request",
-              "message.send",
-              "artifact.publish",
-              "assignment.report",
-            ],
-            createdBy: { kind: "thread", threadId: rootThreadId },
-            createdAt,
-            contentHash: "sha256:reactor-child-context",
-          },
-        },
-        modelTarget: {
-          provider: "claudeAgent",
-          model: "claude-opus-4-8",
-          runtimeMode: "approval-required",
-          workspaceRoot: "/tmp/provider-project",
-        },
-        decisionReason: {
-          summary: "Use a clean independent Claude frame.",
-          taskFit: ["independent design"],
-          contextHealth: "healthy",
-          cacheEconomics: "unknown",
-          selectedAt: createdAt,
-        },
-      }),
-    );
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.turn.start",
-        commandId: CommandId.makeUnsafe("cmd-reactor-orchestrator-root-turn"),
-        threadId: rootThreadId,
-        message: {
-          messageId: asMessageId("message-reactor-orchestrator-root"),
-          role: "user",
-          text: "Coordinate independently.",
-          attachments: [],
-        },
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-        runtimeMode: "approval-required",
-        createdAt,
-      }),
-    );
-    await waitFor(() => harness.startSession.mock.calls.length === 1);
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.turn.start",
-        commandId: CommandId.makeUnsafe("cmd-reactor-orchestrator-child-turn"),
-        threadId: childThreadId,
-        message: {
-          messageId: asMessageId("message-reactor-orchestrator-child"),
-          role: "user",
-          text: "Produce an independent proposal.",
-          attachments: [],
-        },
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-        runtimeMode: "approval-required",
-        createdAt,
-      }),
-    );
-    await waitFor(() => harness.startSession.mock.calls.length === 2);
-
-    expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
-      threadId: rootThreadId,
-      orchestratorContext: {
-        protocolVersion: 1,
-        rootThreadId,
-        role: "root",
-      },
-    });
-    expect(harness.startSession.mock.calls[1]?.[1]).toMatchObject({
-      threadId: childThreadId,
-      modelSelection: { provider: "claudeAgent", model: "claude-opus-4-8" },
-      orchestratorContext: {
-        protocolVersion: 1,
-        rootThreadId,
-        role: "participant",
-      },
-    });
-    expect(harness.forkThread).not.toHaveBeenCalled();
-    expect((await readHarnessThread(harness, childThreadId))?.parentThreadId).toBe(rootThreadId);
-  });
-
   it("routes subagent-thread turn starts to the parent session as steers", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
@@ -6634,7 +6468,7 @@ describe("ProviderCommandReactor", () => {
       ).toBeUndefined();
     });
 
-    it("uses the immutable supervision profile model for a durable seat follow-up", async () => {
+    it("preserves the Lead model for a durable supervision follow-up", async () => {
       const harness = await createHarness({
         threadModelSelection: { provider: "codex", model: "gpt-5.6-luna" },
       });
@@ -6697,15 +6531,15 @@ describe("ProviderCommandReactor", () => {
       expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
         modelSelection: {
           provider: "codex",
-          model: "gpt-5.6-sol",
-          options: { reasoningEffort: "medium" },
+          model: "gpt-5.6-luna",
+          options: { reasoningEffort: "low" },
         },
       });
       expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
         modelSelection: {
           provider: "codex",
-          model: "gpt-5.6-sol",
-          options: { reasoningEffort: "medium" },
+          model: "gpt-5.6-luna",
+          options: { reasoningEffort: "low" },
         },
       });
 

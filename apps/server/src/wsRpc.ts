@@ -2,11 +2,8 @@ import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
 import {
-  ArtifactId,
   CommandId,
   DEFAULT_TERMINAL_ID,
-  OrchestratorMessageId,
-  OrchestratorDomainEvent,
   ORCHESTRATION_WS_METHODS,
   PluginInstallation,
   TaskProcessDomainEvent,
@@ -28,7 +25,6 @@ import {
   type GitHubProjectProvisionProgressEvent,
   type OrchestrationCommand,
   type OrchestrationEvent,
-  OrchestratorCommand,
   type ProjectDevServerEvent,
   type OrchestrationShellStreamEvent,
   type OrchestrationShellStreamItem,
@@ -88,7 +84,6 @@ import { SupervisedRuntimeDaemon } from "./orchestration/Services/SupervisedRunt
 import { ProviderCommandReactor } from "./orchestration/Services/ProviderCommandReactor";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { TaskProcessQuery } from "./orchestration/Services/TaskProcessQuery";
-import { ORCHESTRATOR_RESOURCE_POLICY_V1 } from "./orchestration/orchestrator/resourcePolicy";
 import { shouldPublishThreadShellForEvent } from "./orchestration/threadShellEvents";
 import { ProviderDiscoveryService } from "./provider/Services/ProviderDiscoveryService";
 import { discoverSkillsCatalog, synaraSkillsDir } from "./provider/skillsCatalog";
@@ -146,12 +141,8 @@ import { OrchestrationEventStore } from "./persistence/Services/OrchestrationEve
 import { SupervisedRuntimeRepository } from "./persistence/Services/SupervisedRuntimeRepository";
 import { evaluateSyntheticSubscriptionTest } from "./supervised/signal/SubscriptionEvaluator";
 import { inspectSupervisedPluginPackage } from "./supervised/runtime/PluginPackage";
-import { OrchestratorArtifactRepository } from "./persistence/Services/OrchestratorArtifacts";
-import { ProjectionOrchestratorRepository } from "./persistence/Services/ProjectionOrchestrator";
 import { ProjectionTaskProcessRepository } from "./persistence/Services/ProjectionTaskProcess";
-import { OrchestratorToolRuntime } from "./orchestration/Services/OrchestratorToolRuntime";
 import { HandoffPreparationService } from "./handoff/Services/HandoffPreparationService";
-import { projectOrchestratorChildren } from "./orchestration/orchestrator/childProjections";
 import {
   profileLaunchIssue,
   resolveProfilePreset,
@@ -387,9 +378,6 @@ const makeWsRpcHandlersLayer = () =>
       const orchestrationEventStore = yield* OrchestrationEventStore;
       const supervisedRuntimeRepository = yield* SupervisedRuntimeRepository;
       const supervisedRuntimeDaemon = yield* SupervisedRuntimeDaemon;
-      const orchestratorArtifacts = yield* OrchestratorArtifactRepository;
-      const orchestratorProjections = yield* ProjectionOrchestratorRepository;
-      const orchestratorToolRuntime = yield* OrchestratorToolRuntime;
       const handoffPreparation = yield* HandoffPreparationService;
       const taskProcessProjections = yield* ProjectionTaskProcessRepository;
       const taskProcessQuery = yield* TaskProcessQuery;
@@ -866,8 +854,8 @@ const makeWsRpcHandlersLayer = () =>
       });
 
       const readAcceptedAggregateEvent = (input: {
-        readonly aggregateKind: "orchestrator" | "task_process";
-        readonly aggregateId: ThreadId | TaskProcessId;
+        readonly aggregateKind: "task_process";
+        readonly aggregateId: TaskProcessId;
         readonly commandId: CommandId;
         readonly sequence: number;
       }) =>
@@ -891,26 +879,12 @@ const makeWsRpcHandlersLayer = () =>
             }),
           );
 
-      const dispatchOrchestratorUserCommand = (_command: OrchestratorCommand) =>
-        Effect.fail(
-          new Error(
-            "Legacy Orchestrator commands are read-only after the Supervised Mode cutover.",
-          ),
-        );
-
       return AdmittedWsFeatureRpcGroup.of({
         [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
           rpcEffect(
             Effect.gen(function* () {
                 const { command: normalizedCommand, prepareWorkspaceRoot } =
                   yield* normalizeDispatchCommand({ command });
-                if (Schema.is(OrchestratorCommand)(normalizedCommand)) {
-                  return yield* Effect.fail(
-                    new Error(
-                      "Legacy Orchestrator commands are read-only after the Supervised Mode cutover.",
-                    ),
-                  );
-                }
                 let authorizedCommand = normalizedCommand;
               if (Schema.is(SupervisionCommand)(normalizedCommand)) {
                 yield* requireOwnerSession;
@@ -964,47 +938,6 @@ const makeWsRpcHandlersLayer = () =>
                 authorizedCommand = {
                   ...normalizedCommand,
                   actor: { kind: "user" as const, actorId: "owner" },
-                };
-              } else if (
-                normalizedCommand.type === "orchestrator.child.create" &&
-                normalizedCommand.supervisionPeerBootstrap !== undefined
-              ) {
-                yield* requireOwnerSession;
-                const snapshot = yield* projectionReadModelQuery.getSnapshot();
-                const bootstrap = normalizedCommand.supervisionPeerBootstrap;
-                const preset = snapshot.supervision.profiles.find(
-                  (candidate) => candidate.id === bootstrap.profilePresetId,
-                );
-                if (!preset) {
-                  return yield* Effect.fail(new Error("Supervision profile does not exist."));
-                }
-                const launchIssue = profileLaunchIssue(preset);
-                if (launchIssue !== null) {
-                  return yield* Effect.fail(new Error(launchIssue));
-                }
-                const activeLead = snapshot.supervision.leads.find(
-                  (lead) =>
-                    lead.id === bootstrap.peer.leadSeatId &&
-                    lead.activeThreadId === normalizedCommand.rootThreadId &&
-                    lead.projectId === normalizedCommand.projectId &&
-                    lead.status === "active",
-                );
-                if (!activeLead) {
-                  return yield* Effect.fail(
-                    new Error("Peer creation requires the Project's active Lead Root."),
-                  );
-                }
-                authorizedCommand = {
-                  ...normalizedCommand,
-                  actor: { kind: "user" as const, actorId: "owner" },
-                  supervisionPeerBootstrap: {
-                    ...bootstrap,
-                    profileSnapshot: resolveProfilePreset({
-                      preset,
-                      snapshotId: bootstrap.peer.profileSnapshotId,
-                      createdAt: normalizedCommand.createdAt,
-                    }),
-                  },
                 };
               } else if (
                 normalizedCommand.type === "thread.turn.start" &&
@@ -1315,50 +1248,6 @@ const makeWsRpcHandlersLayer = () =>
             }),
             "Failed to reconcile provider delivery",
           ),
-        [ORCHESTRATION_WS_METHODS.listOrchestratorRoots]: (input) =>
-          rpcEffect(
-            Effect.gen(function* () {
-              const limit = boundedRpcLimit(input.limit);
-              const cursor = decodeOpaquePageCursor(input.cursor, ["createdAt", "rootThreadId"]);
-              const page = yield* orchestratorProjections.listRootPage({
-                ...(input.projectId === undefined ? {} : { projectId: input.projectId }),
-                includeArchived: input.includeArchived === true,
-                ...(cursor === null
-                  ? {}
-                  : {
-                      beforeCreatedAt: String(cursor.createdAt),
-                      afterRootThreadIdAtTimestamp: ThreadId.makeUnsafe(
-                        String(cursor.rootThreadId),
-                      ),
-                    }),
-                limit: limit + 1,
-              });
-              const items = page.slice(0, limit).map(({ root }) => root);
-              const last = page.length > limit ? items.at(-1) : undefined;
-              return {
-                items,
-                nextCursor: last
-                  ? encodeOpaquePageCursor({
-                      createdAt: last.createdAt,
-                      rootThreadId: last.rootThreadId,
-                    })
-                  : null,
-                highWaterCursor: String(yield* orchestrationEventStore.getHighWaterSequence()),
-              };
-            }),
-            "Failed to list Orchestrator Roots",
-          ),
-        [ORCHESTRATION_WS_METHODS.listNativeOrchestratorTools]: () =>
-          Effect.succeed({
-            items: orchestratorToolRuntime.catalog.map((tool) => ({
-              name: tool.name,
-              displayName: tool.displayName,
-              description: tool.description,
-              readOnly: tool.readOnly,
-              status: "enabled" as const,
-              providerSupport: tool.providerSupport,
-            })),
-          }),
         [ORCHESTRATION_WS_METHODS.startHandoffPreparation]: (input) =>
           rpcEffect(handoffPreparation.start(input), "Failed to start handoff preparation"),
         [ORCHESTRATION_WS_METHODS.getHandoffPreparation]: (input) =>
@@ -1407,253 +1296,6 @@ const makeWsRpcHandlersLayer = () =>
             }),
             "Failed to revoke handoff grant",
           ),
-        [ORCHESTRATION_WS_METHODS.getOrchestratorSnapshot]: (input) =>
-          rpcEffect(
-            Effect.gen(function* () {
-              const coreOption = yield* orchestratorProjections.getCore(input.rootThreadId);
-              if (Option.isNone(coreOption)) {
-                return yield* Effect.fail(
-                  new Error(`Orchestrator Root '${input.rootThreadId}' was not found.`),
-                );
-              }
-              const core = coreOption.value;
-              let projectionBehind =
-                Number(core.root.highWaterCursor) <
-                (yield* orchestrationEventStore.getAggregateHighWaterSequence({
-                  aggregateKind: "orchestrator",
-                  aggregateId: input.rootThreadId,
-                }));
-              const activeProcess =
-                core.root.root.activeProcessId === null
-                  ? null
-                  : yield* taskProcessQuery
-                      .getSummary({ processId: core.root.root.activeProcessId })
-                      .pipe(
-                        Effect.map((result) => {
-                          projectionBehind ||= result.projectionBehind;
-                          return result.summary;
-                        }),
-                        Effect.catch(() => {
-                          projectionBehind = true;
-                          return Effect.succeed(null);
-                        }),
-                      );
-              const observedAt = new Date().toISOString();
-              return {
-                snapshot: {
-                  root: core.root.root,
-                  ownershipEdges: core.ownershipEdges,
-                  communicationLinks: core.communicationLinks,
-                  assignments: core.assignments,
-                  childResults: core.childResults,
-                  childProjections: projectOrchestratorChildren({
-                    rootThreadId: core.root.root.rootThreadId,
-                    ownershipEdges: core.ownershipEdges,
-                    assignments: core.assignments,
-                    childResults: core.childResults,
-                  }),
-                  runs: core.runs,
-                  activeProcess,
-                  providerCapabilities: core.providerCapabilities.slice(0, 256),
-                  capacity: core.capacity ?? {
-                    policyVersion: ORCHESTRATOR_RESOURCE_POLICY_V1.version,
-                    activeSessions: 0,
-                    sessionLimit: ORCHESTRATOR_RESOURCE_POLICY_V1.maxActiveSessions,
-                    activeTurns: 0,
-                    turnLimit: ORCHESTRATOR_RESOURCE_POLICY_V1.maxActiveTurns,
-                    activeWriters: 0,
-                    writerLimit: ORCHESTRATOR_RESOURCE_POLICY_V1.maxActiveWriters,
-                    mailboxDepth: 0,
-                    mailboxLimit:
-                      ORCHESTRATOR_RESOURCE_POLICY_V1.maxMailboxDepthPerThread *
-                      ORCHESTRATOR_RESOURCE_POLICY_V1.maxActiveSessions,
-                    activeMonitors: 0,
-                    monitorLimit: ORCHESTRATOR_RESOURCE_POLICY_V1.maxActiveMonitorsPerRoot,
-                    estimatedSpend: {
-                      kind: "unknown" as const,
-                      reason: "Provider spend telemetry has not been observed for this Root.",
-                      at: observedAt,
-                    },
-                    observedAt,
-                  },
-                  highWaterCursor: core.root.highWaterCursor,
-                },
-                projectionBehind,
-              };
-            }),
-            "Failed to load Orchestrator snapshot",
-          ),
-        [ORCHESTRATION_WS_METHODS.listOrchestratorExchanges]: (input) =>
-          rpcEffect(
-            Effect.gen(function* () {
-              const limit = boundedRpcLimit(input.limit);
-              const cursor = decodeOpaquePageCursor(input.cursor, ["createdAt", "messageId"]);
-              const page = yield* orchestratorProjections.listMessagePage({
-                rootThreadId: input.rootThreadId,
-                ...(cursor === null
-                  ? {}
-                  : {
-                      beforeCreatedAt: String(cursor.createdAt),
-                      afterMessageIdAtTimestamp: OrchestratorMessageId.makeUnsafe(
-                        String(cursor.messageId),
-                      ),
-                    }),
-                limit: limit + 1,
-              });
-              const items = page.slice(0, limit);
-              const last = page.length > limit ? items.at(-1) : undefined;
-              return {
-                items,
-                nextCursor: last
-                  ? encodeOpaquePageCursor({
-                      createdAt: last.createdAt,
-                      messageId: last.messageId,
-                    })
-                  : null,
-              };
-            }),
-            "Failed to list Orchestrator exchanges",
-          ),
-        [ORCHESTRATION_WS_METHODS.listOrchestratorArtifacts]: (input) =>
-          rpcEffect(
-            Effect.gen(function* () {
-              const limit = boundedRpcLimit(input.limit);
-              const cursor = decodeOpaquePageCursor(input.cursor, ["createdAt", "artifactId"]);
-              const page = yield* orchestratorArtifacts.list({
-                rootThreadId: input.rootThreadId,
-                limit: limit + 1,
-                ...(cursor === null
-                  ? {}
-                  : {
-                      beforeCreatedAt: String(cursor.createdAt),
-                      beforeArtifactId: ArtifactId.makeUnsafe(String(cursor.artifactId)),
-                    }),
-              });
-              const items = page.slice(0, limit);
-              const last = page.length > limit ? items.at(-1) : undefined;
-              return {
-                items,
-                nextCursor: last
-                  ? encodeOpaquePageCursor({ createdAt: last.createdAt, artifactId: last.id })
-                  : null,
-              };
-            }),
-            "Failed to list Orchestrator artifacts",
-          ),
-        [ORCHESTRATION_WS_METHODS.readOrchestratorArtifact]: (input) =>
-          rpcEffect(
-            orchestratorArtifacts.read(input).pipe(
-              Effect.flatMap(
-                Option.match({
-                  onNone: () =>
-                    Effect.fail(
-                      new Error(
-                        `Artifact '${input.artifactId}' was not found in Root '${input.rootThreadId}'.`,
-                      ),
-                    ),
-                  onSome: Effect.succeed,
-                }),
-              ),
-            ),
-            "Failed to read Orchestrator artifact",
-          ),
-        [ORCHESTRATION_WS_METHODS.listOrchestratorAuditEvents]: (input) =>
-          rpcEffect(
-            Effect.gen(function* () {
-              const limit = boundedRpcLimit(input.limit);
-              const cursor = decodeOpaquePageCursor(input.cursor, ["sequence"]);
-              const page = yield* orchestrationEventStore.readAggregateEventPage({
-                aggregateKind: "orchestrator",
-                aggregateId: input.rootThreadId,
-                ...(cursor === null ? {} : { beforeSequenceExclusive: Number(cursor.sequence) }),
-                limit: limit + 1,
-              });
-              const items = page.filter(Schema.is(OrchestratorDomainEvent)).slice(0, limit);
-              const last = page.length > limit ? items.at(-1) : undefined;
-              return {
-                items,
-                nextCursor: last ? encodeOpaquePageCursor({ sequence: last.sequence }) : null,
-              };
-            }),
-            "Failed to list Orchestrator audit events",
-          ),
-        [ORCHESTRATION_WS_METHODS.createOrchestratorRoot]: (input) =>
-          rpcEffect(
-            requireOwnerSession.pipe(
-              Effect.andThen(
-                dispatchOrchestratorUserCommand({
-                  ...input.command,
-                  actor: { kind: "user" as const, actorId: "owner" },
-                }),
-              ),
-            ),
-            "Failed to create Orchestrator Root",
-          ),
-        [ORCHESTRATION_WS_METHODS.archiveOrchestratorRoot]: (input) =>
-          rpcEffect(
-            requireOwnerSession.pipe(
-              Effect.andThen(
-                dispatchOrchestratorUserCommand({
-                  ...input.command,
-                  actor: { kind: "user" as const, actorId: "owner" },
-                }),
-              ),
-            ),
-            "Failed to archive Orchestrator Root",
-          ),
-        [ORCHESTRATION_WS_METHODS.restoreOrchestratorRoot]: (input) =>
-          rpcEffect(
-            requireOwnerSession.pipe(
-              Effect.andThen(
-                dispatchOrchestratorUserCommand({
-                  ...input.command,
-                  actor: { kind: "user" as const, actorId: "owner" },
-                }),
-              ),
-            ),
-            "Failed to restore Orchestrator Root",
-          ),
-        [ORCHESTRATION_WS_METHODS.detachOrchestratorChild]: (input) =>
-          rpcEffect(
-            requireOwnerSession.pipe(
-              Effect.andThen(
-                Effect.gen(function* () {
-                  const root = yield* orchestratorProjections.getRoot(input.rootThreadId);
-                  if (Option.isNone(root)) {
-                    return yield* Effect.fail(new Error("Orchestrator Root was not found."));
-                  }
-                  return yield* dispatchOrchestratorUserCommand({
-                    type: "orchestrator.child.retire",
-                    commandId: CommandId.makeUnsafe(`user:detach-child:${crypto.randomUUID()}`),
-                    rootThreadId: input.rootThreadId,
-                    projectId: root.value.root.projectId,
-                    actor: { kind: "user", actorId: "owner" },
-                    protocolVersion: root.value.root.protocolVersion,
-                    expectedRevision: input.expectedRevision,
-                    childThreadId: input.childThreadId,
-                    reason: input.reason,
-                    createdAt: new Date().toISOString(),
-                  });
-                }),
-              ),
-            ),
-            "Failed to detach Orchestrator child",
-          ),
-        [ORCHESTRATION_WS_METHODS.upgradeOrchestratorRoot]: (input) =>
-          rpcEffect(
-            requireOwnerSession.pipe(
-              Effect.andThen(
-                Effect.fail(
-                  new Error(
-                    input.targetProtocolVersion === 1
-                      ? "The Root already uses the only installed Orchestrator protocol version."
-                      : `Orchestrator protocol ${input.targetProtocolVersion} is not installed; Root upgrade was not performed.`,
-                  ),
-                ),
-              ),
-            ),
-            "Failed to upgrade Orchestrator Root",
-          ),
         [ORCHESTRATION_WS_METHODS.listTaskProcesses]: (input) =>
           rpcEffect(taskProcessQuery.listProcesses(input), "Failed to list TaskProcesses"),
         [ORCHESTRATION_WS_METHODS.getTaskProcessSummary]: (input) =>
@@ -1684,21 +1326,6 @@ const makeWsRpcHandlersLayer = () =>
                   } else {
                     if (process.value.process.projectId !== command.projectId) {
                       return yield* Effect.fail(new Error("TaskProcess project scope mismatch."));
-                    }
-                    if (process.value.process.owner.kind === "orchestrator") {
-                      const allowed =
-                        command.type === "task-process.pause" ||
-                        command.type === "task-process.resume" ||
-                        command.type === "project-task.reopen" ||
-                        (command.type === "project-task.transition" &&
-                          command.lifecycle === "cancelled");
-                      if (!allowed) {
-                        return yield* Effect.fail(
-                          new Error(
-                            "This TaskProcess is Root-owned; the requested semantic mutation requires the Root lease.",
-                          ),
-                        );
-                      }
                     }
                   }
                   const result = yield* dispatchOrchestrationCommand({

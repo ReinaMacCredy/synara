@@ -14,8 +14,6 @@ import {
   type StartHandoffPreparationInput,
 } from "@synara/contracts";
 import { Effect, Layer, Option, Schema, ServiceMap } from "effect";
-
-import { ProjectionOrchestratorRepository } from "../../persistence/Services/ProjectionOrchestrator.ts";
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import {
@@ -57,25 +55,11 @@ export class HandoffPreparationService extends ServiceMap.Service<
 
 const makeHandoffPreparationService = Effect.gen(function* () {
   const projections = yield* ProjectionSnapshotQuery;
-  const orchestratorProjections = yield* ProjectionOrchestratorRepository;
   const settings = yield* ServerSettingsService;
   const attempts = new Map<
     string,
     { snapshot: HandoffPreparationSnapshot; controller: AbortController }
   >();
-
-  const sourceMode = (threadId: string) =>
-    orchestratorProjections.findRootForThread(threadId).pipe(
-      Effect.map((root) =>
-        Option.match(root, {
-          onNone: () => "project" as const,
-          onSome: (rootThreadId) =>
-            rootThreadId === threadId
-              ? ("orchestrator_root" as const)
-              : ("orchestrator_child" as const),
-        }),
-      ),
-    );
 
   const start: HandoffPreparationServiceShape["start"] = (input) =>
     Effect.gen(function* () {
@@ -91,7 +75,10 @@ const makeHandoffPreparationService = Effect.gen(function* () {
         return yield* Effect.fail(new Error("Source Project was not found."));
       }
       const project = projectOption.value;
-      const mode = yield* sourceMode(input.sourceThreadId);
+      const mode =
+        detail.thread.creationSource === "supervised_native"
+          ? ("supervised" as const)
+          : ("project" as const);
       const now = new Date().toISOString();
       const sourceItems = canonicalHandoffSourceItems(detail.thread.messages);
       const capsuleBase = {

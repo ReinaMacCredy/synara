@@ -291,11 +291,8 @@ function ChatRouteGlobalShortcuts() {
     () => handleNewChat({ fresh: true }),
     [handleNewChat],
   );
-  const isOrchestratorMode =
-    pathname === "/supervised" ||
-    pathname.startsWith("/supervised/") ||
-    pathname === "/orchestrator" ||
-    pathname.startsWith("/orchestrator/");
+  const isSupervisedMode =
+    pathname === "/supervised" || pathname.startsWith("/supervised/");
 
   useEffect(() => {
     if (!currentProjectId) {
@@ -449,7 +446,7 @@ function ChatRouteGlobalShortcuts() {
       }
 
       if (command !== "chat.new") return;
-      if (isOrchestratorMode) {
+      if (isSupervisedMode) {
         event.preventDefault();
         event.stopPropagation();
         void navigate({
@@ -487,7 +484,7 @@ function ChatRouteGlobalShortcuts() {
     currentProjectId,
     handleNewChatForActiveSurface,
     handleNewThread,
-    isOrchestratorMode,
+    isSupervisedMode,
     keybindings,
     latestUsableProjectId,
     openOrAdvanceRecentSwitcher,

@@ -12,7 +12,6 @@ import {
   type OrchestrationEvent,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   type ProviderMentionReference,
-  type ProviderOrchestratorSessionContext,
   type ProviderSupervisionSessionContext,
   type ProviderRuntimeEvent,
   ProviderKind,
@@ -90,7 +89,6 @@ import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { resolveProviderDispatchAttachments } from "../../provider/providerAttachmentPaths.ts";
 import { OrchestrationEventDeliveryRepositoryLive } from "../../persistence/Layers/OrchestrationEventDeliveries.ts";
 import { ProjectionPendingInteractionRepositoryLive } from "../../persistence/Layers/ProjectionPendingInteractions.ts";
-import { ProjectionOrchestratorRepositoryLive } from "../../persistence/Layers/ProjectionOrchestrator.ts";
 import { QueuedTurnPromotionRepositoryLive } from "../../persistence/Layers/QueuedTurnPromotions.ts";
 import { ProjectionPendingInteractionRepository } from "../../persistence/Services/ProjectionPendingInteractions.ts";
 import {
@@ -99,7 +97,6 @@ import {
 } from "../../persistence/Services/OrchestrationEventDeliveries.ts";
 import { QueuedTurnPromotionRepository } from "../../persistence/Services/QueuedTurnPromotions.ts";
 import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedAttachments.ts";
-import { ProjectionOrchestratorRepository } from "../../persistence/Services/ProjectionOrchestrator.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { providerStartOptionsFromServerSettings } from "@synara/shared/serverSettings";
@@ -129,7 +126,6 @@ import {
 import { deriveTurnStartSession } from "../turnStartSession.ts";
 import { TurnCheckpointCoordinator } from "../Services/TurnCheckpointCoordinator.ts";
 import { resolveProviderSessionThread as resolveProviderSessionThreadFromProjection } from "../providerSessionThread.ts";
-import { capabilitiesForRole } from "../orchestrator/invariants.ts";
 
 type ProviderQueueDrainEvent = Extract<
   ProviderRuntimeEvent,
@@ -470,7 +466,6 @@ const make = Effect.gen(function* () {
   const textGeneration = yield* TextGeneration;
   const serverSettings = yield* ServerSettingsService;
   const managedAttachments = yield* ManagedAttachmentRepository;
-  const projectionOrchestrator = yield* ProjectionOrchestratorRepository;
   const serverConfig = yield* ServerConfig;
   const handledTurnStartKeys = yield* Cache.make<string, true>({
     capacity: HANDLED_TURN_START_KEY_MAX,
@@ -492,7 +487,6 @@ const make = Effect.gen(function* () {
   // projected thread metadata so an option changed mid-turn is still compared
   // against the old subprocess configuration before the next turn starts.
   const threadSessionModelSelections = new Map<string, ModelSelection>();
-  const threadSessionOrchestratorContexts = new Map<string, ProviderOrchestratorSessionContext>();
   const threadSessionSupervisionContexts = new Map<string, ProviderSupervisionSessionContext>();
   // Seeded from the engine's in-memory command read model, not a second snapshot query.
   // The engine loads that model once after the projection bootstrap and keeps it current
@@ -831,39 +825,6 @@ const make = Effect.gen(function* () {
     return Option.getOrUndefined(yield* projectionSnapshotQuery.getThreadDetailById(threadId));
   });
 
-  const resolveOrchestratorSessionContext = Effect.fnUntraced(function* (threadId: ThreadId) {
-    const rootThreadId = Option.getOrUndefined(
-      yield* projectionOrchestrator.findRootForThread(threadId),
-    );
-    if (!rootThreadId) return undefined;
-    const core = Option.getOrUndefined(yield* projectionOrchestrator.getCore(rootThreadId));
-    if (!core || core.root.root.state !== "active") return undefined;
-    if (threadId === rootThreadId) {
-      return {
-        protocolVersion: core.root.root.protocolVersion,
-        rootThreadId,
-        role: "root",
-        capabilities: [...capabilitiesForRole("root")].toSorted(),
-      } satisfies ProviderOrchestratorSessionContext;
-    }
-    const ownership = core.ownershipEdges
-      .filter((edge) => edge.childThreadId === threadId && edge.retiredAt === null)
-      .toSorted((left, right) => right.contractVersion - left.contractVersion)[0];
-    return ownership
-      ? ({
-          protocolVersion: core.root.root.protocolVersion,
-          rootThreadId,
-          role: ownership.role,
-          capabilities: [...ownership.capabilities].toSorted(),
-        } satisfies ProviderOrchestratorSessionContext)
-      : undefined;
-  });
-
-  const sameOrchestratorSessionContext = (
-    left: ProviderOrchestratorSessionContext | undefined,
-    right: ProviderOrchestratorSessionContext | undefined,
-  ): boolean => JSON.stringify(left) === JSON.stringify(right);
-
   const resolveProviderSessionThread = (threadId: ThreadId) =>
     resolveProviderSessionThreadFromProjection(projectionSnapshotQuery, threadId);
 
@@ -935,7 +896,6 @@ const make = Effect.gen(function* () {
     Effect.sync(() => {
       threadProviderOptions.delete(threadId);
       threadSessionModelSelections.delete(threadId);
-      threadSessionOrchestratorContexts.delete(threadId);
       const editResendPrefix = `${threadId}:`;
       for (const key of editResendTurnStartKeys) {
         if (key.startsWith(editResendPrefix)) {
@@ -1173,7 +1133,6 @@ const make = Effect.gen(function* () {
     const resolvedProviderOptions = providerStartOptionsFromServerSettings(
       settingsSnapshot.settings,
     );
-    const desiredOrchestratorContext = yield* resolveOrchestratorSessionContext(threadId);
     const desiredSupervisionContext = yield* resolveSupervisionSessionContext(threadId);
     if (desiredSupervisionContext !== undefined) {
       const runtime = desiredSupervisionContext.profileSnapshot.runtime;
@@ -1232,9 +1191,6 @@ const make = Effect.gen(function* () {
       ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
       modelSelection: desiredModelSelection,
       providerOptions: resolvedProviderOptions,
-      ...(desiredOrchestratorContext !== undefined
-        ? { orchestratorContext: desiredOrchestratorContext }
-        : {}),
       ...(desiredSupervisionContext !== undefined
         ? { supervisionContext: desiredSupervisionContext }
         : {}),
@@ -1247,18 +1203,11 @@ const make = Effect.gen(function* () {
         .listSessions()
         .pipe(Effect.map((sessions) => sessions.find((session) => session.threadId === threadId)));
 
-    const startProviderSession = (
-      resumeCursor?: unknown,
-      orchestratorContext:
-        | ProviderOrchestratorSessionContext
-        | null
-        | undefined = desiredOrchestratorContext,
-    ) =>
+    const startProviderSession = (resumeCursor?: unknown) =>
       providerService.startSession(threadId, {
         ...providerSessionOptions,
         ...(preferredProvider ? { provider: preferredProvider } : {}),
         ...(resumeCursor !== undefined ? { resumeCursor } : {}),
-        ...(orchestratorContext !== undefined ? { orchestratorContext } : {}),
       });
 
     const bindSessionToThread = (session: ProviderSession) =>
@@ -1317,10 +1266,6 @@ const make = Effect.gen(function* () {
             )
           : (currentProvider === "droid" || currentProvider === "grok") &&
             !Equal.equals(previousModelSelection, requestedModelSelection));
-      const orchestratorContextChanged = !sameOrchestratorSessionContext(
-        threadSessionOrchestratorContexts.get(threadId),
-        desiredOrchestratorContext,
-      );
       const supervisionContextChanged =
         JSON.stringify(threadSessionSupervisionContexts.get(threadId) ?? null) !==
         JSON.stringify(desiredSupervisionContext ?? null);
@@ -1330,7 +1275,6 @@ const make = Effect.gen(function* () {
         !providerChanged &&
         !shouldRestartForModelChange &&
         !shouldRestartForModelSelectionChange &&
-        !orchestratorContextChanged &&
         !supervisionContextChanged
       ) {
           return {
@@ -1356,14 +1300,10 @@ const make = Effect.gen(function* () {
         modelChanged,
         shouldRestartForModelChange,
         shouldRestartForModelSelectionChange,
-        orchestratorContextChanged,
         supervisionContextChanged,
         hasResumeCursor: resumeCursor !== undefined,
       });
-      const restartedSession = yield* startProviderSession(
-        resumeCursor,
-        desiredOrchestratorContext ?? null,
-      );
+      const restartedSession = yield* startProviderSession(resumeCursor);
       if (
         shouldRegisterContextBootstrap &&
         currentProvider === "droid" &&
@@ -1373,11 +1313,6 @@ const make = Effect.gen(function* () {
         freshSessionContextBootstrapThreadIds.add(threadId);
       }
       threadSessionModelSelections.set(threadId, desiredModelSelection);
-      if (desiredOrchestratorContext) {
-        threadSessionOrchestratorContexts.set(threadId, desiredOrchestratorContext);
-      } else {
-        threadSessionOrchestratorContexts.delete(threadId);
-      }
       if (desiredSupervisionContext) {
         threadSessionSupervisionContexts.set(threadId, desiredSupervisionContext);
       } else {
@@ -1400,7 +1335,6 @@ const make = Effect.gen(function* () {
     }
 
     if (
-      desiredOrchestratorContext === undefined &&
       providerService.forkThread &&
       thread.forkSourceThreadId
     ) {
@@ -1458,11 +1392,6 @@ const make = Effect.gen(function* () {
     // restart-necessity checks compare against the live spawn state even when
     // the spawning dispatch carried no explicit model selection.
     threadSessionModelSelections.set(threadId, desiredModelSelection);
-    if (desiredOrchestratorContext) {
-      threadSessionOrchestratorContexts.set(threadId, desiredOrchestratorContext);
-    } else {
-      threadSessionOrchestratorContexts.delete(threadId);
-    }
     if (desiredSupervisionContext) {
       threadSessionSupervisionContexts.set(threadId, desiredSupervisionContext);
     } else {
@@ -4286,7 +4215,6 @@ export const makeProviderCommandReactorLive = (options?: ProviderCommandReactorL
     Layer.provideMerge(OrchestrationEventDeliveryRepositoryLive),
     Layer.provideMerge(QueuedTurnPromotionRepositoryLive),
     Layer.provideMerge(ProjectionPendingInteractionRepositoryLive),
-    Layer.provideMerge(ProjectionOrchestratorRepositoryLive),
   );
 
 export const ProviderCommandReactorLive = makeProviderCommandReactorLive();

@@ -45,8 +45,8 @@ export function ensureSupervisedDraft(input: EnsureSupervisedDraftInput): Thread
       supervisionMode: "supervise",
       ...(stagedHandoff
         ? {
-            orchestratorSourceThreadId: stagedHandoff.sourceThreadId,
-            orchestratorHandoffMessages: stagedHandoff.messages,
+            supervisedSourceThreadId: stagedHandoff.sourceThreadId,
+            supervisedHandoffMessages: stagedHandoff.messages,
           }
         : {}),
     });
@@ -63,8 +63,8 @@ export function ensureSupervisedDraft(input: EnsureSupervisedDraftInput): Thread
     workingDirectory: input.project.cwd,
     ...(stagedHandoff
       ? {
-          orchestratorSourceThreadId: stagedHandoff.sourceThreadId,
-          orchestratorHandoffMessages: stagedHandoff.messages,
+          supervisedSourceThreadId: stagedHandoff.sourceThreadId,
+          supervisedHandoffMessages: stagedHandoff.messages,
         }
       : {}),
   });
@@ -141,6 +141,7 @@ export async function ensureSupervisedRoom(input: {
 export async function activateSupervisedRoom(input: {
   readonly threadId: ThreadId;
   readonly projectId: ProjectId;
+  readonly leadSeatId?: LeadSeatId;
 }): Promise<RoomId> {
   const api = readNativeApi();
   if (!api) throw new Error("The Synara server is unavailable.");
@@ -151,10 +152,21 @@ export async function activateSupervisedRoom(input: {
   });
   const room = snapshot.rooms.find((candidate) => candidate.id === roomId);
   if (!room) throw new Error("The Lead Room no longer exists.");
-  if (room.projectId !== input.projectId) {
+  if (room.status !== "draft" && room.projectId !== input.projectId) {
     throw new Error("The Lead Room belongs to a different Project.");
   }
-  if (room.status !== "draft") return roomId;
+  const leadSeatId =
+    input.leadSeatId ??
+    (
+      await api.orchestration.getSnapshot()
+    ).supervision.leads.find(
+      (candidate) =>
+        candidate.activeThreadId === input.threadId && candidate.status !== "archived",
+    )?.id;
+  if (leadSeatId === undefined) {
+    throw new Error("The Lead Room has no active Lead seat.");
+  }
+  if (room.status !== "draft" && room.leadSeatId === leadSeatId) return roomId;
 
   const updatedAt = new Date().toISOString();
   await api.orchestration.dispatchCommand({
@@ -163,11 +175,12 @@ export async function activateSupervisedRoom(input: {
     actor: { kind: "user", actorId: "owner" },
     aggregateId: roomId,
     expectedRevision: room.revision,
-    idempotencyKey: `room-activate:${roomId}:${room.revision}`,
+    idempotencyKey: `room-activate:${roomId}:${leadSeatId}:${room.revision}`,
     createdAt: updatedAt,
     room: {
       ...room,
-      leadSeatId: room.leadSeatId ?? LeadSeatId.makeUnsafe(input.threadId),
+      projectId: input.projectId,
+      leadSeatId,
       status: "active",
       updatedAt,
     },

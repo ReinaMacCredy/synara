@@ -31,7 +31,6 @@ export function resolveChatIndexRestoreRoute(input: {
   readonly sidebarThreadSummaryById: Readonly<
     Record<string, { readonly projectId: ProjectId } | undefined>
   >;
-  readonly orchestratorThreadIds: ReadonlySet<ThreadId>;
   /**
    * Still-unsent chat drafts. They have a route id but no sidebar summary yet, so the summary
    * lookup below never matches them, so a cold start on "/" can reopen an unsent draft.
@@ -47,7 +46,6 @@ export function resolveChatIndexRestoreRoute(input: {
   const {
     draftProjectIdByThreadId,
     landingSpace,
-    orchestratorThreadIds,
     sidebarThreadSummaryById,
   } = input;
 
@@ -59,7 +57,6 @@ export function resolveChatIndexRestoreRoute(input: {
     const projectId =
       sidebarThreadSummaryById[threadId]?.projectId ?? draftProjectIdByThreadId.get(threadId);
     if (projectId === undefined) continue;
-    if (orchestratorThreadIds.has(threadId as ThreadId)) continue;
     if (
       landingSpace &&
       !isThreadReachableFromSpace({

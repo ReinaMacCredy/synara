@@ -295,10 +295,16 @@ managedAttachmentsLegacyLayer("managed attachment migration after private migrat
         [91, "SupervisedOrchestration"],
         [92, "SupervisionPeerBindings"],
         [93, "RecoverRetentionHiddenThreads"],
+        [94, "SupervisedRuntime"],
+        [95, "SupervisedPluginHealthCircuit"],
+        [96, "SupervisedExecutionGovernance"],
+        [97, "LeadSubscriptionOwnership"],
+        [98, "SupervisedModelSessions"],
+        [99, "RetireOrchestratorControlPlane"],
       ]);
 
       const tracker = yield* trackerRows(sql);
-      assert.deepStrictEqual(tracker.slice(-40), [
+      assert.deepStrictEqual(tracker.slice(-46), [
         { migration_id: 54, name: "DurableProviderCommandDelivery" },
         { migration_id: 55, name: "ManagedAttachments" },
         { migration_id: 56, name: "CommandReceiptFingerprints" },
@@ -339,6 +345,12 @@ managedAttachmentsLegacyLayer("managed attachment migration after private migrat
         { migration_id: 91, name: "SupervisedOrchestration" },
         { migration_id: 92, name: "SupervisionPeerBindings" },
         { migration_id: 93, name: "RecoverRetentionHiddenThreads" },
+        { migration_id: 94, name: "SupervisedRuntime" },
+        { migration_id: 95, name: "SupervisedPluginHealthCircuit" },
+        { migration_id: 96, name: "SupervisedExecutionGovernance" },
+        { migration_id: 97, name: "LeadSubscriptionOwnership" },
+        { migration_id: 98, name: "SupervisedModelSessions" },
+        { migration_id: 99, name: "RetireOrchestratorControlPlane" },
       ]);
       const preserved = yield* sql<{ readonly count: number }>`
         SELECT COUNT(*) AS count FROM orchestration_consumer_state
@@ -424,6 +436,12 @@ agentGatewayRetentionLegacyLayer(
           [91, "SupervisedOrchestration"],
           [92, "SupervisionPeerBindings"],
           [93, "RecoverRetentionHiddenThreads"],
+        [94, "SupervisedRuntime"],
+        [95, "SupervisedPluginHealthCircuit"],
+        [96, "SupervisedExecutionGovernance"],
+        [97, "LeadSubscriptionOwnership"],
+        [98, "SupervisedModelSessions"],
+        [99, "RetireOrchestratorControlPlane"],
         ]);
 
         const columns = yield* sql<{ readonly name: string }>`
@@ -512,11 +530,17 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [91, "SupervisedOrchestration"],
         [92, "SupervisionPeerBindings"],
         [93, "RecoverRetentionHiddenThreads"],
+        [94, "SupervisedRuntime"],
+        [95, "SupervisedPluginHealthCircuit"],
+        [96, "SupervisedExecutionGovernance"],
+        [97, "LeadSubscriptionOwnership"],
+        [98, "SupervisedModelSessions"],
+        [99, "RetireOrchestratorControlPlane"],
       ]);
 
       const tracker = yield* trackerRows(sql);
       assert.deepStrictEqual(
-          tracker.slice(-24).map((row) => [row.migration_id, row.name]),
+        tracker.slice(-30).map((row) => [row.migration_id, row.name]),
         [
           [70, "AgentGatewayOperations"],
           [71, "ProjectionThreadsGatewayProvenance"],
@@ -542,6 +566,12 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
           [91, "SupervisedOrchestration"],
           [92, "SupervisionPeerBindings"],
           [93, "RecoverRetentionHiddenThreads"],
+          [94, "SupervisedRuntime"],
+          [95, "SupervisedPluginHealthCircuit"],
+          [96, "SupervisedExecutionGovernance"],
+          [97, "LeadSubscriptionOwnership"],
+          [98, "SupervisedModelSessions"],
+          [99, "RetireOrchestratorControlPlane"],
         ],
       );
 
@@ -625,11 +655,17 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [91, "SupervisedOrchestration"],
         [92, "SupervisionPeerBindings"],
         [93, "RecoverRetentionHiddenThreads"],
+        [94, "SupervisedRuntime"],
+        [95, "SupervisedPluginHealthCircuit"],
+        [96, "SupervisedExecutionGovernance"],
+        [97, "LeadSubscriptionOwnership"],
+        [98, "SupervisedModelSessions"],
+        [99, "RetireOrchestratorControlPlane"],
       ]);
 
       const tracker = yield* trackerRows(sql);
       assert.deepStrictEqual(
-          tracker.slice(-20).map((row) => [row.migration_id, row.name]),
+        tracker.slice(-26).map((row) => [row.migration_id, row.name]),
         [
           [74, "ExternalMcpIntegrations"],
           [75, "ExternalMcpActiveCapacity"],
@@ -651,6 +687,12 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
           [91, "SupervisedOrchestration"],
           [92, "SupervisionPeerBindings"],
           [93, "RecoverRetentionHiddenThreads"],
+          [94, "SupervisedRuntime"],
+          [95, "SupervisedPluginHealthCircuit"],
+          [96, "SupervisedExecutionGovernance"],
+          [97, "LeadSubscriptionOwnership"],
+          [98, "SupervisedModelSessions"],
+          [99, "RetireOrchestratorControlPlane"],
         ],
       );
       const preservedSpaces = yield* sql<{ readonly spaceId: string }>`

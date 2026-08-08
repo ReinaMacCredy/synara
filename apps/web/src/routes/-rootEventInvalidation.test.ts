@@ -16,7 +16,6 @@ import {
   getProjectFileInvalidationThreadIdForEvent,
   resolveGitInvalidationCwdForThreadId,
   shouldInvalidateGitQueriesForEvent,
-  shouldInvalidateOrchestratorQueriesForEvent,
   shouldInvalidateProviderQueriesForEvent,
 } from "./-rootEventInvalidation";
 import type { AppState } from "../store";
@@ -56,22 +55,6 @@ describe("root event invalidation", () => {
   it("leaves unrelated events alone", () => {
     expect(shouldInvalidateGitQueriesForEvent(event("thread.message-sent"))).toBe(false);
     expect(shouldInvalidateProviderQueriesForEvent(event("thread.message-sent"))).toBe(false);
-  });
-
-  it("invalidates aggregate UI reads for Orchestrator and TaskProcess events only", () => {
-    expect(
-      shouldInvalidateOrchestratorQueriesForEvent(
-        event("orchestrator.child.attached", {}, "orchestrator"),
-      ),
-    ).toBe(true);
-    expect(
-      shouldInvalidateOrchestratorQueriesForEvent(
-        event("project-task.created", {}, "task_process"),
-      ),
-    ).toBe(true);
-    expect(
-      shouldInvalidateOrchestratorQueriesForEvent(event("thread.message-sent", {}, "thread")),
-    ).toBe(false);
   });
 
   it("extracts thread ids from mid-turn file-change activities", () => {

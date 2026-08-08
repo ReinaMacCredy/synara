@@ -7,7 +7,6 @@ import {
   type AutomationDefinition,
   CheckpointRef,
   EventId,
-  type GetOrchestratorSnapshotResult,
   MessageId,
   ORCHESTRATION_WS_METHODS,
   type OrchestrationReadModel,
@@ -80,7 +79,6 @@ const BASE_TIME_MS = Date.parse(NOW_ISO);
 const ATTACHMENT_SVG = "<svg xmlns='http://www.w3.org/2000/svg' width='120' height='300'></svg>";
 let attachmentResponseDelayMs = 0;
 let attachmentUploadSequence = 0;
-const orchestratorRootThreadIds = new Set<ThreadId>();
 
 interface WsRequestEnvelope {
   id: string;
@@ -1214,53 +1212,7 @@ function recordThreadTurnStartCommand(command: unknown): boolean {
       updatedAt: createdAt,
     },
   };
-  if ("orchestratorRoot" in command && command.orchestratorRoot) {
-    orchestratorRootThreadIds.add(threadId);
-  }
   return true;
-}
-
-function createOrchestratorSnapshotFixture(rootThreadId: ThreadId): GetOrchestratorSnapshotResult {
-  const thread = fixture.snapshot.threads.find((candidate) => candidate.id === rootThreadId);
-  if (!thread) throw new Error(`Missing browser fixture thread ${rootThreadId}.`);
-  return {
-    snapshot: {
-      root: {
-        rootThreadId,
-        projectId: thread.projectId,
-        protocolVersion: 1,
-        state: "active",
-        activeProcessId: null,
-        resourcePolicyVersion: 1,
-        createdAt: thread.createdAt,
-        archivedAt: null,
-        revision: 0,
-      },
-      ownershipEdges: [],
-      communicationLinks: [],
-      assignments: [],
-      runs: [],
-      activeProcess: null,
-      providerCapabilities: [],
-      capacity: {
-        policyVersion: 1,
-        activeSessions: 1,
-        sessionLimit: 8,
-        activeTurns: 1,
-        turnLimit: 8,
-        activeWriters: 0,
-        writerLimit: 1,
-        mailboxDepth: 0,
-        mailboxLimit: 128,
-        activeMonitors: 0,
-        monitorLimit: 32,
-        estimatedSpend: { kind: "unknown", reason: "Browser fixture", at: NOW_ISO },
-        observedAt: NOW_ISO,
-      },
-      highWaterCursor: String(fixture.snapshot.snapshotSequence),
-    },
-    projectionBehind: false,
-  };
 }
 
 function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
@@ -1374,7 +1326,7 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
 }
 
 function installDeterministicSendNativeApi(options?: {
-  readonly persistOrchestratorPromotion?: boolean;
+  readonly persistSupervisedPromotion?: boolean;
   readonly threadDetailSnapshotDelayMs?: number;
 }): () => void {
   const previousNativeApi = window.nativeApi;
@@ -1421,7 +1373,7 @@ function installDeterministicSendNativeApi(options?: {
       },
       orchestration: {
         ...wsNativeApi.orchestration,
-        ...(options?.persistOrchestratorPromotion
+        ...(options?.persistSupervisedPromotion
           ? {
               getShellSnapshot: async () => createShellSnapshotFromReadModel(fixture.snapshot),
               getThreadDetailSnapshot: async ({ threadId }: { threadId: ThreadId }) => {
@@ -1440,18 +1392,6 @@ function installDeterministicSendNativeApi(options?: {
                   ? { snapshotSequence: fixture.snapshot.snapshotSequence, thread }
                   : null;
               },
-              listOrchestratorRoots: async () => ({
-                items: [...orchestratorRootThreadIds].map(
-                  (rootThreadId) => createOrchestratorSnapshotFixture(rootThreadId).snapshot.root,
-                ),
-                nextCursor: null,
-                highWaterCursor: String(fixture.snapshot.snapshotSequence),
-              }),
-              getOrchestratorSnapshot: async ({ rootThreadId }: { rootThreadId: ThreadId }) =>
-                createOrchestratorSnapshotFixture(rootThreadId),
-              listOrchestratorExchanges: async () => ({ items: [], nextCursor: null }),
-              listOrchestratorArtifacts: async () => ({ items: [], nextCursor: null }),
-              listOrchestratorAuditEvents: async () => ({ items: [], nextCursor: null }),
             }
           : {}),
         dispatchCommand: async (
@@ -1461,7 +1401,7 @@ function installDeterministicSendNativeApi(options?: {
             _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
             command,
           });
-          if (options?.persistOrchestratorPromotion) {
+          if (options?.persistSupervisedPromotion) {
             recordThreadCreateCommand(command);
             recordThreadTurnStartCommand(command);
           }
@@ -2186,7 +2126,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     await setViewport(DEFAULT_VIEWPORT);
     attachmentResponseDelayMs = 0;
     attachmentUploadSequence = 0;
-    orchestratorRootThreadIds.clear();
     localStorage.clear();
     useLatestProjectStore.setState({ latestProjectId: null });
     useWorkspacePathsStore.setState({
@@ -2242,18 +2181,18 @@ describe("ChatView timeline estimator parity (full app)", () => {
     document.body.innerHTML = "";
   });
 
-  it("promotes an Orchestrator draft without ever showing the conversation loader", async () => {
+  it("promotes an Supervised draft without ever showing the conversation loader", async () => {
     const restoreNativeApi = installDeterministicSendNativeApi({
-      persistOrchestratorPromotion: true,
+      persistSupervisedPromotion: true,
       threadDetailSnapshotDelayMs: 120,
     });
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-orchestrator-promotion-source" as MessageId,
-        targetText: "orchestrator promotion source",
+        targetMessageId: "msg-user-supervised-promotion-source" as MessageId,
+        targetText: "supervised promotion source",
       }),
-      initialEntry: `/orchestrator?projectId=${PROJECT_ID}`,
+      initialEntry: `/supervised?projectId=${PROJECT_ID}`,
     });
     let sawConversationLoader =
       document.body.textContent?.includes("Loading conversation") ?? false;
@@ -2271,7 +2210,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       let draftThreadId: ThreadId | null = null;
       await vi.waitFor(() => {
         draftThreadId =
-          useComposerDraftStore.getState().getDraftThreadByProjectId(PROJECT_ID, "orchestrator")
+          useComposerDraftStore.getState().getDraftThreadByProjectId(PROJECT_ID, "supervised")
             ?.threadId ?? null;
         expect(draftThreadId).not.toBeNull();
       });
@@ -2286,7 +2225,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         ).toBe(true);
       });
 
-      const prompt = "keep the first Orchestrator transcript visible";
+      const prompt = "keep the first Supervised transcript visible";
       useComposerDraftStore.getState().setPrompt(promotedThreadId, prompt);
       const sendButton = await waitForSendButton();
       expect(sendButton.disabled).toBe(false);
@@ -2294,8 +2233,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       await waitForURL(
         mounted.router,
-        (pathname) => pathname === `/orchestrator/${promotedThreadId}`,
-        "Orchestrator draft did not promote to its Root route.",
+        (pathname) => pathname === `/supervised/${promotedThreadId}`,
+        "Supervised draft did not promote to its Root route.",
       );
       expect(
         wsRequests.some(
@@ -5736,14 +5675,14 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("adds a project from Orchestrator without creating an ordinary chat or leaving the mode", async () => {
+  it("adds a project from Supervised without creating an ordinary chat or leaving the mode", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-orchestrator-add-project-test" as MessageId,
-        targetText: "orchestrator add project test",
+        targetMessageId: "msg-user-supervised-add-project-test" as MessageId,
+        targetText: "supervised add project test",
       }),
-      initialEntry: `/orchestrator?projectId=${PROJECT_ID}`,
+      initialEntry: `/supervised?projectId=${PROJECT_ID}`,
     });
 
     try {
@@ -5753,7 +5692,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await page.getByRole("button", { name: "Add project", exact: true }).click();
       await expect.element(page.getByRole("heading", { name: "Add project" })).toBeInTheDocument();
 
-      await page.getByLabelText("Project folder path").fill("/repo/orchestrator-project");
+      await page.getByLabelText("Project folder path").fill("/repo/supervised-project");
       await page.getByRole("button", { name: "Add project", exact: true }).click();
 
       let createdProjectId: ProjectId | null = null;
@@ -5768,7 +5707,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
               "type" in candidate &&
               candidate.type === "project.create" &&
               "workspaceRoot" in candidate &&
-              candidate.workspaceRoot === "/repo/orchestrator-project",
+              candidate.workspaceRoot === "/repo/supervised-project",
           );
         expect(command).toBeDefined();
         createdProjectId =
@@ -5779,7 +5718,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       });
 
       await vi.waitFor(() => {
-        expect(mounted.router.state.location.pathname).toBe("/orchestrator");
+        expect(mounted.router.state.location.pathname).toBe("/supervised");
         expect(mounted.router.state.location.search).toEqual({ projectId: createdProjectId });
         expect(
           useComposerDraftStore.getState().getDraftThreadByProjectId(createdProjectId!, "chat"),
@@ -5787,11 +5726,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
         expect(
           useComposerDraftStore
             .getState()
-            .getDraftThreadByProjectId(createdProjectId!, "orchestrator"),
+            .getDraftThreadByProjectId(createdProjectId!, "supervised"),
         ).not.toBeNull();
       });
       await expect
-        .element(page.getByText("orchestrator-project", { exact: true }).first())
+        .element(page.getByText("supervised-project", { exact: true }).first())
         .toBeInTheDocument();
       await expect.element(page.getByText(THREAD_TITLE, { exact: true })).not.toBeInTheDocument();
     } finally {
@@ -5799,14 +5738,14 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("reuses an existing shared project from Orchestrator without creating an ordinary chat", async () => {
+  it("reuses an existing shared project from Supervised without creating an ordinary chat", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-orchestrator-existing-project-test" as MessageId,
-        targetText: "orchestrator existing project test",
+        targetMessageId: "msg-user-supervised-existing-project-test" as MessageId,
+        targetText: "supervised existing project test",
       }),
-      initialEntry: `/orchestrator?projectId=${PROJECT_ID}`,
+      initialEntry: `/supervised?projectId=${PROJECT_ID}`,
     });
 
     try {
@@ -5815,7 +5754,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await page.getByRole("button", { name: "Add project", exact: true }).click();
 
       await vi.waitFor(() => {
-        expect(mounted.router.state.location.pathname).toBe("/orchestrator");
+        expect(mounted.router.state.location.pathname).toBe("/supervised");
         expect(mounted.router.state.location.search).toEqual({ projectId: PROJECT_ID });
         expect(
           useComposerDraftStore.getState().getDraftThreadByProjectId(PROJECT_ID, "chat"),

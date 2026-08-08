@@ -127,28 +127,6 @@ import {
   TestSubscriptionResult,
 } from "./supervised";
 import {
-  ArchiveOrchestratorRootInput,
-  CreateOrchestratorRootInput,
-  DetachOrchestratorChildInput,
-  GetOrchestratorSnapshotInput,
-  GetOrchestratorSnapshotResult,
-  ListOrchestratorArtifactsInput,
-  ListOrchestratorArtifactsResult,
-  ListOrchestratorAuditEventsInput,
-  ListOrchestratorAuditEventsResult,
-  ListOrchestratorExchangesInput,
-  ListOrchestratorExchangesResult,
-  ListOrchestratorRootsInput,
-  ListOrchestratorRootsResult,
-  ListNativeOrchestratorToolsInput,
-  ListNativeOrchestratorToolsResult,
-  OrchestratorArtifact,
-  OrchestratorCommandResult,
-  ReadOrchestratorArtifactInput,
-  RestoreOrchestratorRootInput,
-  UpgradeOrchestratorRootInput,
-} from "./orchestrator";
-import {
   DispatchTaskProcessCommandInput,
   DispatchTaskProcessCommandResult,
   GetSessionProgressInput,
@@ -446,74 +424,6 @@ export const WsOrchestrationUnsubscribeThreadRpc = Rpc.make(
   },
 );
 
-export const WsOrchestrationListOrchestratorRootsRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.listOrchestratorRoots,
-  { payload: ListOrchestratorRootsInput, success: ListOrchestratorRootsResult, error: WsRpcError },
-);
-export const WsOrchestrationListNativeOrchestratorToolsRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.listNativeOrchestratorTools,
-  {
-    payload: ListNativeOrchestratorToolsInput,
-    success: ListNativeOrchestratorToolsResult,
-    error: WsRpcError,
-  },
-);
-export const WsOrchestrationGetOrchestratorSnapshotRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.getOrchestratorSnapshot,
-  {
-    payload: GetOrchestratorSnapshotInput,
-    success: GetOrchestratorSnapshotResult,
-    error: WsRpcError,
-  },
-);
-export const WsOrchestrationListOrchestratorExchangesRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.listOrchestratorExchanges,
-  {
-    payload: ListOrchestratorExchangesInput,
-    success: ListOrchestratorExchangesResult,
-    error: WsRpcError,
-  },
-);
-export const WsOrchestrationListOrchestratorArtifactsRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.listOrchestratorArtifacts,
-  {
-    payload: ListOrchestratorArtifactsInput,
-    success: ListOrchestratorArtifactsResult,
-    error: WsRpcError,
-  },
-);
-export const WsOrchestrationReadOrchestratorArtifactRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.readOrchestratorArtifact,
-  { payload: ReadOrchestratorArtifactInput, success: OrchestratorArtifact, error: WsRpcError },
-);
-export const WsOrchestrationListOrchestratorAuditEventsRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.listOrchestratorAuditEvents,
-  {
-    payload: ListOrchestratorAuditEventsInput,
-    success: ListOrchestratorAuditEventsResult,
-    error: WsRpcError,
-  },
-);
-export const WsOrchestrationCreateOrchestratorRootRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.createOrchestratorRoot,
-  { payload: CreateOrchestratorRootInput, success: OrchestratorCommandResult, error: WsRpcError },
-);
-export const WsOrchestrationArchiveOrchestratorRootRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.archiveOrchestratorRoot,
-  { payload: ArchiveOrchestratorRootInput, success: OrchestratorCommandResult, error: WsRpcError },
-);
-export const WsOrchestrationRestoreOrchestratorRootRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.restoreOrchestratorRoot,
-  { payload: RestoreOrchestratorRootInput, success: OrchestratorCommandResult, error: WsRpcError },
-);
-export const WsOrchestrationDetachOrchestratorChildRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.detachOrchestratorChild,
-  { payload: DetachOrchestratorChildInput, success: OrchestratorCommandResult, error: WsRpcError },
-);
-export const WsOrchestrationUpgradeOrchestratorRootRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.upgradeOrchestratorRoot,
-  { payload: UpgradeOrchestratorRootInput, success: OrchestratorCommandResult, error: WsRpcError },
-);
 export const WsOrchestrationListTaskProcessesRpc = Rpc.make(
   ORCHESTRATION_WS_METHODS.listTaskProcesses,
   { payload: ListTaskProcessesInput, success: ListTaskProcessesResult, error: WsRpcError },
@@ -1242,18 +1152,6 @@ type WsOrchestrationFeatureRpc =
   | typeof WsOrchestrationSubscribeThreadRpc
   | typeof WsOrchestrationUnsubscribeThreadRpc
   | typeof WsOrchestrationSubscribeDomainEventsRpc
-  | typeof WsOrchestrationListOrchestratorRootsRpc
-  | typeof WsOrchestrationListNativeOrchestratorToolsRpc
-  | typeof WsOrchestrationGetOrchestratorSnapshotRpc
-  | typeof WsOrchestrationListOrchestratorExchangesRpc
-  | typeof WsOrchestrationListOrchestratorArtifactsRpc
-  | typeof WsOrchestrationReadOrchestratorArtifactRpc
-  | typeof WsOrchestrationListOrchestratorAuditEventsRpc
-  | typeof WsOrchestrationCreateOrchestratorRootRpc
-  | typeof WsOrchestrationArchiveOrchestratorRootRpc
-  | typeof WsOrchestrationRestoreOrchestratorRootRpc
-  | typeof WsOrchestrationDetachOrchestratorChildRpc
-  | typeof WsOrchestrationUpgradeOrchestratorRootRpc
   | typeof WsOrchestrationListTaskProcessesRpc
   | typeof WsOrchestrationGetTaskProcessSummaryRpc
   | typeof WsOrchestrationGetTaskProcessGraphRpc
@@ -1287,18 +1185,6 @@ const WsOrchestrationFeatureRpcGroup: RpcGroup.RpcGroup<WsOrchestrationFeatureRp
   WsOrchestrationSubscribeThreadRpc,
   WsOrchestrationUnsubscribeThreadRpc,
   WsOrchestrationSubscribeDomainEventsRpc,
-  WsOrchestrationListOrchestratorRootsRpc,
-  WsOrchestrationListNativeOrchestratorToolsRpc,
-  WsOrchestrationGetOrchestratorSnapshotRpc,
-  WsOrchestrationListOrchestratorExchangesRpc,
-  WsOrchestrationListOrchestratorArtifactsRpc,
-  WsOrchestrationReadOrchestratorArtifactRpc,
-  WsOrchestrationListOrchestratorAuditEventsRpc,
-  WsOrchestrationCreateOrchestratorRootRpc,
-  WsOrchestrationArchiveOrchestratorRootRpc,
-  WsOrchestrationRestoreOrchestratorRootRpc,
-  WsOrchestrationDetachOrchestratorChildRpc,
-  WsOrchestrationUpgradeOrchestratorRootRpc,
   WsOrchestrationListTaskProcessesRpc,
   WsOrchestrationGetTaskProcessSummaryRpc,
   WsOrchestrationGetTaskProcessGraphRpc,

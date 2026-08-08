@@ -11,7 +11,6 @@ import {
 import { Effect, Layer, Option } from "effect";
 
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
-import { ProjectionOrchestratorRepository } from "../../persistence/Services/ProjectionOrchestrator.ts";
 import { ProjectionTaskProcessRepository } from "../../persistence/Services/ProjectionTaskProcess.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { TaskProcessQuery, type TaskProcessQueryShape } from "../Services/TaskProcessQuery.ts";
@@ -101,29 +100,8 @@ const childFocusTaskIds = (
   return visible;
 };
 
-const rootFocusTaskIds = (graph: TaskProcessGraphProjection): ReadonlySet<string> =>
-  new Set(
-    graph.tasks
-      .filter(
-        ({ task, readiness, executionHealth }) =>
-          executionHealth === "running" ||
-          (task.lifecycle === "planned" && readiness === "ready") ||
-          readiness === "blocked" ||
-          task.lifecycle === "failed",
-      )
-      .map(({ task }) => task.id),
-  );
-
-const rootFocusRank = (task: ProjectTaskProjection): number => {
-  if (task.executionHealth === "running") return 0;
-  if (task.task.lifecycle === "planned" && task.readiness === "ready") return 1;
-  if (task.task.lifecycle === "failed") return 2;
-  return 3;
-};
-
 const make = Effect.gen(function* () {
   const eventStore = yield* OrchestrationEventStore;
-  const orchestrators = yield* ProjectionOrchestratorRepository;
   const processes = yield* ProjectionTaskProcessRepository;
   const snapshots = yield* ProjectionSnapshotQuery;
 
@@ -181,13 +159,6 @@ const make = Effect.gen(function* () {
     requestedProcessId: TaskProcessId | undefined,
   ) {
     if (requestedProcessId !== undefined) return Option.some(requestedProcessId);
-    const rootThreadId = yield* orchestrators.findRootForThread(threadId);
-    if (Option.isSome(rootThreadId)) {
-      const core = yield* orchestrators.getCore(rootThreadId.value);
-      if (Option.isSome(core) && core.value.root.root.activeProcessId !== null) {
-        return Option.some(core.value.root.root.activeProcessId);
-      }
-    }
     return yield* processes.findActiveProcessForThread(threadId);
   });
 
@@ -196,23 +167,21 @@ const make = Effect.gen(function* () {
       const processId = yield* resolveProcessForThread(input.threadId, input.processId);
       if (Option.isNone(processId)) return { progress: null, projectionBehind: false };
       const { graph, projectionBehind } = yield* loadGraph(processId.value);
-      const rootThreadId = yield* orchestrators.findRootForThread(input.threadId);
-      const isRoot = Option.isSome(rootThreadId) && rootThreadId.value === input.threadId;
       const activeBindings = graph.bindings.filter(
         ({ binding }) => binding.retiredAt === null && binding.threadId === input.threadId,
       );
-      const scopeIds = isRoot
-        ? new Set(graph.tasks.map(({ task }) => task.id))
-        : childFocusTaskIds(graph, new Set(activeBindings.map(({ binding }) => binding.taskId)));
-      if (!isRoot && scopeIds.size === 0) return { progress: null, projectionBehind };
-      const visibleIds = isRoot ? rootFocusTaskIds(graph) : scopeIds;
+      const scopeIds = childFocusTaskIds(
+        graph,
+        new Set(activeBindings.map(({ binding }) => binding.taskId)),
+      );
+      if (scopeIds.size === 0) return { progress: null, projectionBehind };
+      const visibleIds = scopeIds;
 
       const limit = boundedLimit(input.limit, 64, 16);
       const ordered = graph.tasks
         .filter(({ task }) => visibleIds.has(task.id))
         .toSorted(
           (left, right) =>
-            (isRoot ? rootFocusRank(left) - rootFocusRank(right) : 0) ||
             left.task.orderKey.localeCompare(right.task.orderKey) ||
             left.task.id.localeCompare(right.task.id),
         );

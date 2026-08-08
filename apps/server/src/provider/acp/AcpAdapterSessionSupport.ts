@@ -6,7 +6,6 @@
 import * as nodePath from "node:path";
 
 import type {
-  ProviderOrchestratorSessionContext,
   ProviderApprovalDecision,
   ProviderInteractionMode,
   ProviderSession,
@@ -18,39 +17,6 @@ import { Deferred, Effect, Option, Semaphore, SynchronizedRef } from "effect";
 import type * as Acp from "@agentclientprotocol/sdk";
 
 import type { AcpSessionMode, AcpSessionModeState, AcpToolCallState } from "./AcpRuntimeModel.ts";
-import { orchestratorInstructionForSession } from "../../orchestration/orchestrator/protocolV1.ts";
-
-export function buildAcpOrchestratorSystemPrompt(input: {
-  readonly baseInstruction?: string;
-  readonly context?: ProviderOrchestratorSessionContext | null;
-}): string | undefined {
-  const instructions = [
-    input.baseInstruction?.trim(),
-    input.context ? orchestratorInstructionForSession(input.context) : undefined,
-  ].filter((instruction): instruction is string => Boolean(instruction));
-  return instructions.length > 0 ? instructions.join("\n\n") : undefined;
-}
-
-export function acpOrchestratorSessionReceipt(
-  context: ProviderOrchestratorSessionContext | null | undefined,
-):
-  | {
-      readonly protocolVersion: 1;
-      readonly rootThreadId: string;
-      readonly role: ProviderOrchestratorSessionContext["role"];
-      readonly instructionChannel: "acp-process-system-prompt";
-    }
-  | undefined {
-  return context
-    ? {
-        protocolVersion: context.protocolVersion,
-        rootThreadId: context.rootThreadId,
-        role: context.role,
-        instructionChannel: "acp-process-system-prompt",
-      }
-    : undefined;
-}
-
 export interface AcpSessionModeAliases {
   readonly plan: ReadonlyArray<string>;
   readonly implement: ReadonlyArray<string>;

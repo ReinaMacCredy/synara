@@ -1078,10 +1078,11 @@ export function SingleChatSurface(props: {
                         threadId={props.threadId}
                         paneScopeId={`${EDITOR_CHAT_PANE_SCOPE_ID}:${props.roomView.roomId}`}
                         deferMount={false}
-                        surfaceMode="split"
-                        presentationMode="editor"
-                        isFocusedPane
-                        panelState={editorChatPanelState}
+                          surfaceMode="split"
+                          presentationMode="editor"
+                          isFocusedPane
+                          supervisedMode
+                          panelState={editorChatPanelState}
                         onToggleDiff={handleEditorToggleDiff}
                         onToggleBrowser={noopChatSurfaceAction}
                         onOpenBrowserUrl={noopChatSurfaceAction}
@@ -1142,6 +1143,7 @@ export function SingleChatSurface(props: {
               onOpenBrowserUrl={handleOpenBrowserUrl}
               onOpenTurnDiff={handleOpenTurnDiff}
               onSplitSurface={handleSplitSurface}
+              supervisedMode={props.roomView !== undefined}
               viewModeAction={{
                 label: props.roomView ? "Room view" : "Editor view",
                 active: false,

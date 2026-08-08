@@ -109,7 +109,7 @@ export function makeAgentGatewayMcpTransport(input: {
               gatewayToolErrorResult(
                 new GatewayToolError(
                   "tool_unavailable",
-                  `Tool "${toolName}" is not available to this thread's durable Orchestrator role.`,
+                  `Tool "${toolName}" is not available to this thread's supervised authority scope.`,
                 ),
               ),
             );

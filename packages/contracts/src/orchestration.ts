@@ -13,13 +13,6 @@ import { ProviderMentionReference, ProviderSkillReference } from "./providerDisc
 import { AcceptedCrossModeHandoffV1, HandoffAttemptId, HandoffConversationMode } from "./handoff";
 import { ProjectKind } from "./project";
 import {
-  OrchestratorCommand,
-  OrchestratorDomainEvent,
-  OrchestratorEventType,
-  OrchestratorRootBootstrap,
-  OrchestratorUserCommand,
-} from "./orchestrator";
-import {
   TaskProcessCommand,
   TaskProcessDomainEvent,
   TaskProcessEventType,
@@ -76,18 +69,6 @@ export const ORCHESTRATION_WS_METHODS = {
   unsubscribeShell: "orchestration.unsubscribeShell",
   subscribeThread: "orchestration.subscribeThread",
   unsubscribeThread: "orchestration.unsubscribeThread",
-  listOrchestratorRoots: "orchestration.listOrchestratorRoots",
-  listNativeOrchestratorTools: "orchestration.listNativeOrchestratorTools",
-  getOrchestratorSnapshot: "orchestration.getOrchestratorSnapshot",
-  listOrchestratorExchanges: "orchestration.listOrchestratorExchanges",
-  listOrchestratorArtifacts: "orchestration.listOrchestratorArtifacts",
-  readOrchestratorArtifact: "orchestration.readOrchestratorArtifact",
-  listOrchestratorAuditEvents: "orchestration.listOrchestratorAuditEvents",
-  createOrchestratorRoot: "orchestration.createOrchestratorRoot",
-  archiveOrchestratorRoot: "orchestration.archiveOrchestratorRoot",
-  restoreOrchestratorRoot: "orchestration.restoreOrchestratorRoot",
-  detachOrchestratorChild: "orchestration.detachOrchestratorChild",
-  upgradeOrchestratorRoot: "orchestration.upgradeOrchestratorRoot",
   listTaskProcesses: "orchestration.listTaskProcesses",
   getTaskProcessSummary: "orchestration.getTaskProcessSummary",
   getTaskProcessGraph: "orchestration.getTaskProcessGraph",
@@ -302,14 +283,13 @@ export const MessageDispatchOrigin = Schema.Literals([
   "user",
   "automation",
   "agent",
-  "orchestrator",
 ]);
 export type MessageDispatchOrigin = typeof MessageDispatchOrigin.Type;
 export const ThreadCreationSource = Schema.Literals([
   "synara_mcp",
   "external_mcp",
   "provider_native",
-  "orchestrator_native",
+  "supervised_native",
 ]);
 export type ThreadCreationSource = typeof ThreadCreationSource.Type;
 export const ProviderReviewTarget = Schema.Union([
@@ -344,7 +324,6 @@ export const OrchestrationMessageSource = Schema.Literals([
   "native",
   "handoff-import",
   "fork-import",
-  "orchestrator",
 ]);
 export type OrchestrationMessageSource = typeof OrchestrationMessageSource.Type;
 
@@ -1429,8 +1408,7 @@ export const ThreadTurnStartCommand = Schema.Struct({
   ),
   sourceProposedPlan: Schema.optional(SourceProposedPlanReference),
   threadBootstrap: Schema.optional(ThreadFirstSendBootstrap),
-  orchestratorRoot: Schema.optional(OrchestratorRootBootstrap),
-  supervisionBootstrap: Schema.optional(SupervisionFirstSendBootstrap),
+    supervisionBootstrap: Schema.optional(SupervisionFirstSendBootstrap),
   createdAt: IsoDateTime,
 });
 
@@ -1457,8 +1435,7 @@ const ClientThreadTurnStartCommand = Schema.Struct({
   interactionMode: ProviderInteractionMode,
   sourceProposedPlan: Schema.optional(SourceProposedPlanReference),
   threadBootstrap: Schema.optional(ThreadFirstSendBootstrap),
-  orchestratorRoot: Schema.optional(OrchestratorRootBootstrap),
-  supervisionBootstrap: Schema.optional(SupervisionFirstSendBootstrap),
+    supervisionBootstrap: Schema.optional(SupervisionFirstSendBootstrap),
   createdAt: IsoDateTime,
 });
 
@@ -1652,8 +1629,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadMessageEditAndResendCommand,
   ThreadActivityAppendCommand,
   ThreadSessionStopCommand,
-  OrchestratorUserCommand,
-  TaskProcessCommand,
+    TaskProcessCommand,
   SupervisionCommand,
   SupervisedCommand,
 ]);
@@ -1757,8 +1733,7 @@ export type InternalOrchestrationCommand = typeof InternalOrchestrationCommand.T
 export const OrchestrationCommand = Schema.Union([
   DispatchableClientOrchestrationCommand,
   InternalOrchestrationCommand,
-  OrchestratorCommand,
-  TaskProcessCommand,
+    TaskProcessCommand,
   SupervisionCommand,
   SupervisedCommand,
 ]);
@@ -1809,15 +1784,14 @@ const CoreOrchestrationEventType = Schema.Literals([
 ]);
 export const OrchestrationEventType = Schema.Union([
   CoreOrchestrationEventType,
-  OrchestratorEventType,
-  TaskProcessEventType,
+    TaskProcessEventType,
   SupervisionEventType,
   SupervisedEventType,
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 
 export const OrchestrationAggregateKind = Schema.Union([
-  Schema.Literals(["space", "project", "thread", "orchestrator", "task_process", "supervision"]),
+    Schema.Literals(["space", "project", "thread", "task_process", "supervision"]),
   SupervisedAggregateKind,
 ]);
 export type OrchestrationAggregateKind = typeof OrchestrationAggregateKind.Type;
@@ -2217,8 +2191,7 @@ const EventBaseFields = {
 } as const;
 
 export const OrchestrationEvent = Schema.Union([
-  OrchestratorDomainEvent,
-  TaskProcessDomainEvent,
+    TaskProcessDomainEvent,
   SupervisionDomainEvent,
   SupervisedDomainEvent,
   Schema.Struct({

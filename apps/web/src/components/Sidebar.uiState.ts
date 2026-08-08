@@ -10,8 +10,8 @@ const SIDEBAR_UI_STATE_STORAGE_KEY = "synara:sidebar-ui:v1";
 
 export type SidebarUiState = {
   chatSectionExpanded: boolean;
-  orchestratorRootsSectionExpanded: boolean;
-  orchestratorExpandedRootIds: string[];
+  supervisedRoomsSectionExpanded: boolean;
+  supervisedExpandedRoomIds: string[];
   chatThreadListExtraPages: number;
   projectThreadListExtraPagesByCwd: Record<string, number>;
   dismissedThreadStatusKeyByThreadId: Record<string, string>;
@@ -22,8 +22,8 @@ export type SidebarUiState = {
 
 const DEFAULT_SIDEBAR_UI_STATE: SidebarUiState = {
   chatSectionExpanded: false,
-  orchestratorRootsSectionExpanded: true,
-  orchestratorExpandedRootIds: [],
+  supervisedRoomsSectionExpanded: true,
+  supervisedExpandedRoomIds: [],
   chatThreadListExtraPages: 0,
   projectThreadListExtraPagesByCwd: {},
   dismissedThreadStatusKeyByThreadId: {},
@@ -78,8 +78,8 @@ export function readSidebarUiState(): SidebarUiState {
 
     const parsed = JSON.parse(raw) as {
       chatSectionExpanded?: boolean;
-      orchestratorRootsSectionExpanded?: boolean;
-      orchestratorExpandedRootIds?: unknown;
+      supervisedRoomsSectionExpanded?: boolean;
+      supervisedExpandedRoomIds?: unknown;
       chatThreadListExtraPages?: number;
       projectThreadListExtraPagesByCwd?: Record<string, unknown>;
       /** Legacy (pre-paging) all-or-nothing "Show more" flags, migrated to one extra page. */
@@ -123,9 +123,9 @@ export function readSidebarUiState(): SidebarUiState {
 
     return {
       chatSectionExpanded: parsed.chatSectionExpanded === true,
-      orchestratorRootsSectionExpanded: parsed.orchestratorRootsSectionExpanded !== false,
-      orchestratorExpandedRootIds: Array.isArray(parsed.orchestratorExpandedRootIds)
-        ? parsed.orchestratorExpandedRootIds.filter(
+      supervisedRoomsSectionExpanded: parsed.supervisedRoomsSectionExpanded !== false,
+      supervisedExpandedRoomIds: Array.isArray(parsed.supervisedExpandedRoomIds)
+        ? parsed.supervisedExpandedRoomIds.filter(
             (value): value is string => typeof value === "string" && value.length > 0,
           )
         : [],
@@ -179,8 +179,8 @@ export function persistSidebarUiState(input: SidebarUiState): void {
       SIDEBAR_UI_STATE_STORAGE_KEY,
       JSON.stringify({
         chatSectionExpanded: input.chatSectionExpanded,
-        orchestratorRootsSectionExpanded: input.orchestratorRootsSectionExpanded,
-        orchestratorExpandedRootIds: [...new Set(input.orchestratorExpandedRootIds)],
+        supervisedRoomsSectionExpanded: input.supervisedRoomsSectionExpanded,
+        supervisedExpandedRoomIds: [...new Set(input.supervisedExpandedRoomIds)],
         chatThreadListExtraPages: sanitizeThreadListExtraPages(input.chatThreadListExtraPages),
         projectThreadListExtraPagesByCwd: sanitizeProjectThreadListExtraPagesByCwd(
           input.projectThreadListExtraPagesByCwd,

@@ -9,7 +9,7 @@ import { Effect, Option } from "effect";
 import { describe, expect, it } from "vitest";
 
 import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
-import type { OrchestratorToolInvocationContext } from "../orchestration/orchestrator/toolRuntime.ts";
+import type { HostToolInvocationContext } from "../orchestration/hostTools/runtime.ts";
 import { makeHandoffDestinationTools } from "./handoffDestinationToolRegistry.ts";
 import { canonicalHandoffSourceItems, handoffSourceDigest } from "./handoffSourceMaterial.ts";
 
@@ -29,7 +29,7 @@ const accepted = (status: "active" | "suspended" | "revoked" = "active") =>
     handoffId: HandoffId.makeUnsafe("handoff-1"),
     sourceTitle: "Source",
     sourceMode: "project",
-    destinationMode: "orchestrator_root",
+    destinationMode: "supervised",
     sourceCursor: 12,
     sourceDigest: handoffSourceDigest(sourceItems),
     capsule: {
@@ -75,13 +75,11 @@ const accepted = (status: "active" | "suspended" | "revoked" = "active") =>
     },
   }) satisfies AcceptedCrossModeHandoffV1;
 
-const context = (threadId = destinationThreadId): OrchestratorToolInvocationContext => ({
+const context = (threadId = destinationThreadId): HostToolInvocationContext => ({
   callerThreadId: threadId,
   callerSessionKey: `session:${threadId}`,
   callerProvider: "codex",
   callerTurnId: null,
-  listOrchestratorCapabilities: () => Effect.succeed([]),
-  resolveOrchestratorCapability: () => Effect.die("unused"),
   assertCallerTurnActive: () => Effect.void,
 });
 

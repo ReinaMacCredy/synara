@@ -1504,7 +1504,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
-      const rotatingLead = readModel.supervision.leads.find(
+      const rotatingLead = readModel.supervision?.leads.find(
         (lead) => lead.activeThreadId === command.threadId && lead.status === "rotating",
       );
       if (rotatingLead !== undefined && command.dispatchOrigin !== "automation") {
@@ -1540,14 +1540,14 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       const isThreadOrigin = command.message.role === "thread";
       if (
         isThreadOrigin !== (command.threadOrigin !== undefined) ||
-        isThreadOrigin !== (command.dispatchOrigin === "orchestrator") ||
+        isThreadOrigin !== (command.dispatchOrigin === "agent") ||
         (command.threadOrigin !== undefined &&
           command.threadOrigin.targetThreadId !== command.threadId)
       ) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
           detail:
-            "Thread-origin turns require matching origin metadata and orchestrator dispatch authority.",
+            "Thread-origin turns require matching origin metadata and agent dispatch authority.",
         });
       }
       if (sourceProposedPlan && !sourcePlan) {
@@ -1587,7 +1587,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           dispatchOrigin: command.dispatchOrigin ?? "user",
           turnId: null,
           streaming: false,
-          source: isThreadOrigin ? "orchestrator" : "native",
+          source: "native",
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },

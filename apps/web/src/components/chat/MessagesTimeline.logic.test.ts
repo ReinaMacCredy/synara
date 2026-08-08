@@ -917,7 +917,7 @@ describe("deriveMessagesTimelineRows", () => {
       text: "A child reports a scoped change request.",
       createdAt,
       streaming: false,
-      source: "orchestrator",
+      source: "supervised",
     },
   });
 

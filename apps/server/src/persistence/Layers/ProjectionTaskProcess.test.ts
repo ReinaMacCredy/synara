@@ -44,7 +44,7 @@ layer("ProjectionTaskProcessRepository", (it) => {
         process: {
           id: processId,
           projectId: ProjectId.makeUnsafe("project-a"),
-          title: "Build Orchestrator",
+          title: "Build Supervised workflow",
           owner: { kind: "user" },
           state: "active",
           revision: 3,

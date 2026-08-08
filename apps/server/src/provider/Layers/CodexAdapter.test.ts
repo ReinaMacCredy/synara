@@ -642,7 +642,7 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
     }),
   );
 
-  it.effect("uses canonical product labels for native Orchestrator tool items", () =>
+  it.effect("preserves canonical Host tool names for native tool items", () =>
     Effect.gen(function* () {
       const adapter = yield* CodexAdapter;
       const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
@@ -672,7 +672,7 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         return;
       }
       assert.equal(firstEvent.value.payload.itemType, "dynamic_tool_call");
-      assert.equal(firstEvent.value.payload.title, "Create child thread");
+      assert.equal(firstEvent.value.payload.title, "create_child_thread");
       assert.notEqual(firstEvent.value.payload.title, "MCP tool call");
     }),
   );

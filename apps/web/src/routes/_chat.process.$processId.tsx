@@ -19,14 +19,6 @@ function ProcessRouteView() {
     const owner = graphQuery.data?.graph.process.owner;
     if (!owner) return;
     const target = resolveTaskProcessNavigationTarget(processId, owner);
-    if (target.mode === "orchestrator") {
-      void navigate({
-        to: "/supervised/$roomId/tasks/$processId",
-        params: { roomId: target.rootThreadId, processId: target.processId },
-        replace: true,
-      });
-      return;
-    }
     void navigate({
       to: "/tasks/$processId",
       params: { processId: target.processId },

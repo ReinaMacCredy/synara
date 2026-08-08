@@ -19,9 +19,6 @@ import { toastManager } from "~/components/ui/toast";
 import { useProviderModelCatalog } from "~/hooks/useProviderModelCatalog";
 import { serverQueryKeys, serverSettingsQueryOptions } from "~/lib/serverReactQuery";
 import { ensureNativeApi } from "~/nativeApi";
-import { useStore } from "~/store";
-import { createThreadShellsSelector } from "~/storeSelectors";
-import type { ThreadShell } from "~/types";
 import { resolveHandoffSettingsModel } from "./handoffSettingsModel";
 import { SettingsSelectControl } from "./SettingControls";
 import {
@@ -238,31 +235,12 @@ function grantStatus(grant: HandoffSourceReadGrant) {
 }
 
 const handoffModeLabel = (mode: HandoffConversationMode | undefined) => {
-  if (mode === "orchestrator_root") return "Supervised Lead Room";
-  if (mode === "orchestrator_child") return "Supervised Specialist";
+  if (mode === "supervised") return "Supervised Lead Room";
   return "Projects";
 };
 
-function rootThreadIdFor(
-  threadId: ThreadId,
-  threadById: ReadonlyMap<ThreadId, ThreadShell>,
-): ThreadId {
-  let current = threadById.get(threadId);
-  const visited = new Set<ThreadId>();
-  while (current?.parentThreadId && !visited.has(current.parentThreadId)) {
-    visited.add(current.id);
-    current = threadById.get(current.parentThreadId);
-  }
-  return current?.id ?? threadId;
-}
-
 export function HandoffAccessSettingsPanel({ active }: { active: boolean }) {
   const navigate = useNavigate();
-  const threadShells = useStore(useMemo(() => createThreadShellsSelector(), []));
-  const threadById = useMemo(
-    () => new Map(threadShells.map((thread) => [thread.id, thread] as const)),
-    [threadShells],
-  );
   const grantsQuery = useQuery({
     queryKey: ["handoff", "grants"],
     queryFn: () => ensureNativeApi().orchestration.listHandoffGrants(),
@@ -280,10 +258,10 @@ export function HandoffAccessSettingsPanel({ active }: { active: boolean }) {
     await grantsQuery.refetch();
   };
   const openThread = async (threadId: ThreadId, mode: HandoffConversationMode | undefined) => {
-    if (mode === "orchestrator_root" || mode === "orchestrator_child") {
+    if (mode === "supervised") {
       await navigate({
         to: "/supervised/$roomId",
-        params: { roomId: rootThreadIdFor(threadId, threadById) },
+        params: { roomId: threadId },
       });
       return;
     }

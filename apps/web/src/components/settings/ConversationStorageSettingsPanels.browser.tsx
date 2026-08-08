@@ -26,7 +26,7 @@ const harness = vi.hoisted(() => ({
 vi.mock("@tanstack/react-query", () => ({
   useQuery: (options: { queryKey?: readonly unknown[] }) => ({
     data:
-      options.queryKey?.[0] === "orchestrator"
+      options.queryKey?.[0] === "supervised-runtime"
         ? { items: harness.roots, highWaterCursor: 0 }
         : { worktrees: harness.worktrees },
     isLoading: false,

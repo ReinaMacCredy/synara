@@ -51,7 +51,7 @@ describe("buildThreadMentionComposerItems", () => {
         thread({ id: "project-thread", projectId: "project", title: "Release Synara" }),
         thread({ id: "chat-thread", projectId: "chats", title: "Release notes" }),
         thread({
-          id: "orchestrator-child",
+          id: "specialist-child",
           projectId: "project",
           title: "Release architecture review",
           provider: "claudeAgent",
@@ -62,19 +62,19 @@ describe("buildThreadMentionComposerItems", () => {
 
     expect(items.map((item) => item.id).toSorted()).toEqual([
       "thread:chat-thread",
-      "thread:orchestrator-child",
       "thread:project-thread",
+      "thread:specialist-child",
     ]);
     expect(Object.fromEntries(items.map((item) => [item.id, item.description]))).toEqual({
       "thread:chat-thread": "Chats",
-      "thread:orchestrator-child": "Synara",
+      "thread:specialist-child": "Synara",
       "thread:project-thread": "Synara",
     });
-    expect(items.find((item) => item.id === "thread:orchestrator-child")).toMatchObject({
+    expect(items.find((item) => item.id === "thread:specialist-child")).toMatchObject({
       provider: "claudeAgent",
       mention: {
         name: "Release architecture review",
-        path: "thread://orchestrator-child",
+        path: "thread://specialist-child",
       },
     });
   });

@@ -6,7 +6,6 @@ import {
   WsAutomationResolveProposalRpc,
   WsBootstrapRpcGroup,
   WsFeatureRpcGroup,
-  WsOrchestrationGetOrchestratorSnapshotRpc,
   WsOrchestrationGetTaskProcessGraphRpc,
   WsProjectsDiscoverScriptsRpc,
   WsProjectsProvisionFromGitHubRpc,
@@ -27,18 +26,11 @@ describe("WS RPC contracts", () => {
     expect(WsFeatureRpcGroup.requests.has(ORCHESTRATION_WS_METHODS.reconcileProviderDelivery)).toBe(
       true,
     );
-    expect(WsFeatureRpcGroup.requests.has(ORCHESTRATION_WS_METHODS.listOrchestratorRoots)).toBe(
-      true,
-    );
-    expect(WsFeatureRpcGroup.requests.has(ORCHESTRATION_WS_METHODS.restoreOrchestratorRoot)).toBe(
-      true,
-    );
     expect(WsFeatureRpcGroup.requests.has(ORCHESTRATION_WS_METHODS.getTaskProcessGraph)).toBe(true);
     expect(WsFeatureRpcGroup.requests.has("studio.listThreadOutputs")).toBe(false);
   });
 
-  it("exports Orchestrator and TaskProcess RPCs", () => {
-    expect(WsOrchestrationGetOrchestratorSnapshotRpc).toBeDefined();
+  it("exports TaskProcess RPCs", () => {
     expect(WsOrchestrationGetTaskProcessGraphRpc).toBeDefined();
   });
 

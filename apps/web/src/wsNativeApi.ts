@@ -759,40 +759,6 @@ export function createWsNativeApi(): NativeApi {
         transport.request<void>(ORCHESTRATION_WS_METHODS.subscribeThread, input),
       unsubscribeThread: (input) =>
         transport.request<void>(ORCHESTRATION_WS_METHODS.unsubscribeThread, input),
-      listOrchestratorRoots: async (input) => {
-        const result = await transport.request<
-          Awaited<ReturnType<NativeApi["orchestration"]["listOrchestratorRoots"]>>
-        >(ORCHESTRATION_WS_METHODS.listOrchestratorRoots, input);
-        transport.advanceOrchestrationDomainCursor(result.highWaterCursor);
-        return result;
-      },
-      listNativeOrchestratorTools: (input = {}) =>
-        transport.request(ORCHESTRATION_WS_METHODS.listNativeOrchestratorTools, input),
-      getOrchestratorSnapshot: async (input) => {
-        const result = await transport.request<
-          Awaited<ReturnType<NativeApi["orchestration"]["getOrchestratorSnapshot"]>>
-        >(ORCHESTRATION_WS_METHODS.getOrchestratorSnapshot, input);
-        transport.advanceOrchestrationDomainCursor(result.snapshot.highWaterCursor);
-        return result;
-      },
-      listOrchestratorExchanges: (input) =>
-        transport.request(ORCHESTRATION_WS_METHODS.listOrchestratorExchanges, input),
-      listOrchestratorArtifacts: (input) =>
-        transport.request(ORCHESTRATION_WS_METHODS.listOrchestratorArtifacts, input),
-      readOrchestratorArtifact: (input) =>
-        transport.request(ORCHESTRATION_WS_METHODS.readOrchestratorArtifact, input),
-      listOrchestratorAuditEvents: (input) =>
-        transport.request(ORCHESTRATION_WS_METHODS.listOrchestratorAuditEvents, input),
-      createOrchestratorRoot: (input) =>
-        transport.request(ORCHESTRATION_WS_METHODS.createOrchestratorRoot, input),
-      archiveOrchestratorRoot: (input) =>
-        transport.request(ORCHESTRATION_WS_METHODS.archiveOrchestratorRoot, input),
-      restoreOrchestratorRoot: (input) =>
-        transport.request(ORCHESTRATION_WS_METHODS.restoreOrchestratorRoot, input),
-      detachOrchestratorChild: (input) =>
-        transport.request(ORCHESTRATION_WS_METHODS.detachOrchestratorChild, input),
-      upgradeOrchestratorRoot: (input) =>
-        transport.request(ORCHESTRATION_WS_METHODS.upgradeOrchestratorRoot, input),
       listTaskProcesses: async (input) => {
         const result = await transport.request<
           Awaited<ReturnType<NativeApi["orchestration"]["listTaskProcesses"]>>

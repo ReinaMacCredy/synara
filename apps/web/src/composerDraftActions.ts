@@ -222,11 +222,11 @@ export const createComposerDraftStoreState =
           supervisionMode: options.supervisionMode ?? DEFAULT_SUPERVISION_DRAFT_MODE,
           profilePresetId: options.profilePresetId ?? null,
           leadSeatId: options.leadSeatId ?? null,
-          ...(options.orchestratorSourceThreadId !== undefined
-            ? { orchestratorSourceThreadId: options.orchestratorSourceThreadId }
+          ...(options.supervisedSourceThreadId !== undefined
+            ? { supervisedSourceThreadId: options.supervisedSourceThreadId }
             : {}),
-          ...(options.orchestratorHandoffMessages !== undefined
-            ? { orchestratorHandoffMessages: options.orchestratorHandoffMessages }
+          ...(options.supervisedHandoffMessages !== undefined
+            ? { supervisedHandoffMessages: options.supervisedHandoffMessages }
             : {}),
           branch: options.branch ?? null,
           worktreePath,
@@ -618,7 +618,7 @@ export const createComposerDraftStoreState =
       set((state) => {
         const existingDraft = state.draftsByThreadId[threadId];
         const existingThread = state.draftThreadsByThreadId[threadId];
-        if (!existingDraft?.handoffDraft && !existingThread?.orchestratorSourceThreadId) {
+        if (!existingDraft?.handoffDraft && !existingThread?.supervisedSourceThreadId) {
           return state;
         }
 
@@ -633,8 +633,8 @@ export const createComposerDraftStoreState =
         if (existingThread) {
           draftThreadsByThreadId[threadId] = {
             ...existingThread,
-            orchestratorSourceThreadId: null,
-            orchestratorHandoffMessages: [],
+            supervisedSourceThreadId: null,
+            supervisedHandoffMessages: [],
           };
         }
 

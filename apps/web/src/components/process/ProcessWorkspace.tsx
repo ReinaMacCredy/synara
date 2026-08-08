@@ -41,7 +41,7 @@ import { ProcessGraph } from "./ProcessGraph";
 import { TaskDetailDrawer } from "./TaskDetailDrawer";
 
 export interface ProcessAuthority {
-  readonly mode: "project" | "orchestrator";
+  readonly mode: "project";
   readonly canEditGraph: boolean;
   readonly canCreateProcess: boolean;
   readonly canPauseProcess: boolean;
@@ -55,7 +55,7 @@ export function resolveProcessAuthority(
   const canEditGraph =
     isUserOwned && (graph.process.state === "active" || graph.process.state === "paused");
   return {
-    mode: isUserOwned ? "project" : "orchestrator",
+    mode: "project",
     canEditGraph,
     canCreateProcess: isUserOwned,
     canPauseProcess: graph.process.state === "active" || graph.process.state === "paused",
@@ -181,21 +181,11 @@ export function ProcessWorkspace(props: { readonly processId: TaskProcessId }) {
   ).length;
   const completionPercent =
     graph.tasks.length === 0 ? 0 : Math.round((completedTaskCount / graph.tasks.length) * 100);
-  const visibleProcesses = (processListQuery.data?.items ?? [graph.process]).filter((process) =>
-    graph.process.owner.kind === "user"
-      ? process.owner.kind === "user"
-      : process.owner.kind === "orchestrator" &&
-        process.owner.rootThreadId === graph.process.owner.rootThreadId,
+  const visibleProcesses = (processListQuery.data?.items ?? [graph.process]).filter(
+    (process) => process.owner.kind === "user",
   );
   const openProcess = (processId: TaskProcessId) => {
     const target = resolveTaskProcessNavigationTarget(processId, graph.process.owner);
-    if (target.mode === "orchestrator") {
-      void navigate({
-        to: "/supervised/$roomId/tasks/$processId",
-        params: { roomId: target.rootThreadId, processId: target.processId },
-      });
-      return;
-    }
     void navigate({ to: "/tasks/$processId", params: { processId: target.processId } });
   };
   const selectedTask = selectedTaskProjection;
