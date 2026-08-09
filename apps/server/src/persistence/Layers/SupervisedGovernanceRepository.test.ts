@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { it } from "@effect/vitest";
 import { Effect, Layer, Schema } from "effect";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { SupervisedGovernanceSnapshot } from "@synara/contracts";
 
@@ -258,6 +259,41 @@ testLayer("SupervisedGovernanceRepository", (it) => {
     }),
   );
 
+  it.effect("updates only the orchestration slice for canonical governance events", () =>
+    Effect.gen(function* () {
+      const repository = yield* SupervisedGovernanceRepository;
+      const sql = yield* SqlClient.SqlClient;
+      const initial = yield* repository.getSnapshot();
+      yield* repository.replaceSnapshot({ ...snapshot, revision: initial.revision });
+      const before = yield* repository.getSnapshot();
+      yield* sql`
+        CREATE TRIGGER reject_governance_workspace_delete
+        BEFORE DELETE ON projection_supervised_workspaces
+        BEGIN
+          SELECT RAISE(FAIL, 'orchestration-only update deleted governance entities');
+        END
+      `;
+
+      const profile = before.orchestration.profiles[0]!;
+      yield* repository.replaceOrchestration({
+        expectedRevision: before.revision,
+        orchestration: {
+          ...before.orchestration,
+          profiles: [{ ...profile, name: "Lead Updated", revision: profile.revision + 1 }],
+          revision: before.orchestration.revision + 1,
+          updatedAt: "2026-08-09T00:01:00.000Z",
+        },
+        updatedAt: "2026-08-09T00:01:00.000Z",
+      });
+
+      const reloaded = yield* repository.getSnapshot();
+      assert.equal(reloaded.revision, before.revision + 1);
+      assert.equal(reloaded.orchestration.profiles[0]?.name, "Lead Updated");
+      assert.deepStrictEqual(reloaded.workspaces, before.workspaces);
+      yield* sql`DROP TRIGGER reject_governance_workspace_delete`;
+    }),
+  );
+
   it.effect("preserves persisted Supervisor profiles while adding missing defaults", () =>
     Effect.gen(function* () {
       const repository = yield* SupervisedGovernanceRepository;
@@ -281,13 +317,19 @@ testLayer("SupervisedGovernanceRepository", (it) => {
         archivedAt: now,
         revision: 7,
       };
+      const customizedBuiltInProfile = {
+        ...supervisorProfile,
+        id: "profile-peer-implementer" as const,
+        name: "My retained implementation profile",
+        roleHints: ["peer" as const],
+      };
 
       yield* repository.replaceSnapshot({
         ...snapshot,
         revision: before.revision,
         orchestration: {
           ...snapshot.orchestration,
-          profiles: [supervisorProfile],
+          profiles: [supervisorProfile, customizedBuiltInProfile],
         },
       });
 
@@ -297,11 +339,17 @@ testLayer("SupervisedGovernanceRepository", (it) => {
         supervisorProfile,
       );
       assert.deepStrictEqual(
+        reloaded.orchestration.profiles.find(
+          (profile) => profile.id === customizedBuiltInProfile.id,
+        ),
+        customizedBuiltInProfile,
+      );
+      assert.deepStrictEqual(
         reloaded.orchestration.profiles.map((profile) => profile.id),
         [
           supervisorProfile.id,
+          customizedBuiltInProfile.id,
           "profile-lead-default",
-          "profile-peer-implementer",
           "profile-peer-reviewer",
         ],
       );

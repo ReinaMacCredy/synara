@@ -124,6 +124,7 @@ import Migration0105 from "./Migrations/105_SupervisedSignalPluginLearning.ts";
 import Migration0106 from "./Migrations/106_SupervisedRuntimeDeliveryAndIngestion.ts";
 import Migration0107 from "./Migrations/107_SupervisedToolPolicies.ts";
 import Migration0108 from "./Migrations/108_SupervisedCanonicalCutover.ts";
+import Migration0109 from "./Migrations/109_SupervisedCanonicalRepair.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -247,6 +248,7 @@ export const migrationEntries = [
     [106, "SupervisedRuntimeDeliveryAndIngestion", Migration0106],
     [107, "SupervisedToolPolicies", Migration0107],
     [108, "SupervisedCanonicalCutover", Migration0108],
+    [109, "SupervisedCanonicalRepair", Migration0109],
   ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

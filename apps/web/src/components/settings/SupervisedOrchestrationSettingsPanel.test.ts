@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   EMPTY_DRAFT,
   profileDraftIsDirty,
+  roleHintsFromDraft,
   validateProfileDraft,
 } from "./SupervisedOrchestrationSettingsPanel";
 
@@ -53,5 +54,13 @@ describe("supervised orchestration profile editor", () => {
     expect(profileDraftIsDirty({ ...baseline, model: "gpt-5.6-luna-new" }, baseline)).toBe(true);
     expect(profileDraftIsDirty({ ...EMPTY_DRAFT }, null)).toBe(true);
     expect(profileDraftIsDirty(null, null)).toBe(false);
+  });
+
+  it("preserves multi-role profiles and canonicalizes the legacy Specialist alias", () => {
+    expect(roleHintsFromDraft("supervisor, lead, specialist, peer")).toEqual([
+      "supervisor",
+      "lead",
+      "peer",
+    ]);
   });
 });

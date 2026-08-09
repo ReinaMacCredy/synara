@@ -73,6 +73,13 @@ const makeSupervisedToolPolicyRepository = Effect.gen(function* () {
       Effect.gen(function* () {
         const current = yield* getByToolId(input.policy.toolId);
         const currentRevision = Option.isSome(current) ? current.value.revision : 0;
+        if (Option.isSome(current) && current.value.state === "revoked") {
+          return yield* Effect.fail(
+            toPersistenceSqlError("SupervisedToolPolicyRepository.put:revoked")(
+              new Error(`Tool policy '${input.policy.toolId}' is permanently revoked.`),
+            ),
+          );
+        }
         if (
           currentRevision !== input.expectedRevision ||
           input.policy.revision !== currentRevision + 1
@@ -100,6 +107,15 @@ const makeSupervisedToolPolicyRepository = Effect.gen(function* () {
             updated_at = excluded.updated_at,
             revoked_at = excluded.revoked_at,
             entity_json = excluded.entity_json
+        `;
+        yield* sql`
+          INSERT INTO supervised_runtime_audit (
+            action, actor_json, target_kind, target_id, outcome, detail_json, occurred_at
+          ) VALUES (
+            ${input.audit.action}, ${JSON.stringify(input.audit.actor)}, ${input.audit.targetKind},
+            ${input.audit.targetId}, ${input.audit.outcome}, ${JSON.stringify(input.audit.detail)},
+            ${input.audit.occurredAt}
+          )
         `;
         return input.policy;
       }),

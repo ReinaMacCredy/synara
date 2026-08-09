@@ -62,5 +62,15 @@ describe("canonical Supervised governance decider", () => {
     );
     assert.deepStrictEqual(projected.profiles.map((candidate) => candidate.id), [profile.id]);
     assert.equal(projected.revision, 1);
+
+    assert.throws(
+      () =>
+        projectSupervisedGovernanceEvent(emptySupervisedOrchestrationSnapshot(now), {
+          ...event,
+          sequence: 2,
+          metadata: { schemaVersion: "supervised-governance/v2" },
+        }),
+      /Unsupported Supervised governance event schema/,
+    );
   });
 });

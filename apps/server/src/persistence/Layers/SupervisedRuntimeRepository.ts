@@ -1252,7 +1252,12 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
 
   const applyDomainEvent: SupervisedRuntimeRepositoryShape["applyDomainEvent"] = (inputEvent) =>
     Effect.gen(function* () {
-      const event = upcastLegacyPeerEventV1(inputEvent);
+      const event = yield* Effect.try({
+        try: () => upcastLegacyPeerEventV1(inputEvent),
+        catch: toPersistenceDecodeCauseError(
+          "SupervisedRuntime.applyDomainEvent.schemaVersion",
+        ),
+      });
       const payload = event.payload;
       switch (event.type) {
         case "supervised.room-created":

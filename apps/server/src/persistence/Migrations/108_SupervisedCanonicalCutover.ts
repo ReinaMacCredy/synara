@@ -2,6 +2,10 @@ import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { columnExists } from "./schemaHelpers.ts";
+import {
+  ensurePeerModelSessionRoleConstraint,
+  repairCanonicalProfiles,
+} from "./supervisedCanonicalRepair.ts";
 
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -45,6 +49,7 @@ export default Effect.gen(function* () {
           AND json_array_length(json_extract(orchestration_json, '$.profiles')) = 0
           AND json_array_length(json_extract(orchestration_json, '$.profileSnapshots')) = 0
       `;
+      yield* repairCanonicalProfiles(sql);
 
       yield* sql`
         UPDATE projection_supervised_agent_seats AS target
@@ -101,6 +106,7 @@ export default Effect.gen(function* () {
         WHERE subagent_role = 'specialist'
       `;
 
+      yield* ensurePeerModelSessionRoleConstraint(sql);
       yield* sql`
         UPDATE projection_supervised_model_sessions
         SET role = 'peer',

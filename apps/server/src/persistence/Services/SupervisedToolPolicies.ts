@@ -6,10 +6,12 @@ import { ServiceMap } from "effect";
 import type { Effect, Option } from "effect";
 
 import type { PersistenceDecodeError, PersistenceSqlError } from "../Errors.ts";
+import type { SupervisedRuntimeAuditInput } from "./SupervisedRuntimeRepository.ts";
 
 export interface PutSupervisedToolPolicyInput {
   readonly policy: SupervisedToolPolicy;
   readonly expectedRevision: number;
+  readonly audit: SupervisedRuntimeAuditInput;
 }
 
 export interface SupervisedToolPolicyRepositoryShape {

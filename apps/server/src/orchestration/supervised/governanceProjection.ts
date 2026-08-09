@@ -8,28 +8,48 @@ import {
 import { projectSupervisedGovernanceDecisionEvent } from "./governanceProjector.ts";
 
 const canonicalType = (type: string) => type.replace(/^supervision\./, "supervised.");
+const GOVERNANCE_EVENT_SCHEMA_VERSION = "supervised-governance/v1";
+
+const assertCanonicalVersion = (event: SupervisedGovernanceDomainEvent): void => {
+  if (event.metadata.schemaVersion !== GOVERNANCE_EVENT_SCHEMA_VERSION) {
+    throw new Error(
+      `Unsupported Supervised governance event schema '${String(event.metadata.schemaVersion)}' for ${event.type}.`,
+    );
+  }
+};
 
 // TODO(synara): Remove the legacy event adapter on or after 2027-08-09 once every
 // supported database has replayed migration 108 and no supervision events remain.
 export const upcastLegacySupervisionEvent = (
   event: SupervisionDomainEvent,
-): SupervisedGovernanceDomainEvent =>
-  ({
+): SupervisedGovernanceDomainEvent => {
+  if (event.metadata.schemaVersion !== undefined) {
+    throw new Error(
+      `Unsupported legacy supervision event schema '${String(event.metadata.schemaVersion)}' for ${event.type}.`,
+    );
+  }
+  return {
     ...event,
     aggregateKind: "supervised_governance",
     aggregateId: SupervisedGovernanceAggregateId.makeUnsafe(event.aggregateId),
     type: canonicalType(event.type),
-    metadata: { ...event.metadata, schemaVersion: "supervised-governance/v1" },
-  }) as SupervisedGovernanceDomainEvent;
+    metadata: { ...event.metadata, schemaVersion: GOVERNANCE_EVENT_SCHEMA_VERSION },
+  } as SupervisedGovernanceDomainEvent;
+};
+
+export const canonicalizeSupervisedGovernanceEvent = (
+  event: SupervisionDomainEvent | SupervisedGovernanceDomainEvent,
+): SupervisedGovernanceDomainEvent => {
+  if (event.aggregateKind === "supervision") return upcastLegacySupervisionEvent(event);
+  assertCanonicalVersion(event);
+  return event;
+};
 
 export function projectSupervisedGovernanceEvent(
   state: SupervisedOrchestrationSnapshot,
   event: SupervisionDomainEvent | SupervisedGovernanceDomainEvent,
 ): SupervisedOrchestrationSnapshot {
-  const canonicalEvent =
-    event.aggregateKind === "supervised_governance"
-      ? event
-      : upcastLegacySupervisionEvent(event);
+  const canonicalEvent = canonicalizeSupervisedGovernanceEvent(event);
   const projected = projectSupervisedGovernanceDecisionEvent(
     {
       revision: state.revision,

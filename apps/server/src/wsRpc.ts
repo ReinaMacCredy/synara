@@ -1138,19 +1138,19 @@ const makeWsRpcHandlersLayer = () =>
               const saved = yield* supervisedToolPolicyRepository.put({
                 policy,
                 expectedRevision: input.expectedRevision,
-              });
-              yield* supervisedRuntimeRepository.appendAudit({
-                action: "tool.policy.update",
-                actor: { kind: "user", actorId: "owner" },
-                targetKind: "supervised-tool",
-                targetId: input.toolId,
-                outcome: "succeeded",
-                detail: {
-                  state: input.state,
-                  revision: saved.revision,
-                  reason: input.reason,
+                audit: {
+                  action: "tool.policy.update",
+                  actor: { kind: "user", actorId: "owner" },
+                  targetKind: "supervised-tool",
+                  targetId: input.toolId,
+                  outcome: "succeeded",
+                  detail: {
+                    state: input.state,
+                    revision: policy.revision,
+                    reason: input.reason,
+                  },
+                  occurredAt: now,
                 },
-                occurredAt: now,
               });
               return { policy: saved };
             }),

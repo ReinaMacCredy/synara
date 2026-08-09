@@ -4,12 +4,13 @@ import type { ReactNode } from "react";
 import { isPeerModelSessionRole } from "~/lib/supervisedOrchestration";
 import { cn } from "~/lib/utils";
 
-export type ConversationGroup = "lead" | "peers" | "rlm";
+export type ConversationGroup = "supervisor" | "lead" | "peers" | "rlm";
 
 const GROUPS: ReadonlyArray<{ readonly id: ConversationGroup; readonly label: string }> = [
-  { id: "lead", label: "Lead" },
+  { id: "supervisor", label: "Supervisor" },
+  { id: "lead", label: "Leads" },
   { id: "peers", label: "Peers" },
-  { id: "rlm", label: "RLM branches" },
+  { id: "rlm", label: "RLM" },
 ];
 
 function roleGroup(session: ModelSessionTrace): ConversationGroup {
@@ -261,6 +262,7 @@ function SessionIndex(props: {
 export function SupervisedConversationsPanel(props: {
   readonly roomId: string;
   readonly snapshot: SupervisedRuntimeSnapshot;
+  readonly supervisorConversation: ReactNode | null;
   readonly leadConversation: ReactNode;
   readonly group: ConversationGroup;
   readonly selectedSessionId: string | null;
@@ -292,7 +294,13 @@ export function SupervisedConversationsPanel(props: {
           </button>
         ))}
       </nav>
-      {props.group === "lead" && !selected ? (
+      {props.group === "supervisor" ? (
+        props.supervisorConversation ?? (
+          <div className="flex min-h-64 flex-1 items-center justify-center px-8 text-center text-xs text-muted-foreground">
+            No active Supervisor conversation is available for this workspace.
+          </div>
+        )
+      ) : props.group === "lead" && !selected ? (
         <div className="flex min-h-0 flex-1">{props.leadConversation}</div>
       ) : sessions.length === 0 ? (
         <div className="flex min-h-64 flex-1 items-center justify-center px-8 text-center text-xs text-muted-foreground">

@@ -1,4 +1,4 @@
-import type { AuthorityScope, SupervisedRuntimeSnapshot } from "@synara/contracts";
+import type { SupervisedRuntimeSnapshot } from "@synara/contracts";
 import { useQuery } from "@tanstack/react-query";
 import {
   Background,
@@ -39,9 +39,19 @@ import { supervisedRuntimeQueryOptions } from "~/lib/supervisedRuntime";
 import { cn } from "~/lib/utils";
 import { GitBranchIcon, XIcon } from "~/lib/icons";
 
+import {
+  supervisedRoomPeerSessions,
+  supervisedRoomRuns,
+} from "./supervisedTopologyProjection";
+
 import "@xyflow/react/dist/style.css";
 
 type TopologyNodeKind = "runtime" | "policy" | "lead" | "peer" | "workspace";
+
+export type SupervisedTopologyOpenTarget =
+  | { readonly kind: "runtime"; readonly sessionId: null }
+  | { readonly kind: "lead"; readonly sessionId: null }
+  | { readonly kind: "peer"; readonly sessionId: string };
 
 interface TopologyNode {
   readonly id: string;
@@ -53,6 +63,7 @@ interface TopologyNode {
   readonly fullTitle?: string;
   readonly detail: string;
   readonly status: string;
+  readonly openTarget?: SupervisedTopologyOpenTarget;
 }
 
 interface RoomTopologyProjection {
@@ -63,6 +74,7 @@ interface RoomTopologyProjection {
   readonly workspaceId: string | null;
   readonly taskCount: number;
   readonly activeRunCount: number;
+  readonly runIds: ReadonlyArray<string>;
   readonly policy: SupervisedRuntimeSnapshot["runPolicies"][number] | null;
   readonly contextRecordCount: number;
   readonly contextSequence: number;
@@ -145,29 +157,6 @@ function columnX(peerCount: number): {
   };
 }
 
-function scopeAppliesToRoom(
-  scope: AuthorityScope,
-  roomId: string,
-  projectId: string,
-  taskIds: ReadonlySet<string>,
-  taskNodeIds: ReadonlySet<string>,
-): boolean {
-  switch (scope.kind) {
-    case "global":
-      return true;
-    case "project":
-      return scope.projectId === projectId;
-    case "room":
-      return scope.roomId === roomId;
-    case "task":
-      return taskIds.has(scope.taskId);
-    case "task_node":
-      return taskNodeIds.has(scope.taskNodeId);
-    case "seat":
-      return false;
-  }
-}
-
 function buildRoomTopology(
   snapshot: SupervisedRuntimeSnapshot,
   roomId: string,
@@ -176,12 +165,7 @@ function buildRoomTopology(
   if (!room) return null;
 
   const tasks = snapshot.tasks.filter((task) => task.roomId === roomId);
-  const taskIds = new Set(tasks.map((task) => task.id));
-  const taskNodes = snapshot.taskNodes.filter((node) => node.roomId === roomId);
-  const taskNodeIds = new Set(taskNodes.map((node) => node.id));
-  const runs = snapshot.runs.filter(
-    (run) => run.roomId === roomId || taskIds.has(run.taskId),
-  );
+  const runs = supervisedRoomRuns(snapshot, roomId);
   const activeRunCount = runs.filter((run) =>
     ["admitted", "queued", "running", "waiting", "paused", "stalled"].includes(run.status),
   ).length;
@@ -195,13 +179,7 @@ function buildRoomTopology(
     ? (snapshot.contextRecords ?? []).filter((record) => record.workspaceId === workspace.id)
         .length
     : 0;
-  const peers = (snapshot.peerSpecialties ?? [])
-    .filter((peer) =>
-      peer.allowedScopes.some((scope) =>
-        scopeAppliesToRoom(scope, roomId, room.projectId, taskIds, taskNodeIds),
-      ),
-    )
-    .slice(0, 4);
+  const peers = supervisedRoomPeerSessions(snapshot, roomId).slice(0, 4);
 
   const leadLabel = formatTopologySeatLabel(room.leadSeatId);
   const policyLabel = policy ? formatTopologyTitle(policy.name, 24) : null;
@@ -214,6 +192,7 @@ function buildRoomTopology(
       title: "Supervised runtime",
       detail: `daemon epoch ${snapshot.health.daemonEpoch}`,
       status: snapshot.health.status,
+      openTarget: { kind: "runtime", sessionId: null },
     },
     ...(policy && policyLabel
       ? [
@@ -236,17 +215,19 @@ function buildRoomTopology(
       fullTitle: leadLabel.fullTitle,
       detail: `${tasks.length} tasks · ${activeRunCount} active runs`,
       status: room.status,
+      openTarget: { kind: "lead", sessionId: null },
     },
-    ...peers.map((peer) => {
-      const concern = formatTopologyTitle(peer.concern, 22);
+    ...peers.map((session) => {
+      const title = formatTopologyTitle(session.title, 22);
       return {
-        id: peer.id,
+        id: `peer-${session.threadId ?? session.peerSpecialtyId ?? session.id}`,
         kind: "peer" as const,
         eyebrow: "Peer",
-        title: concern.title,
-        fullTitle: concern.fullTitle,
-        detail: String(peer.profilePresetId),
-        status: peer.status,
+        title: title.title,
+        fullTitle: session.threadId ?? title.fullTitle,
+        detail: `${session.model}${session.reasoningEffort ? ` · ${session.reasoningEffort}` : ""}`,
+        status: session.status,
+        openTarget: { kind: "peer" as const, sessionId: session.id },
       };
     }),
     {
@@ -267,6 +248,7 @@ function buildRoomTopology(
     workspaceId: workspace?.id ?? null,
     taskCount: tasks.length,
     activeRunCount,
+    runIds: runs.map((run) => run.id),
     policy,
     contextRecordCount,
     contextSequence: workspace?.highWaterSequence ?? 0,
@@ -806,18 +788,14 @@ function formatClock(iso: string | undefined): string {
   });
 }
 
-function peekEnterLabel(kind: TopologyNodeKind): string {
+function peekEnterLabel(kind: SupervisedTopologyOpenTarget["kind"]): string {
   switch (kind) {
     case "runtime":
-      return "Enter runtime diagnostics";
-    case "policy":
-      return "Open RunPolicy settings";
+      return "Open runtime activity";
     case "lead":
-      return "Enter lead chat";
+      return "Open Lead conversation";
     case "peer":
-      return "Enter peer thread";
-    case "workspace":
-      return "Browse context records";
+      return "Open Peer conversation";
   }
 }
 
@@ -893,7 +871,9 @@ function buildPeekLiveLines(
     case "runtime": {
       push("status", `daemon ${snapshot?.health.status ?? "unknown"} · epoch ${snapshot?.health.daemonEpoch ?? "—"}`);
       push("status", `${projection.activeRunCount} active runs · ${projection.taskCount} tasks`);
+      const runIds = new Set(projection.runIds);
       const activeRuns = (snapshot?.runs ?? [])
+        .filter((run) => runIds.has(run.id))
         .filter((run) =>
           ["admitted", "queued", "running", "waiting", "paused", "stalled"].includes(run.status),
         )
@@ -929,7 +909,9 @@ function buildPeekLiveLines(
     case "lead": {
       push("status", `lead ${node.status} · ${projection.taskCount} tasks`);
       push("respond", node.detail);
+      const runIds = new Set(projection.runIds);
       const scoped = (snapshot?.runs ?? [])
+        .filter((run) => runIds.has(run.id))
         .filter((run) =>
           ["admitted", "queued", "running", "waiting", "paused", "stalled"].includes(run.status),
         )
@@ -1010,7 +992,7 @@ function TopologyNodePeek(props: {
   readonly snapshot: SupervisedRuntimeSnapshot | undefined;
   readonly anchor: PeekAnchor;
   readonly onClose: () => void;
-  readonly onEnter: () => void;
+  readonly onEnter: (() => void) | null;
   readonly onSelectParentLead: (() => void) | null;
 }) {
   const liveState = peekLiveState(props.node);
@@ -1107,13 +1089,15 @@ function TopologyNodePeek(props: {
       </div>
 
       <div className="flex flex-wrap gap-2 p-3">
-        <button
-          type="button"
-          className="min-w-[140px] flex-1 rounded-md border border-[color-mix(in_srgb,var(--color-text-accent)_45%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-text-accent)_16%,transparent)] px-2.5 py-2 text-left text-[11px] font-medium text-foreground"
-          onClick={props.onEnter}
-        >
-          {peekEnterLabel(props.node.kind)}
-        </button>
+        {props.node.openTarget && props.onEnter ? (
+          <button
+            type="button"
+            className="min-w-[140px] flex-1 rounded-md border border-[color-mix(in_srgb,var(--color-text-accent)_45%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-text-accent)_16%,transparent)] px-2.5 py-2 text-left text-[11px] font-medium text-foreground"
+            onClick={props.onEnter}
+          >
+            {peekEnterLabel(props.node.openTarget.kind)}
+          </button>
+        ) : null}
         <button
           type="button"
           className="rounded-md border border-border/65 px-2.5 py-2 text-[11px] text-muted-foreground hover:text-foreground"
@@ -1132,71 +1116,6 @@ function TopologyNodePeek(props: {
             Open parent lead
           </button>
         ) : null}
-      </div>
-    </div>
-  );
-}
-
-function TopologyFullView(props: {
-  readonly node: TopologyNode;
-  readonly projection: RoomTopologyProjection;
-  readonly snapshot: SupervisedRuntimeSnapshot | undefined;
-  readonly onBack: () => void;
-}) {
-  const meta = buildPeekMeta(props.node, props.projection, props.snapshot);
-  const lines = buildPeekLiveLines(props.node, props.projection, props.snapshot);
-  return (
-    <div className="absolute inset-0 z-40 flex flex-col bg-[var(--color-background-root)]">
-      <div className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border/60 bg-[var(--color-background-surface)] px-3">
-        <div className="min-w-0">
-          <div className="truncate text-[13px] font-semibold text-foreground">
-            {peekEnterLabel(props.node.kind).replace(/^(Enter |Open |Browse )/i, "")}
-          </div>
-          <div className="truncate text-[11px] text-muted-foreground">
-            Full view · {props.node.eyebrow} · {props.node.fullTitle ?? props.node.id}
-          </div>
-        </div>
-        <button
-          type="button"
-          className="rounded-md border border-border/65 px-2.5 py-1.5 text-[11px] text-muted-foreground hover:text-foreground"
-          onClick={props.onBack}
-        >
-          ← Back to topology
-        </button>
-      </div>
-      <div className="grid min-h-0 flex-1 grid-cols-[1fr_260px]">
-        <div className="min-h-0 space-y-2 overflow-y-auto border-r border-border/50 px-4 py-3 font-mono text-[12px] leading-relaxed text-muted-foreground">
-          {lines.map((line) => (
-            <p
-              key={line.id}
-              className={cn(
-                "m-0",
-                line.kind === "respond" && "text-foreground/90",
-                line.kind === "tool" && "text-sky-400/90",
-                line.kind === "status" && "text-amber-200/80",
-              )}
-            >
-              <span className="mr-2 text-muted-foreground/50">{line.at}</span>
-              {line.text}
-            </p>
-          ))}
-          <p className="mt-4 font-sans text-[12px] text-foreground/80">
-            Full seat transcript / tools would mount here. Topology stays one step away.
-          </p>
-        </div>
-        <aside className="min-h-0 overflow-y-auto bg-[var(--color-background-surface)] px-3 py-3 text-[11px] text-muted-foreground">
-          <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/70">
-            Seat context
-          </div>
-          <dl className="space-y-2">
-            {meta.map(([label, value]) => (
-              <div key={label} className="flex justify-between gap-2">
-                <dt>{label}</dt>
-                <dd className="truncate font-medium text-foreground">{value}</dd>
-              </div>
-            ))}
-          </dl>
-        </aside>
       </div>
     </div>
   );
@@ -1335,6 +1254,7 @@ export function SupervisedTopologyCanvas(props: {
   readonly roomId: string;
   readonly selectedNodeId: string | null;
   readonly onSelectNode: (nodeId: string | null) => void;
+  readonly onOpenNode: (target: SupervisedTopologyOpenTarget) => void;
 }) {
   const query = useRoomTopology(props.roomId);
   const projection = query.projection;
@@ -1343,9 +1263,6 @@ export function SupervisedTopologyCanvas(props: {
   const peekRef = useRef<HTMLDivElement | null>(null);
   const graphSelectRef = useRef(false);
   const [anchor, setAnchor] = useState<PeekAnchor | null>(null);
-  const [fullViewNodeId, setFullViewNodeId] = useState<string | null>(null);
-  const fullViewNode =
-    projection?.nodes.find((node) => node.id === fullViewNodeId) ?? null;
 
   const placeFromClient = useCallback((clientX: number, clientY: number) => {
     const host = hostRef.current;
@@ -1374,7 +1291,6 @@ export function SupervisedTopologyCanvas(props: {
   useEffect(() => {
     if (!props.selectedNodeId) {
       setAnchor(null);
-      setFullViewNodeId(null);
       return;
     }
     if (graphSelectRef.current) {
@@ -1389,15 +1305,11 @@ export function SupervisedTopologyCanvas(props: {
     if (!props.selectedNodeId || !anchor) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      if (fullViewNodeId) {
-        setFullViewNodeId(null);
-        return;
-      }
       props.onSelectNode(null);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [anchor, fullViewNodeId, props]);
+  }, [anchor, props]);
 
   // Re-clamp after peek mounts / content height settles.
   useEffect(() => {
@@ -1416,6 +1328,7 @@ export function SupervisedTopologyCanvas(props: {
   }, [anchor, props.selectedNodeId, selectedNode?.id, query.dataUpdatedAt]);
 
   const leadNode = projection?.nodes.find((node) => node.kind === "lead") ?? null;
+  const selectedOpenTarget = selectedNode?.openTarget ?? null;
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--color-background-root)]">
@@ -1462,7 +1375,7 @@ export function SupervisedTopologyCanvas(props: {
           </div>
         ) : null}
 
-        {projection && selectedNode && anchor && !fullViewNode ? (
+        {projection && selectedNode && anchor ? (
           <div ref={peekRef}>
             <TopologyNodePeek
               node={selectedNode}
@@ -1470,7 +1383,9 @@ export function SupervisedTopologyCanvas(props: {
               snapshot={query.data}
               anchor={anchor}
               onClose={() => props.onSelectNode(null)}
-              onEnter={() => setFullViewNodeId(selectedNode.id)}
+              onEnter={
+                selectedOpenTarget ? () => props.onOpenNode(selectedOpenTarget) : null
+              }
               onSelectParentLead={
                 selectedNode.kind === "peer" && leadNode
                   ? () => {
@@ -1482,15 +1397,6 @@ export function SupervisedTopologyCanvas(props: {
               }
             />
           </div>
-        ) : null}
-
-        {projection && fullViewNode ? (
-          <TopologyFullView
-            node={fullViewNode}
-            projection={projection}
-            snapshot={query.data}
-            onBack={() => setFullViewNodeId(null)}
-          />
         ) : null}
       </div>
       {projection ? (

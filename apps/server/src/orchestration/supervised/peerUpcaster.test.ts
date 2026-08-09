@@ -48,7 +48,7 @@ describe("Peer v1 upcaster", () => {
       commandId: null,
       causationEventId: null,
       correlationId: null,
-      metadata: { schemaVersion: "supervised/specialist-v1" },
+      metadata: { schemaVersion: "1.0.0" },
     });
 
     const event = upcastLegacyPeerEventV1(legacy);
@@ -56,7 +56,27 @@ describe("Peer v1 upcaster", () => {
     assert.equal(event.type, "supervised.peer-upserted");
     assert.equal(event.aggregateKind, "peer");
     assert.equal(event.payload.peerSpecialty?.id, "specialty-1");
+    assert.deepEqual(event.payload.peerSpecialty?.allowedScopes, [
+      { kind: "seat", role: "peer", seatId: "peer-thread" },
+    ]);
     assert.equal(event.payload.peerSpecialtySnapshot?.peerSpecialtyId, "specialty-1");
-    assert.equal(event.metadata.schemaVersion, "supervised/peer-v1");
+    assert.equal(event.metadata.schemaVersion, "1.0.0");
+  });
+
+  it("rejects unknown event schema versions", () => {
+    const event = Schema.decodeUnknownSync(SupervisedDomainEvent)({
+      sequence: 1,
+      eventId: "event-unknown",
+      aggregateKind: "supervised_room",
+      aggregateId: "room-1",
+      type: "supervised.room-created",
+      payload: { acceptedRevision: 0, actor: { kind: "migration", actorId: "test" } },
+      occurredAt: now,
+      commandId: null,
+      causationEventId: null,
+      correlationId: null,
+      metadata: { schemaVersion: "2.0.0" },
+    });
+    assert.throws(() => upcastLegacyPeerEventV1(event), /Unsupported Supervised event schema/);
   });
 });

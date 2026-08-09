@@ -68,19 +68,6 @@ const APPROVALS: readonly ProfileApprovalPolicy[] = [
 const AGGREGATE_ID = SupervisedGovernanceAggregateId.makeUnsafe("supervised");
 const PEER_STORAGE_ROLE = "peer" as const;
 
-const toSupervisedProductProfile = (profile: ProfilePreset): ProfilePreset | null => {
-  // TODO(synara): Remove pre-Supervised profile compatibility on or after
-  // 2026-11-01 once persisted profile snapshots use only product vocabulary.
-  if (profile.roleHints.includes("supervisor")) return null;
-  if (profile.id === "profile-peer-implementer") {
-    return { ...profile, name: "Peer Implementer" };
-  }
-  if (profile.id === "profile-peer-reviewer") {
-    return { ...profile, name: "Peer Reviewer" };
-  }
-  return profile;
-};
-
 export type ProfileDraft = {
   readonly id: ProfilePresetId | null;
   readonly name: string;
@@ -138,16 +125,16 @@ function redactedExport(value: unknown): unknown {
   );
 }
 
-function roleHintsFromDraft(value: string): Array<"lead" | typeof PEER_STORAGE_ROLE> {
+export function roleHintsFromDraft(
+  value: string,
+): Array<"supervisor" | "lead" | typeof PEER_STORAGE_ROLE> {
   const normalized = value
     .split(",")
     .map((entry) => entry.trim().toLowerCase())
-    .flatMap((entry): Array<"lead" | typeof PEER_STORAGE_ROLE> => {
+    .flatMap((entry): Array<"supervisor" | "lead" | typeof PEER_STORAGE_ROLE> => {
+      if (entry === "supervisor") return ["supervisor"];
       if (entry === "lead") return ["lead"];
-      if (entry === "peer") return [PEER_STORAGE_ROLE];
-      // TODO(synara): Remove the legacy Specialist import alias on or after 2026-11-01
-      // once exported profile configs have migrated to canonical Peer vocabulary.
-      if (entry === "specialist") return [PEER_STORAGE_ROLE];
+      if (entry === "peer" || entry === "specialist") return [PEER_STORAGE_ROLE];
       return [];
     });
   return [...new Set(normalized)];
@@ -551,7 +538,7 @@ function ProfileEditor(props: {
           <span className="text-muted-foreground">Role hints</span>
           <Input
             value={draft.roleHints}
-            placeholder="lead, peer"
+            placeholder="supervisor, lead, peer"
             onChange={(event) => update({ roleHints: event.target.value })}
           />
         </label>
@@ -799,23 +786,14 @@ export function SupervisedOrchestrationSettingsPanel(props: { readonly active: b
   }, [props.active]);
 
   const activeProfiles = useMemo(
-    () =>
-      snapshot.profiles.flatMap((profile) => {
-        const productProfile = toSupervisedProductProfile(profile);
-        return productProfile && productProfile.archivedAt === null ? [productProfile] : [];
-      }),
+    () => snapshot.profiles.filter((profile) => profile.archivedAt === null),
     [snapshot.profiles],
   );
   const archivedProfiles = useMemo(
     () =>
-      snapshot.profiles.flatMap((profile) => {
-        const productProfile = toSupervisedProductProfile(profile);
-        return productProfile &&
-          productProfile.archivedAt !== null &&
-          productProfile.clearedAt == null
-          ? [productProfile]
-          : [];
-      }),
+      snapshot.profiles.filter(
+        (profile) => profile.archivedAt !== null && profile.clearedAt == null,
+      ),
     [snapshot.profiles],
   );
   const filteredProfiles = useMemo(() => {
@@ -1005,7 +983,7 @@ export function SupervisedOrchestrationSettingsPanel(props: { readonly active: b
               Roles & profiles
             </h1>
             <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-              Manage reusable Lead and Peer profiles while preserving every existing preset and runtime default.
+              Manage reusable Supervisor, Lead, and Peer profiles while preserving every existing preset and runtime default.
             </p>
           </div>
           <Button size="sm" onClick={() => beginDraft({ ...EMPTY_DRAFT }, null)}>
@@ -1058,7 +1036,10 @@ export function SupervisedOrchestrationSettingsPanel(props: { readonly active: b
 
       <footer className="flex items-start gap-2 border-t pt-5 text-xs text-muted-foreground">
         <InfoIcon className="mt-0.5 size-4 shrink-0" />
-        <p>Preset edits affect future launches only. Running Leads and Peers retain their snapshots.</p>
+        <p>
+          Preset edits affect future launches only. Running Supervisors, Leads, and Peers retain
+          their snapshots.
+        </p>
       </footer>
 
       <ProfileEditorDialog

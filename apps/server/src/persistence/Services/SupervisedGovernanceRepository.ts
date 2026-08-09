@@ -6,6 +6,7 @@ import type {
   SupervisorNotebookCursor,
   SupervisorNotebookEntry,
   SupervisedGovernanceSnapshot,
+  SupervisedOrchestrationSnapshot,
   UserModelPreferenceProfile,
 } from "@synara/contracts";
 import { ServiceMap } from "effect";
@@ -38,6 +39,11 @@ export interface SupervisedGovernanceRepositoryShape {
   readonly replaceSnapshot: (
     snapshot: SupervisedGovernanceSnapshot,
   ) => Effect.Effect<void, ProjectionRepositoryError>;
+  readonly replaceOrchestration: (input: {
+    readonly expectedRevision: number;
+    readonly orchestration: SupervisedOrchestrationSnapshot;
+    readonly updatedAt: string;
+  }) => Effect.Effect<void, ProjectionRepositoryError>;
   readonly getNotebookState: (input: {
     readonly workspaceId: string;
     readonly seatId: string;

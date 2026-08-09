@@ -4,7 +4,7 @@ import type {
   SupervisedRuntimeSnapshot,
 } from "@synara/contracts";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { supervisedRuntimeQueryOptions } from "~/lib/supervisedRuntime";
 import { isPeerModelSessionRole } from "~/lib/supervisedOrchestration";
@@ -17,6 +17,7 @@ import {
   SupervisedConversationsPanel,
   type ConversationGroup,
 } from "./SupervisedConversationsPanel";
+import type { SupervisedTopologyOpenTarget } from "./SupervisedTopologyView";
 
 type OperationsTab = "activity" | "conversation" | "task-graph" | "history";
 type ActivityFilter = "facts" | "observations" | "signals" | "commands";
@@ -432,11 +433,24 @@ function TaskGraphPanel(props: {
 export function SupervisedOperationsDock(props: {
   readonly roomId: string;
   readonly conversation: ReactNode;
+  readonly supervisorConversation?: ReactNode;
+  readonly navigationRequest?: SupervisedTopologyOpenTarget & { readonly requestId: number };
 }) {
   const [tab, setTab] = useState<OperationsTab>("activity");
-  const [conversationGroup, setConversationGroup] = useState<ConversationGroup>("lead");
+  const [conversationGroup, setConversationGroup] = useState<ConversationGroup>("supervisor");
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const query = useQuery(supervisedRuntimeQueryOptions());
+  useEffect(() => {
+    const request = props.navigationRequest;
+    if (!request) return;
+    if (request.kind === "runtime") {
+      setTab("activity");
+      return;
+    }
+    setConversationGroup(request.kind === "lead" ? "lead" : "peers");
+    setSelectedSessionId(request.sessionId);
+    setTab("conversation");
+  }, [props.navigationRequest]);
   const openTaskNodeTranscript = (taskNodeId: string) => {
     const session = query.data?.modelSessions
       .filter((candidate) => candidate.taskNodeId === taskNodeId)
@@ -481,6 +495,7 @@ export function SupervisedOperationsDock(props: {
         <SupervisedConversationsPanel
           roomId={props.roomId}
           snapshot={query.data}
+          supervisorConversation={props.supervisorConversation ?? null}
           leadConversation={props.conversation}
           group={conversationGroup}
           selectedSessionId={selectedSessionId}

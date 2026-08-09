@@ -6,6 +6,7 @@ import {
   SupervisedDomainEvent,
   SupervisedGovernanceDomainEvent,
   type OrchestrationEvent,
+  type SupervisedGovernanceSnapshot,
 } from "@synara/contracts";
 import {
   addPinnedMessage,
@@ -26,6 +27,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import {
   PersistenceSqlError,
+  toPersistenceDecodeCauseError,
   toPersistenceSqlError,
   type ProjectionRepositoryError,
 } from "../../persistence/Errors.ts";
@@ -109,10 +111,33 @@ import {
   type TaskProcessAggregateState,
 } from "../taskProcess/projector.ts";
 import {
+  canonicalizeSupervisedGovernanceEvent,
   projectSupervisedGovernanceEvent,
-  upcastLegacySupervisionEvent,
 } from "../supervised/governanceProjection.ts";
 import { projectSupervisedGovernanceDecisionEvent } from "../supervised/governanceProjector.ts";
+
+const governanceEntitySlicesUnchanged = (
+  previous: SupervisedGovernanceSnapshot,
+  next: SupervisedGovernanceSnapshot,
+): boolean =>
+  previous.workspaces === next.workspaces &&
+  previous.agentSeats === next.agentSeats &&
+  previous.providerSessions === next.providerSessions &&
+  previous.authorityReceipts === next.authorityReceipts &&
+  previous.rootLeases === next.rootLeases &&
+  previous.handoffs === next.handoffs &&
+  previous.roleAssumptions === next.roleAssumptions &&
+  previous.leadReplacements === next.leadReplacements &&
+  previous.humanDirectives === next.humanDirectives &&
+  previous.standingMandates === next.standingMandates &&
+  previous.directInterventions === next.directInterventions &&
+  previous.notebookEntries === next.notebookEntries &&
+  previous.notebookCursors === next.notebookCursors &&
+  previous.notebookCompactionReceipts === next.notebookCompactionReceipts &&
+  previous.modelCapabilityProfiles === next.modelCapabilityProfiles &&
+  previous.userModelPreferenceProfiles === next.userModelPreferenceProfiles &&
+  previous.modelTelemetryAggregates === next.modelTelemetryAggregates &&
+  previous.modelSelectionReceipts === next.modelSelectionReceipts;
 
 export const ORCHESTRATION_PROJECTOR_NAMES = {
   hot: "projection.hot",
@@ -618,10 +643,12 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
         const runtime = yield* supervisedRuntimeRepository.getSnapshot({ includeDisabled: true });
         const governance = yield* supervisedGovernanceRepository.getSnapshot();
         const current = governanceDecisionStateFromSnapshot({ governance, runtime });
-        const canonicalEvent =
-          event.aggregateKind === "supervised_governance"
-            ? event
-            : upcastLegacySupervisionEvent(event);
+        const canonicalEvent = yield* Effect.try({
+          try: () => canonicalizeSupervisedGovernanceEvent(event),
+          catch: toPersistenceDecodeCauseError(
+            "ProjectionPipeline.applySupervisedProjection.schemaVersion",
+          ),
+        });
         const next = projectSupervisedGovernanceDecisionEvent(current, canonicalEvent);
         const staged = {
           ...governance,
@@ -637,7 +664,15 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           at: event.occurredAt,
           source: event.aggregateKind === "supervision" ? "legacy" : "canonical",
         });
-        yield* supervisedGovernanceRepository.replaceSnapshot(reconciled);
+        if (governanceEntitySlicesUnchanged(governance, reconciled)) {
+          yield* supervisedGovernanceRepository.replaceOrchestration({
+            expectedRevision: governance.revision,
+            orchestration: reconciled.orchestration,
+            updatedAt: canonicalEvent.occurredAt,
+          });
+        } else {
+          yield* supervisedGovernanceRepository.replaceSnapshot(reconciled);
+        }
         return;
       }
       yield* supervisedRuntimeRepository.applyDomainEvent(event);

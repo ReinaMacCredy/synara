@@ -75,7 +75,9 @@ function GeneralPanel({ snapshot }: { readonly snapshot: SupervisedSettingsSnaps
       ["ready", "active", "recovering"].includes(seat.lifecycleState),
   );
   const attentionSignals = runtime.signals.filter((signal) => signal.state === "triggered");
-  const activeRooms = runtime.rooms.filter((room) => room.status !== "archived");
+  const activeRooms = runtime.rooms.filter(
+    (room) => !["completed", "archived", "failed"].includes(room.status),
+  );
   const activeTasks = runtime.taskNodes.filter((task) =>
     ["ready", "claimed", "running", "waiting", "review"].includes(task.lifecycle),
   );

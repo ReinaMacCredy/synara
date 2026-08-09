@@ -9,8 +9,9 @@ import {
   type SupervisionMission,
   type SupervisionWake,
 } from "@synara/contracts";
-import { Cause, Effect, Layer, Semaphore, Stream } from "effect";
+import { Cause, Effect, Layer, Option, Semaphore, Stream } from "effect";
 
+import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
 import { SupervisedGovernanceRepository } from "../../persistence/Services/SupervisedGovernanceRepository.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import {
@@ -106,6 +107,7 @@ const wakeText = (wake: SupervisionWake, lead: CanonicalLeadView): string =>
 export const makeSupervisedWakeReactor = Effect.gen(function* () {
   const engine = yield* OrchestrationEngineService;
   const governanceRepository = yield* SupervisedGovernanceRepository;
+  const commandReceiptRepository = yield* OrchestrationCommandReceiptRepository;
   const lock = yield* Semaphore.make(1);
   const loadState = Effect.fnUntraced(function* () {
     const [readModel, governance] = yield* Effect.all([
@@ -179,27 +181,45 @@ export const makeSupervisedWakeReactor = Effect.gen(function* () {
       updatedAt: new Date().toISOString(),
     };
     yield* updateWake(current, "dispatching", null, dispatching.attemptCount);
-    const outcome = yield* Effect.exit(
-      engine.dispatch({
-        type: "thread.turn.start",
-        commandId: commandId(`${current.id}:turn:${dispatching.attemptCount}`),
-        threadId: seat.threadId!,
-        message: {
-          messageId: MessageId.makeUnsafe(
-            `supervised-wake:${current.id}:${dispatching.attemptCount}`,
-          ),
-          role: "user",
-          text: wakeText(dispatching, lead),
-          attachments: [],
-        },
-        dispatchMode: "queue",
-        dispatchOrigin: "automation",
-        runtimeMode: thread.runtimeMode,
-        interactionMode: thread.interactionMode,
-        createdAt: dispatching.updatedAt,
-      }),
-    );
-    if (outcome._tag === "Failure") {
+    const turnCommandId = commandId(`${current.id}:turn`);
+    const existingReceipt = yield* commandReceiptRepository.getByCommandId({
+      commandId: turnCommandId,
+    });
+    if (
+      Option.isSome(existingReceipt) &&
+      (existingReceipt.value.status !== "accepted" ||
+        existingReceipt.value.aggregateKind !== "thread" ||
+        existingReceipt.value.aggregateId !== seat.threadId)
+    ) {
+      yield* updateWake(
+        dispatching,
+        "failed",
+        existingReceipt.value.error ?? "The durable wake turn receipt is invalid.",
+        dispatching.attemptCount,
+      );
+      return;
+    }
+    const outcome = Option.isSome(existingReceipt)
+      ? null
+      : yield* Effect.exit(
+          engine.dispatch({
+            type: "thread.turn.start",
+            commandId: turnCommandId,
+            threadId: seat.threadId!,
+            message: {
+              messageId: MessageId.makeUnsafe(`supervised-wake:${current.id}`),
+              role: "user",
+              text: wakeText(dispatching, lead),
+              attachments: [],
+            },
+            dispatchMode: "queue",
+            dispatchOrigin: "automation",
+            runtimeMode: thread.runtimeMode,
+            interactionMode: thread.interactionMode,
+            createdAt: current.createdAt,
+          }),
+        );
+    if (outcome?._tag === "Failure") {
       const error = Cause.pretty(outcome.cause);
       yield* updateWake(dispatching, "failed", error, dispatching.attemptCount);
       return;
@@ -243,9 +263,10 @@ export const makeSupervisedWakeReactor = Effect.gen(function* () {
 
   const reconcileMissionEndConditions = Effect.fnUntraced(function* (
     event: OrchestrationEvent | null,
+    orchestration: SupervisedGovernanceSnapshot["orchestration"],
   ) {
-    const { orchestration } = yield* loadState();
     const now = new Date().toISOString();
+    let changed = false;
     for (const mission of orchestration.missions) {
       if (mission.status !== "active") continue;
       const domainEnded =
@@ -255,6 +276,7 @@ export const makeSupervisedWakeReactor = Effect.gen(function* () {
       const timeEnded =
         mission.endCondition.kind === "timestamp" && mission.endCondition.endsAt <= now;
       if (!domainEnded && !timeEnded) continue;
+      changed = true;
       yield* engine.dispatch({
         type: "supervised.mission.update",
         commandId: commandId(`${mission.id}:expire:${domainEnded ? event.sequence : now}`),
@@ -265,11 +287,17 @@ export const makeSupervisedWakeReactor = Effect.gen(function* () {
         mission: { ...mission, status: "expired", updatedAt: now, completedAt: now },
       });
     }
+    return changed;
   });
 
   const reconcileEventUnlocked = Effect.fnUntraced(function* (event: OrchestrationEvent) {
-    yield* reconcileMissionEndConditions(event);
-    const { readModel, orchestration, leads: canonicalLeads } = yield* loadState();
+    const beforeEndConditions = yield* loadState();
+    const missionChanged = yield* reconcileMissionEndConditions(
+      event,
+      beforeEndConditions.orchestration,
+    );
+    const currentState = missionChanged ? (yield* loadState()) : beforeEndConditions;
+    const { readModel, orchestration, leads: canonicalLeads } = currentState;
     const leads = eventLeadCandidates(event, canonicalLeads).filter(
       (lead) => lead.status === "active" || lead.status === "rotating",
     );
@@ -355,14 +383,20 @@ export const makeSupervisedWakeReactor = Effect.gen(function* () {
         });
       }
     }
-    yield* Effect.sleep(`${WAKE_DEBOUNCE_MS} millis`);
-    yield* reconcileQueuedUnlocked;
   });
   const reconcileEvent: SupervisedWakeReactorShape["reconcileEvent"] = (event) =>
-    lock.withPermits(1)(reconcileEventUnlocked(event));
+    lock.withPermits(1)(reconcileEventUnlocked(event)).pipe(
+      Effect.andThen(Effect.sleep(`${WAKE_DEBOUNCE_MS} millis`)),
+      Effect.andThen(lock.withPermits(1)(reconcileQueuedUnlocked)),
+    );
 
   const start: SupervisedWakeReactorShape["start"] = Effect.gen(function* () {
-    yield* reconcileMissionEndConditions(null).pipe(Effect.catch(() => Effect.void));
+    const initialState = yield* loadState().pipe(Effect.catch(() => Effect.succeed(null)));
+    if (initialState) {
+      yield* reconcileMissionEndConditions(null, initialState.orchestration).pipe(
+        Effect.catch(() => Effect.void),
+      );
+    }
     yield* reconcileQueued.pipe(Effect.catch(() => Effect.void));
     yield* engine.streamDomainEvents.pipe(
       Stream.runForEach((event) =>
@@ -379,7 +413,8 @@ export const makeSupervisedWakeReactor = Effect.gen(function* () {
       Effect.forkScoped,
     );
     yield* Effect.sleep("30 seconds").pipe(
-      Effect.andThen(reconcileMissionEndConditions(null)),
+      Effect.andThen(loadState()),
+      Effect.flatMap((state) => reconcileMissionEndConditions(null, state.orchestration)),
       Effect.andThen(reconcileQueued),
       Effect.catch(() => Effect.void),
       Effect.forever,

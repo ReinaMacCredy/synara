@@ -39,6 +39,7 @@ type StateRow = {
   readonly orchestrationJson: string;
   readonly updatedAt: string;
 };
+type RevisionRow = { readonly revision: number };
 
 const decodeRows = <A, I>(
   schema: Schema.Schema<A, I>,
@@ -64,18 +65,11 @@ const decodeOrchestration = (value: string) =>
     catch: toPersistenceDecodeCauseError("SupervisedGovernance.getSnapshot.orchestration"),
   }).pipe(
     Effect.map((snapshot) => {
-      const productProfiles = snapshot.profiles.map((profile) =>
-        profile.id === "profile-peer-implementer"
-          ? { ...profile, name: "Peer Implementer" }
-          : profile.id === "profile-peer-reviewer"
-            ? { ...profile, name: "Peer Reviewer" }
-            : profile,
-      );
-      const existing = new Set(productProfiles.map((profile) => profile.id));
+      const existing = new Set(snapshot.profiles.map((profile) => profile.id));
       return {
         ...snapshot,
         profiles: [
-          ...productProfiles,
+          ...snapshot.profiles,
           ...DEFAULT_SUPERVISED_PROFILES.filter((profile) => !existing.has(profile.id)),
         ],
       };
@@ -322,8 +316,8 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
 
   const getModelRoutingState: SupervisedGovernanceRepositoryShape["getModelRoutingState"] = () =>
     Effect.gen(function* () {
-      const stateRows = yield* sql<StateRow>`
-        SELECT revision, orchestration_json AS "orchestrationJson", updated_at AS "updatedAt"
+      const stateRows = yield* sql<RevisionRow>`
+        SELECT revision
         FROM supervised_governance_state
         WHERE singleton_id = 1
       `;
@@ -830,6 +824,26 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
       }),
     ).pipe(Effect.mapError(persistenceError("SupervisedGovernance.replaceSnapshot")));
 
+  const replaceOrchestration: SupervisedGovernanceRepositoryShape["replaceOrchestration"] =
+    (input) =>
+      sql
+        .withTransaction(
+          Effect.gen(function* () {
+            yield* advanceRevision(input.expectedRevision, input.updatedAt);
+            yield* sql`
+              UPDATE supervised_governance_state
+              SET orchestration_json = ${JSON.stringify({
+                ...input.orchestration,
+                agentSeats: [],
+              })}
+              WHERE singleton_id = 1
+            `;
+          }),
+        )
+        .pipe(
+          Effect.mapError(persistenceError("SupervisedGovernance.replaceOrchestration")),
+        );
+
   const putModelCapabilityProfile: SupervisedGovernanceRepositoryShape["putModelCapabilityProfile"] =
     (input) =>
       sql
@@ -941,6 +955,7 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
     getModelRoutingState,
     getNotebookState,
     replaceSnapshot,
+    replaceOrchestration,
     appendNotebookEntry,
     appendNotebookCompaction,
     putNotebookCursor,

@@ -213,6 +213,34 @@ upgradeSchemaLayer("migration 108 Supervised canonical cutover upgrade", (it) =>
         )
       `;
 
+      yield* runMigrations({ toMigrationInclusive: 107 });
+      yield* sql`
+        INSERT INTO projection_supervised_rooms (
+          room_id, project_id, lead_seat_id, status, graph_revision, revision, updated_at, entity_json
+        ) VALUES ('room-1', 'project-1', 'lead-seat', 'active', 1, 1, ${now}, '{}')
+      `;
+      yield* sql`
+        INSERT INTO projection_supervised_tasks (
+          task_id, room_id, lifecycle, graph_revision, revision, updated_at, entity_json
+        ) VALUES ('task-1', 'room-1', 'active', 1, 1, ${now}, '{}')
+      `;
+      yield* sql`
+        INSERT INTO projection_supervised_runs (
+          run_id, room_id, task_id, task_node_id, status, daemon_epoch,
+          revision, last_progress_at, updated_at, entity_json
+        ) VALUES ('run-1', 'room-1', 'task-1', NULL, 'running', 1, 1, ${now}, ${now}, '{}')
+      `;
+      yield* sql`
+        INSERT INTO projection_supervised_model_sessions (
+          model_session_id, room_id, run_id, task_node_id, rlm_episode_id,
+          parent_session_id, role, status, revision, updated_at, entity_json, thread_id
+        ) VALUES (
+          'model-session-specialist', 'room-1', 'run-1', NULL, NULL, NULL,
+          'specialist', 'running', 1, ${now},
+          '{"role":"specialist","specialistId":"specialty-1"}', 'peer-thread'
+        )
+      `;
+
       yield* runMigrations();
 
       const stateRows = yield* sql<{ readonly orchestrationJson: string }>`
@@ -278,6 +306,28 @@ upgradeSchemaLayer("migration 108 Supervised canonical cutover upgrade", (it) =>
         (JSON.parse(specialtyRows[0]!.entityJson) as { allowedScopes: unknown[] }).allowedScopes,
         [{ kind: "seat", role: "peer", seatId: "peer-thread" }],
       );
+      const modelSessionRows = yield* sql<{
+        readonly role: string;
+        readonly entityJson: string;
+      }>`
+        SELECT role, entity_json AS "entityJson"
+        FROM projection_supervised_model_sessions
+        WHERE model_session_id = 'model-session-specialist'
+      `;
+      assert.equal(modelSessionRows[0]?.role, "peer");
+      assert.deepStrictEqual(JSON.parse(modelSessionRows[0]!.entityJson), {
+        role: "peer",
+        peerSpecialtyId: "specialty-1",
+      });
+      yield* sql`
+        INSERT INTO projection_supervised_model_sessions (
+          model_session_id, room_id, run_id, task_node_id, rlm_episode_id,
+          parent_session_id, role, status, revision, updated_at, entity_json, thread_id
+        ) VALUES (
+          'model-session-peer', 'room-1', 'run-1', NULL, NULL, NULL,
+          'peer', 'running', 1, ${now}, '{"role":"peer"}', 'peer-thread'
+        )
+      `;
 
       yield* SupervisedCanonicalCutover;
       const rerunRows = yield* sql<{ readonly orchestrationJson: string }>`
