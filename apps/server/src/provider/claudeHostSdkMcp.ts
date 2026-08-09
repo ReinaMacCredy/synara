@@ -6,10 +6,16 @@ import { z } from "zod";
 import type { HostToolRuntimeShape } from "../orchestration/Services/HostToolRuntime.ts";
 import {
   hostToolTranscriptValue,
+  type HostToolDefinition,
   type HostToolInvocationContext,
 } from "../orchestration/hostTools/runtime.ts";
 
 const SYNARA_HOST_MCP_SERVER_NAME = "synara-host";
+
+export const claudeSupportedHostToolDefinitions = (
+  catalog: ReadonlyArray<HostToolDefinition>,
+): ReadonlyArray<HostToolDefinition> =>
+  catalog.filter((definition) => definition.providerSupport.claude === "native");
 
 function buildInvocationContext(input: {
   readonly threadId: string;
@@ -33,7 +39,7 @@ export function buildClaudeHostSdkMcpServer(input: {
     threadId: input.threadId,
     provider: input.provider ?? "claudeAgent",
   });
-  const tools = input.runtime.catalog.map((definition) =>
+  const tools = claudeSupportedHostToolDefinitions(input.runtime.catalog).map((definition) =>
     tool(
       definition.name,
       definition.description,
@@ -100,7 +106,11 @@ export function buildClaudeHostMcpServers(input: {
       headers: { Authorization: `Bearer ${input.httpConnection.bearerToken}` },
     };
   }
-  if (input.enableHostTools && Option.isSome(input.hostRuntime)) {
+  if (
+    input.enableHostTools &&
+    Option.isSome(input.hostRuntime) &&
+    claudeSupportedHostToolDefinitions(input.hostRuntime.value.catalog).length > 0
+  ) {
     servers[SYNARA_HOST_MCP_SERVER_NAME] = buildClaudeHostSdkMcpServer({
       runtime: input.hostRuntime.value,
       threadId: input.threadId,

@@ -15,6 +15,10 @@ import { OrchestrationLayerLive } from "../runtimeLayer.ts";
 import { HostToolRuntime } from "../Services/HostToolRuntime.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
+import {
+  resolveEffectiveCanonicalAuthority,
+  resolveProjectedSupervisionCaller,
+} from "../supervision/canonicalCaller.ts";
 import { makeSupervisionTools } from "../supervision/toolRegistry.ts";
 
 const makeHostToolRuntime = Effect.gen(function* () {
@@ -45,27 +49,23 @@ const makeHostToolRuntime = Effect.gen(function* () {
             ),
         ),
       );
-      const seatId =
-        projection.supervision.supervisors.find(
-          (seat) => seat.activeThreadId === context.callerThreadId && seat.status !== "archived",
-        )?.id ??
-        projection.supervision.leads.find(
-          (seat) => seat.activeThreadId === context.callerThreadId && seat.status !== "archived",
-        )?.id ??
-        projection.supervision.peers.find(
-          (binding) =>
-            binding.threadId === context.callerThreadId && binding.status === "active",
-        )?.threadId;
-      const seat = governance.agentSeats.find((candidate) => candidate.id === seatId);
-      const receipt = governance.authorityReceipts.find(
-        (candidate) => candidate.id === seat?.authorityReceiptId,
+      const caller = resolveProjectedSupervisionCaller({
+        supervision: projection.supervision,
+        threadId: context.callerThreadId,
+      });
+      if (!caller) return { seat: undefined, receipt: undefined };
+      return (
+        resolveEffectiveCanonicalAuthority({
+          governance,
+          seatId: caller.seatId,
+          at: new Date().toISOString(),
+        }) ?? { seat: undefined, receipt: undefined }
       );
-      return { seat, receipt };
     });
 
   const completeReceipt = (
     receipt: SupervisedToolInvocationReceipt,
-    state: "projected" | "denied" | "failed",
+    state: "accepted" | "projected" | "denied" | "failed",
     error: { readonly code: string; readonly message: string } | null,
   ) =>
     toolReceiptRepository.complete({
@@ -111,48 +111,65 @@ const makeHostToolRuntime = Effect.gen(function* () {
           (error) => new HostToolError("supervised_tool_receipt_unavailable", error.message),
         ),
       );
-      const decision = authorizeSupervisedIntentTool({
-        toolId: metadata.toolId,
-        seat,
-        receipt: authorityReceipt,
-        workspaceId: seat?.workspaceId,
-        roomId,
-        at: requestedAt,
+      const executeRequestedTool = Effect.gen(function* () {
+        const decision = authorizeSupervisedIntentTool({
+          toolId: metadata.toolId,
+          seat,
+          receipt: authorityReceipt,
+          workspaceId: seat?.workspaceId,
+          roomId,
+          at: requestedAt,
+        });
+        if (!decision.allowed) {
+          const failure = new HostToolError(decision.code, decision.reason);
+          const completed = yield* completeReceipt(receipt, "denied", failure).pipe(
+            Effect.mapError(
+              (error) => new HostToolError("supervised_tool_receipt_unavailable", error.message),
+            ),
+          );
+          return { ...hostToolFailure(failure), receipt: completed };
+        }
+        const visible = yield* entry.isVisible(context);
+        if (!visible) {
+          const failure = new HostToolError(
+            "supervised_tool_capability_denied",
+            `This AgentSeat cannot call ${entry.definition.displayName}.`,
+          );
+          const completed = yield* completeReceipt(receipt, "denied", failure).pipe(
+            Effect.mapError(
+              (error) => new HostToolError("supervised_tool_receipt_unavailable", error.message),
+            ),
+          );
+          return { ...hostToolFailure(failure), receipt: completed };
+        }
+        const result = yield* entry.execute(args, context);
+        const error = result.ok ? null : result.error;
+        const completed = yield* completeReceipt(
+          receipt,
+          result.ok ? (entry.definition.readOnly ? "accepted" : "projected") : "failed",
+          error,
+        ).pipe(
+          Effect.mapError(
+            (cause) => new HostToolError("supervised_tool_receipt_unavailable", cause.message),
+          ),
+        );
+        return { ...result, receipt: completed };
       });
-      if (!decision.allowed) {
-        const failure = new HostToolError(decision.code, decision.reason);
-        const completed = yield* completeReceipt(receipt, "denied", failure).pipe(
-          Effect.mapError(
-            (error) => new HostToolError("supervised_tool_receipt_unavailable", error.message),
-          ),
-        );
-        return { ...hostToolFailure(failure), receipt: completed };
-      }
-      const visible = yield* entry.isVisible(context);
-      if (!visible) {
-        const failure = new HostToolError(
-          "supervised_tool_capability_denied",
-          `This AgentSeat cannot call ${entry.definition.displayName}.`,
-        );
-        const completed = yield* completeReceipt(receipt, "denied", failure).pipe(
-          Effect.mapError(
-            (error) => new HostToolError("supervised_tool_receipt_unavailable", error.message),
-          ),
-        );
-        return { ...hostToolFailure(failure), receipt: completed };
-      }
-      const result = yield* entry.execute(args, context);
-      const error = result.ok ? null : result.error;
-      const completed = yield* completeReceipt(
-        receipt,
-        result.ok ? "projected" : "failed",
-        error,
-      ).pipe(
-        Effect.mapError(
-          (cause) => new HostToolError("supervised_tool_receipt_unavailable", cause.message),
-        ),
+      return yield* executeRequestedTool.pipe(
+        Effect.catch((error) => {
+          const failure =
+            error instanceof HostToolError
+              ? error
+              : new HostToolError(
+                  "host_tool_failed",
+                  error instanceof Error ? error.message : String(error),
+                );
+          return completeReceipt(receipt, "failed", failure).pipe(
+            Effect.map((completed) => ({ ...hostToolFailure(failure), receipt: completed })),
+            Effect.catch(() => Effect.succeed(hostToolFailure(failure))),
+          );
+        }),
       );
-      return { ...result, receipt: completed };
     }).pipe(Effect.catch((error) => Effect.succeed(hostToolFailure(error))));
 
   return HostToolRuntime.of({

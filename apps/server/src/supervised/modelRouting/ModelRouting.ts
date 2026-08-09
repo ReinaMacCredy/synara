@@ -114,26 +114,46 @@ export const providerAvailabilityFromCatalog = (
   );
 
 const categoryDimension = (category: string): ModelCapabilityDimension | null => {
-  const normalized = category.toLowerCase().replaceAll(/[^a-z]/g, "");
-  if (normalized.includes("architect")) return "architecture";
-  if (normalized.includes("debug")) return "debugging";
-  if (normalized.includes("review")) return "review";
-  if (normalized.includes("ui") || normalized.includes("ux")) return "uiUx";
-  if (normalized.includes("visual") || normalized.includes("vision")) return "visualUnderstanding";
-  if (normalized.includes("longcontext")) return "longContext";
-  if (normalized.includes("structured")) return "structuredOutput";
-  if (normalized.includes("multilingual") || normalized.includes("translation")) return "multilingual";
-  if (normalized.includes("agent")) return "agenticEndurance";
-  if (normalized.includes("code") || normalized.includes("implement")) return "coding";
+  const tokens = category.toLowerCase().split(/[^a-z]+/).filter(Boolean);
+  const hasPrefix = (prefix: string) => tokens.some((token) => token.startsWith(prefix));
+  if (hasPrefix("architect")) return "architecture";
+  if (hasPrefix("debug")) return "debugging";
+  if (hasPrefix("review")) return "review";
+  if (tokens.includes("ui") || tokens.includes("ux")) return "uiUx";
+  if (hasPrefix("visual") || hasPrefix("vision")) return "visualUnderstanding";
+  if (tokens.includes("longcontext") || (tokens.includes("long") && tokens.includes("context"))) {
+    return "longContext";
+  }
+  if (hasPrefix("structured")) return "structuredOutput";
+  if (hasPrefix("multilingual") || hasPrefix("translation")) return "multilingual";
+  if (hasPrefix("agent")) return "agenticEndurance";
+  if (
+    tokens.some((token) =>
+      ["build", "code", "coding", "develop", "development", "implement", "implementation"].includes(
+        token,
+      ),
+    )
+  ) {
+    return "coding";
+  }
   return null;
 };
 
 const roundScore = (value: number) => Math.round(value * 1_000_000) / 1_000_000;
 
+const compareStableIds = (left: string, right: string): number =>
+  left < right ? -1 : left > right ? 1 : 0;
+
 const estimatedCostUsd = (
   profile: ModelCapabilityProfile,
   request: ModelRoutingRequest,
 ): number | null => {
+  if (
+    request.runPolicy.maxCostUsd !== null &&
+    (request.expectedInputTokens === undefined || request.expectedOutputTokens === undefined)
+  ) {
+    return null;
+  }
   const inputTokens = request.expectedInputTokens ?? 0;
   const outputTokens = request.expectedOutputTokens ?? 0;
   if (inputTokens > 0 && profile.inputCostUsdPerMillionTokens === null) return null;
@@ -390,14 +410,15 @@ export function recommendModels(
   });
   valid.sort(
     (left, right) =>
-      right.entry.totalScore - left.entry.totalScore || left.profile.id.localeCompare(right.profile.id),
+      right.entry.totalScore - left.entry.totalScore ||
+      compareStableIds(left.profile.id, right.profile.id),
   );
   const rankedCandidates = valid.map(({ entry }, index) => ({ ...entry, rank: index + 1 }));
   return {
     selectedModelId: rankedCandidates[0]?.modelId ?? null,
     rankedCandidates,
     rejectedCandidates: rejectedCandidates.toSorted((left, right) =>
-      left.modelId.localeCompare(right.modelId),
+      compareStableIds(left.modelId, right.modelId),
     ),
     hardConstraints: hardConstraintSummary(request),
     capabilityProfileRevision: profiles.reduce(
@@ -470,8 +491,13 @@ export function aggregateModelOutcome(
   if (outcome.retries < 0 || !Number.isInteger(outcome.retries)) {
     throw new Error("Telemetry retries must be a non-negative integer.");
   }
-  if (outcome.latencyMs < 0 || outcome.costUsd < 0) {
-    throw new Error("Telemetry latency and cost must be non-negative.");
+  if (
+    !Number.isFinite(outcome.latencyMs) ||
+    !Number.isFinite(outcome.costUsd) ||
+    outcome.latencyMs < 0 ||
+    outcome.costUsd < 0
+  ) {
+    throw new Error("Telemetry latency and cost must be finite and non-negative.");
   }
   const sampleCount = (current?.sampleCount ?? 0) + 1;
   return {

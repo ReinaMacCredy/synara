@@ -4,6 +4,7 @@ import type { AgentSeat, EffectiveAuthorityReceipt } from "@synara/contracts";
 
 import {
   authorizeSupervisedIntentTool,
+  defaultSupervisedCommandsForRole,
   defaultSupervisedToolsForRole,
   selectSupervisedIntentTools,
   supervisedIntentToolRegistry,
@@ -37,7 +38,7 @@ const receipt: EffectiveAuthorityReceipt = {
   workspaceScopes: [seat.workspaceId],
   roomScopes: seat.roomIds,
   taskNodeScopes: [],
-  allowedCommands: [],
+  allowedCommands: [...defaultSupervisedCommandsForRole("supervisor")],
   allowedTools: [...defaultSupervisedToolsForRole("supervisor")],
   rootLeaseIds: [],
   mandateIds: [],
@@ -82,5 +83,18 @@ describe("Supervised intent tool registry", () => {
     });
     assert.equal(ungranted.allowed, false);
     if (!ungranted.allowed) assert.equal(ungranted.code, "supervised_tool_capability_denied");
+  });
+
+  it("fails closed when a granted tool requires an ungranted internal command", () => {
+    const denied = authorizeSupervisedIntentTool({
+      toolId: "supervised.work.assign",
+      seat,
+      receipt: { ...receipt, allowedCommands: [] },
+      workspaceId: seat.workspaceId,
+      at: now,
+    });
+
+    assert.equal(denied.allowed, false);
+    if (!denied.allowed) assert.equal(denied.code, "supervised_tool_command_denied");
   });
 });

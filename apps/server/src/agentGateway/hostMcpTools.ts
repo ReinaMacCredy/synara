@@ -37,6 +37,24 @@ function buildHostToolContext(context: ToolContext): HostToolInvocationContext {
 export function makeAgentGatewayHostTools(input: {
   readonly runtime: HostToolRuntimeShape;
 }): ReadonlyArray<ToolEntry> {
+  const visibleNamesByContext = new WeakMap<
+    object,
+    Effect.Effect<ReadonlySet<string>>
+  >();
+  const visibleNames = (context: Omit<ToolContext, "jsonRpcRequestId">) => {
+    const cached = visibleNamesByContext.get(context);
+    if (cached) return cached;
+    const created = Effect.runSync(
+      Effect.cached(
+        input.runtime
+          .list(buildHostToolContext(context))
+          .pipe(Effect.map((definitions) => new Set(definitions.map((entry) => entry.name)))),
+      ),
+    );
+    visibleNamesByContext.set(context, created);
+    return created;
+  };
+
   return input.runtime.catalog.map((definition) => ({
     requiredCapability: definition.readOnly ? ("thread:read" as const) : ("thread:write" as const),
     requiresActiveTurn: !definition.readOnly,
@@ -50,12 +68,10 @@ export function makeAgentGatewayHostTools(input: {
       },
     },
     isVisible: (context) =>
-      input.runtime
-        .list(buildHostToolContext(context as ToolContext))
-        .pipe(
-          Effect.map((visible) => visible.some((entry) => entry.name === definition.name)),
-          Effect.orElseSucceed(() => false),
-        ),
+      visibleNames(context).pipe(
+        Effect.map((names) => names.has(definition.name)),
+        Effect.orElseSucceed(() => false),
+      ),
     handler: (args, context) =>
       input.runtime
         .execute({

@@ -14,7 +14,10 @@ import {
   type SupervisionSnapshot,
 } from "@synara/contracts";
 
-import { defaultSupervisedToolsForRole } from "../tools/Registry.ts";
+import {
+  defaultSupervisedCommandsForRole,
+  defaultSupervisedToolsForRole,
+} from "../tools/Registry.ts";
 
 const workspaceId = SupervisedWorkspaceId.makeUnsafe("workspace:default");
 const liveRootStatuses = new Set(["active", "transferring", "releasing"]);
@@ -98,12 +101,28 @@ const makeReceipt = (input: {
   readonly role: "supervisor" | "lead" | "peer";
   readonly roomIds: ReadonlyArray<string>;
   readonly issuedAt: string;
+  readonly at: string;
 }): EffectiveAuthorityReceipt => {
+  const currentSeat = input.snapshot.agentSeats.find((seat) => seat.id === input.seatId);
+  const currentReceipt = input.snapshot.authorityReceipts.find(
+    (receipt) => receipt.id === currentSeat?.authorityReceiptId,
+  );
+  if (
+    currentReceipt?.id.startsWith("legacy-receipt:") &&
+    (currentReceipt.revokedAt !== null ||
+      (currentReceipt.expiresAt !== null && currentReceipt.expiresAt <= input.at))
+  ) {
+    return currentReceipt;
+  }
+
   const rootLeaseIds =
     input.role === "lead"
       ? input.roomIds.map((roomId) => rootLeaseIdFor(input.snapshot, roomId, input.seatId))
       : [];
-  const allowedCommands = input.role === "lead" ? ["supervised.specialist.create"] : [];
+  const allowedCommands = [
+    ...(input.role === "lead" ? ["supervised.specialist.create"] : []),
+    ...defaultSupervisedCommandsForRole(input.role),
+  ];
   const allowedTools = defaultSupervisedToolsForRole(input.role);
   return {
     id: legacyReceiptId({
@@ -157,6 +176,7 @@ export function reconcileLegacyGovernance(input: {
       role: "supervisor",
       roomIds: [],
       issuedAt: supervisor.createdAt,
+      at: input.at,
     });
     authorityReceipts = upsert(authorityReceipts, receipt);
     agentSeats = upsert(agentSeats, {
@@ -187,6 +207,7 @@ export function reconcileLegacyGovernance(input: {
       role: "lead",
       roomIds,
       issuedAt: lead.createdAt,
+      at: input.at,
     });
     authorityReceipts = upsert(authorityReceipts, receipt);
     agentSeats = upsert(agentSeats, {
@@ -217,6 +238,7 @@ export function reconcileLegacyGovernance(input: {
       role: "peer",
       roomIds,
       issuedAt: peer.createdAt,
+      at: input.at,
     });
     authorityReceipts = upsert(authorityReceipts, receipt);
     agentSeats = upsert(agentSeats, {
@@ -263,6 +285,7 @@ export function reconcileLegacyGovernance(input: {
       role: "lead",
       roomIds: leadRooms.map((candidate) => candidate.id),
       issuedAt: createdAt,
+      at: input.at,
     });
     authorityReceipts = upsert(authorityReceipts, receipt);
     agentSeats = upsert(agentSeats, {
@@ -296,6 +319,30 @@ export function reconcileLegacyGovernance(input: {
     const holderSeat = agentSeats.find((seat) => seat.id === room.leadSeatId);
     if (!holderSeat) {
       throw new Error(`Lead Room '${room.id}' references missing Lead seat '${room.leadSeatId}'.`);
+    }
+    const holderReceipt = authorityReceipts.find(
+      (receipt) => receipt.id === holderSeat.authorityReceiptId,
+    );
+    if (
+      !holderReceipt ||
+      holderReceipt.revokedAt !== null ||
+      (holderReceipt.expiresAt !== null && holderReceipt.expiresAt <= input.at)
+    ) {
+      rootLeases = mapChanged(rootLeases, (lease) =>
+        lease.roomId === room.id &&
+        lease.holderSeatId === room.leadSeatId &&
+        liveRootStatuses.has(lease.status) &&
+        lease.id.startsWith("legacy-root-lease:")
+          ? {
+              ...lease,
+              status: "released" as const,
+              releasedAt: input.at,
+              revision: lease.revision + 1,
+              updatedAt: input.at,
+            }
+          : lease,
+      );
+      continue;
     }
     const current = activeLegacyLeaseFor(
       { ...input.governance, rootLeases },

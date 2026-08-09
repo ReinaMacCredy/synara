@@ -127,6 +127,10 @@ import {
 import { deriveTurnStartSession } from "../turnStartSession.ts";
 import { TurnCheckpointCoordinator } from "../Services/TurnCheckpointCoordinator.ts";
 import { resolveProviderSessionThread as resolveProviderSessionThreadFromProjection } from "../providerSessionThread.ts";
+import {
+  resolveEffectiveCanonicalAuthority,
+  resolveProjectedSupervisionCaller,
+} from "../supervision/canonicalCaller.ts";
 
 type ProviderQueueDrainEvent = Extract<
   ProviderRuntimeEvent,
@@ -533,45 +537,19 @@ const make = Effect.gen(function* () {
     threadId: ThreadId,
   ): Effect.fn.Return<ProviderSupervisionSessionContext | undefined> {
     const snapshot = yield* projectionSnapshotQuery.getSnapshot();
-    const supervisor = snapshot.supervision.supervisors.find(
-      (seat) => seat.activeThreadId === threadId && seat.status !== "archived",
-    );
-    const lead = snapshot.supervision.leads.find(
-      (seat) => seat.activeThreadId === threadId && seat.status !== "archived",
-    );
-    const peer = snapshot.supervision.peers.find(
-      (binding) => binding.threadId === threadId && binding.status === "active",
-    );
-    const pendingLeadRotation =
-      supervisor === undefined && lead === undefined && peer === undefined
-        ? snapshot.supervision.rotations.find(
-            (rotation) =>
-              rotation.replacementThreadId === threadId &&
-              rotation.state !== "completed" &&
-              rotation.state !== "failed",
-          )
-        : undefined;
-    const rotationLead = pendingLeadRotation
-      ? snapshot.supervision.leads.find(
-          (candidate) => candidate.id === pendingLeadRotation.leadSeatId,
-        )
-      : undefined;
-    const seat = supervisor ?? lead ?? rotationLead;
-    if (!seat && !peer) return undefined;
+    const caller = resolveProjectedSupervisionCaller({
+      supervision: snapshot.supervision,
+      threadId,
+    });
+    if (!caller) return undefined;
     const governance = yield* supervisedGovernanceRepository.getSnapshot();
-    const canonicalSeatId = supervisor?.id ?? peer?.threadId ?? (lead ?? rotationLead)?.id;
-    const canonicalSeat = governance.agentSeats.find(
-      (candidate) => candidate.id === canonicalSeatId,
-    );
-    const authorityReceipt = governance.authorityReceipts.find(
-      (candidate) => candidate.id === canonicalSeat?.authorityReceiptId,
-    );
-    const profileSnapshotId =
-      pendingLeadRotation?.replacementProfileSnapshotId ??
-      seat?.profileSnapshotId ??
-      peer!.profileSnapshotId;
+    const authority = resolveEffectiveCanonicalAuthority({
+      governance,
+      seatId: caller.seatId,
+      at: new Date().toISOString(),
+    });
     const profileSnapshot = snapshot.supervision.profileSnapshots.find(
-      (profile) => profile.id === profileSnapshotId,
+      (profile) => profile.id === caller.profileSnapshotId,
     );
     if (!profileSnapshot) {
       return yield* new ProviderAdapterValidationError({
@@ -581,31 +559,33 @@ const make = Effect.gen(function* () {
       });
     }
     return {
-      role: supervisor ? "supervisor" : peer ? "peer" : "lead",
-      ...(supervisor
-        ? { supervisorSeatId: supervisor.id }
-        : { leadSeatId: peer?.leadSeatId ?? (lead ?? rotationLead)!.id }),
+      role: caller.role,
+      ...(caller.role === "supervisor"
+        ? { supervisorSeatId: caller.supervisor.id }
+        : { leadSeatId: caller.role === "peer" ? caller.leadSeatId : caller.lead.id }),
       profileSnapshot,
-      missionIds: supervisor
+      missionIds: caller.role === "supervisor"
         ? snapshot.supervision.missions
             .filter(
               (mission) =>
-                mission.supervisorSeatId === supervisor.id && mission.status === "active",
+                mission.supervisorSeatId === caller.supervisor.id && mission.status === "active",
             )
             .map((mission) => mission.id)
         : [],
-      ...(canonicalSeat && authorityReceipt
+      ...(authority
         ? {
-            agentSeatId: canonicalSeat.id,
-            workspaceId: canonicalSeat.workspaceId,
-            roomIds: canonicalSeat.roomIds,
-            effectiveRole: authorityReceipt.effectiveRole,
-            authorityReceiptId: authorityReceipt.id,
-            allowedTools: authorityReceipt.allowedTools,
-            allowedCommands: authorityReceipt.allowedCommands,
-            rootLeaseIds: authorityReceipt.rootLeaseIds,
-            mandateIds: authorityReceipt.mandateIds,
-            runPolicyRevision: authorityReceipt.runPolicyRevision,
+            agentSeatId: authority.seat.id,
+            workspaceId: authority.seat.workspaceId,
+            roomIds: authority.seat.roomIds.filter((roomId) =>
+              authority.receipt.roomScopes.includes(roomId),
+            ),
+            effectiveRole: authority.receipt.effectiveRole,
+            authorityReceiptId: authority.receipt.id,
+            allowedTools: authority.receipt.allowedTools,
+            allowedCommands: authority.receipt.allowedCommands,
+            rootLeaseIds: authority.receipt.rootLeaseIds,
+            mandateIds: authority.receipt.mandateIds,
+            runPolicyRevision: authority.receipt.runPolicyRevision,
           }
         : {}),
     };

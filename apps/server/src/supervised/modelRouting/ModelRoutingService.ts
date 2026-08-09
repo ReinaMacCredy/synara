@@ -26,6 +26,8 @@ export class ModelRoutingDomainError extends Error {
       | "capability_profile_conflict"
       | "preference_profile_conflict"
       | "unknown_capability_profile"
+      | "routing_authority_denied"
+      | "routing_revision_conflict"
       | "no_valid_candidate",
     message: string,
   ) {
@@ -102,7 +104,7 @@ export const ModelRoutingServiceLive = Layer.effect(
 
     const getState: ModelRoutingServiceShape["getState"] = (userId) =>
       Effect.gen(function* () {
-        const snapshot = yield* repository.getSnapshot();
+        const snapshot = yield* repository.getModelRoutingState();
         return {
           routingRevision: snapshot.revision,
           capabilityProfiles: snapshot.modelCapabilityProfiles,
@@ -114,7 +116,7 @@ export const ModelRoutingServiceLive = Layer.effect(
 
     const putCapabilityProfile: ModelRoutingServiceShape["putCapabilityProfile"] = (input) =>
       Effect.gen(function* () {
-        const snapshot = yield* repository.getSnapshot();
+        const snapshot = yield* repository.getModelRoutingState();
         const sameId = snapshot.modelCapabilityProfiles.find(
           (profile) => profile.id === input.profile.id,
         );
@@ -141,13 +143,9 @@ export const ModelRoutingServiceLive = Layer.effect(
             ),
           );
         }
-        yield* repository.replaceSnapshot({
-          ...snapshot,
-          modelCapabilityProfiles: [
-            ...snapshot.modelCapabilityProfiles.filter((profile) => profile.id !== input.profile.id),
-            input.profile,
-          ],
-          updatedAt: input.profile.updatedAt,
+        yield* repository.putModelCapabilityProfile({
+          profile: input.profile,
+          expectedRevision: snapshot.revision,
         });
         return input.profile;
       });
@@ -156,7 +154,7 @@ export const ModelRoutingServiceLive = Layer.effect(
       input,
     ) =>
       Effect.gen(function* () {
-        const snapshot = yield* repository.getSnapshot();
+        const snapshot = yield* repository.getModelRoutingState();
         const sameId = snapshot.userModelPreferenceProfiles.find(
           (profile) => profile.id === input.profile.id,
         );
@@ -189,22 +187,16 @@ export const ModelRoutingServiceLive = Layer.effect(
             ),
           );
         }
-        yield* repository.replaceSnapshot({
-          ...snapshot,
-          userModelPreferenceProfiles: [
-            ...snapshot.userModelPreferenceProfiles.filter(
-              (profile) => profile.id !== input.profile.id,
-            ),
-            input.profile,
-          ],
-          updatedAt: input.profile.updatedAt,
+        yield* repository.putUserModelPreferenceProfile({
+          profile: input.profile,
+          expectedRevision: snapshot.revision,
         });
         return input.profile;
       });
 
     const recommend: ModelRoutingServiceShape["recommend"] = (request) =>
       Effect.gen(function* () {
-        const snapshot = yield* repository.getSnapshot();
+        const snapshot = yield* repository.getModelRoutingState();
         const preference = snapshot.userModelPreferenceProfiles.find(
           (profile) => profile.userId === request.userId,
         );
@@ -212,21 +204,57 @@ export const ModelRoutingServiceLive = Layer.effect(
           snapshot.modelCapabilityProfiles,
           preference,
           snapshot.modelTelemetryAggregates,
-          request,
+          { ...request, routingRevision: snapshot.revision },
         );
       });
 
     const select: ModelRoutingServiceShape["select"] = (input) =>
       Effect.gen(function* () {
         const snapshot = yield* repository.getSnapshot();
+        if (input.request.routingRevision !== snapshot.revision) {
+          return yield* Effect.fail(
+            new ModelRoutingDomainError(
+              "routing_revision_conflict",
+              `Model routing revision conflict: expected ${input.request.routingRevision}, current ${snapshot.revision}.`,
+            ),
+          );
+        }
+        const actorSeat = snapshot.agentSeats.find(
+          (seat) => seat.id === input.request.actorSeatId,
+        );
+        const authorityReceipt = snapshot.authorityReceipts.find(
+          (receipt) => receipt.id === actorSeat?.authorityReceiptId,
+        );
+        if (
+          !actorSeat ||
+          !["ready", "active"].includes(actorSeat.lifecycleState) ||
+          actorSeat.workspaceId !== input.request.workspaceId ||
+          !authorityReceipt ||
+          authorityReceipt.actorSeatId !== actorSeat.id ||
+          authorityReceipt.revokedAt !== null ||
+          (authorityReceipt.expiresAt !== null &&
+            authorityReceipt.expiresAt <= input.request.createdAt) ||
+          !authorityReceipt.workspaceScopes.includes(input.request.workspaceId) ||
+          (input.request.roomId !== null &&
+            (!actorSeat.roomIds.includes(input.request.roomId) ||
+              !authorityReceipt.roomScopes.includes(input.request.roomId)))
+        ) {
+          return yield* Effect.fail(
+            new ModelRoutingDomainError(
+              "routing_authority_denied",
+              "The acting AgentSeat has no effective authority for this model selection scope.",
+            ),
+          );
+        }
         const preference = snapshot.userModelPreferenceProfiles.find(
           (profile) => profile.userId === input.request.userId,
         );
+        const canonicalRequest = { ...input.request, routingRevision: snapshot.revision };
         const recommendation = recommendModels(
           snapshot.modelCapabilityProfiles,
           preference,
           snapshot.modelTelemetryAggregates,
-          input.request,
+          canonicalRequest,
         );
         if (recommendation.selectedModelId === null) {
           return yield* Effect.fail(
@@ -239,19 +267,18 @@ export const ModelRoutingServiceLive = Layer.effect(
         const receipt = createModelSelectionReceipt(
           input.receiptId,
           recommendation,
-          input.request,
+          canonicalRequest,
         );
-        yield* repository.replaceSnapshot({
-          ...snapshot,
-          modelSelectionReceipts: [receipt, ...snapshot.modelSelectionReceipts],
-          updatedAt: input.request.createdAt,
+        yield* repository.appendModelSelectionReceipt({
+          receipt,
+          expectedRevision: snapshot.revision,
         });
         return receipt;
       });
 
     const recordOutcome: ModelRoutingServiceShape["recordOutcome"] = (outcome) =>
       Effect.gen(function* () {
-        const snapshot = yield* repository.getSnapshot();
+        const snapshot = yield* repository.getModelRoutingState();
         if (
           !snapshot.modelCapabilityProfiles.some(
             (profile) => profile.id === outcome.modelProfileId,
@@ -270,15 +297,9 @@ export const ModelRoutingServiceLive = Layer.effect(
             aggregate.category === outcome.category,
         );
         const aggregate = aggregateModelOutcome(current, outcome);
-        yield* repository.replaceSnapshot({
-          ...snapshot,
-          modelTelemetryAggregates: [
-            ...snapshot.modelTelemetryAggregates.filter(
-              (candidate) => candidate.id !== aggregate.id,
-            ),
-            aggregate,
-          ],
-          updatedAt: outcome.completedAt,
+        yield* repository.putModelTelemetryAggregate({
+          aggregate,
+          expectedRevision: snapshot.revision,
         });
         return aggregate;
       });

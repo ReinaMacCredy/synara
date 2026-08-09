@@ -37,7 +37,7 @@ describe("codexDynamicToolResponse", () => {
         roomId: null,
         callerThreadId: "thread-1",
         callerTurnId: null,
-        state: "projected",
+        state: "accepted",
         requestedAt: "2026-08-09T00:00:00.000Z",
         completedAt: "2026-08-09T00:00:01.000Z",
         errorCode: null,
@@ -49,7 +49,7 @@ describe("codexDynamicToolResponse", () => {
       sequence: 42,
       _synaraReceipt: {
         toolId: "supervised.topology.read",
-        state: "projected",
+        state: "accepted",
       },
     });
   });

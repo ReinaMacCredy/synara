@@ -73,6 +73,21 @@ const orderNotebookEntriesForInsert = (
 const makeSupervisedGovernanceRepository = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
 
+  const advanceRevision = (expectedRevision: number, updatedAt: string) =>
+    Effect.gen(function* () {
+      yield* sql`
+        UPDATE supervised_governance_state
+        SET revision = revision + 1, updated_at = ${updatedAt}
+        WHERE singleton_id = 1 AND revision = ${expectedRevision}
+      `;
+      const changedRows = yield* sql<{ readonly changed: number }>`SELECT changes() AS changed`;
+      if ((changedRows[0]?.changed ?? 0) !== 1) {
+        return yield* Effect.fail(
+          new Error(`Governance snapshot revision conflict: expected ${expectedRevision}.`),
+        );
+      }
+    });
+
   const getSnapshot: SupervisedGovernanceRepositoryShape["getSnapshot"] = () =>
     Effect.gen(function* () {
       const stateRows = yield* sql<StateRow>`
@@ -247,20 +262,52 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
       };
     }).pipe(Effect.mapError(persistenceError("SupervisedGovernance.getSnapshot")));
 
+  const getModelRoutingState: SupervisedGovernanceRepositoryShape["getModelRoutingState"] = () =>
+    Effect.gen(function* () {
+      const stateRows = yield* sql<StateRow>`
+        SELECT revision, updated_at AS "updatedAt"
+        FROM supervised_governance_state
+        WHERE singleton_id = 1
+      `;
+      const capabilityProfileRows = yield* sql<EntityRow>`
+        SELECT entity_json AS "entityJson"
+        FROM supervised_model_capability_profiles
+        ORDER BY updated_at DESC, profile_id
+      `;
+      const preferenceProfileRows = yield* sql<EntityRow>`
+        SELECT entity_json AS "entityJson"
+        FROM supervised_user_model_preference_profiles
+        ORDER BY updated_at DESC, preference_profile_id
+      `;
+      const telemetryRows = yield* sql<EntityRow>`
+        SELECT entity_json AS "entityJson"
+        FROM supervised_model_telemetry_aggregates
+        ORDER BY updated_at DESC, aggregate_id
+      `;
+      return {
+        revision: stateRows[0]?.revision ?? 0,
+        modelCapabilityProfiles: yield* decodeRows(
+          ModelCapabilityProfile,
+          "SupervisedGovernance.getModelRoutingState.modelCapabilityProfiles",
+          capabilityProfileRows,
+        ),
+        userModelPreferenceProfiles: yield* decodeRows(
+          UserModelPreferenceProfile,
+          "SupervisedGovernance.getModelRoutingState.userModelPreferenceProfiles",
+          preferenceProfileRows,
+        ),
+        modelTelemetryAggregates: yield* decodeRows(
+          ModelTelemetryAggregate,
+          "SupervisedGovernance.getModelRoutingState.modelTelemetryAggregates",
+          telemetryRows,
+        ),
+      };
+    }).pipe(Effect.mapError(persistenceError("SupervisedGovernance.getModelRoutingState")));
+
   const replaceSnapshot: SupervisedGovernanceRepositoryShape["replaceSnapshot"] = (snapshot) =>
     sql.withTransaction(
       Effect.gen(function* () {
-        yield* sql`
-          UPDATE supervised_governance_state
-          SET revision = revision + 1, updated_at = ${snapshot.updatedAt}
-          WHERE singleton_id = 1 AND revision = ${snapshot.revision}
-        `;
-        const changedRows = yield* sql<{ readonly changed: number }>`SELECT changes() AS changed`;
-        if ((changedRows[0]?.changed ?? 0) !== 1) {
-          return yield* Effect.fail(
-            new Error(`Governance snapshot revision conflict: expected ${snapshot.revision}.`),
-          );
-        }
+        yield* advanceRevision(snapshot.revision, snapshot.updatedAt);
         yield* sql`DELETE FROM supervised_model_selection_receipts`;
         yield* sql`DELETE FROM supervised_model_telemetry_aggregates`;
         yield* sql`DELETE FROM supervised_user_model_preference_profiles`;
@@ -496,7 +543,121 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
       }),
     ).pipe(Effect.mapError(persistenceError("SupervisedGovernance.replaceSnapshot")));
 
-  return SupervisedGovernanceRepository.of({ getSnapshot, replaceSnapshot });
+  const putModelCapabilityProfile: SupervisedGovernanceRepositoryShape["putModelCapabilityProfile"] =
+    (input) =>
+      sql
+        .withTransaction(
+          Effect.gen(function* () {
+            yield* advanceRevision(input.expectedRevision, input.profile.updatedAt);
+            yield* sql`
+              INSERT INTO supervised_model_capability_profiles (
+                profile_id, provider, model, version, available, revision, updated_at, entity_json
+              ) VALUES (
+                ${input.profile.id}, ${input.profile.provider}, ${input.profile.model},
+                ${input.profile.version}, ${input.profile.available ? 1 : 0},
+                ${input.profile.revision}, ${input.profile.updatedAt}, ${JSON.stringify(input.profile)}
+              )
+              ON CONFLICT(profile_id) DO UPDATE SET
+                provider = excluded.provider,
+                model = excluded.model,
+                version = excluded.version,
+                available = excluded.available,
+                revision = excluded.revision,
+                updated_at = excluded.updated_at,
+                entity_json = excluded.entity_json
+            `;
+          }),
+        )
+        .pipe(Effect.mapError(persistenceError("SupervisedGovernance.putModelCapabilityProfile")));
+
+  const putUserModelPreferenceProfile: SupervisedGovernanceRepositoryShape["putUserModelPreferenceProfile"] =
+    (input) =>
+      sql
+        .withTransaction(
+          Effect.gen(function* () {
+            yield* advanceRevision(input.expectedRevision, input.profile.updatedAt);
+            yield* sql`
+              INSERT INTO supervised_user_model_preference_profiles (
+                preference_profile_id, user_id, revision, updated_at, entity_json
+              ) VALUES (
+                ${input.profile.id}, ${input.profile.userId}, ${input.profile.revision},
+                ${input.profile.updatedAt}, ${JSON.stringify(input.profile)}
+              )
+              ON CONFLICT(preference_profile_id) DO UPDATE SET
+                user_id = excluded.user_id,
+                revision = excluded.revision,
+                updated_at = excluded.updated_at,
+                entity_json = excluded.entity_json
+            `;
+          }),
+        )
+        .pipe(
+          Effect.mapError(persistenceError("SupervisedGovernance.putUserModelPreferenceProfile")),
+        );
+
+  const appendModelSelectionReceipt: SupervisedGovernanceRepositoryShape["appendModelSelectionReceipt"] =
+    (input) =>
+      sql
+        .withTransaction(
+          Effect.gen(function* () {
+            yield* advanceRevision(input.expectedRevision, input.receipt.createdAt);
+            yield* sql`
+              INSERT INTO supervised_model_selection_receipts (
+                receipt_id, workspace_id, room_id, task_node_id, actor_seat_id,
+                selected_model_id, created_at, entity_json
+              ) VALUES (
+                ${input.receipt.id}, ${input.receipt.workspaceId}, ${input.receipt.roomId},
+                ${input.receipt.taskNodeId}, ${input.receipt.actorSeatId},
+                ${input.receipt.selectedModelId}, ${input.receipt.createdAt},
+                ${JSON.stringify(input.receipt)}
+              )
+            `;
+          }),
+        )
+        .pipe(
+          Effect.mapError(persistenceError("SupervisedGovernance.appendModelSelectionReceipt")),
+        );
+
+  const putModelTelemetryAggregate: SupervisedGovernanceRepositoryShape["putModelTelemetryAggregate"] =
+    (input) =>
+      sql
+        .withTransaction(
+          Effect.gen(function* () {
+            yield* advanceRevision(input.expectedRevision, input.aggregate.updatedAt);
+            yield* sql`
+              INSERT INTO supervised_model_telemetry_aggregates (
+                aggregate_id, model_profile_id, category, sample_count,
+                confidence, revision, updated_at, entity_json
+              ) VALUES (
+                ${input.aggregate.id}, ${input.aggregate.modelProfileId}, ${input.aggregate.category},
+                ${input.aggregate.sampleCount}, ${input.aggregate.confidence},
+                ${input.aggregate.revision}, ${input.aggregate.updatedAt},
+                ${JSON.stringify(input.aggregate)}
+              )
+              ON CONFLICT(aggregate_id) DO UPDATE SET
+                model_profile_id = excluded.model_profile_id,
+                category = excluded.category,
+                sample_count = excluded.sample_count,
+                confidence = excluded.confidence,
+                revision = excluded.revision,
+                updated_at = excluded.updated_at,
+                entity_json = excluded.entity_json
+            `;
+          }),
+        )
+        .pipe(
+          Effect.mapError(persistenceError("SupervisedGovernance.putModelTelemetryAggregate")),
+        );
+
+  return SupervisedGovernanceRepository.of({
+    getSnapshot,
+    getModelRoutingState,
+    replaceSnapshot,
+    putModelCapabilityProfile,
+    putUserModelPreferenceProfile,
+    appendModelSelectionReceipt,
+    putModelTelemetryAggregate,
+  });
 });
 
 export const SupervisedGovernanceRepositoryLive = Layer.effect(

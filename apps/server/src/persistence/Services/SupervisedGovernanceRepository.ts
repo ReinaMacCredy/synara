@@ -1,17 +1,50 @@
-import type { SupervisedGovernanceSnapshot } from "@synara/contracts";
+import type {
+  ModelCapabilityProfile,
+  ModelSelectionReceipt,
+  ModelTelemetryAggregate,
+  SupervisedGovernanceSnapshot,
+  UserModelPreferenceProfile,
+} from "@synara/contracts";
 import { ServiceMap } from "effect";
 import type { Effect } from "effect";
 
 import type { ProjectionRepositoryError } from "../Errors.ts";
+
+export interface PersistedModelRoutingState {
+  readonly revision: number;
+  readonly modelCapabilityProfiles: readonly ModelCapabilityProfile[];
+  readonly userModelPreferenceProfiles: readonly UserModelPreferenceProfile[];
+  readonly modelTelemetryAggregates: readonly ModelTelemetryAggregate[];
+}
 
 export interface SupervisedGovernanceRepositoryShape {
   readonly getSnapshot: () => Effect.Effect<
     SupervisedGovernanceSnapshot,
     ProjectionRepositoryError
   >;
+  readonly getModelRoutingState: () => Effect.Effect<
+    PersistedModelRoutingState,
+    ProjectionRepositoryError
+  >;
   readonly replaceSnapshot: (
     snapshot: SupervisedGovernanceSnapshot,
   ) => Effect.Effect<void, ProjectionRepositoryError>;
+  readonly putModelCapabilityProfile: (input: {
+    readonly profile: ModelCapabilityProfile;
+    readonly expectedRevision: number;
+  }) => Effect.Effect<void, ProjectionRepositoryError>;
+  readonly putUserModelPreferenceProfile: (input: {
+    readonly profile: UserModelPreferenceProfile;
+    readonly expectedRevision: number;
+  }) => Effect.Effect<void, ProjectionRepositoryError>;
+  readonly appendModelSelectionReceipt: (input: {
+    readonly receipt: ModelSelectionReceipt;
+    readonly expectedRevision: number;
+  }) => Effect.Effect<void, ProjectionRepositoryError>;
+  readonly putModelTelemetryAggregate: (input: {
+    readonly aggregate: ModelTelemetryAggregate;
+    readonly expectedRevision: number;
+  }) => Effect.Effect<void, ProjectionRepositoryError>;
 }
 
 export class SupervisedGovernanceRepository extends ServiceMap.Service<

@@ -154,6 +154,19 @@ export const defaultSupervisedToolsForRole = (
   role: AgentRole,
 ): ReadonlyArray<SupervisedIntentToolId> => defaultRoleTools[role];
 
+export const supervisedInternalCommandsForTools = (
+  toolIds: ReadonlyArray<SupervisedIntentToolId>,
+): ReadonlyArray<SupervisedInternalCommandId> => [
+  ...new Set(
+    toolIds.flatMap((toolId) => descriptorsById.get(toolId)?.internalCommands ?? []),
+  ),
+];
+
+export const defaultSupervisedCommandsForRole = (
+  role: AgentRole,
+): ReadonlyArray<SupervisedInternalCommandId> =>
+  supervisedInternalCommandsForTools(defaultSupervisedToolsForRole(role));
+
 export type SupervisedToolAuthorizationDecision =
   | { readonly allowed: true; readonly descriptor: SupervisedIntentToolDescriptor }
   | { readonly allowed: false; readonly code: string; readonly reason: string };
@@ -213,6 +226,16 @@ export function authorizeSupervisedIntentTool(input: {
       allowed: false,
       code: "supervised_tool_capability_denied",
       reason: `The authority receipt does not grant '${input.toolId}'.`,
+    };
+  }
+  const missingCommand = descriptor.internalCommands.find(
+    (command) => !input.receipt.allowedCommands.includes(command),
+  );
+  if (missingCommand) {
+    return {
+      allowed: false,
+      code: "supervised_tool_command_denied",
+      reason: `The authority receipt does not grant internal command '${missingCommand}'.`,
     };
   }
   if (

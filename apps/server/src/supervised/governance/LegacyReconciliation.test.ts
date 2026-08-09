@@ -12,6 +12,7 @@ import {
 } from "@synara/contracts";
 
 import { reconcileLegacyGovernance } from "./LegacyReconciliation.ts";
+import { defaultSupervisedCommandsForRole } from "../tools/Registry.ts";
 
 const now = "2026-08-09T00:00:00.000Z";
 
@@ -77,9 +78,12 @@ describe("legacy Supervised reconciliation", () => {
     const decoded = Schema.decodeUnknownSync(SupervisedGovernanceSnapshot)(reconciled);
 
     assert.equal(decoded.agentSeats[0]?.identityRole, "lead");
-    assert.deepStrictEqual(decoded.authorityReceipts[0]?.allowedCommands, [
-      "supervised.specialist.create",
-    ]);
+    assert.ok(
+      decoded.authorityReceipts[0]?.allowedCommands.includes("supervised.specialist.create"),
+    );
+    for (const command of defaultSupervisedCommandsForRole("lead")) {
+      assert.ok(decoded.authorityReceipts[0]?.allowedCommands.includes(command));
+    }
     assert.ok(
       decoded.authorityReceipts[0]?.allowedTools.includes("supervised.agent.create"),
     );
@@ -276,5 +280,76 @@ describe("legacy Supervised reconciliation", () => {
     assert.equal(expanded.authorityReceipts.length, 2);
     assert.notEqual(currentReceiptId, first.agentSeats[0]?.authorityReceiptId);
     assert.ok(expanded.authorityReceipts.some((receipt) => receipt.id === currentReceiptId));
+  });
+
+  it("preserves revoked legacy authority instead of issuing a successor", () => {
+    const supervision = Schema.decodeUnknownSync(SupervisionSnapshot)({
+      ...emptySupervisionSnapshot(now),
+      leads: [
+        {
+          id: "lead-seat-revoked",
+          projectId: "project-1",
+          activeThreadId: "thread-revoked",
+          predecessorThreadIds: [],
+          profileSnapshotId: "profile-snapshot-revoked",
+          status: "active",
+          createdAt: now,
+          updatedAt: now,
+          archivedAt: null,
+          revision: 1,
+        },
+      ],
+    });
+    const runtime = Schema.decodeUnknownSync(SupervisedRuntimeSnapshot)({
+      ...emptySupervisedRuntimeSnapshot(now),
+      rooms: [
+        {
+          id: "room-revoked-1",
+          projectId: "project-1",
+          title: "Room one",
+          leadSeatId: "lead-seat-revoked",
+          status: "active",
+          graphRevision: 0,
+          revision: 1,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ],
+    });
+    const first = reconcileLegacyGovernance({
+      governance: emptySupervisedGovernanceSnapshot(now),
+      supervision,
+      runtime,
+      at: now,
+    });
+    const firstReceipt = first.authorityReceipts[0]!;
+    const revokedAt = "2026-08-09T00:01:00.000Z";
+    const revoked = {
+      ...first,
+      authorityReceipts: [{ ...firstReceipt, revokedAt }],
+    };
+
+    const reconciled = reconcileLegacyGovernance({
+      governance: revoked,
+      supervision,
+      runtime: {
+        ...runtime,
+        rooms: [
+          ...runtime.rooms,
+          {
+            ...runtime.rooms[0]!,
+            id: "room-revoked-2" as typeof runtime.rooms[number]["id"],
+            title: "Room two",
+          },
+        ],
+      },
+      at: "2026-08-09T00:02:00.000Z",
+    });
+
+    assert.equal(reconciled.authorityReceipts.length, 1);
+    assert.equal(reconciled.authorityReceipts[0]?.id, firstReceipt.id);
+    assert.equal(reconciled.authorityReceipts[0]?.revokedAt, revokedAt);
+    assert.equal(reconciled.agentSeats[0]?.authorityReceiptId, firstReceipt.id);
+    assert.ok(reconciled.rootLeases.every((lease) => lease.status === "released"));
   });
 });

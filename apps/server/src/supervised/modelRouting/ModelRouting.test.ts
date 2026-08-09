@@ -220,6 +220,49 @@ describe("Supervisor-first model routing", () => {
     );
     assert.equal(failClosed.selectedModelId, null);
     assert.match(failClosed.rejectedCandidates[0]!.reasons[0]!, /cost is unknown/);
+
+    const missingEstimate = recommendModels(
+      [alpha],
+      undefined,
+      [],
+      {
+        ...constrained,
+        expectedInputTokens: undefined,
+        expectedOutputTokens: undefined,
+        roomPolicy: { allowedModelIds: [alpha.id] },
+      },
+    );
+    assert.equal(missingEstimate.selectedModelId, null);
+    assert.match(missingEstimate.rejectedCandidates[0]!.reasons[0]!, /cost is unknown/);
+  });
+
+  it("classifies build work as coding and breaks ties by locale-independent id order", () => {
+    const coding = model("model-Z-coding", {
+      scores: { ...alpha.scores, coding: 10, uiUx: 0 },
+    });
+    const ui = model("model-a-ui", {
+      scores: { ...alpha.scores, coding: 0, uiUx: 10 },
+    });
+    const buildRequest = {
+      ...request("user-a"),
+      taskCategory: "build",
+      roomPolicy: { allowedModelIds: [coding.id, ui.id] },
+    };
+
+    assert.equal(recommendModels([ui, coding], undefined, [], buildRequest).selectedModelId, coding.id);
+
+    const tiedUpper = model("model-Z");
+    const tiedLower = model("model-a");
+    const tieRequest = {
+      ...request("user-a"),
+      roomPolicy: { allowedModelIds: [tiedLower.id, tiedUpper.id] },
+    };
+    assert.deepStrictEqual(
+      recommendModels([tiedLower, tiedUpper], undefined, [], tieRequest).rankedCandidates.map(
+        (candidate) => candidate.modelId,
+      ),
+      [tiedUpper.id, tiedLower.id],
+    );
   });
 
   it("uses telemetry only after both sample-size and confidence gates", () => {
@@ -315,5 +358,28 @@ describe("Supervisor-first model routing", () => {
     assert.equal(aggregate!.failureCount, 1);
     assert.equal(aggregate!.retryCount, 1);
     assert.equal(aggregate!.confidence, MODEL_TELEMETRY_MIN_CONFIDENCE);
+
+    assert.throws(() =>
+      aggregateModelOutcome(undefined, {
+        modelProfileId: alpha.id,
+        category: "implementation",
+        succeeded: true,
+        retries: 0,
+        latencyMs: Number.NaN,
+        costUsd: 0,
+        completedAt: now,
+      }),
+    );
+    assert.throws(() =>
+      aggregateModelOutcome(undefined, {
+        modelProfileId: alpha.id,
+        category: "implementation",
+        succeeded: true,
+        retries: 0,
+        latencyMs: 1,
+        costUsd: Number.POSITIVE_INFINITY,
+        completedAt: now,
+      }),
+    );
   });
 });

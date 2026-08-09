@@ -19,7 +19,11 @@ import * as NodeSqliteClient from "../../persistence/NodeSqliteClient.ts";
 import { SupervisedGovernanceRepository } from "../../persistence/Services/SupervisedGovernanceRepository.ts";
 import { builtInRunPolicy } from "../signal/BuiltInSubscriptions.ts";
 import type { ModelRoutingRequest } from "./ModelRouting.ts";
-import { ModelRoutingService, ModelRoutingServiceLive } from "./ModelRoutingService.ts";
+import {
+  ModelRoutingDomainError,
+  ModelRoutingService,
+  ModelRoutingServiceLive,
+} from "./ModelRoutingService.ts";
 
 const now = "2026-08-09T05:00:00.000Z";
 const tempDirectories: string[] = [];
@@ -177,9 +181,18 @@ describe("ModelRoutingService persistence", () => {
           profile: { ...seed.userModelPreferenceProfiles[0]!, revision: 2 },
           expectedRevision: 1,
         });
+        const routingRevision = (yield* repository.getSnapshot()).revision;
+        const staleError = yield* service
+          .select({
+            receiptId: ModelSelectionReceiptId.makeUnsafe("selection-stale"),
+            request: { ...request, routingRevision: routingRevision - 1 },
+          })
+          .pipe(Effect.flip);
+        assert.ok(staleError instanceof ModelRoutingDomainError);
+        assert.equal(staleError.code, "routing_revision_conflict");
         yield* service.select({
           receiptId: ModelSelectionReceiptId.makeUnsafe("selection-routing"),
-          request,
+          request: { ...request, routingRevision },
         });
         yield* service.recordOutcome({
           modelProfileId: ModelCapabilityProfileId.makeUnsafe("model-routing"),
@@ -210,12 +223,47 @@ describe("ModelRoutingService persistence", () => {
     assert.equal(reloaded.snapshot.modelSelectionReceipts[0]!.capabilityProfileRevision, 2);
     assert.equal(reloaded.snapshot.modelSelectionReceipts[0]!.preferenceProfileRevision, 2);
     assert.equal(reloaded.snapshot.modelSelectionReceipts[0]!.runPolicyRevision, 0);
+    assert.equal(reloaded.snapshot.modelSelectionReceipts[0]!.routingRevision, 3);
     assert.equal(reloaded.snapshot.modelCapabilityProfiles[0]!.revision, 2);
     assert.equal(reloaded.snapshot.userModelPreferenceProfiles[0]!.revision, 2);
     assert.equal(reloaded.snapshot.modelTelemetryAggregates.length, 1);
     assert.equal(reloaded.snapshot.modelTelemetryAggregates[0]!.sampleCount, 1);
     assert.equal(reloaded.snapshot.modelTelemetryAggregates[0]!.successCount, 1);
+    assert.equal(reloaded.snapshot.workspaces[0]!.id, seed.workspaces[0]!.id);
+    assert.equal(reloaded.snapshot.agentSeats[0]!.id, seed.agentSeats[0]!.id);
+    assert.equal(
+      reloaded.snapshot.authorityReceipts[0]!.id,
+      seed.authorityReceipts[0]!.id,
+    );
     assert.equal(reloaded.ownState.preferenceProfile?.userId, "user-routing");
     assert.equal(reloaded.otherState.preferenceProfile, null);
+  });
+
+  it("rejects selection when the acting seat's canonical authority is revoked", async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "synara-model-routing-revoked-"));
+    tempDirectories.push(directory);
+    const filename = path.join(directory, "state.sqlite");
+
+    const error = await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* runMigrations();
+        const repository = yield* SupervisedGovernanceRepository;
+        const service = yield* ModelRoutingService;
+        yield* repository.replaceSnapshot({
+          ...seed,
+          authorityReceipts: [{ ...seed.authorityReceipts[0]!, revokedAt: now }],
+        });
+        const routingRevision = (yield* repository.getSnapshot()).revision;
+        return yield* service
+          .select({
+            receiptId: ModelSelectionReceiptId.makeUnsafe("selection-revoked"),
+            request: { ...request, routingRevision },
+          })
+          .pipe(Effect.flip);
+      }).pipe(Effect.provide(makeLayer(filename))),
+    );
+
+    assert.ok(error instanceof ModelRoutingDomainError);
+    assert.equal(error.code, "routing_authority_denied");
   });
 });
