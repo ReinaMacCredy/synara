@@ -91,6 +91,42 @@ const event = {
 } as ControlPlaneEvent;
 
 describe("GovernedPluginRuntime", () => {
+  it("removes network and filesystem mutation capabilities during observe-only replay", async () => {
+    let kernelOptions: Parameters<PluginKernelFactory>[0] | null = null;
+    const runtime = new GovernedPluginRuntime(
+      {
+        ...installation,
+        grant: {
+          ...installation.grant,
+          capabilities: [
+            ...installation.grant.capabilities,
+            "network.connect",
+            "filesystem.write",
+          ],
+        },
+      } as PluginInstallation,
+      "/tmp/plugin-1",
+      {
+        ...policy,
+        allowedCapabilities: ["event.read", "network.connect", "filesystem.write"],
+      } as RunPolicy,
+      usage,
+      async (options) => {
+        kernelOptions = options;
+        return {
+          execute: async () => ({ result: { observations: [], signals: [], commandRequests: [] }, stdout: "", outputBytes: 0 }),
+          stop: () => undefined,
+        };
+      },
+      async () => "async function handle() {}",
+      "observe_only",
+    );
+
+    await runtime.handle(event);
+    assert.equal(kernelOptions?.allowNetwork, false);
+    assert.equal(kernelOptions?.allowFilesystemWrites, false);
+  });
+
   it("passes only granted payload fields and returns request candidates without executing them", async () => {
     let observedInput: unknown;
     const factory: PluginKernelFactory = async () => ({

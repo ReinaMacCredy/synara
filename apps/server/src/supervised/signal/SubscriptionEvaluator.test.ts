@@ -139,6 +139,49 @@ describe("SubscriptionEvaluator", () => {
     assert.match(duplicate.reasons[0] ?? "", /deduplicated/);
   });
 
+  it("bounds persisted aggregation groups and preserves groups with active signals", () => {
+    const inertGroups = Object.fromEntries(
+      Array.from({ length: 10_000 }, (_, index) => [
+        `inert-${index}`,
+        {
+          samples: [],
+          armed: true,
+          nextEligibleAt: null,
+          pendingSince: null,
+          activeSignal: null,
+        },
+      ]),
+    );
+    const evicted = evaluateSubscriptionEvent(
+      reviewSubscription,
+      { groups: inertGroups },
+      reviewEvent(1),
+    );
+    assert.equal(Object.keys(evicted.state.groups).length, 10_000);
+    assert.equal("inert-0" in evicted.state.groups, false);
+
+    const activeGroups = Object.fromEntries(
+      Array.from({ length: 10_000 }, (_, index) => [
+        `active-${index}`,
+        {
+          samples: [],
+          armed: false,
+          nextEligibleAt: null,
+          pendingSince: null,
+          activeSignal: {} as never,
+        },
+      ]),
+    );
+    const rejected = evaluateSubscriptionEvent(
+      reviewSubscription,
+      { groups: activeGroups },
+      reviewEvent(1),
+    );
+    assert.equal(rejected.matched, false);
+    assert.match(rejected.reasons[0] ?? "", /capacity is exhausted/);
+    assert.equal(Object.keys(rejected.state.groups).length, 10_000);
+  });
+
   it("uses threshold crossing, hysteresis reset, and cooldown for Lead context", () => {
     const subscription = {
       ...reviewSubscription,

@@ -154,6 +154,24 @@ testLayer("SupervisedRuntimeRepository", (it) => {
     }),
   );
 
+  it.effect("advances the orchestration ingestion cursor monotonically", () =>
+    Effect.gen(function* () {
+      const repository = yield* SupervisedRuntimeRepository;
+      assert.equal(yield* repository.getIngestionCursor("orchestration-events-v1"), 0);
+      yield* repository.putIngestionCursor({
+        key: "orchestration-events-v1",
+        sourceSequence: 12,
+        updatedAt: now,
+      });
+      yield* repository.putIngestionCursor({
+        key: "orchestration-events-v1",
+        sourceSequence: 4,
+        updatedAt: now,
+      });
+      assert.equal(yield* repository.getIngestionCursor("orchestration-events-v1"), 12);
+    }),
+  );
+
   it.effect("claims one at-least-once delivery once and keeps its durable projection", () =>
     Effect.gen(function* () {
       const repository = yield* SupervisedRuntimeRepository;
@@ -210,10 +228,24 @@ testLayer("SupervisedRuntimeRepository", (it) => {
       });
       assert.equal(secondClaim.length, 0);
 
+      yield* repository.updateDelivery({
+        ...claimed[0]!,
+        status: "delivered",
+        deliveredAt: now,
+        updatedAt: now,
+      });
+      assert.equal(
+        yield* repository.countDeliveredSince({
+          subscriptionId: subscription.id,
+          since: now,
+        }),
+        1,
+      );
+
       const snapshot = yield* repository.getSnapshot({ includeDisabled: true });
       assert.equal(snapshot.subscriptions.length, 1);
       assert.equal(snapshot.signals.length, 1);
-      assert.equal(snapshot.deliveries[0]?.status, "delivering");
+      assert.equal(snapshot.deliveries[0]?.status, "delivered");
     }),
   );
 

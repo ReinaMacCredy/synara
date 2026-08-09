@@ -124,6 +124,7 @@ describe("real RLM execution evidence", () => {
     assert.equal(result.providerCallId, "turn:branch");
     assert.equal(result.durationMs, 2_000);
     assert.equal(result.costUsd, 0.02);
+    assert.deepEqual(result.sourceEventIds, ["activity:tool", "activity:turn"]);
     assert.deepEqual(result.usage, {
       inputTokens: 100,
       outputTokens: 50,

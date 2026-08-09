@@ -138,6 +138,7 @@ export interface RlmThreadResult {
   readonly items: ReadonlyArray<ModelTranscriptItem>;
   readonly usage: ModelSessionTrace["usage"];
   readonly providerCallId: string | null;
+  readonly sourceEventIds: ReadonlyArray<OrchestrationThread["activities"][number]["id"]>;
   readonly durationMs: number | null;
   readonly costUsd: number | null;
   readonly error: string | null;
@@ -178,6 +179,15 @@ export function extractRlmThreadResult(thread: OrchestrationThread): RlmThreadRe
     items: traceItems(thread),
     usage: usage(thread),
     providerCallId: latestTurn?.turnId ?? null,
+    sourceEventIds: thread.activities
+      .filter(
+        (activity) =>
+          activity.kind === "turn.completed" ||
+          activity.kind === "turn.aborted" ||
+          activity.kind === "tool.completed",
+      )
+      .map((activity) => activity.id)
+      .slice(-512),
     durationMs,
     costUsd,
     error: sessionError,

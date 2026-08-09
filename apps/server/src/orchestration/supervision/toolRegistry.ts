@@ -233,7 +233,7 @@ export function makeSupervisionTools(
       description:
         "Read only the caller's bounded Supervisor missions or Lead-facing supervision state. Peer transcripts are never included.",
       inputSchema: objectSchema({}),
-      readOnly: false,
+      readOnly: true,
       providerSupport: { codex: "native", claude: "unsupported" },
       supervised: {
         toolId: "supervised.topology.read",
@@ -1048,6 +1048,11 @@ export function makeSupervisionTools(
               candidate.provider === callerThread.modelSelection.provider &&
               candidate.model === callerThread.modelSelection.model,
           );
+          const objective = stringArg(args, "objective");
+          const existingRunId =
+            typeof args.runId === "string" && args.runId.trim().length > 0
+              ? args.runId.trim()
+              : null;
           const result = yield* startRlm({
             engine: input.orchestrationEngine,
             daemon: input.runtimeDaemon,
@@ -1057,14 +1062,18 @@ export function makeSupervisionTools(
             room,
             seat,
             authorityReceipt,
-            objective: stringArg(args, "objective"),
+            objective,
             branches,
-            existingRunId:
-              typeof args.runId === "string" && args.runId.trim().length > 0
-                ? args.runId.trim()
-                : null,
+            existingRunId,
             providerLimitTokens: modelProfile?.contextCapacity ?? null,
-            createdAt: new Date().toISOString(),
+            requestId: JSON.stringify({
+              callerThreadId: context.callerThreadId,
+              callerTurnId: context.callerTurnId,
+              objective,
+              branches,
+              existingRunId,
+            }),
+            createdAt: callerThread.latestTurn?.requestedAt ?? new Date().toISOString(),
           }).pipe(
             Effect.mapError((error) =>
               error instanceof RlmStartError
@@ -1147,7 +1156,11 @@ export function makeSupervisionTools(
             workspaceId: seat.workspaceId,
             viewerSeatId: seat.id,
             entries: notebookState.entries.filter(
-              (entry) => entry.roomId === null || allowedRoomIds.has(entry.roomId),
+              (entry) =>
+                (entry.roomId === null || allowedRoomIds.has(entry.roomId)) &&
+                (entry.taskNodeId === null ||
+                  receipt.taskNodeScopes.length === 0 ||
+                  receipt.taskNodeScopes.includes(entry.taskNodeId)),
             ),
             compactionReceipts: notebookState.compactionReceipts,
             cursor: incremental && query === null ? notebookState.cursor : null,
@@ -1274,11 +1287,13 @@ export function makeSupervisionTools(
           }
           if (
             taskNodeId !== null &&
-            !state.supervised.taskNodes.some(
-              (candidate) =>
-                candidate.id === taskNodeId &&
-                (roomId === null || candidate.roomId === roomId),
-            )
+            (receipt.taskNodeScopes.length > 0 &&
+              !receipt.taskNodeScopes.includes(taskNodeId) ||
+              !state.supervised.taskNodes.some(
+                (candidate) =>
+                  candidate.id === taskNodeId &&
+                  (roomId === null || candidate.roomId === roomId),
+              ))
           ) {
             return yield* Effect.fail(
               new HostToolError(
@@ -1395,6 +1410,9 @@ export function makeSupervisionTools(
           const visibleEntries = current.entries.filter(
             (candidate) =>
               (candidate.roomId === null || allowedRoomIds.has(candidate.roomId)) &&
+              (candidate.taskNodeId === null ||
+                receipt.taskNodeScopes.length === 0 ||
+                receipt.taskNodeScopes.includes(candidate.taskNodeId)) &&
               ["workspace", "internal"].includes(candidate.protectionClass) &&
               candidate.redactedAt === null,
           );

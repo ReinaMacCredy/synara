@@ -129,7 +129,7 @@ import { TurnCheckpointCoordinator } from "../Services/TurnCheckpointCoordinator
 import { resolveProviderSessionThread as resolveProviderSessionThreadFromProjection } from "../providerSessionThread.ts";
 import {
   resolveEffectiveCanonicalAuthority,
-  resolveProjectedSupervisionCaller,
+  resolveProjectedSupervisionCallerForThread,
 } from "../supervision/canonicalCaller.ts";
 
 type ProviderQueueDrainEvent = Extract<
@@ -537,11 +537,21 @@ const make = Effect.gen(function* () {
     threadId: ThreadId,
   ): Effect.fn.Return<ProviderSupervisionSessionContext | undefined> {
     const snapshot = yield* projectionSnapshotQuery.getSnapshot();
-    const caller = resolveProjectedSupervisionCaller({
+    const resolution = resolveProjectedSupervisionCallerForThread({
       supervision: snapshot.supervision,
+      threads: snapshot.threads,
       threadId,
     });
-    if (!caller) return undefined;
+    const thread = snapshot.threads.find((candidate) => candidate.id === threadId);
+    const caller = resolution.caller;
+    if (!caller) {
+      if (!resolution.requiresCanonicalAuthority) return undefined;
+      return yield* new ProviderAdapterValidationError({
+        provider: thread?.modelSelection.provider ?? "codex",
+        operation: "thread.turn.start",
+        issue: `Supervised thread '${threadId}' has no active canonical authority source.`,
+      });
+    }
     const governance = yield* supervisedGovernanceRepository.getSnapshot();
     const authority = resolveEffectiveCanonicalAuthority({
       governance,
@@ -558,6 +568,13 @@ const make = Effect.gen(function* () {
         issue: `Supervision seat for thread '${threadId}' has no resolved profile snapshot.`,
       });
     }
+    if (!authority) {
+      return yield* new ProviderAdapterValidationError({
+        provider: profileSnapshot.runtime.provider,
+        operation: "thread.turn.start",
+        issue: `Supervised thread '${threadId}' has no current canonical authority receipt.`,
+      });
+    }
     return {
       role: caller.role,
       ...(caller.role === "supervisor"
@@ -572,22 +589,18 @@ const make = Effect.gen(function* () {
             )
             .map((mission) => mission.id)
         : [],
-      ...(authority
-        ? {
-            agentSeatId: authority.seat.id,
-            workspaceId: authority.seat.workspaceId,
-            roomIds: authority.seat.roomIds.filter((roomId) =>
-              authority.receipt.roomScopes.includes(roomId),
-            ),
-            effectiveRole: authority.receipt.effectiveRole,
-            authorityReceiptId: authority.receipt.id,
-            allowedTools: authority.receipt.allowedTools,
-            allowedCommands: authority.receipt.allowedCommands,
-            rootLeaseIds: authority.receipt.rootLeaseIds,
-            mandateIds: authority.receipt.mandateIds,
-            runPolicyRevision: authority.receipt.runPolicyRevision,
-          }
-        : {}),
+      agentSeatId: authority.seat.id,
+      workspaceId: authority.seat.workspaceId,
+      roomIds: authority.seat.roomIds.filter((roomId) =>
+        authority.receipt.roomScopes.includes(roomId),
+      ),
+      effectiveRole: authority.receipt.effectiveRole,
+      authorityReceiptId: authority.receipt.id,
+      allowedTools: authority.receipt.allowedTools,
+      allowedCommands: authority.receipt.allowedCommands,
+      rootLeaseIds: authority.receipt.rootLeaseIds,
+      mandateIds: authority.receipt.mandateIds,
+      runPolicyRevision: authority.receipt.runPolicyRevision,
     };
   });
   const editResendTurnStartKeys = new Set<string>();

@@ -45,6 +45,7 @@ export type PluginKernelFactory = (input: {
   readonly workingDirectory: string;
   readonly policy: RunPolicy;
   readonly allowNetwork: boolean;
+  readonly allowFilesystemWrites: boolean;
 }) => Promise<PluginKernel>;
 export type PluginSourceLoader = (path: string) => Promise<string>;
 
@@ -157,6 +158,7 @@ export class GovernedPluginRuntime {
     private readonly usage: RunResourceUsage,
     private readonly kernelFactory: PluginKernelFactory = defaultKernelFactory,
     private readonly sourceLoader: PluginSourceLoader = (entry) => readFile(entry, "utf8"),
+    private readonly executionMode: "active" | "observe_only" = "active",
   ) {}
 
   private assertActive(event: ControlPlaneEvent) {
@@ -234,8 +236,13 @@ export class GovernedPluginRuntime {
         workingDirectory: this.pluginDirectory,
         policy: this.runPolicy,
         allowNetwork:
+          this.executionMode === "active" &&
           this.installation.grant.capabilities.includes("network.connect") &&
           this.runPolicy.allowedCapabilities.includes("network.connect"),
+        allowFilesystemWrites:
+          this.executionMode === "active" &&
+          this.installation.grant.capabilities.includes("filesystem.write") &&
+          this.runPolicy.allowedCapabilities.includes("filesystem.write"),
       });
       const source = await this.executableSource();
       if (!source) return emptyResult();

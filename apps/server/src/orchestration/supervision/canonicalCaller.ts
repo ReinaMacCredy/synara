@@ -3,6 +3,7 @@ import type {
   EffectiveAuthorityReceipt,
   SupervisedGovernanceSnapshot,
   SupervisionSnapshot,
+  OrchestrationThread,
   ThreadId,
 } from "@synara/contracts";
 
@@ -99,6 +100,42 @@ export function resolveProjectedSupervisionCaller(input: {
     lead: rotationLead,
     rotation,
   };
+}
+
+export function resolveProjectedSupervisionCallerForThread(input: {
+  readonly supervision: SupervisionSnapshot;
+  readonly threads: ReadonlyArray<
+    Pick<OrchestrationThread, "id" | "creationSource" | "sourceThreadId">
+  >;
+  readonly threadId: ThreadId;
+}): {
+  readonly caller: ProjectedSupervisionCaller | undefined;
+  readonly requiresCanonicalAuthority: boolean;
+} {
+  const direct = resolveProjectedSupervisionCaller({
+    supervision: input.supervision,
+    threadId: input.threadId,
+  });
+  if (direct) return { caller: direct, requiresCanonicalAuthority: true };
+  const thread = input.threads.find((candidate) => candidate.id === input.threadId);
+  if (thread?.creationSource !== "supervised_native") {
+    return { caller: undefined, requiresCanonicalAuthority: false };
+  }
+  const threadById = new Map(input.threads.map((candidate) => [candidate.id, candidate]));
+  const visited = new Set<ThreadId>([input.threadId]);
+  let sourceThreadId = thread.sourceThreadId;
+  while (sourceThreadId !== null && !visited.has(sourceThreadId)) {
+    const caller = resolveProjectedSupervisionCaller({
+      supervision: input.supervision,
+      threadId: sourceThreadId,
+    });
+    if (caller) return { caller, requiresCanonicalAuthority: true };
+    visited.add(sourceThreadId);
+    const sourceThread = threadById.get(sourceThreadId);
+    if (sourceThread?.creationSource !== "supervised_native") break;
+    sourceThreadId = sourceThread.sourceThreadId;
+  }
+  return { caller: undefined, requiresCanonicalAuthority: true };
 }
 
 export function resolveEffectiveCanonicalAuthority(input: {

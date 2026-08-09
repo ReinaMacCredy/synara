@@ -98,6 +98,14 @@ describe("shared supervisor notebook projections", () => {
       new Set(protectedView.entries.map((candidate) => candidate.id)),
       new Set([sourceA.id, sourceB.id]),
     );
+    assert.deepEqual(protectedView.compactionReceipts, []);
+
+    const hiddenSource = { ...sourceA, protectionClass: "secret" };
+    const sourceProtectedView = build(
+      [hiddenSource, sourceB, planned.summaryEntry],
+      [planned.receipt],
+    );
+    assert.deepEqual(sourceProtectedView.compactionReceipts, []);
   });
 
   it("rejects compaction across notebook workspace boundaries", () => {

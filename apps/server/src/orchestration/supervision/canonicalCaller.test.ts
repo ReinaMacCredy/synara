@@ -13,6 +13,7 @@ import { describe, it } from "vitest";
 import {
   resolveEffectiveCanonicalAuthority,
   resolveProjectedSupervisionCaller,
+  resolveProjectedSupervisionCallerForThread,
 } from "./canonicalCaller.ts";
 
 const now = "2026-08-09T00:00:00.000Z";
@@ -117,5 +118,45 @@ describe("canonical Supervised caller resolution", () => {
       }),
       undefined,
     );
+  });
+
+  it("inherits canonical authority through the supervised native RLM lineage", () => {
+    const result = resolveProjectedSupervisionCallerForThread({
+      supervision: { ...emptySupervisionSnapshot(now), leads: [lead] },
+      threads: [
+        {
+          id: "rlm-root" as never,
+          creationSource: "supervised_native",
+          sourceThreadId: lead.activeThreadId,
+        },
+        {
+          id: "rlm-branch" as never,
+          creationSource: "supervised_native",
+          sourceThreadId: "rlm-root" as never,
+        },
+      ],
+      threadId: "rlm-branch" as never,
+    });
+
+    assert.equal(result.requiresCanonicalAuthority, true);
+    assert.equal(result.caller?.seatId, lead.id);
+    assert.equal(result.caller?.role, "lead");
+  });
+
+  it("fails closed for an orphaned supervised native descendant", () => {
+    const result = resolveProjectedSupervisionCallerForThread({
+      supervision: emptySupervisionSnapshot(now),
+      threads: [
+        {
+          id: "rlm-orphan" as never,
+          creationSource: "supervised_native",
+          sourceThreadId: null,
+        },
+      ],
+      threadId: "rlm-orphan" as never,
+    });
+
+    assert.equal(result.requiresCanonicalAuthority, true);
+    assert.equal(result.caller, undefined);
   });
 });

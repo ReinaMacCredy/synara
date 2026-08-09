@@ -9,6 +9,7 @@ import {
   DerivedSignal,
   EventSchema,
   Evidence,
+  type GetSupervisedRuntimeInput,
   HarnessPatch,
   Intervention,
   KernelExecution,
@@ -125,9 +126,9 @@ const signalGroupKey = (signal: DerivedSignal) => {
 const makeSupervisedRuntimeRepository = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
 
-  const getSnapshot: SupervisedRuntimeRepositoryShape["getSnapshot"] = (input = {}) =>
+  const loadSnapshot = (input: GetSupervisedRuntimeInput = {}, maximumLimit = 500) =>
     Effect.gen(function* () {
-      const limit = Math.max(1, Math.min(input.limit ?? 500, 500));
+      const limit = Math.max(1, Math.min(input.limit ?? maximumLimit, maximumLimit));
       const roomRows = yield* sql<EntityRow>`
         SELECT entity_json AS "entityJson"
         FROM projection_supervised_rooms
@@ -620,6 +621,143 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
       });
     }).pipe(Effect.mapError(persistenceError("SupervisedRuntime.getSnapshot")));
 
+  const getSnapshot: SupervisedRuntimeRepositoryShape["getSnapshot"] = (input = {}) =>
+    loadSnapshot(input, 500);
+
+  const getDaemonSnapshot: SupervisedRuntimeRepositoryShape["getDaemonSnapshot"] = () =>
+    loadSnapshot({ limit: 2_147_483_647 } as GetSupervisedRuntimeInput, 2_147_483_647);
+
+  const getRlmReconciliationState: SupervisedRuntimeRepositoryShape["getRlmReconciliationState"] =
+    () =>
+      Effect.gen(function* () {
+        const activeRuns = sql`
+          SELECT DISTINCT episode.run_id
+          FROM projection_supervised_rlm_episodes AS episode
+          LEFT JOIN projection_supervised_runs AS run ON run.run_id = episode.run_id
+          WHERE episode.status IN (
+            'requested', 'admitted', 'branching', 'branches_running', 'synthesizing',
+            'stalled', 'planned', 'running'
+          ) OR (
+            episode.status IN ('completed', 'partially_completed', 'failed', 'cancelled')
+            AND run.status NOT IN ('succeeded', 'failed', 'cancelled')
+          )
+        `;
+        const runRows = yield* sql<EntityRow>`
+          SELECT run.entity_json AS "entityJson"
+          FROM projection_supervised_runs AS run
+          WHERE run.run_id IN (${activeRuns})
+          ORDER BY run.updated_at, run.run_id
+        `;
+        const policyRows = yield* sql<EntityRow>`
+          SELECT DISTINCT policy.entity_json AS "entityJson"
+          FROM projection_supervised_run_policies AS policy
+          JOIN projection_supervised_runs AS run
+            ON json_extract(run.entity_json, '$.policyId') = policy.policy_id
+          WHERE run.run_id IN (${activeRuns})
+          ORDER BY policy.updated_at, policy.policy_id
+        `;
+        const episodeRows = yield* sql<EntityRow>`
+          SELECT episode.entity_json AS "entityJson"
+          FROM projection_supervised_rlm_episodes AS episode
+          WHERE episode.run_id IN (${activeRuns})
+          ORDER BY episode.updated_at, episode.episode_id
+        `;
+        const modelSessionRows = yield* sql<EntityRow>`
+          SELECT session.entity_json AS "entityJson"
+          FROM projection_supervised_model_sessions AS session
+          WHERE session.run_id IN (${activeRuns})
+          ORDER BY session.updated_at, session.model_session_id
+        `;
+        const evidenceRows = yield* sql<EntityRow>`
+          SELECT evidence.entity_json AS "entityJson"
+          FROM projection_supervised_evidence AS evidence
+          JOIN projection_supervised_model_sessions AS session
+            ON session.model_session_id = evidence.model_session_id
+          WHERE session.run_id IN (${activeRuns})
+          ORDER BY evidence.created_at, evidence.evidence_id
+        `;
+        const countRows = yield* sql<{
+          readonly activePluginCount: number;
+          readonly activeSubscriptionCount: number;
+        }>`
+          SELECT
+            (SELECT COUNT(*) FROM supervised_plugin_installations WHERE status = 'enabled')
+              AS "activePluginCount",
+            (SELECT COUNT(*) FROM projection_supervised_subscriptions WHERE state = 'enabled')
+              AS "activeSubscriptionCount"
+        `;
+        return {
+          runs: yield* decodeRows(Run, "SupervisedRuntime.getRlmReconciliationState:runs", runRows),
+          runPolicies: yield* decodeRows(
+            RunPolicy,
+            "SupervisedRuntime.getRlmReconciliationState:runPolicies",
+            policyRows,
+          ),
+          rlmEpisodes: yield* decodeRows(
+            RlmEpisode,
+            "SupervisedRuntime.getRlmReconciliationState:rlmEpisodes",
+            episodeRows,
+          ),
+          modelSessions: yield* decodeRows(
+            ModelSessionTrace,
+            "SupervisedRuntime.getRlmReconciliationState:modelSessions",
+            modelSessionRows,
+          ),
+          evidence: yield* decodeRows(
+            Evidence,
+            "SupervisedRuntime.getRlmReconciliationState:evidence",
+            evidenceRows,
+          ),
+          activePluginCount: countRows[0]?.activePluginCount ?? 0,
+          activeSubscriptionCount: countRows[0]?.activeSubscriptionCount ?? 0,
+        };
+      }).pipe(
+        Effect.mapError(toPersistenceSqlError("SupervisedRuntime.getRlmReconciliationState")),
+      );
+
+  const hasActiveRlmWork: SupervisedRuntimeRepositoryShape["hasActiveRlmWork"] = () =>
+    sql<{ readonly active: number }>`
+      SELECT EXISTS(
+        SELECT 1
+        FROM projection_supervised_rlm_episodes AS episode
+        LEFT JOIN projection_supervised_runs AS run ON run.run_id = episode.run_id
+        WHERE episode.status IN (
+          'requested', 'admitted', 'branching', 'branches_running', 'synthesizing',
+          'stalled', 'planned', 'running'
+        ) OR (
+          episode.status IN ('completed', 'partially_completed', 'failed', 'cancelled')
+          AND run.status NOT IN ('succeeded', 'failed', 'cancelled')
+        )
+        LIMIT 1
+      ) AS active
+    `.pipe(
+      Effect.map((rows) => (rows[0]?.active ?? 0) === 1),
+      Effect.mapError(toPersistenceSqlError("SupervisedRuntime.hasActiveRlmWork")),
+    );
+
+  const getIngestionCursor: SupervisedRuntimeRepositoryShape["getIngestionCursor"] = (key) =>
+    sql<{ readonly sourceSequence: number }>`
+      SELECT source_sequence AS "sourceSequence"
+      FROM supervised_runtime_ingestion_cursors
+      WHERE cursor_key = ${key}
+    `.pipe(
+      Effect.map((rows) => rows[0]?.sourceSequence ?? 0),
+      Effect.mapError(toPersistenceSqlError("SupervisedRuntime.getIngestionCursor")),
+    );
+
+  const putIngestionCursor: SupervisedRuntimeRepositoryShape["putIngestionCursor"] = (input) =>
+    sql`
+      INSERT INTO supervised_runtime_ingestion_cursors (
+        cursor_key, source_sequence, updated_at
+      ) VALUES (${input.key}, ${input.sourceSequence}, ${input.updatedAt})
+      ON CONFLICT (cursor_key) DO UPDATE SET
+        source_sequence = MAX(source_sequence, excluded.source_sequence),
+        updated_at = excluded.updated_at
+    `.pipe(
+      Effect.asVoid,
+      Effect.mapError(toPersistenceSqlError("SupervisedRuntime.putIngestionCursor")),
+    );
+
   const setHealth: SupervisedRuntimeRepositoryShape["setHealth"] = (health, snapshotSequence) =>
     sql`
       INSERT INTO supervised_runtime_state (
@@ -899,11 +1037,11 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
       yield* sql`
         INSERT OR IGNORE INTO supervised_subscription_deliveries (
           delivery_id, subscription_id, signal_id, dedupe_key, status, attempt_count,
-          available_at, lease_owner, lease_expires_at, replay, updated_at, entity_json
+          available_at, lease_owner, lease_expires_at, replay, delivered_at, updated_at, entity_json
         ) VALUES (
           ${delivery.id}, ${delivery.subscriptionId}, ${delivery.signalId}, ${delivery.dedupeKey},
           ${delivery.status}, ${delivery.attemptCount}, ${delivery.availableAt}, NULL, NULL,
-          ${delivery.replay ? 1 : 0}, ${delivery.updatedAt}, ${JSON.stringify(delivery)}
+          ${delivery.replay ? 1 : 0}, ${delivery.deliveredAt}, ${delivery.updatedAt}, ${JSON.stringify(delivery)}
         )
       `;
       const rows = yield* sql<{ readonly changed: number }>`SELECT changes() AS changed`;
@@ -928,7 +1066,7 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
       FROM supervised_subscription_deliveries
       WHERE subscription_id = ${input.subscriptionId}
         AND status = 'delivered'
-        AND json_extract(entity_json, '$.deliveredAt') >= ${input.since}
+        AND delivered_at >= ${input.since}
     `.pipe(
       Effect.map((rows) => rows[0]?.count ?? 0),
       Effect.mapError(toPersistenceSqlError("SupervisedRuntime.countDeliveredSince")),
@@ -988,6 +1126,7 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
           lease_owner = NULL,
           lease_expires_at = NULL,
           replay = ${delivery.replay ? 1 : 0},
+          delivered_at = ${delivery.deliveredAt},
           updated_at = ${delivery.updatedAt},
           entity_json = ${JSON.stringify(delivery)}
       WHERE delivery_id = ${delivery.id}
@@ -1875,6 +2014,11 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
   return {
     applyDomainEvent,
     getSnapshot,
+    getDaemonSnapshot,
+    getRlmReconciliationState,
+    hasActiveRlmWork,
+    getIngestionCursor,
+    putIngestionCursor,
     replaceSnapshot,
     setHealth,
     appendControlPlaneEvent,

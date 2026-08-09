@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import type { OrchestrationCommand } from "@synara/contracts";
+import { emptySupervisedRuntimeSnapshot, type OrchestrationCommand } from "@synara/contracts";
 import { it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -15,11 +15,55 @@ import { SupervisedRuntimeRepository } from "../../persistence/Services/Supervis
 import { builtInSubscriptions } from "../../supervised/signal/BuiltInSubscriptions.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { SupervisedSignalDelivery } from "../Services/SupervisedSignalDelivery.ts";
-import { SupervisedSignalDeliveryLive } from "./SupervisedSignalDelivery.ts";
+import {
+  subscriptionAllowsPluginRequest,
+  SupervisedSignalDeliveryLive,
+} from "./SupervisedSignalDelivery.ts";
 
 const now = "2026-08-07T00:00:00.000Z";
 const hash = `sha256:${"a".repeat(64)}` as const;
 const dispatched: OrchestrationCommand[] = [];
+
+const interventionRequest = (roomId: string) => ({
+  type: "supervised.intervention.propose",
+  payload: { intervention: { roomId } },
+});
+
+it("keeps plugin command requests inside the triggering subscription scope", () => {
+  const runtime = {
+    ...emptySupervisedRuntimeSnapshot(now),
+    rooms: [
+      { id: "room-a", projectId: "project-a" },
+      { id: "room-b", projectId: "project-b" },
+    ],
+  } as never;
+  const subscription = builtInSubscriptions(now)[0]!;
+
+  assert.equal(
+    subscriptionAllowsPluginRequest(
+      { ...subscription, scope: [{ kind: "project", projectId: "project-a" as never }] },
+      interventionRequest("room-a") as never,
+      runtime,
+    ),
+    true,
+  );
+  assert.equal(
+    subscriptionAllowsPluginRequest(
+      { ...subscription, scope: [{ kind: "task", taskId: "task-a" as never }] },
+      interventionRequest("room-a") as never,
+      runtime,
+    ),
+    false,
+  );
+  assert.equal(
+    subscriptionAllowsPluginRequest(
+      { ...subscription, scope: [{ kind: "room", roomId: "room-a" as never }] },
+      interventionRequest("room-b") as never,
+      runtime,
+    ),
+    false,
+  );
+});
 
 const engineLayer = Layer.succeed(OrchestrationEngineService, {
   getReadModel: () =>

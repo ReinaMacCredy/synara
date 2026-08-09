@@ -823,8 +823,14 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
         "Only the Human or owning Lead may redrive this delivery.",
       );
       if (!letter) return yield* reject(command, "DeadLetter does not exist.");
+      if (letter.status !== "open") {
+        return yield* reject(command, "Only an open DeadLetter can be redriven.");
+      }
       const current = state.deliveries.find((delivery) => delivery.id === letter.deliveryId);
       if (!current) return yield* reject(command, "DeadLetter delivery does not exist.");
+      if (current.status !== "dead_lettered") {
+        return yield* reject(command, "Only a dead-lettered delivery can be redriven.");
+      }
       if (
         command.replayBehavior === "idempotent_actions" &&
         subscription?.replayPolicy !== "idempotent_actions"

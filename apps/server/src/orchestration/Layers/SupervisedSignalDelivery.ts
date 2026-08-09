@@ -25,6 +25,7 @@ import {
   GovernedPluginRuntime,
   type PluginHandlerResult,
 } from "../../supervised/runtime/PluginRuntime.ts";
+import { loadVerifiedSupervisedPluginPackage } from "../../supervised/runtime/PluginPackage.ts";
 import {
   evaluateRunPolicy,
   type RunResourceUsage,
@@ -170,6 +171,40 @@ function leadWakeText(
   ].join("\n");
 }
 
+function pluginRequestRoomId(request: PluginHandlerResult["commandRequests"][number]) {
+  if (request.type === "supervised.intervention.propose") {
+    const intervention = request.payload.intervention;
+    return intervention !== null && typeof intervention === "object" && !Array.isArray(intervention)
+      ? (intervention as Record<string, unknown>).roomId
+      : null;
+  }
+  return request.payload.roomId;
+}
+
+export function subscriptionAllowsPluginRequest(
+  subscription: SubscriptionDefinition,
+  request: PluginHandlerResult["commandRequests"][number],
+  runtime: SupervisedRuntimeSnapshot,
+) {
+  const roomId = pluginRequestRoomId(request);
+  if (typeof roomId !== "string" || roomId.length === 0) return false;
+  const room = runtime.rooms.find((candidate) => candidate.id === roomId);
+  return subscription.scope.some((scope) => {
+    switch (scope.kind) {
+      case "global":
+        return true;
+      case "project":
+        return room?.projectId === scope.projectId;
+      case "room":
+        return scope.roomId === roomId;
+      case "task":
+      case "task_node":
+      case "seat":
+        return false;
+    }
+  });
+}
+
 export const makeSupervisedSignalDelivery = Effect.gen(function* () {
   const repository = yield* SupervisedRuntimeRepository;
   const engine = yield* OrchestrationEngineService;
@@ -215,6 +250,7 @@ export const makeSupervisedSignalDelivery = Effect.gen(function* () {
     readonly policy: RunPolicy;
     readonly usage: RunResourceUsage;
     readonly result: PluginHandlerResult;
+    readonly runtime: SupervisedRuntimeSnapshot;
   }) {
     const at = input.delivery.updatedAt;
     yield* Effect.forEach(
@@ -295,6 +331,11 @@ export const makeSupervisedSignalDelivery = Effect.gen(function* () {
               `Plugin command request '${request.type}' is outside the SubscriptionDefinition action set.`,
             );
           }
+          if (!subscriptionAllowsPluginRequest(input.subscription, request, input.runtime)) {
+            return yield* deliveryFailure(
+              `Plugin command request '${request.type}' is outside the triggering subscription scope.`,
+            );
+          }
           if (input.delivery.replay && input.delivery.replayBehavior !== "idempotent_actions") {
             yield* appendAudit({
               subscription: input.subscription,
@@ -340,7 +381,7 @@ export const makeSupervisedSignalDelivery = Effect.gen(function* () {
     readonly delivery: SubscriptionDelivery;
   }) {
     if (input.subscription.destination.kind !== "plugin") return;
-    const snapshot = yield* repository.getSnapshot({ includeDisabled: true });
+    const snapshot = yield* repository.getDaemonSnapshot();
     const usage = pluginUsage(snapshot);
     const installation = snapshot.plugins.find(
       (candidate) => candidate.pluginId === input.subscription.destination.pluginId,
@@ -383,11 +424,28 @@ export const makeSupervisedSignalDelivery = Effect.gen(function* () {
     }
     const execute = Effect.tryPromise({
       try: async () => {
+        const verified = await loadVerifiedSupervisedPluginPackage(pluginDirectory(installation));
+        const inspection = verified.inspection;
+        if (
+          inspection.manifest.pluginId !== installation.pluginId ||
+          inspection.manifest.version !== installation.manifest.version ||
+          inspection.manifest.provenance.contentHash !==
+            installation.manifest.provenance.contentHash
+        ) {
+          throw new Error(
+            `Plugin '${installation.pluginId}' package content no longer matches its installation receipt.`,
+          );
+        }
         const runtime = new GovernedPluginRuntime(
           installation,
-          pluginDirectory(installation),
+          inspection.directory,
           policy,
           usage,
+          undefined,
+          async () => verified.handlerSource,
+          input.delivery.replay && input.delivery.replayBehavior !== "idempotent_actions"
+            ? "observe_only"
+            : "active",
         );
         try {
           return await runtime.handle(signalEvent(input.signal, input.delivery));
@@ -453,7 +511,14 @@ export const makeSupervisedSignalDelivery = Effect.gen(function* () {
         },
       }),
     );
-    yield* deliverPluginOutput({ ...input, installation, policy, usage, result });
+    yield* deliverPluginOutput({
+      ...input,
+      installation,
+      policy,
+      usage,
+      result,
+      runtime: snapshot,
+    });
     yield* appendAudit({
       ...input,
       outcome: "plugin_delivered",

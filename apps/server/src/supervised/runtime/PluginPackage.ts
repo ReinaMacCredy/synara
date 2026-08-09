@@ -27,9 +27,9 @@ function containedPath(root: string, candidate: string): boolean {
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
-export async function inspectSupervisedPluginPackage(
+export async function loadVerifiedSupervisedPluginPackage(
   requestedDirectory: string,
-): Promise<SupervisedPluginInspection> {
+) {
   const directory = await realpath(requestedDirectory);
   const directoryStat = await lstat(directory);
   if (!directoryStat.isDirectory()) throw new Error("The selected plugin package is not a directory.");
@@ -101,10 +101,19 @@ export async function inspectSupervisedPluginPackage(
       : []),
   ];
   return {
-    directory,
-    manifest,
-    requestedActionRequests,
-    protectedPayloadFields,
-    warnings,
+    inspection: {
+      directory,
+      manifest,
+      requestedActionRequests,
+      protectedPayloadFields,
+      warnings,
+    } satisfies SupervisedPluginInspection,
+    handlerSource,
   };
+}
+
+export async function inspectSupervisedPluginPackage(
+  requestedDirectory: string,
+): Promise<SupervisedPluginInspection> {
+  return (await loadVerifiedSupervisedPluginPackage(requestedDirectory)).inspection;
 }

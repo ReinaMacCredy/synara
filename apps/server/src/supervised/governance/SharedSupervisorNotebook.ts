@@ -39,21 +39,31 @@ export function buildSupervisorNotebookView(
   const cursorBoundary = input.cursor
     ? `${input.cursor.lastCreatedAt ?? ""}\u0000${input.cursor.lastEntryId ?? ""}`
     : null;
-  const candidates = input.entries.filter((entry) => {
+  const scopedEntries = input.entries.filter((entry) => {
     if (entry.workspaceId !== input.workspaceId || entry.redactedAt !== null) return false;
     if (!protectionClasses.has(entry.protectionClass)) return false;
     if (input.roomId !== undefined && entry.roomId !== input.roomId) return false;
     if (input.taskNodeId !== undefined && entry.taskNodeId !== input.taskNodeId) return false;
     if (input.concern !== undefined && entry.concern !== input.concern) return false;
-    if (cursorBoundary === null) return true;
-    return `${entry.createdAt}\u0000${entry.id}` > cursorBoundary;
+    return true;
   });
+  const scopedEntryIds = new Set(scopedEntries.map((entry) => entry.id));
+  const visibleReceipts = input.compactionReceipts.filter(
+    (receipt) =>
+      receipt.workspaceId === input.workspaceId &&
+      scopedEntryIds.has(receipt.summaryEntryId) &&
+      receipt.sourceEntryIds.every((entryId) => scopedEntryIds.has(entryId)),
+  );
+  const candidates = scopedEntries.filter(
+    (entry) =>
+      cursorBoundary === null || `${entry.createdAt}\u0000${entry.id}` > cursorBoundary,
+  );
   const candidateIds = new Set(candidates.map((entry) => entry.id));
   const supersededIds = new Set(
     candidates.flatMap((entry) => (entry.supersedesEntryId === null ? [] : [entry.supersedesEntryId])),
   );
   const compactedIds = new Set(
-    input.compactionReceipts.flatMap((receipt) =>
+    visibleReceipts.flatMap((receipt) =>
       receipt.workspaceId === input.workspaceId && candidateIds.has(receipt.summaryEntryId)
         ? receipt.sourceEntryIds
         : [],
@@ -78,9 +88,7 @@ export function buildSupervisorNotebookView(
     workspaceId: input.workspaceId,
     viewerSeatId: input.viewerSeatId,
     entries,
-    compactionReceipts: input.compactionReceipts.filter(
-      (receipt) => receipt.workspaceId === input.workspaceId,
-    ),
+    compactionReceipts: visibleReceipts,
     nextCursor,
     createdAt: input.createdAt,
   };

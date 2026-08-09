@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 
 import {
   CommandId,
@@ -29,6 +29,7 @@ import type { SupervisedRuntimeDaemonShape } from "../../orchestration/Services/
 import { buildContextView, renderContextView } from "./ContextViews.ts";
 import { decideRlmAdmission } from "./RlmAdmission.ts";
 import { promptReceiptHash } from "./RlmExecution.ts";
+import { evaluateRunPolicy, type RunResourceUsage } from "./RunPolicy.ts";
 
 export class RlmStartError extends Error {
   constructor(
@@ -57,6 +58,7 @@ export interface StartRlmInput {
   readonly branches: ReadonlyArray<RlmBranchRequest>;
   readonly existingRunId: string | null;
   readonly providerLimitTokens: number | null;
+  readonly requestId: string;
   readonly createdAt: string;
 }
 
@@ -89,6 +91,41 @@ const dispatchFailure = (error: unknown) =>
 
 const boundedPromptSection = (value: string, limit: number) =>
   value.length <= limit ? value : `${value.slice(0, limit - 16)}\n[truncated]`;
+
+const stableId = (prefix: string, value: unknown) =>
+  `${prefix}:${createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 32)}`;
+
+const runUsage = (
+  runtime: SupervisedRuntimeSnapshot,
+  run: Run | undefined,
+  requestedFanOut: number,
+  at: string,
+): RunResourceUsage => {
+  const sessions = run
+    ? runtime.modelSessions.filter((session) => session.runId === run.id)
+    : [];
+  const startedAt = run?.startedAt ?? run?.createdAt ?? null;
+  return {
+    wallTimeMs:
+      startedAt === null ? 0 : Math.max(0, Date.parse(at) - Date.parse(startedAt)),
+    recursiveCalls: run
+      ? runtime.rlmEpisodes.filter((episode) => episode.runId === run.id).length
+      : 0,
+    fanOut: requestedFanOut,
+    retries: sessions.reduce((total, session) => total + session.retryCount, 0),
+    costUsd: sessions.some((session) => session.costUsd !== null)
+      ? sessions.reduce((total, session) => total + (session.costUsd ?? 0), 0)
+      : null,
+    kernelMemoryMiB: 0,
+    kernelOutputBytes: 0,
+    activePlugins: runtime.plugins.filter((plugin) => plugin.status === "enabled").length,
+    activeSubscriptions: runtime.subscriptions.filter(
+      (subscription) => subscription.state === "enabled",
+    ).length,
+    eventRatePerMinute: 0,
+    aggregationSamples: 0,
+  };
+};
 
 export function startRlm(input: StartRlmInput) {
   return Effect.gen(function* () {
@@ -126,18 +163,47 @@ export function startRlm(input: StartRlmInput) {
         ),
       );
     }
-    const policy = input.runtime.runPolicies[0];
+    const requestKey = createHash("sha256").update(input.requestId).digest("hex");
+    const plannedTaskId = TaskId.makeUnsafe(stableId("rlm-task", requestKey));
+    const plannedRunId = RunId.makeUnsafe(stableId("rlm-run", requestKey));
+    const requestedExistingRun =
+      input.existingRunId === null
+        ? undefined
+        : input.runtime.runs.find((candidate) => candidate.id === input.existingRunId);
+    if (
+      input.existingRunId !== null &&
+      (!requestedExistingRun ||
+        requestedExistingRun.roomId !== input.room.id ||
+        requestedExistingRun.ownerSeatId !== input.seat.id)
+    ) {
+      return yield* Effect.fail(
+        new RlmStartError(
+          "supervised_rlm_run_unavailable",
+          "The requested Run is unavailable or not owned by the caller.",
+        ),
+      );
+    }
+    const replayedRun = input.runtime.runs.find((candidate) => candidate.id === plannedRunId);
+    const policyRun = requestedExistingRun ?? replayedRun;
+    const policy = policyRun
+      ? input.runtime.runPolicies.find((candidate) => candidate.id === policyRun.policyId)
+      : input.runtime.runPolicies.find(
+          (candidate) => candidate.revision === input.authorityReceipt.runPolicyRevision,
+        ) ?? input.runtime.runPolicies[0];
     if (!policy) {
       return yield* Effect.fail(
         new RlmStartError("supervised_rlm_policy_unavailable", "No durable RunPolicy is available."),
       );
     }
-    const maxFanOut = Math.min(policy.maxFanOut, 64);
-    if (input.branches.length > maxFanOut) {
+    const policyDecision = evaluateRunPolicy(
+      policy,
+      runUsage(input.runtime, policyRun, input.branches.length, input.createdAt),
+    );
+    if (!policyDecision.allowed) {
       return yield* Effect.fail(
         new RlmStartError(
-          "supervised_rlm_fanout_denied",
-          `Requested ${input.branches.length} branches, but durable policy allows ${maxFanOut}.`,
+          `supervised_rlm_policy_${policyDecision.denialCode ?? "denied"}`,
+          policyDecision.reason,
         ),
       );
     }
@@ -159,36 +225,35 @@ export function startRlm(input: StartRlmInput) {
     const dispatchSupervised = <C extends { readonly type: string }>(command: C) =>
       input.engine.dispatch(command as never).pipe(Effect.mapError(dispatchFailure));
     const commandBase = (aggregateId: string, expectedRevision: number, suffix: string) => ({
-      commandId: CommandId.makeUnsafe(`rlm:${randomUUID()}:${suffix}`),
+      commandId: CommandId.makeUnsafe(
+        stableId("command:rlm", { requestKey, aggregateId, expectedRevision, suffix }),
+      ),
       actor,
       authorityReceiptId: input.authorityReceipt.id,
       aggregateId,
       expectedRevision,
-      idempotencyKey: `rlm:${aggregateId}:${expectedRevision}:${suffix}`,
+      idempotencyKey: stableId("rlm-request", {
+        requestKey,
+        aggregateId,
+        expectedRevision,
+        suffix,
+      }),
       runPolicyId: policy.id,
       createdAt: input.createdAt,
     });
 
     let task: Task;
     let run: Run;
-    if (input.existingRunId !== null) {
-      const existing = input.runtime.runs.find((candidate) => candidate.id === input.existingRunId);
-      if (!existing || existing.roomId !== input.room.id || existing.ownerSeatId !== input.seat.id) {
-        return yield* Effect.fail(
-          new RlmStartError(
-            "supervised_rlm_run_unavailable",
-            "The requested Run is unavailable or not owned by the caller.",
-          ),
-        );
-      }
-      const existingTask = input.runtime.tasks.find((candidate) => candidate.id === existing.taskId);
+    const existingRun = requestedExistingRun ?? replayedRun;
+    if (existingRun) {
+      const existingTask = input.runtime.tasks.find((candidate) => candidate.id === existingRun.taskId);
       if (!existingTask) {
         return yield* Effect.fail(
           new RlmStartError("supervised_rlm_task_unavailable", "The Run's durable Task is unavailable."),
         );
       }
       task = existingTask;
-      run = existing;
+      run = existingRun;
     } else {
       if (input.room.leadSeatId !== input.seat.id) {
         return yield* Effect.fail(
@@ -198,25 +263,28 @@ export function startRlm(input: StartRlmInput) {
           ),
         );
       }
-      task = decode(Task, {
-        id: TaskId.makeUnsafe(`rlm-task:${randomUUID()}`),
-        roomId: input.room.id,
-        title: input.objective.slice(0, 512),
-        intent: input.objective,
-        acceptanceCriteria: ["Independent branch transcripts and retained synthesis evidence exist."],
-        lifecycle: "active",
-        activeGraphRevision: input.room.graphRevision,
-        revision: 0,
-        createdAt: input.createdAt,
-        updatedAt: input.createdAt,
-      }, "RLM Task");
-      yield* dispatchSupervised({
-        type: "supervised.task.create",
-        ...commandBase(task.id, 0, "task-create"),
-        task,
-      });
+      const replayedTask = input.runtime.tasks.find((candidate) => candidate.id === plannedTaskId);
+      task = replayedTask ?? decode(Task, {
+          id: plannedTaskId,
+          roomId: input.room.id,
+          title: input.objective.slice(0, 512),
+          intent: input.objective,
+          acceptanceCriteria: ["Independent branch transcripts and retained synthesis evidence exist."],
+          lifecycle: "active",
+          activeGraphRevision: input.room.graphRevision,
+          revision: 0,
+          createdAt: input.createdAt,
+          updatedAt: input.createdAt,
+        }, "RLM Task");
+      if (!replayedTask) {
+        yield* dispatchSupervised({
+          type: "supervised.task.create",
+          ...commandBase(task.id, 0, "task-create"),
+          task,
+        });
+      }
       run = decode(Run, {
-        id: RunId.makeUnsafe(`rlm-run:${randomUUID()}`),
+        id: plannedRunId,
         roomId: input.room.id,
         taskId: task.id,
         taskNodeId: null,
@@ -295,20 +363,24 @@ export function startRlm(input: StartRlmInput) {
       });
     }
 
-    const episodeId = RlmEpisodeId.makeUnsafe(`rlm-episode:${randomUUID()}`);
-    const rootModelSessionId = ModelSessionId.makeUnsafe(`model-session:rlm-root:${randomUUID()}`);
-    const rootThreadId = ThreadId.makeUnsafe(`rlm-root:${randomUUID()}`);
-    const branchPlans = input.branches.map((branch) => ({
+    const episodeId = RlmEpisodeId.makeUnsafe(stableId("rlm-episode", requestKey));
+    const rootModelSessionId = ModelSessionId.makeUnsafe(
+      stableId("model-session:rlm-root", requestKey),
+    );
+    const rootThreadId = ThreadId.makeUnsafe(stableId("rlm-root", requestKey));
+    const branchPlans = input.branches.map((branch, index) => ({
       ...branch,
-      modelSessionId: ModelSessionId.makeUnsafe(`model-session:rlm-branch:${randomUUID()}`),
-      threadId: ThreadId.makeUnsafe(`rlm-branch:${randomUUID()}`),
+      modelSessionId: ModelSessionId.makeUnsafe(
+        stableId("model-session:rlm-branch", { requestKey, index }),
+      ),
+      threadId: ThreadId.makeUnsafe(stableId("rlm-branch", { requestKey, index })),
     }));
-    const contextFor = (sessionId: ModelSessionId) =>
+    const contextFor = () =>
       buildContextView({
         workspace: contextWorkspace,
         records: input.runtime.contextRecords,
         compactionReceipts: input.runtime.contextCompactionReceipts,
-        actorSeatId: sessionId,
+        actorSeatId: input.seat.id,
         allowedScopes: [
           { kind: "project", projectId: input.project.id },
           { kind: "room", roomId: input.room.id },
@@ -324,7 +396,7 @@ export function startRlm(input: StartRlmInput) {
         ),
         createdAt: input.createdAt,
       });
-    const admissionContext = contextFor(rootModelSessionId);
+    const admissionContext = contextFor();
     const estimatedInputTokens = Math.ceil(
       [input.objective, ...input.branches.map((branch) => branch.prompt)].join("\n").length / 4,
     );
@@ -340,7 +412,18 @@ export function startRlm(input: StartRlmInput) {
       policyId: policy.id,
       createdAt: input.createdAt,
     });
-    let episode = decode(RlmEpisode, {
+    const existingEpisode = input.runtime.rlmEpisodes.find(
+      (candidate) => candidate.id === episodeId,
+    );
+    if (existingEpisode && existingEpisode.runId !== run.id) {
+      return yield* Effect.fail(
+        new RlmStartError(
+          "supervised_rlm_request_conflict",
+          "The durable RLM request key is already bound to another Run.",
+        ),
+      );
+    }
+    let episode = existingEpisode ?? decode(RlmEpisode, {
       id: episodeId,
       runId: run.id,
       admission,
@@ -358,16 +441,25 @@ export function startRlm(input: StartRlmInput) {
       createdAt: input.createdAt,
       updatedAt: input.createdAt,
     }, "RLM Episode");
-    yield* dispatchSupervised({
-      type: "supervised.rlm.upsert",
-      ...commandBase(episode.id, 0, "episode-requested"),
-      episode,
-    });
+    if (!existingEpisode) {
+      yield* dispatchSupervised({
+        type: "supervised.rlm.upsert",
+        ...commandBase(episode.id, 0, "episode-requested"),
+        episode,
+      });
+    }
 
-    const createThread = (threadId: ThreadId, title: string, parentThreadId: ThreadId) =>
+    const createThread = (
+      threadId: ThreadId,
+      title: string,
+      parentThreadId: ThreadId,
+      suffix: string,
+    ) =>
       input.engine.dispatch({
         type: "thread.create",
-        commandId: CommandId.makeUnsafe(`rlm:${randomUUID()}:thread-create`),
+        commandId: CommandId.makeUnsafe(
+          stableId("command:rlm-thread-create", { requestKey, threadId, suffix }),
+        ),
         threadId,
         projectId: input.project.id,
         title,
@@ -391,7 +483,7 @@ export function startRlm(input: StartRlmInput) {
       readonly parentSessionId: ModelSessionId | null;
       readonly prompt: string;
     }) => {
-      const context = contextFor(inputTrace.id);
+      const context = contextFor();
       return decode(ModelSessionTrace, {
         id: inputTrace.id,
         roomId: input.room.id,
@@ -443,23 +535,37 @@ export function startRlm(input: StartRlmInput) {
       }, `${inputTrace.role} ModelSessionTrace`);
     };
 
-    yield* createThread(rootThreadId, `RLM synthesis: ${input.objective.slice(0, 160)}`, input.callerThread.id);
-    const rootTrace = makeTrace({
-      id: rootModelSessionId,
-      threadId: rootThreadId,
-      role: "rlm_root",
-      title: "RLM root synthesis",
-      parentSessionId: null,
-      prompt: input.objective,
-    });
-    yield* dispatchSupervised({
-      type: "supervised.model-session.upsert",
-      ...commandBase(rootTrace.id, 0, "root-session"),
-      modelSession: rootTrace,
-    });
+    const existingRootTrace = input.runtime.modelSessions.find(
+      (candidate) => candidate.id === rootModelSessionId,
+    );
+    if (!existingRootTrace) {
+      yield* createThread(
+        rootThreadId,
+        `RLM synthesis: ${input.objective.slice(0, 160)}`,
+        input.callerThread.id,
+        "root",
+      );
+      const rootTrace = makeTrace({
+        id: rootModelSessionId,
+        threadId: rootThreadId,
+        role: "rlm_root",
+        title: "RLM root synthesis",
+        parentSessionId: null,
+        prompt: input.objective,
+      });
+      yield* dispatchSupervised({
+        type: "supervised.model-session.upsert",
+        ...commandBase(rootTrace.id, 0, "root-session"),
+        modelSession: rootTrace,
+      });
+    }
 
     for (const [index, branch] of branchPlans.entries()) {
-      const branchContext = contextFor(branch.modelSessionId);
+      const existingBranchTrace = input.runtime.modelSessions.find(
+        (candidate) => candidate.id === branch.modelSessionId,
+      );
+      if (existingBranchTrace) continue;
+      const branchContext = contextFor();
       const fixedPrompt = [
         `RLM objective: ${boundedPromptSection(input.objective, 8_192)}`,
         `Independent branch ${index + 1}: ${branch.title}`,
@@ -472,7 +578,12 @@ export function startRlm(input: StartRlmInput) {
         renderContextView(branchContext.records),
         contextBudget,
       )}`;
-      yield* createThread(branch.threadId, `RLM branch ${index + 1}: ${branch.title}`, rootThreadId);
+      yield* createThread(
+        branch.threadId,
+        `RLM branch ${index + 1}: ${branch.title}`,
+        rootThreadId,
+        `branch-${index}`,
+      );
       const trace = makeTrace({
         id: branch.modelSessionId,
         threadId: branch.threadId,
@@ -486,10 +597,14 @@ export function startRlm(input: StartRlmInput) {
         ...commandBase(trace.id, 0, `branch-session-${index}`),
         modelSession: trace,
       });
-      const messageId = MessageId.makeUnsafe(`rlm-message:${randomUUID()}`);
+      const messageId = MessageId.makeUnsafe(
+        stableId("rlm-message", { requestKey, branchIndex: index }),
+      );
       yield* input.engine.dispatch({
         type: "thread.turn.start",
-        commandId: CommandId.makeUnsafe(`rlm:${randomUUID()}:branch-turn`),
+        commandId: CommandId.makeUnsafe(
+          stableId("command:rlm-branch-turn", { requestKey, branchIndex: index }),
+        ),
         threadId: branch.threadId,
         message: {
           messageId,
@@ -518,7 +633,15 @@ export function startRlm(input: StartRlmInput) {
       }).pipe(Effect.mapError(dispatchFailure));
     }
 
-    for (const status of ["admitted", "branching", "branches_running"] as const) {
+    const episodeTransitions =
+      episode.status === "requested"
+        ? (["admitted", "branching", "branches_running"] as const)
+        : episode.status === "admitted"
+          ? (["branching", "branches_running"] as const)
+          : episode.status === "branching"
+            ? (["branches_running"] as const)
+            : [];
+    for (const status of episodeTransitions) {
       episode = { ...episode, status, revision: episode.revision + 1, updatedAt: input.createdAt };
       yield* dispatchSupervised({
         type: "supervised.rlm.upsert",

@@ -5,7 +5,10 @@ import path from "node:path";
 
 import { describe, it } from "@effect/vitest";
 
-import { inspectSupervisedPluginPackage } from "./PluginPackage.ts";
+import {
+  inspectSupervisedPluginPackage,
+  loadVerifiedSupervisedPluginPackage,
+} from "./PluginPackage.ts";
 
 const hash = `sha256:${"a".repeat(64)}`;
 
@@ -41,6 +44,15 @@ describe("Supervised plugin package inspection", () => {
       const inspection = await inspectSupervisedPluginPackage(directory);
       assert.match(inspection.manifest.provenance.source, /^file:/);
       assert.notEqual(inspection.manifest.provenance.contentHash, hash);
+      const verified = await loadVerifiedSupervisedPluginPackage(directory);
+      assert.equal(
+        verified.handlerSource,
+        "export function handle() { return {}; }",
+      );
+      assert.equal(
+        verified.inspection.manifest.provenance.contentHash,
+        inspection.manifest.provenance.contentHash,
+      );
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

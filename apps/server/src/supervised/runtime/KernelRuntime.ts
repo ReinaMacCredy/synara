@@ -17,6 +17,7 @@ export interface KernelRuntimeOptions {
   readonly environment?: Readonly<Record<string, string>>;
   readonly filesystemReadRoots?: ReadonlyArray<string>;
   readonly allowNetwork?: boolean;
+  readonly allowFilesystemWrites?: boolean;
   readonly nodeBinary?: string;
   readonly pythonBinary?: string;
 }
@@ -61,6 +62,7 @@ function macosSandboxProfile(input: {
   readonly hostScript: string;
   readonly readRoots: ReadonlyArray<string>;
   readonly allowNetwork: boolean;
+  readonly allowFilesystemWrites: boolean;
 }): string {
   const readRules = [
     "/System",
@@ -83,7 +85,9 @@ function macosSandboxProfile(input: {
     "(allow sysctl-read)",
     "(allow mach-lookup)",
     `(allow file-read* ${readRules})`,
-    `(allow file-write* (subpath "${escapeSandboxLiteral(input.workingDirectory)}"))`,
+    input.allowFilesystemWrites
+      ? `(allow file-write* (subpath "${escapeSandboxLiteral(input.workingDirectory)}"))`
+      : "(deny file-write*)",
     input.allowNetwork ? "(allow network*)" : "(deny network*)",
   ].join(" ");
 }
@@ -143,6 +147,7 @@ async function spawnKernelHost(
           hostScript,
           readRoots: options.filesystemReadRoots ?? [],
           allowNetwork: options.allowNetwork ?? false,
+          allowFilesystemWrites: options.allowFilesystemWrites ?? true,
         }),
         executable,
         ...languageArgs,

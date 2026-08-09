@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
 
 import type { OrchestrationCommand, OrchestrationThread } from "@synara/contracts";
-import { ControlPlaneEvent, emptySupervisedGovernanceSnapshot } from "@synara/contracts";
+import {
+  ControlPlaneEvent,
+  emptySupervisionSnapshot,
+  emptySupervisedGovernanceSnapshot,
+  emptySupervisedRuntimeSnapshot,
+} from "@synara/contracts";
 import { it } from "@effect/vitest";
-import { Effect, Layer, Option, Schema } from "effect";
+import { Effect, Layer, Option, Schema, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
@@ -20,6 +25,8 @@ import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts"
 import {
   failSubscriptionDelivery,
   shouldDeferRlmProvisioningReconciliation,
+  orchestrationContextEvent,
+  terminalRunRecoveryPath,
   SupervisedRuntimeDaemonLive,
 } from "./SupervisedRuntimeDaemon.ts";
 
@@ -35,6 +42,9 @@ const engineLayer = Layer.succeed(OrchestrationEngineService, {
       dispatched.push(command);
       return { sequence: dispatched.length };
     }),
+  getEventHighWaterSequence: Effect.succeed(0),
+  readEventsThrough: () => Stream.empty,
+  streamDomainEvents: Stream.never,
 } as never);
 const snapshotQueryLayer = Layer.succeed(ProjectionSnapshotQuery, {
   getThreadDetailById: (threadId: string) =>
@@ -96,6 +106,77 @@ const review = (index: number, graphRevision = 1) =>
   });
 
 testLayer("SupervisedRuntimeDaemon", (it) => {
+  it("derives legal Run transitions when a terminal RLM episode survives a crash", () => {
+    assert.deepEqual(terminalRunRecoveryPath("interrupted", "completed"), [
+      "recovering",
+      "running",
+      "reviewing",
+      "succeeded",
+    ]);
+    assert.deepEqual(terminalRunRecoveryPath("queued", "failed"), ["admitted", "failed"]);
+    assert.deepEqual(terminalRunRecoveryPath("paused", "cancelled"), ["cancelled"]);
+  });
+
+  it("projects committed Lead context activity into the signal plane", () => {
+    const now = at(0);
+    const runtime = {
+      ...emptySupervisedRuntimeSnapshot(now),
+      rooms: [
+        {
+          id: "room-context",
+          projectId: "project-context",
+          leadSeatId: "seat-lead",
+        },
+      ],
+    } as never;
+    const supervision = {
+      ...emptySupervisionSnapshot(now),
+      leads: [
+        {
+          id: "seat-lead",
+          projectId: "project-context",
+          activeThreadId: "thread-lead",
+          predecessorThreadIds: [],
+          profileSnapshotId: "profile-lead",
+          status: "active",
+          createdAt: now,
+          updatedAt: now,
+          archivedAt: null,
+          revision: 4,
+        },
+      ],
+    } as never;
+    const projected = orchestrationContextEvent(
+      {
+        sequence: 12,
+        eventId: "event-context",
+        aggregateKind: "thread",
+        aggregateId: "thread-lead",
+        type: "thread.activity-appended",
+        payload: {
+          threadId: "thread-lead",
+          activity: {
+            id: "activity-context",
+            kind: "context-window.updated",
+            createdAt: now,
+            payload: { usedTokens: 80_000, maxTokens: 100_000 },
+          },
+        },
+        occurredAt: now,
+        commandId: null,
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+      } as never,
+      runtime,
+      supervision,
+    );
+    assert.equal(projected?.type, "agent.context.measured");
+    assert.equal(projected?.scope.kind, "room");
+    assert.equal(projected?.payload.contextUsagePercent, 80);
+    assert.deepEqual(projected?.payload.unsummarizedEvidenceRefs, []);
+  });
+
   it("dead-letters at the earliest configured retry threshold", () => {
     const subscription = {
       ...builtInSubscriptions(at(0))[0]!,
@@ -659,7 +740,8 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
       const policy = builtInSubscriptions(createdAt).length > 0
         ? (yield* repository.getSnapshot({ includeDisabled: true })).runPolicies[0]
         : undefined;
-      const runPolicy = policy ?? {
+      const runPolicy = {
+        ...(policy ?? {
         id: "policy-rlm-daemon",
         name: "RLM daemon",
         maxWallTimeMs: 60_000,
@@ -684,6 +766,8 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
         revision: 0,
         createdAt,
         updatedAt: createdAt,
+        }),
+        maxWallTimeMs: 7 * 24 * 60 * 60 * 1_000,
       };
       yield* repository.upsertRunPolicy(runPolicy as never);
       yield* sql`
@@ -905,6 +989,16 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
       }) as OrchestrationThread;
       threadDetails.set("thread-rlm-a", branchThread("thread-rlm-a", "Visible evidence A."));
       threadDetails.set("thread-rlm-b", branchThread("thread-rlm-b", "Visible evidence B."));
+
+      const reconciliationState = yield* repository.getRlmReconciliationState();
+      assert.deepEqual(reconciliationState.runs.map((candidate) => candidate.id), [
+        "run-rlm-daemon",
+      ]);
+      assert.equal(reconciliationState.runPolicies[0]?.id, runPolicy.id);
+      assert.deepEqual(
+        reconciliationState.modelSessions.map((candidate) => candidate.id).sort(),
+        ["session-rlm-a", "session-rlm-b", "session-rlm-root"],
+      );
 
       yield* daemon.reconcile;
 

@@ -194,6 +194,39 @@ const wsRequestAdmissionMiddlewareLayer = Layer.effect(
 // Relative subdirectories scaffolded under a freshly created chat container workspace root.
 const CHAT_WORKSPACE_SUBDIRECTORIES = ["work", "outputs"] as const;
 
+const sameStringSet = (left: ReadonlyArray<string>, right: ReadonlyArray<string>) => {
+  if (left.length !== right.length) return false;
+  const leftSorted = [...left].sort();
+  const rightSorted = [...right].sort();
+  return leftSorted.every((value, index) => value === rightSorted[index]);
+};
+
+const sameScopeSet = (
+  left: ReadonlyArray<object>,
+  right: ReadonlyArray<object>,
+) => sameStringSet(left.map((scope) => JSON.stringify(scope)), right.map((scope) => JSON.stringify(scope)));
+
+export function pluginInstallStepIdempotencyKey(input: {
+  readonly step:
+    | "plugin-subscription"
+    | "plugin-subscription-revoke"
+    | "plugin-reset-circuit"
+    | "plugin-enable"
+    | "plugin-subscription-enable";
+  readonly pluginId: string;
+  readonly packageIdentity: string;
+  readonly expectedRevision: number;
+  readonly subscriptionId?: string;
+}) {
+  return [
+    input.step,
+    input.pluginId,
+    input.packageIdentity,
+    ...(input.subscriptionId === undefined ? [] : [input.subscriptionId]),
+    input.expectedRevision,
+  ].join(":");
+}
+
 interface ProcessTableRow {
   readonly pid: number;
   readonly ppid: number;
@@ -1027,7 +1060,9 @@ const makeWsRpcHandlersLayer = () =>
           ),
         [ORCHESTRATION_WS_METHODS.getSupervisedRuntime]: (input) =>
           rpcEffect(
-            supervisedRuntimeRepository.getSnapshot(input),
+            requireOwnerSession.pipe(
+              Effect.andThen(supervisedRuntimeRepository.getSnapshot(input)),
+            ),
             "Failed to load Supervised runtime",
           ),
         [ORCHESTRATION_WS_METHODS.testSupervisedSubscription]: (input) =>
@@ -1096,9 +1131,7 @@ const makeWsRpcHandlersLayer = () =>
                   new Error("Selected plugin actions exceed its declared subscriptions."),
                 );
               }
-              const snapshot = yield* supervisedRuntimeRepository.getSnapshot({
-                includeDisabled: true,
-              });
+              const snapshot = yield* supervisedRuntimeRepository.getDaemonSnapshot();
               const current = snapshot.plugins.find(
                 (plugin) => plugin.pluginId === inspection.manifest.pluginId,
               );
@@ -1107,8 +1140,48 @@ const makeWsRpcHandlersLayer = () =>
                   new Error("This plugin identity was revoked and cannot be reactivated."),
                 );
               }
+              const collidingSubscription = inspection.manifest.subscriptions.find(
+                (declared) => {
+                  const existing = snapshot.subscriptions.find(
+                    (subscription) => subscription.id === declared.id,
+                  );
+                  return (
+                    existing !== undefined &&
+                    (existing.destination.kind !== "plugin" ||
+                      existing.destination.pluginId !== inspection.manifest.pluginId)
+                  );
+                },
+              );
+              if (collidingSubscription) {
+                return yield* Effect.fail(
+                  new Error(
+                    `Plugin subscription '${collidingSubscription.id}' conflicts with a subscription owned by another runtime concern.`,
+                  ),
+                );
+              }
               const now = new Date().toISOString();
-              const installation = Schema.decodeUnknownSync(PluginInstallation)({
+              const samePackage =
+                current !== undefined &&
+                current.manifest.version === inspection.manifest.version &&
+                current.manifest.provenance.contentHash ===
+                  inspection.manifest.provenance.contentHash;
+              const sameGrant =
+                current !== undefined &&
+                sameStringSet(current.grant.capabilities, input.capabilities) &&
+                sameStringSet(current.grant.payloadFields, input.payloadFields) &&
+                sameScopeSet(current.grant.scopes, input.scopes) &&
+                sameStringSet(
+                  current.grant.allowedActionRequests,
+                  input.allowedActionRequests,
+                );
+              if (samePackage && !sameGrant) {
+                return yield* Effect.fail(
+                  new Error(
+                    "An identical plugin package is already installed with a different grant; publish a new package version before replacing its grant.",
+                  ),
+                );
+              }
+              let installation = Schema.decodeUnknownSync(PluginInstallation)({
                 pluginId: inspection.manifest.pluginId,
                 manifest: inspection.manifest,
                 grant: {
@@ -1129,28 +1202,85 @@ const makeWsRpcHandlersLayer = () =>
                 updatedAt: now,
                 revision: current ? current.revision + 1 : 0,
               });
-              const installationResult = yield* orchestrationEngine.dispatch({
-                type: current ? "supervised.plugin.upgrade" : "supervised.plugin.install",
-                commandId: CommandId.makeUnsafe(`plugin-install:${randomUUID()}`),
-                actor: { kind: "user", actorId: "owner" },
-                aggregateId: installation.pluginId,
-                expectedRevision: current?.revision ?? 0,
-                idempotencyKey: `plugin-install:${installation.pluginId}:${installation.manifest.provenance.contentHash}`,
-                createdAt: now,
-                installation,
-              });
+              let sequence = yield* orchestrationEngine.getEventHighWaterSequence;
+              if (samePackage && current) {
+                installation = current;
+                if (current.status === "enabled" || current.status === "unhealthy") {
+                  const disableResult = yield* orchestrationEngine.dispatch({
+                    type: "supervised.plugin.disable",
+                    commandId: CommandId.makeUnsafe(`plugin-disable-for-upgrade:${randomUUID()}`),
+                    actor: { kind: "user", actorId: "owner" },
+                    aggregateId: current.pluginId,
+                    expectedRevision: current.revision,
+                    idempotencyKey: `plugin-disable-for-upgrade:${current.pluginId}:${current.manifest.provenance.contentHash}:${current.revision}`,
+                    pluginId: current.pluginId,
+                    createdAt: now,
+                  });
+                  sequence = disableResult.sequence;
+                  installation = {
+                    ...current,
+                    status: "disabled",
+                    updatedAt: now,
+                    revision: current.revision + 1,
+                  };
+                }
+              } else {
+                const installationResult = yield* orchestrationEngine.dispatch({
+                  type: current ? "supervised.plugin.upgrade" : "supervised.plugin.install",
+                  commandId: CommandId.makeUnsafe(`plugin-install:${randomUUID()}`),
+                  actor: { kind: "user", actorId: "owner" },
+                  aggregateId: installation.pluginId,
+                  expectedRevision: current?.revision ?? 0,
+                  idempotencyKey: `plugin-install:${installation.pluginId}:${installation.manifest.provenance.contentHash}`,
+                  createdAt: now,
+                  installation,
+                });
+                sequence = installationResult.sequence;
+              }
               yield* Effect.forEach(
                 inspection.manifest.eventSchemas,
                 supervisedRuntimeRepository.upsertEventSchema,
                 { concurrency: 1, discard: true },
               );
+              const declaredSubscriptionIds = new Set(
+                inspection.manifest.subscriptions.map((subscription) => subscription.id),
+              );
+              const removedSubscriptions = snapshot.subscriptions.filter(
+                (subscription) =>
+                  subscription.destination.kind === "plugin" &&
+                  subscription.destination.pluginId === installation.pluginId &&
+                  subscription.state !== "revoked" &&
+                  !declaredSubscriptionIds.has(subscription.id),
+              );
               yield* Effect.forEach(
-                inspection.manifest.subscriptions,
+                removedSubscriptions,
+                (subscription) => {
+                  const expectedRevision = subscription.revision;
+                  return orchestrationEngine.dispatch({
+                    type: "supervised.subscription.revoke",
+                    commandId: CommandId.makeUnsafe(`plugin-subscription-revoke:${randomUUID()}`),
+                    actor: { kind: "user", actorId: "owner" },
+                    aggregateId: subscription.id,
+                    expectedRevision,
+                    idempotencyKey: pluginInstallStepIdempotencyKey({
+                      step: "plugin-subscription-revoke",
+                      pluginId: installation.pluginId,
+                      packageIdentity: installation.manifest.provenance.contentHash,
+                      subscriptionId: subscription.id,
+                      expectedRevision,
+                    }),
+                    subscriptionId: subscription.id,
+                    createdAt: now,
+                  });
+                },
+                { concurrency: 1, discard: true },
+              );
+              const preparedSubscriptions = inspection.manifest.subscriptions.map(
                 (declaredSubscription) => {
                   const existing = snapshot.subscriptions.find(
                     (subscription) => subscription.id === declaredSubscription.id,
                   );
-                  const subscription = {
+                  return {
                     ...declaredSubscription,
                     owner: { kind: "user" as const, actorId: "owner" },
                     cursor: existing?.cursor ?? {
@@ -1158,7 +1288,7 @@ const makeWsRpcHandlersLayer = () =>
                       lastEventTime: null,
                       lastDeliveryKey: null,
                     },
-                    state: input.enableAfterInstall ? "enabled" as const : "paused" as const,
+                    state: "paused" as const,
                     armed: input.enableAfterInstall,
                     createdBy: existing?.createdBy ?? { kind: "user" as const, actorId: "owner" },
                     updatedBy: { kind: "user" as const, actorId: "owner" },
@@ -1166,13 +1296,28 @@ const makeWsRpcHandlersLayer = () =>
                     updatedAt: now,
                     revision: existing?.revision ?? 0,
                   };
+                },
+              );
+              yield* Effect.forEach(
+                preparedSubscriptions,
+                (subscription) => {
+                  const existing = snapshot.subscriptions.find(
+                    (candidate) => candidate.id === subscription.id,
+                  );
+                  const expectedRevision = existing?.revision ?? 0;
                   return orchestrationEngine.dispatch({
                     type: "supervised.subscription.upsert",
                     commandId: CommandId.makeUnsafe(`plugin-subscription:${randomUUID()}`),
                     actor: { kind: "user", actorId: "owner" },
                     aggregateId: subscription.id,
-                    expectedRevision: existing?.revision ?? 0,
-                    idempotencyKey: `plugin-subscription:${installation.pluginId}:${installation.manifest.version}:${subscription.id}`,
+                    expectedRevision,
+                    idempotencyKey: pluginInstallStepIdempotencyKey({
+                      step: "plugin-subscription",
+                      pluginId: installation.pluginId,
+                      packageIdentity: installation.manifest.provenance.contentHash,
+                      subscriptionId: subscription.id,
+                      expectedRevision,
+                    }),
                     subscription,
                     createdAt: now,
                   });
@@ -1180,7 +1325,6 @@ const makeWsRpcHandlersLayer = () =>
                 { concurrency: 1, discard: true },
               );
               let finalInstallation = installation;
-              let sequence = installationResult.sequence;
               if (current) {
                 const resetResult = yield* orchestrationEngine.dispatch({
                   type: "supervised.plugin.reset-circuit",
@@ -1188,7 +1332,12 @@ const makeWsRpcHandlersLayer = () =>
                   actor: { kind: "user", actorId: "owner" },
                   aggregateId: installation.pluginId,
                   expectedRevision: installation.revision,
-                  idempotencyKey: `plugin-reset-circuit:${installation.pluginId}:${installation.manifest.provenance.contentHash}`,
+                  idempotencyKey: pluginInstallStepIdempotencyKey({
+                    step: "plugin-reset-circuit",
+                    pluginId: installation.pluginId,
+                    packageIdentity: installation.manifest.provenance.contentHash,
+                    expectedRevision: installation.revision,
+                  }),
                   pluginId: installation.pluginId,
                   createdAt: now,
                 });
@@ -1201,7 +1350,12 @@ const makeWsRpcHandlersLayer = () =>
                   actor: { kind: "user", actorId: "owner" },
                   aggregateId: installation.pluginId,
                   expectedRevision: installation.revision,
-                  idempotencyKey: `plugin-enable:${installation.pluginId}:${installation.manifest.provenance.contentHash}`,
+                  idempotencyKey: pluginInstallStepIdempotencyKey({
+                    step: "plugin-enable",
+                    pluginId: installation.pluginId,
+                    packageIdentity: installation.manifest.provenance.contentHash,
+                    expectedRevision: installation.revision,
+                  }),
                   pluginId: installation.pluginId,
                   createdAt: now,
                 });
@@ -1211,6 +1365,31 @@ const makeWsRpcHandlersLayer = () =>
                   status: "enabled",
                   revision: installation.revision + 1,
                 };
+                for (const subscription of preparedSubscriptions) {
+                  const existing = snapshot.subscriptions.find(
+                    (candidate) => candidate.id === subscription.id,
+                  );
+                  const expectedRevision = existing
+                    ? existing.revision + 1
+                    : subscription.revision;
+                  const enableSubscriptionResult = yield* orchestrationEngine.dispatch({
+                    type: "supervised.subscription.enable",
+                    commandId: CommandId.makeUnsafe(`plugin-subscription-enable:${randomUUID()}`),
+                    actor: { kind: "user", actorId: "owner" },
+                    aggregateId: subscription.id,
+                    expectedRevision,
+                    idempotencyKey: pluginInstallStepIdempotencyKey({
+                      step: "plugin-subscription-enable",
+                      pluginId: installation.pluginId,
+                      packageIdentity: installation.manifest.provenance.contentHash,
+                      subscriptionId: subscription.id,
+                      expectedRevision,
+                    }),
+                    subscriptionId: subscription.id,
+                    createdAt: now,
+                  });
+                  sequence = enableSubscriptionResult.sequence;
+                }
               }
               return {
                 installation: finalInstallation,

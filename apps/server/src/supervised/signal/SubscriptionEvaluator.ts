@@ -11,6 +11,8 @@ import type {
   ThresholdSpec,
 } from "@synara/contracts";
 
+const MAX_EVALUATION_GROUPS = 10_000;
+
 type WindowSample = SubscriptionEvaluationWindowSample;
 export type SubscriptionGroupState = SubscriptionEvaluationGroupState;
 export type SubscriptionRuntimeState = SubscriptionEvaluationState;
@@ -226,7 +228,33 @@ function evaluateAt(
     };
   }
   const key = groupKey(subscription, event);
-  const priorGroup = prior.groups[key] ?? {
+  let boundedPrior = prior;
+  if (!(key in prior.groups) && Object.keys(prior.groups).length >= MAX_EVALUATION_GROUPS) {
+    const removable = Object.entries(prior.groups)
+      .filter(([, group]) => group.armed && group.activeSignal === null)
+      .toSorted(([, left], [, right]) => {
+        const leftSample = left.samples.at(-1);
+        const rightSample = right.samples.at(-1);
+        return (
+          (leftSample?.eventTime ?? "").localeCompare(rightSample?.eventTime ?? "") ||
+          (leftSample?.sequence ?? 0) - (rightSample?.sequence ?? 0)
+        );
+      })[0];
+    if (!removable) {
+      return {
+        matched: false,
+        state: prior,
+        metricSamples: [],
+        triggeredSignals: [],
+        resetSignals: [],
+        reasons: ["Subscription aggregation group capacity is exhausted by active signals."],
+      };
+    }
+    const groups = { ...prior.groups };
+    delete groups[removable[0]];
+    boundedPrior = { groups };
+  }
+  const priorGroup = boundedPrior.groups[key] ?? {
     samples: [],
     armed: true,
     nextEligibleAt: null,
@@ -326,7 +354,7 @@ function evaluateAt(
   }
   return {
     matched: true,
-    state: { groups: { ...prior.groups, [key]: group } },
+    state: { groups: { ...boundedPrior.groups, [key]: group } },
     metricSamples: [metricSample],
     triggeredSignals,
     resetSignals,

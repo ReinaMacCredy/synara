@@ -175,6 +175,7 @@ describe("RLM start planning", () => {
         ],
         existingRunId: null,
         providerLimitTokens: 128_000,
+        requestId: "thread:lead:turn:stage-5:rlm-request",
         createdAt: now,
       }),
     );
@@ -212,7 +213,7 @@ describe("RLM start planning", () => {
       if (command.type !== "supervised.model-session.upsert") continue;
       if (command.modelSession.role === "rlm_branch") {
         assert.equal(command.modelSession.parentSessionId, result.rootModelSessionId);
-        assert.equal(command.modelSession.contextView?.actorSeatId, command.modelSession.id);
+        assert.equal(command.modelSession.contextView?.actorSeatId, seat.id);
         assert.notEqual(command.modelSession.promptHash, null);
       }
     }
@@ -222,5 +223,51 @@ describe("RLM start planning", () => {
         .map((command) => (command.type === "supervised.rlm.upsert" ? command.episode.status : null)),
       ["requested", "admitted", "branching", "branches_running"],
     );
+
+    const dispatchedBeforeReplay = dispatched.length;
+    const replayed = await Effect.runPromise(
+      startRlm({
+        engine: {
+          dispatch: (command: OrchestrationCommand) =>
+            Effect.gen(function* () {
+              dispatched.push(command);
+              if (command.type.startsWith("supervised.")) {
+                const event = yield* decideSupervisedCommand({
+                  command: command as never,
+                  state: projectedRuntime,
+                  governance,
+                });
+                sequence += 1;
+                projectedRuntime = projectSupervisedEvent(projectedRuntime, {
+                  ...event,
+                  sequence,
+                });
+                return { sequence };
+              }
+              sequence += 1;
+              return { sequence };
+            }),
+        } as never,
+        daemon: { wake: Effect.void } as never,
+        runtime: projectedRuntime,
+        callerThread,
+        project,
+        room: runtime.rooms[0]!,
+        seat,
+        authorityReceipt,
+        objective: "Synthesize two independent facts.",
+        branches: [
+          { title: "First fact", prompt: "Find the first fact." },
+          { title: "Second fact", prompt: "Find the second fact." },
+        ],
+        existingRunId: null,
+        providerLimitTokens: 128_000,
+        requestId: "thread:lead:turn:stage-5:rlm-request",
+        createdAt: now,
+      }),
+    );
+    assert.equal(replayed.episode.id, result.episode.id);
+    assert.equal(replayed.run.id, result.run.id);
+    assert.equal(dispatched.length, dispatchedBeforeReplay);
   });
 });

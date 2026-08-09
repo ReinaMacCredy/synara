@@ -442,6 +442,21 @@ describe("Supervised command authority", () => {
         }),
       );
       assert.equal(exit._tag, "Failure");
+
+      const resolvedExit = await Effect.runPromiseExit(
+        decideSupervisedCommand({
+          command: { ...command, replayBehavior: "observe_only" },
+          state: {
+            ...emptySupervisedRuntimeSnapshot(now),
+            subscriptions: [subscription],
+            deliveries: [delivery],
+            deadLetters: [
+              { ...deadLetter, status: "resolved", resolvedAt: now },
+            ],
+          },
+        }),
+      );
+      assert.equal(resolvedExit._tag, "Failure");
     });
 
     it("rejects a subscription that exceeds the current RunPolicy quota", async () => {

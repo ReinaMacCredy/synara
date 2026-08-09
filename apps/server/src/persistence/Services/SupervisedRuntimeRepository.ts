@@ -4,10 +4,14 @@ import type {
   DeliveryCursor,
   DerivedSignal,
   EventSchema,
+  Evidence,
   GetSupervisedRuntimeInput,
   MetricSample,
+  ModelSessionTrace,
   PluginInstallation,
   PluginHealth,
+  RlmEpisode,
+  Run,
   RunPolicy,
   SubscriptionDefinition,
   SubscriptionDelivery,
@@ -39,6 +43,16 @@ export interface SupervisedRuntimeAuditInput {
   readonly occurredAt: string;
 }
 
+export interface RlmReconciliationState {
+  readonly runs: ReadonlyArray<Run>;
+  readonly runPolicies: ReadonlyArray<RunPolicy>;
+  readonly rlmEpisodes: ReadonlyArray<RlmEpisode>;
+  readonly modelSessions: ReadonlyArray<ModelSessionTrace>;
+  readonly evidence: ReadonlyArray<Evidence>;
+  readonly activePluginCount: number;
+  readonly activeSubscriptionCount: number;
+}
+
 export interface SupervisedRuntimeRepositoryShape {
   readonly applyDomainEvent: (
     event: SupervisedDomainEvent,
@@ -46,6 +60,23 @@ export interface SupervisedRuntimeRepositoryShape {
   readonly getSnapshot: (
     input?: GetSupervisedRuntimeInput,
   ) => Effect.Effect<SupervisedRuntimeSnapshot, ProjectionRepositoryError>;
+  readonly getDaemonSnapshot: () => Effect.Effect<
+    SupervisedRuntimeSnapshot,
+    ProjectionRepositoryError
+  >;
+  readonly getRlmReconciliationState: () => Effect.Effect<
+    RlmReconciliationState,
+    ProjectionRepositoryError
+  >;
+  readonly hasActiveRlmWork: () => Effect.Effect<boolean, ProjectionRepositoryError>;
+  readonly getIngestionCursor: (
+    key: string,
+  ) => Effect.Effect<number, ProjectionRepositoryError>;
+  readonly putIngestionCursor: (input: {
+    readonly key: string;
+    readonly sourceSequence: number;
+    readonly updatedAt: string;
+  }) => Effect.Effect<void, ProjectionRepositoryError>;
   readonly replaceSnapshot: (
     snapshot: SupervisedRuntimeSnapshot,
   ) => Effect.Effect<void, ProjectionRepositoryError>;
