@@ -128,6 +128,23 @@ function filteredEvent(event: ControlPlaneEvent, allowedFields: ReadonlyArray<st
   };
 }
 
+async function executeWithin<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error(`Plugin handler exceeded its ${timeoutMs}ms time limit.`)),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
 export class GovernedPluginRuntime {
   private kernel: PluginKernel | null = null;
   private consecutiveFailures = 0;
@@ -222,9 +239,16 @@ export class GovernedPluginRuntime {
       });
       const source = await this.executableSource();
       if (!source) return emptyResult();
-      const execution = await this.kernel.execute(
-        source,
-        filteredEvent(event, this.installation.grant.payloadFields),
+      const execution = await executeWithin(
+        this.kernel.execute(
+          source,
+          filteredEvent(event, this.installation.grant.payloadFields),
+        ),
+        Math.min(
+          this.runPolicy.maxWallTimeMs,
+          this.runPolicy.maxPluginHandlerMs,
+          this.installation.manifest.resourceLimits.maxRuntimeMs,
+        ),
       );
       const result = parseResult(execution.result);
       this.validateRequests(result);
@@ -232,7 +256,8 @@ export class GovernedPluginRuntime {
       return result;
     } catch (error) {
       this.consecutiveFailures += 1;
-      if (this.consecutiveFailures >= this.runPolicy.circuitBreakerFailureCount) {
+      const timedOut = error instanceof Error && error.message.includes(" time limit.");
+      if (timedOut || this.consecutiveFailures >= this.runPolicy.circuitBreakerFailureCount) {
         this.circuitOpenUntil = Date.now() + this.runPolicy.circuitBreakerResetMs;
         this.kernel?.stop();
         this.kernel = null;

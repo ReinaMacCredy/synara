@@ -4,6 +4,7 @@ import {
   DEFAULT_SUPERVISED_RUN_POLICY,
   emptySupervisedGovernanceSnapshot,
   emptySupervisedRuntimeSnapshot,
+  type HarnessPatch,
   type PluginInstallation,
   type Room,
   type SupervisedCommand,
@@ -12,6 +13,7 @@ import {
 import { describe, it } from "@effect/vitest";
 import { Effect } from "effect";
 
+import { builtInSubscriptions } from "../../supervised/signal/BuiltInSubscriptions.ts";
 import { decideSupervisedCommand } from "./decider.ts";
 
 const now = "2026-08-07T00:00:00.000Z";
@@ -334,6 +336,208 @@ describe("Supervised command authority", () => {
     );
     assert.equal(exit._tag, "Failure");
   });
+
+  it("rejects plugin subscriptions that bypass the plugin identity", async () => {
+    const declaredSubscription = {
+      ...builtInSubscriptions(now)[1]!,
+      scope: [{ kind: "room" as const, roomId: room.id }],
+    };
+    const plugin = installation({
+      manifest: {
+        ...installation().manifest,
+        subscriptions: [declaredSubscription],
+      },
+    });
+    const command: SupervisedCommand = {
+      ...baseCommand,
+      type: "supervised.plugin.install",
+      actor: { kind: "user", actorId: "owner" },
+      aggregateId: plugin.pluginId,
+      expectedRevision: 0,
+      installation: plugin,
+    };
+    const exit = await Effect.runPromiseExit(
+      decideSupervisedCommand({ command, state: emptySupervisedRuntimeSnapshot(now) }),
+    );
+    assert.equal(exit._tag, "Failure");
+  });
+
+    it("moves an enabled plugin to unhealthy only through the daemon lifecycle command", async () => {
+      const plugin = installation();
+      const command: SupervisedCommand = {
+        ...baseCommand,
+        type: "supervised.plugin.mark-unhealthy",
+        actor: { kind: "daemon", actorId: "supervised-runtime" },
+        aggregateId: plugin.pluginId,
+        expectedRevision: plugin.revision,
+        pluginId: plugin.pluginId,
+      };
+      const accepted = await Effect.runPromise(
+        decideSupervisedCommand({
+          command,
+          state: { ...emptySupervisedRuntimeSnapshot(now), plugins: [plugin] },
+        }),
+      );
+      assert.equal(accepted.payload.plugin?.status, "unhealthy");
+      assert.equal(accepted.payload.plugin?.revision, 1);
+
+      const denied = await Effect.runPromiseExit(
+        decideSupervisedCommand({
+          command: { ...command, actor: { kind: "user", actorId: "owner" } },
+          state: { ...emptySupervisedRuntimeSnapshot(now), plugins: [plugin] },
+        }),
+      );
+      assert.equal(denied._tag, "Failure");
+    });
+
+    it("does not let a DeadLetter redrive exceed the subscription replay policy", async () => {
+      const subscription = builtInSubscriptions(now)[0]!;
+      const delivery = {
+        id: "delivery-replay-policy" as const,
+        subscriptionId: subscription.id,
+        signalId: "signal-replay-policy" as const,
+        dedupeKey: "replay-policy",
+        status: "dead_lettered" as const,
+        attemptCount: 3,
+        availableAt: now,
+        deliveredAt: null,
+        lastError: "failed",
+        payloadHash: hash,
+        replay: false,
+        replayBehavior: "observe_only" as const,
+        createdAt: now,
+        updatedAt: now,
+      };
+      const deadLetter = {
+        id: "dead-letter-replay-policy" as const,
+        subscriptionId: subscription.id,
+        deliveryId: delivery.id,
+        pluginId: null,
+        reason: "failed",
+        payloadHash: hash,
+        attemptCount: 3,
+        status: "open" as const,
+        createdAt: now,
+        updatedAt: now,
+        resolvedAt: null,
+      };
+      const command: SupervisedCommand = {
+        ...baseCommand,
+        type: "supervised.delivery.redrive",
+        actor: { kind: "user", actorId: "owner" },
+        aggregateId: delivery.id,
+        expectedRevision: delivery.attemptCount,
+        deadLetterId: deadLetter.id,
+        replayBehavior: "idempotent_actions",
+      };
+      const exit = await Effect.runPromiseExit(
+        decideSupervisedCommand({
+          command,
+          state: {
+            ...emptySupervisedRuntimeSnapshot(now),
+            subscriptions: [subscription],
+            deliveries: [delivery],
+            deadLetters: [deadLetter],
+          },
+        }),
+      );
+      assert.equal(exit._tag, "Failure");
+    });
+
+    it("rejects a subscription that exceeds the current RunPolicy quota", async () => {
+      const [existing, candidate] = builtInSubscriptions(now);
+      const policy = {
+        id: "policy-subscription-limit",
+        name: "One subscription",
+        ...DEFAULT_SUPERVISED_RUN_POLICY,
+        maxSubscriptions: 1,
+        maxCostUsd: null,
+        allowedCapabilities: [],
+        allowedPluginActions: [],
+        revision: 0,
+        createdAt: now,
+        updatedAt: now,
+      } as const;
+      const command: SupervisedCommand = {
+        ...baseCommand,
+        type: "supervised.subscription.upsert",
+        actor: { kind: "user", actorId: "owner" },
+        aggregateId: candidate!.id,
+        expectedRevision: 0,
+        subscription: candidate!,
+      };
+      const exit = await Effect.runPromiseExit(
+        decideSupervisedCommand({
+          command,
+          state: {
+            ...emptySupervisedRuntimeSnapshot(now),
+            subscriptions: [existing!],
+            runPolicies: [policy],
+          },
+        }),
+      );
+      assert.equal(exit._tag, "Failure");
+    });
+
+    it("allows a governed Seat to propose but not activate a Harness Patch", async () => {
+      const actor = {
+        kind: "seat" as const,
+        actorId: "lead-1",
+        seatId: "lead-1" as const,
+      };
+      const patch = {
+        id: "patch-proposed",
+        name: "Evidence first",
+        patchType: "evaluation",
+        scope: { kind: "room", roomId: room.id },
+        content: "Require evidence before completion.",
+        basePolicyHash: hash,
+        status: "proposed",
+        observationEvidenceRefs: ["evidence-observed"],
+        evaluationEvidenceRefs: [],
+        sandboxEvaluation: null,
+        approval: null,
+        canary: null,
+        rollback: null,
+        lastControlPlaneSequence: 0,
+        version: 1,
+        revision: 0,
+        createdBy: actor,
+        activatedBy: null,
+        createdAt: now,
+        updatedAt: now,
+      } as HarnessPatch;
+      const command: SupervisedCommand = {
+        ...baseCommand,
+        type: "supervised.patch.upsert",
+        actor,
+        authorityReceiptId: "receipt-lead-1",
+        aggregateId: patch.id,
+        expectedRevision: 0,
+        patch,
+      };
+      const accepted = await Effect.runPromise(
+        decideSupervisedCommand({
+          command,
+          state: { ...emptySupervisedRuntimeSnapshot(now), rooms: [room] },
+          governance: governanceForSeat("lead-1", ["supervised.patch.upsert"]),
+        }),
+      );
+      assert.equal(accepted.payload.patch?.status, "proposed");
+
+      const denied = await Effect.runPromiseExit(
+        decideSupervisedCommand({
+          command: {
+            ...command,
+            actor: { kind: "user", actorId: "owner" },
+            authorityReceiptId: undefined,
+            patch: { ...patch, status: "promoted" },
+          },
+          state: emptySupervisedRuntimeSnapshot(now),
+        }),
+      );
+      assert.equal(denied._tag, "Failure");
+    });
 
   it("admits one bounded WorkClaim and rejects a competing active claim", async () => {
     const run = {

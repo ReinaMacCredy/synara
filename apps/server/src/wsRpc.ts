@@ -1124,16 +1124,12 @@ const makeWsRpcHandlersLayer = () =>
                   revokedAt: null,
                   revision: current ? current.grant.revision + 1 : 0,
                 },
-                status: input.enableAfterInstall
-                  ? "enabled"
-                  : current
-                    ? "disabled"
-                    : "installed",
+                status: current ? "disabled" : "installed",
                 installedAt: current?.installedAt ?? now,
                 updatedAt: now,
                 revision: current ? current.revision + 1 : 0,
               });
-              const result = yield* orchestrationEngine.dispatch({
+              const installationResult = yield* orchestrationEngine.dispatch({
                 type: current ? "supervised.plugin.upgrade" : "supervised.plugin.install",
                 commandId: CommandId.makeUnsafe(`plugin-install:${randomUUID()}`),
                 actor: { kind: "user", actorId: "owner" },
@@ -1143,9 +1139,82 @@ const makeWsRpcHandlersLayer = () =>
                 createdAt: now,
                 installation,
               });
+              yield* Effect.forEach(
+                inspection.manifest.eventSchemas,
+                supervisedRuntimeRepository.upsertEventSchema,
+                { concurrency: 1, discard: true },
+              );
+              yield* Effect.forEach(
+                inspection.manifest.subscriptions,
+                (declaredSubscription) => {
+                  const existing = snapshot.subscriptions.find(
+                    (subscription) => subscription.id === declaredSubscription.id,
+                  );
+                  const subscription = {
+                    ...declaredSubscription,
+                    owner: { kind: "user" as const, actorId: "owner" },
+                    cursor: existing?.cursor ?? {
+                      lastSequence: 0,
+                      lastEventTime: null,
+                      lastDeliveryKey: null,
+                    },
+                    state: input.enableAfterInstall ? "enabled" as const : "paused" as const,
+                    armed: input.enableAfterInstall,
+                    createdBy: existing?.createdBy ?? { kind: "user" as const, actorId: "owner" },
+                    updatedBy: { kind: "user" as const, actorId: "owner" },
+                    createdAt: existing?.createdAt ?? now,
+                    updatedAt: now,
+                    revision: existing?.revision ?? 0,
+                  };
+                  return orchestrationEngine.dispatch({
+                    type: "supervised.subscription.upsert",
+                    commandId: CommandId.makeUnsafe(`plugin-subscription:${randomUUID()}`),
+                    actor: { kind: "user", actorId: "owner" },
+                    aggregateId: subscription.id,
+                    expectedRevision: existing?.revision ?? 0,
+                    idempotencyKey: `plugin-subscription:${installation.pluginId}:${installation.manifest.version}:${subscription.id}`,
+                    subscription,
+                    createdAt: now,
+                  });
+                },
+                { concurrency: 1, discard: true },
+              );
+              let finalInstallation = installation;
+              let sequence = installationResult.sequence;
+              if (current) {
+                const resetResult = yield* orchestrationEngine.dispatch({
+                  type: "supervised.plugin.reset-circuit",
+                  commandId: CommandId.makeUnsafe(`plugin-reset-circuit:${randomUUID()}`),
+                  actor: { kind: "user", actorId: "owner" },
+                  aggregateId: installation.pluginId,
+                  expectedRevision: installation.revision,
+                  idempotencyKey: `plugin-reset-circuit:${installation.pluginId}:${installation.manifest.provenance.contentHash}`,
+                  pluginId: installation.pluginId,
+                  createdAt: now,
+                });
+                sequence = resetResult.sequence;
+              }
+              if (input.enableAfterInstall) {
+                const enableResult = yield* orchestrationEngine.dispatch({
+                  type: "supervised.plugin.enable",
+                  commandId: CommandId.makeUnsafe(`plugin-enable:${randomUUID()}`),
+                  actor: { kind: "user", actorId: "owner" },
+                  aggregateId: installation.pluginId,
+                  expectedRevision: installation.revision,
+                  idempotencyKey: `plugin-enable:${installation.pluginId}:${installation.manifest.provenance.contentHash}`,
+                  pluginId: installation.pluginId,
+                  createdAt: now,
+                });
+                sequence = enableResult.sequence;
+                finalInstallation = {
+                  ...installation,
+                  status: "enabled",
+                  revision: installation.revision + 1,
+                };
+              }
               return {
-                installation,
-                sequence: result.sequence,
+                installation: finalInstallation,
+                sequence,
                 operation: current ? "upgraded" as const : "installed" as const,
               };
             }),

@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
 
 import type {
+  ControlPlaneEvent,
   DeadLetter,
   DeliveryCursor,
   DerivedSignal,
+  HarnessPatch,
   ModelSessionTrace,
   OrchestrationThread,
   RlmEpisode,
@@ -26,6 +28,13 @@ import {
   builtInSubscriptions,
 } from "../../supervised/signal/BuiltInSubscriptions.ts";
 import { evaluateSubscriptionEvent } from "../../supervised/signal/SubscriptionEvaluator.ts";
+import {
+  advanceHarnessPatchControlPlaneCursor,
+  applyHarnessPatchSandboxEvaluation,
+  awaitHarnessPatchApproval,
+  recordHarnessPatchCanaryEvaluation,
+  type HarnessPatchEvaluation,
+} from "../../supervised/runtime/HarnessPatches.ts";
 import {
   buildRlmSynthesisPrompt,
   extractRlmThreadResult,
@@ -69,7 +78,10 @@ const makeDelivery = (
   signal: DerivedSignal,
   at: string,
 ): SubscriptionDelivery => ({
-  id: stableId("delivery", { subscriptionId: subscription.id, signalId: signal.id }) as SubscriptionDelivery["id"],
+  id: stableId("delivery", {
+    subscriptionId: subscription.id,
+    signalId: signal.id,
+  }) as SubscriptionDelivery["id"],
   subscriptionId: subscription.id,
   signalId: signal.id,
   dedupeKey: `${subscription.id}:${signal.id}`,
@@ -80,9 +92,62 @@ const makeDelivery = (
   lastError: null,
   payloadHash: hash(signal) as SubscriptionDelivery["payloadHash"],
   replay: false,
+  replayBehavior: subscription.replayPolicy,
   createdAt: at,
   updatedAt: at,
 });
+
+export function failSubscriptionDelivery(
+  subscription: SubscriptionDefinition,
+  delivery: SubscriptionDelivery,
+  detail: string,
+  at: string,
+): { readonly delivery: SubscriptionDelivery; readonly deadLetter: DeadLetter | null } {
+  const attemptCount = delivery.attemptCount + 1;
+  const deadLetterThreshold = Math.min(
+    subscription.failurePolicy.maxAttempts,
+    subscription.failurePolicy.deadLetterAfterAttempts,
+  );
+  if (attemptCount >= deadLetterThreshold) {
+    const failed: SubscriptionDelivery = {
+      ...delivery,
+      status: "dead_lettered",
+      attemptCount,
+      lastError: detail,
+      updatedAt: at,
+    };
+    return {
+      delivery: failed,
+      deadLetter: {
+        id: stableId("dead-letter", delivery.id) as DeadLetter["id"],
+        subscriptionId: subscription.id,
+        deliveryId: delivery.id,
+        pluginId:
+          subscription.destination.kind === "plugin" ? subscription.destination.pluginId : null,
+        reason: detail,
+        payloadHash: delivery.payloadHash,
+        attemptCount,
+        status: "open",
+        createdAt: at,
+        updatedAt: at,
+        resolvedAt: null,
+      },
+    };
+  }
+  return {
+    delivery: {
+      ...delivery,
+      status: "failed",
+      attemptCount,
+      availableAt: new Date(
+        Date.parse(at) + subscription.failurePolicy.backoffMs * 2 ** (attemptCount - 1),
+      ).toISOString(),
+      lastError: detail,
+      updatedAt: at,
+    },
+    deadLetter: null,
+  };
+}
 
 const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
   const repository = yield* SupervisedRuntimeRepository;
@@ -641,6 +706,7 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
   const evaluateSubscription = (subscription: SubscriptionDefinition) =>
     Effect.gen(function* () {
       let state = yield* repository.getSubscriptionEvaluationState(subscription.id);
+      let pendingDeliveryCount = yield* repository.countPendingDeliveries(subscription.id);
       const events = yield* repository.listControlPlaneEvents({
         afterSequence: subscription.cursor.lastSequence,
         limit: 1_000,
@@ -665,7 +731,34 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
           { concurrency: 1, discard: true },
         );
         for (const signal of result.triggeredSignals) {
-          yield* repository.enqueueDelivery(makeDelivery(subscription, signal, event.recordedAt));
+          const delivery = makeDelivery(subscription, signal, event.recordedAt);
+          if (pendingDeliveryCount >= subscription.maxQueueDepth) {
+            const deadLettered: SubscriptionDelivery = {
+              ...delivery,
+              status: "dead_lettered",
+              attemptCount: 1,
+              lastError: `Subscription queue depth ${pendingDeliveryCount} reached ${subscription.maxQueueDepth}.`,
+            };
+            yield* repository.enqueueDelivery(deadLettered);
+            yield* repository.putDeadLetter({
+              id: stableId("dead-letter", deadLettered.id) as DeadLetter["id"],
+              subscriptionId: subscription.id,
+              deliveryId: deadLettered.id,
+              pluginId:
+                subscription.destination.kind === "plugin"
+                  ? subscription.destination.pluginId
+                  : null,
+              reason: deadLettered.lastError!,
+              payloadHash: deadLettered.payloadHash,
+              attemptCount: deadLettered.attemptCount,
+              status: "open",
+              createdAt: event.recordedAt,
+              updatedAt: event.recordedAt,
+              resolvedAt: null,
+            });
+            continue;
+          }
+          if (yield* repository.enqueueDelivery(delivery)) pendingDeliveryCount += 1;
         }
       }
       if (events.length > 0) {
@@ -681,6 +774,158 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
         yield* repository.upsertCursor(cursor);
       }
     });
+
+  const dispatchHarnessPatch = (current: HarnessPatch, next: HarnessPatch, suffix: string) =>
+    engine.dispatch({
+      type: "supervised.patch.upsert",
+      commandId: CommandId.makeUnsafe(
+        stableId("command:harness-patch", {
+          patchId: current.id,
+          revision: current.revision,
+          nextRevision: next.revision,
+          suffix,
+        }),
+      ),
+      actor: { kind: "daemon", actorId: workerId },
+      aggregateId: current.id,
+      expectedRevision: current.revision,
+      idempotencyKey: `harness-patch:${current.id}:${current.revision}:${suffix}`,
+      patch: next,
+      createdAt: next.updatedAt,
+    });
+
+  const parseHarnessPatchEvaluation = (
+    patch: HarnessPatch,
+    event: ControlPlaneEvent,
+  ): { readonly phase: "sandbox" | "canary"; readonly evaluation: HarnessPatchEvaluation } | null => {
+    if (event.type !== "HarnessPatchEvaluated") return null;
+    const payload = event.payload as Record<string, unknown>;
+    if (payload.patchId !== patch.id) return null;
+    const phase = payload.phase;
+    const evidenceRefs = Array.isArray(payload.evidenceRefs)
+      ? payload.evidenceRefs.filter(
+          (value): value is string => typeof value === "string" && value.length > 0,
+        )
+      : [];
+    const regressions = Array.isArray(payload.regressions)
+      ? payload.regressions.filter((value): value is string => typeof value === "string")
+      : [];
+    if (
+      (phase !== "sandbox" && phase !== "canary") ||
+      typeof payload.passed !== "boolean" ||
+      payload.basePolicyHash !== patch.basePolicyHash ||
+      evidenceRefs.length === 0
+    ) {
+      return null;
+    }
+    return {
+      phase,
+      evaluation: {
+        passed: payload.passed,
+        basePolicyHash: patch.basePolicyHash,
+        evidenceRefs: evidenceRefs.map(EvidenceId.makeUnsafe),
+        regressions,
+        evaluatedBy: { kind: "daemon", actorId: workerId },
+        evaluatedAt: event.recordedAt,
+        eventId: event.eventId,
+        controlPlaneSequence: event.sequence,
+      },
+    };
+  };
+
+  const reconcileHarnessPatches = Effect.gen(function* () {
+    const snapshot = yield* repository.getSnapshot({ includeDisabled: true });
+    for (const initial of snapshot.harnessPatches) {
+      let patch = initial;
+      if (patch.status === "proposed") {
+        const next: HarnessPatch = {
+          ...patch,
+          status: "sandboxed",
+          updatedAt: new Date().toISOString(),
+          revision: patch.revision + 1,
+        };
+        yield* dispatchHarnessPatch(patch, next, "sandbox");
+        patch = next;
+      }
+      if (patch.status === "evaluated") {
+        const next = awaitHarnessPatchApproval(
+          patch,
+          { kind: "daemon", actorId: workerId },
+          new Date().toISOString(),
+        );
+        yield* dispatchHarnessPatch(patch, next, "awaiting-approval");
+        patch = next;
+      }
+      if (patch.status !== "sandboxed" && patch.status !== "canary") continue;
+      const events = yield* repository.listControlPlaneEvents({
+        afterSequence: patch.lastControlPlaneSequence,
+        limit: 1_000,
+      });
+      for (const event of events) {
+        const parsed = parseHarnessPatchEvaluation(patch, event);
+        if (
+          !parsed &&
+          event.type === "HarnessPatchEvaluated" &&
+          (event.payload as Record<string, unknown>).patchId === patch.id
+        ) {
+          yield* repository.appendAudit({
+            action: "harness.patch.evaluate",
+            actor: { kind: "daemon", actorId: workerId },
+            targetKind: "harness_patch",
+            targetId: patch.id,
+            outcome: "rejected_schema",
+            detail: {
+              eventId: event.eventId,
+              eventSequence: event.sequence,
+              basePolicyUnchanged: true,
+            },
+            occurredAt: event.recordedAt,
+          });
+        }
+        if (!parsed) continue;
+        if (patch.status === "sandboxed" && parsed.phase === "sandbox") {
+          const next = applyHarnessPatchSandboxEvaluation(patch, parsed.evaluation);
+          yield* dispatchHarnessPatch(patch, next, `sandbox-evaluation:${event.sequence}`);
+          patch = next;
+          if (patch.status === "evaluated") {
+            const awaiting = awaitHarnessPatchApproval(
+              patch,
+              { kind: "daemon", actorId: workerId },
+              event.recordedAt,
+            );
+            yield* dispatchHarnessPatch(patch, awaiting, `awaiting-approval:${event.sequence}`);
+            patch = awaiting;
+          }
+          break;
+        }
+        if (
+          patch.status === "canary" &&
+          parsed.phase === "canary" &&
+          patch.canary &&
+          event.eventTime >= patch.canary.startedAt
+        ) {
+          const next = recordHarnessPatchCanaryEvaluation(patch, parsed.evaluation);
+          if (next === patch) continue;
+          yield* dispatchHarnessPatch(patch, next, `canary-evaluation:${event.sequence}`);
+          patch = next;
+          if (patch.status === "rolled_back") break;
+        }
+      }
+      const lastSequence = events.at(-1)?.sequence ?? patch.lastControlPlaneSequence;
+      if (
+        (patch.status === "sandboxed" || patch.status === "canary") &&
+        lastSequence > patch.lastControlPlaneSequence
+      ) {
+        const next = advanceHarnessPatchControlPlaneCursor(
+          patch,
+          { kind: "daemon", actorId: workerId },
+          lastSequence,
+          events.at(-1)!.recordedAt,
+        );
+        yield* dispatchHarnessPatch(patch, next, `cursor:${lastSequence}`);
+      }
+    }
+  });
 
   const settleDelivery = (input: {
     readonly subscription: SubscriptionDefinition;
@@ -720,47 +965,19 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
         },
         onFailure: (error) => {
           const now = new Date().toISOString();
-          const attemptCount = input.delivery.attemptCount + 1;
-          if (attemptCount >= input.subscription.failurePolicy.deadLetterAfterAttempts) {
-            const failed: SubscriptionDelivery = {
-              ...input.delivery,
-              status: "dead_lettered",
-              attemptCount,
-              lastError: error.detail,
-              updatedAt: now,
-            };
-            const deadLetter: DeadLetter = {
-              id: stableId("dead-letter", input.delivery.id) as DeadLetter["id"],
-              subscriptionId: input.subscription.id,
-              deliveryId: input.delivery.id,
-              pluginId:
-                input.subscription.destination.kind === "plugin"
-                  ? input.subscription.destination.pluginId
-                  : null,
-              reason: error.detail,
-              payloadHash: input.delivery.payloadHash,
-              attemptCount,
-              status: "open",
-              createdAt: now,
-              updatedAt: now,
-              resolvedAt: null,
-            };
+          const failed = failSubscriptionDelivery(
+            input.subscription,
+            input.delivery,
+            error.detail,
+            now,
+          );
+          if (failed.deadLetter) {
             return Effect.all([
-              repository.updateDelivery(failed),
-              repository.putDeadLetter(deadLetter),
+              repository.updateDelivery(failed.delivery),
+              repository.putDeadLetter(failed.deadLetter),
             ]).pipe(Effect.asVoid);
           }
-          return repository.updateDelivery({
-            ...input.delivery,
-            status: "failed",
-            attemptCount,
-            availableAt: new Date(
-              Date.parse(now) +
-                input.subscription.failurePolicy.backoffMs * 2 ** (attemptCount - 1),
-            ).toISOString(),
-            lastError: error.detail,
-            updatedAt: now,
-          });
+          return repository.updateDelivery(failed.delivery);
         },
       }),
     );
@@ -863,6 +1080,7 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
       discard: true,
     });
     yield* reconcileRlmEpisodes;
+    yield* reconcileHarnessPatches;
     const recovering = yield* repository.getSnapshot({ includeDisabled: true });
     yield* repository.setHealth(
       { ...recovering.health, status: "recovering", updatedAt: now },
@@ -874,9 +1092,10 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
       { concurrency: 1, discard: true },
     );
     const evaluated = yield* repository.getSnapshot({ includeDisabled: true });
+    const claimNow = new Date().toISOString();
     const claimed = yield* repository.claimDeliveries({
       workerId,
-      now: new Date().toISOString(),
+      now: claimNow,
       leaseExpiresAt: new Date(Date.now() + 30_000).toISOString(),
       limit: 100,
     });
@@ -893,6 +1112,20 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
           availableAt: new Date(Date.now() + 1_000).toISOString(),
           lastError: "Subscription or signal is unavailable.",
           updatedAt: new Date().toISOString(),
+        });
+        continue;
+      }
+      const deliveredLastMinute = yield* repository.countDeliveredSince({
+        subscriptionId: subscription.id,
+        since: new Date(Date.parse(claimNow) - 60_000).toISOString(),
+      });
+      if (deliveredLastMinute >= subscription.rateLimitPerMinute) {
+        yield* repository.updateDelivery({
+          ...delivery,
+          status: "queued",
+          availableAt: new Date(Date.parse(claimNow) + 60_000).toISOString(),
+          lastError: `Subscription rate limit ${subscription.rateLimitPerMinute}/min reached.`,
+          updatedAt: claimNow,
         });
         continue;
       }

@@ -910,6 +910,30 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
       return (rows[0]?.changed ?? 0) === 1;
     }).pipe(Effect.mapError(toPersistenceSqlError("SupervisedRuntime.enqueueDelivery")));
 
+  const countPendingDeliveries: SupervisedRuntimeRepositoryShape["countPendingDeliveries"] =
+    (subscriptionId) =>
+      sql<{ readonly count: number }>`
+        SELECT COUNT(*) AS count
+        FROM supervised_subscription_deliveries
+        WHERE subscription_id = ${subscriptionId}
+          AND status IN ('queued', 'delivering', 'failed')
+      `.pipe(
+        Effect.map((rows) => rows[0]?.count ?? 0),
+        Effect.mapError(toPersistenceSqlError("SupervisedRuntime.countPendingDeliveries")),
+      );
+
+  const countDeliveredSince: SupervisedRuntimeRepositoryShape["countDeliveredSince"] = (input) =>
+    sql<{ readonly count: number }>`
+      SELECT COUNT(*) AS count
+      FROM supervised_subscription_deliveries
+      WHERE subscription_id = ${input.subscriptionId}
+        AND status = 'delivered'
+        AND json_extract(entity_json, '$.deliveredAt') >= ${input.since}
+    `.pipe(
+      Effect.map((rows) => rows[0]?.count ?? 0),
+      Effect.mapError(toPersistenceSqlError("SupervisedRuntime.countDeliveredSince")),
+    );
+
   const claimDeliveries: SupervisedRuntimeRepositoryShape["claimDeliveries"] = (input) =>
     sql.withTransaction(
       Effect.gen(function* () {
@@ -1863,8 +1887,10 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
     putSubscriptionEvaluationState,
     recordMetricSample,
     upsertSignal,
-    enqueueDelivery,
-    claimDeliveries,
+      enqueueDelivery,
+      countPendingDeliveries,
+      countDeliveredSince,
+      claimDeliveries,
     updateDelivery,
     putDeadLetter,
     upsertPlugin,

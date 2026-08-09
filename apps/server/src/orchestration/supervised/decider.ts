@@ -1,4 +1,5 @@
 import type {
+  PluginInstallation,
   SupervisedCommand,
   SupervisedDomainEvent,
   SupervisedGovernanceSnapshot,
@@ -15,6 +16,7 @@ import {
 } from "../../supervised/runtime/RunPolicy.ts";
 import { transitionRoom } from "../../supervised/governance/Lifecycle.ts";
 import { validateSupervisedSeatAuthority } from "../../supervised/governance/Authority.ts";
+import { validateHarnessPatchUpdate } from "../../supervised/runtime/HarnessPatches.ts";
 
 type UnsequencedEvent = Omit<SupervisedDomainEvent, "sequence">;
 
@@ -104,7 +106,80 @@ function validatePluginInstallation(
   if (installation.grant.payloadFields.some((field) => secretFields.has(field))) {
     return reject(command, "Secret EventSchema fields cannot be included in plugin payload grants.");
   }
+  const scopeCovered = (scope: PluginInstallation["grant"]["scopes"][number]) =>
+    installation.grant.scopes.some(
+      (granted) => granted.kind === "global" || JSON.stringify(granted) === JSON.stringify(scope),
+    );
+  if (
+    installation.manifest.subscriptions.some(
+      (subscription) =>
+        subscription.scope.some((scope) => !scopeCovered(scope)) ||
+        subscription.destination.kind !== "plugin" ||
+        subscription.destination.pluginId !== installation.pluginId,
+    )
+  ) {
+    return reject(
+      command,
+      "Plugin subscriptions cannot exceed granted scopes or bypass their own plugin identity.",
+    );
+  }
   return Effect.void;
+}
+
+function runtimeUsage(
+  state: SupervisedRuntimeSnapshot,
+  overrides: Partial<RunResourceUsage> = {},
+): RunResourceUsage {
+  return {
+    wallTimeMs: 0,
+    recursiveCalls: 0,
+    fanOut: 1,
+    retries: 0,
+    costUsd: null,
+    kernelMemoryMiB: 0,
+    kernelOutputBytes: 0,
+    activePlugins: state.plugins.filter(
+      (plugin) => plugin.status === "enabled" || plugin.status === "unhealthy",
+    ).length,
+    activeSubscriptions: state.subscriptions.filter(
+      (subscription) => subscription.state === "enabled",
+    ).length,
+    eventRatePerMinute: 0,
+    aggregationSamples: 0,
+    ...overrides,
+  };
+}
+
+function pluginRunPolicyViolation(
+  state: SupervisedRuntimeSnapshot,
+  installation: PluginInstallation,
+): string | null {
+  const policy = state.runPolicies[0];
+  if (!policy) return null;
+  const resources = installation.manifest.resourceLimits;
+  const activePlugins =
+    state.plugins.filter(
+      (plugin) =>
+        plugin.pluginId !== installation.pluginId &&
+        (plugin.status === "enabled" || plugin.status === "unhealthy"),
+    ).length +
+    (installation.status === "enabled" || installation.status === "unhealthy" ? 1 : 0);
+  const decision = evaluateRunPolicy(
+    policy,
+    runtimeUsage(state, {
+      activePlugins,
+      kernelMemoryMiB: resources.maxMemoryMiB,
+      kernelOutputBytes: resources.maxOutputBytes,
+    }),
+  );
+  if (!decision.allowed) return decision.reason;
+  if (
+    resources.maxRuntimeMs > policy.maxPluginHandlerMs ||
+    resources.maxQueueDepth > policy.maxPluginQueueDepth
+  ) {
+    return "Plugin resource limits exceed the current RunPolicy.";
+  }
+  return null;
 }
 
 function commandRoomId(command: SupervisedCommand): string | null {
@@ -144,24 +219,6 @@ function scopeAllowsRoom(
   return scopes.some(
     (scope) => scope.kind === "global" || (scope.kind === "room" && scope.roomId === roomId),
   );
-}
-
-function runtimeUsage(state: SupervisedRuntimeSnapshot): RunResourceUsage {
-  return {
-    wallTimeMs: 0,
-    recursiveCalls: 0,
-    fanOut: 1,
-    retries: 0,
-    costUsd: null,
-    kernelMemoryMiB: 0,
-    kernelOutputBytes: 0,
-    activePlugins: state.plugins.filter((plugin) => plugin.status === "enabled").length,
-    activeSubscriptions: state.subscriptions.filter(
-      (subscription) => subscription.state === "enabled",
-    ).length,
-    eventRatePerMinute: 0,
-    aggregationSamples: 0,
-  };
 }
 
 function requirePluginAuthority(
@@ -563,10 +620,32 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
         "Only the Human or owning Lead may change this subscription.",
       );
       const current = state.subscriptions.find((item) => item.id === command.subscription.id);
+      const policy = state.runPolicies[0];
+      if (policy) {
+        const activeSubscriptions =
+          state.subscriptions.filter(
+            (subscription) =>
+              subscription.id !== command.subscription.id && subscription.state === "enabled",
+          ).length + (command.subscription.state === "enabled" ? 1 : 0);
+        const decision = evaluateRunPolicy(
+          policy,
+          runtimeUsage(state, {
+            activeSubscriptions,
+            aggregationSamples: command.subscription.window.maxSamples,
+          }),
+          { aggregationWindowMs: command.subscription.window.durationMs },
+        );
+        if (!decision.allowed) return yield* reject(command, decision.reason);
+      }
       yield* requireRevision(command, current?.revision ?? null);
       const revision = current ? current.revision + 1 : command.subscription.revision;
       return event(command, "supervised.subscription-upserted", "subscription", revision, {
-        subscription: { ...command.subscription, revision, updatedBy: command.actor, updatedAt: command.createdAt },
+        subscription: {
+          ...command.subscription,
+          revision,
+          updatedBy: command.actor,
+          updatedAt: command.createdAt,
+        },
       });
     }
     case "supervised.subscription.pause":
@@ -604,6 +683,8 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
       if (state.plugins.some((plugin) => plugin.pluginId === command.installation.pluginId)) {
         return yield* reject(command, "Plugin is already installed.");
       }
+      const policyViolation = pluginRunPolicyViolation(state, command.installation);
+      if (policyViolation) return yield* reject(command, policyViolation);
       yield* requireRevision(command, null);
       return event(command, "supervised.plugin-installed", "plugin", command.installation.revision, {
         plugin: command.installation,
@@ -619,6 +700,8 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
       if (current.status === "revoked") {
         return yield* reject(command, "Revoked plugin identities are terminal.");
       }
+      const policyViolation = pluginRunPolicyViolation(state, command.installation);
+      if (policyViolation) return yield* reject(command, policyViolation);
       yield* requireRevision(command, current.revision);
       if (
         current.manifest.version === command.installation.manifest.version &&
@@ -643,23 +726,43 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
     }
     case "supervised.plugin.enable":
     case "supervised.plugin.disable":
-    case "supervised.plugin.revoke": {
-      yield* requireHuman(command, "Only the Human may change plugin lifecycle or grants.");
+    case "supervised.plugin.revoke":
+    case "supervised.plugin.mark-unhealthy": {
+      if (command.type === "supervised.plugin.mark-unhealthy") {
+        if (command.actor.kind !== "daemon") {
+          return yield* reject(command, "Only the daemon may mark a plugin unhealthy.");
+        }
+      } else {
+        yield* requireHuman(command, "Only the Human may change plugin lifecycle or grants.");
+      }
       const current = state.plugins.find((plugin) => plugin.pluginId === command.pluginId);
       if (!current) return yield* reject(command, "Plugin is not installed.");
       yield* requireRevision(command, current.revision);
-      if (current.status === "revoked") return yield* reject(command, "Revoked plugins are terminal.");
+      if (current.status === "revoked") {
+        return yield* reject(command, "Revoked plugins are terminal.");
+      }
+      if (command.type === "supervised.plugin.mark-unhealthy" && current.status !== "enabled") {
+        return yield* reject(command, "Only an enabled plugin can become unhealthy.");
+      }
       const status = command.type.endsWith("enable")
         ? "enabled"
         : command.type.endsWith("disable")
           ? "disabled"
-          : "revoked";
+          : command.type.endsWith("revoke")
+            ? "revoked"
+            : "unhealthy";
       const plugin = {
         ...current,
         status,
-        grant: status === "revoked"
-          ? { ...current.grant, status: "revoked" as const, revokedAt: command.createdAt, revision: current.grant.revision + 1 }
-          : current.grant,
+        grant:
+          status === "revoked"
+            ? {
+                ...current.grant,
+                status: "revoked" as const,
+                revokedAt: command.createdAt,
+                revision: current.grant.revision + 1,
+              }
+            : current.grant,
         revision: current.revision + 1,
         updatedAt: command.createdAt,
       };
@@ -722,6 +825,15 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
       if (!letter) return yield* reject(command, "DeadLetter does not exist.");
       const current = state.deliveries.find((delivery) => delivery.id === letter.deliveryId);
       if (!current) return yield* reject(command, "DeadLetter delivery does not exist.");
+      if (
+        command.replayBehavior === "idempotent_actions" &&
+        subscription?.replayPolicy !== "idempotent_actions"
+      ) {
+        return yield* reject(
+          command,
+          "DeadLetter redrive cannot exceed the SubscriptionDefinition replay policy.",
+        );
+      }
       yield* requireRevision(command, current.attemptCount);
       const delivery = {
         ...current,
@@ -729,6 +841,7 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
         availableAt: command.createdAt,
         lastError: null,
         replay: true,
+        replayBehavior: command.replayBehavior,
         updatedAt: command.createdAt,
       };
       const deadLetter = {
@@ -964,17 +1077,21 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
         { modelSession: { ...trace, revision, updatedAt: command.createdAt } },
       );
     }
-      case "supervised.patch.upsert": {
-        yield* requireHuman(command, "Only the Human may activate or replace Harness Patches.");
-        const current = state.harnessPatches.find((patch) => patch.id === command.patch.id);
-        yield* requireRevision(command, current?.version ?? null);
-        if (current && command.patch.version <= current.version) {
-          return yield* reject(command, "Harness Patch version must increase.");
-        }
-        return event(command, "supervised.patch-upserted", "harness_patch", command.patch.version, {
-          patch: command.patch,
-        });
+    case "supervised.patch.upsert": {
+      const current = state.harnessPatches.find((patch) => patch.id === command.patch.id);
+      yield* requireRevision(command, current?.revision ?? null);
+      try {
+        validateHarnessPatchUpdate(current ?? null, command.patch, command.actor);
+      } catch (error) {
+        return yield* reject(
+          command,
+          error instanceof Error ? error.message : "Harness Patch transition is invalid.",
+        );
       }
+      return event(command, "supervised.patch-upserted", "harness_patch", command.patch.revision, {
+        patch: command.patch,
+      });
+    }
         case "supervised.specialist.create":
         case "supervised.specialist.upsert": {
           if (command.type === "supervised.specialist.upsert") {

@@ -295,7 +295,7 @@ export const makeSupervisedSignalDelivery = Effect.gen(function* () {
               `Plugin command request '${request.type}' is outside the SubscriptionDefinition action set.`,
             );
           }
-          if (input.delivery.replay && input.subscription.replayPolicy !== "idempotent_actions") {
+          if (input.delivery.replay && input.delivery.replayBehavior !== "idempotent_actions") {
             yield* appendAudit({
               subscription: input.subscription,
               signal: input.signal,
@@ -364,7 +364,7 @@ export const makeSupervisedSignalDelivery = Effect.gen(function* () {
     }
     const queueDepth = snapshot.deliveries.filter(
       (delivery) =>
-        delivery.status !== "delivered" &&
+        ["queued", "delivering", "failed"].includes(delivery.status) &&
         snapshot.subscriptions.some(
           (subscription) =>
             subscription.id === delivery.subscriptionId &&
@@ -372,6 +372,15 @@ export const makeSupervisedSignalDelivery = Effect.gen(function* () {
             subscription.destination.pluginId === installation.pluginId,
         ),
     ).length;
+    const queueLimit = Math.min(
+      policy.maxPluginQueueDepth,
+      installation.manifest.resourceLimits.maxQueueDepth,
+    );
+    if (queueDepth > queueLimit) {
+      return yield* deliveryFailure(
+        `Plugin queue depth ${queueDepth} exceeds its governed limit ${queueLimit}.`,
+      );
+    }
     const execute = Effect.tryPromise({
       try: async () => {
         const runtime = new GovernedPluginRuntime(
@@ -406,7 +415,7 @@ export const makeSupervisedSignalDelivery = Effect.gen(function* () {
         onFailure: (error) => {
           const consecutiveFailures = (priorHealth?.consecutiveFailures ?? 0) + 1;
           const circuitOpen = consecutiveFailures >= policy.circuitBreakerFailureCount;
-          return repository.updatePluginHealth({
+          const persistHealth = repository.updatePluginHealth({
             pluginId: installation.pluginId,
             consecutiveFailures,
             circuitState: circuitOpen ? "open" : "closed",
@@ -419,7 +428,28 @@ export const makeSupervisedSignalDelivery = Effect.gen(function* () {
             lastFailureAt: input.delivery.updatedAt,
             lastError: error.detail,
             updatedAt: input.delivery.updatedAt,
-          }).pipe(Effect.andThen(Effect.fail(error)));
+          });
+          const markUnhealthy = circuitOpen
+            ? engine.dispatch({
+                type: "supervised.plugin.mark-unhealthy",
+                commandId: CommandId.makeUnsafe(
+                  stableId("command:plugin-unhealthy", {
+                    pluginId: installation.pluginId,
+                    revision: installation.revision,
+                  }),
+                ),
+                actor: { kind: "daemon", actorId: "supervised-runtime" },
+                aggregateId: installation.pluginId,
+                expectedRevision: installation.revision,
+                idempotencyKey: `plugin-unhealthy:${installation.pluginId}:${installation.revision}`,
+                pluginId: installation.pluginId,
+                createdAt: input.delivery.updatedAt,
+              })
+            : Effect.void;
+          return persistHealth.pipe(
+            Effect.andThen(markUnhealthy),
+            Effect.andThen(Effect.fail(error)),
+          );
         },
       }),
     );
@@ -440,7 +470,7 @@ export const makeSupervisedSignalDelivery = Effect.gen(function* () {
     readonly signal: DerivedSignal;
     readonly delivery: SubscriptionDelivery;
   }) {
-    if (input.delivery.replay && input.subscription.replayPolicy !== "idempotent_actions") {
+    if (input.delivery.replay && input.delivery.replayBehavior !== "idempotent_actions") {
       yield* appendAudit({ ...input, outcome: "replay_observed", detail: { wakeSuppressed: true } });
       return;
     }

@@ -8,9 +8,11 @@ import {
   DEFAULT_SUPERVISED_RUN_POLICY,
   DispatchSupervisedCommandInput,
   EventSchema,
+  HarnessPatch,
   PluginManifest,
   RlmEpisode,
   SubscriptionDefinition,
+  SubscriptionDelivery,
   TestSubscriptionResult,
 } from "./supervised";
 
@@ -162,6 +164,44 @@ describe("Supervised contracts", () => {
     });
     assert.equal(manifest.handler, null);
     assert.equal(manifest.subscriptions.length, 1);
+  });
+
+    it("decodes durable Harness Patch lifecycle and replay behavior defaults", () => {
+      const patch = Schema.decodeUnknownSync(HarnessPatch)({
+        id: "patch-stage-6",
+        name: "Evidence first",
+        patchType: "evaluation",
+        scope: { kind: "project", projectId: "project-1" },
+        content: "Require durable evidence before completion.",
+        basePolicyHash: hash,
+        status: "proposed",
+        evaluationEvidenceRefs: [],
+        version: 1,
+        createdBy: actor,
+        activatedBy: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      assert.equal(patch.revision, 0);
+      assert.equal(patch.lastControlPlaneSequence, 0);
+      assert.deepEqual(patch.observationEvidenceRefs, []);
+
+      const delivery = Schema.decodeUnknownSync(SubscriptionDelivery)({
+        id: "delivery-stage-6",
+        subscriptionId: contextPressureSubscription.id,
+        signalId: "signal-stage-6",
+        dedupeKey: "stage-6",
+        status: "queued",
+        attemptCount: 0,
+        availableAt: now,
+        deliveredAt: null,
+        lastError: null,
+        payloadHash: hash,
+        replay: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+    assert.equal(delivery.replayBehavior, "observe_only");
   });
 
   it("locks synthetic subscription testing to no production action", () => {

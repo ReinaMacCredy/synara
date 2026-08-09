@@ -590,6 +590,35 @@ export const HarnessPatchScope = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("room"), roomId: RoomId }),
   Schema.Struct({ kind: Schema.Literal("task"), taskId: TaskId }),
 ]);
+export const HarnessPatchSandboxEvaluation = Schema.Struct({
+  passed: Schema.Boolean,
+  basePolicyHash: Sha256,
+  evidenceRefs: Schema.Array(EvidenceId).check(Schema.isMinLength(1)).check(Schema.isMaxLength(128)),
+  regressions: Schema.Array(BoundedText).check(Schema.isMaxLength(128)),
+  evaluatedBy: SupervisedActor,
+  evaluatedAt: IsoDateTime,
+  eventId: EventId,
+  controlPlaneSequence: NonNegativeInt,
+});
+export const HarnessPatchApproval = Schema.Struct({
+  approvedBy: SupervisedActor,
+  approvedAt: IsoDateTime,
+});
+export const HarnessPatchCanary = Schema.Struct({
+  startedAt: IsoDateTime,
+  failureThreshold: PositiveInt,
+  observedFailures: NonNegativeInt,
+  successfulEvaluations: NonNegativeInt,
+  evidenceRefs: Schema.Array(EvidenceId).check(Schema.isMaxLength(256)),
+  lastEvaluationAt: Schema.NullOr(IsoDateTime),
+  lastControlPlaneSequence: NonNegativeInt,
+});
+export const HarnessPatchRollback = Schema.Struct({
+  reason: BoundedText,
+  evidenceRefs: Schema.Array(EvidenceId).check(Schema.isMinLength(1)).check(Schema.isMaxLength(128)),
+  rolledBackBy: SupervisedActor,
+  rolledBackAt: IsoDateTime,
+});
 export const HarnessPatch = Schema.Struct({
   id: HarnessPatchId,
   name: ShortText,
@@ -597,9 +626,40 @@ export const HarnessPatch = Schema.Struct({
   scope: HarnessPatchScope,
   content: BoundedText,
   basePolicyHash: Sha256,
-  status: Schema.Literals(["draft", "evaluating", "active", "rejected", "reverted", "expired"]),
+  status: Schema.Literals([
+    "observed",
+    "proposed",
+    "sandboxed",
+    "evaluated",
+    "awaiting_approval",
+    "canary",
+    "promoted",
+    "rejected",
+    "failed",
+    "rolled_back",
+    "revoked",
+  ]),
+  observationEvidenceRefs: Schema.optional(
+    Schema.Array(EvidenceId).check(Schema.isMaxLength(128)),
+  ).pipe(Schema.withDecodingDefault(() => [])),
   evaluationEvidenceRefs: Schema.Array(EvidenceId).check(Schema.isMaxLength(128)),
+  sandboxEvaluation: Schema.optional(Schema.NullOr(HarnessPatchSandboxEvaluation)).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
+  approval: Schema.optional(Schema.NullOr(HarnessPatchApproval)).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
+  canary: Schema.optional(Schema.NullOr(HarnessPatchCanary)).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
+  rollback: Schema.optional(Schema.NullOr(HarnessPatchRollback)).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
+  lastControlPlaneSequence: Schema.optional(NonNegativeInt).pipe(
+    Schema.withDecodingDefault(() => 0),
+  ),
   version: PositiveInt,
+  revision: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   createdBy: SupervisedActor,
   activatedBy: Schema.NullOr(SupervisedActor),
   createdAt: IsoDateTime,
@@ -898,6 +958,9 @@ export const SubscriptionDelivery = Schema.Struct({
   lastError: Schema.NullOr(BoundedText),
   payloadHash: Sha256,
   replay: Schema.Boolean,
+  replayBehavior: Schema.optional(ReplayBehavior).pipe(
+    Schema.withDecodingDefault(() => "observe_only" as const),
+  ),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -1230,6 +1293,7 @@ export const SupervisedCommand = Schema.Union([
       "supervised.plugin.enable",
       "supervised.plugin.disable",
       "supervised.plugin.revoke",
+      "supervised.plugin.mark-unhealthy",
     ]),
     pluginId: PluginId,
   }),

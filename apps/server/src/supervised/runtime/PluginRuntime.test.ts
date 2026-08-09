@@ -52,10 +52,12 @@ const installation = {
   updatedAt: now,
   revision: 0,
 } as PluginInstallation;
-const policy = {
-  allowedCapabilities: ["event.read"],
-  allowedPluginActions: ["supervised.compaction.request"],
-  circuitBreakerFailureCount: 2,
+  const policy = {
+    allowedCapabilities: ["event.read"],
+    allowedPluginActions: ["supervised.compaction.request"],
+    maxWallTimeMs: 1_000,
+    maxPluginHandlerMs: 100,
+    circuitBreakerFailureCount: 2,
   circuitBreakerResetMs: 10_000,
 } as RunPolicy;
 const usage = {
@@ -163,7 +165,7 @@ describe("GovernedPluginRuntime", () => {
     await assert.rejects(() => runtime.handle(event), /outside its grant/);
   });
 
-  it("rejects observation output without metric.emit capability", async () => {
+    it("rejects observation output without metric.emit capability", async () => {
     const runtime = new GovernedPluginRuntime(
       installation,
       "/tmp/plugin-1",
@@ -192,6 +194,32 @@ describe("GovernedPluginRuntime", () => {
       async () => "async function handle() {}",
     );
 
-    await assert.rejects(() => runtime.handle(event), /without metric.emit capability/);
+      await assert.rejects(() => runtime.handle(event), /without metric.emit capability/);
+    });
+
+    it("stops an isolated handler that exceeds the tighter plugin timeout", async () => {
+      let stopped = false;
+      const runtime = new GovernedPluginRuntime(
+        {
+          ...installation,
+          manifest: {
+            ...installation.manifest,
+            resourceLimits: { ...installation.manifest.resourceLimits, maxRuntimeMs: 5 },
+          },
+        },
+        "/tmp/plugin-1",
+        policy,
+        usage,
+        async () => ({
+          execute: () => new Promise(() => undefined),
+          stop: () => {
+            stopped = true;
+          },
+        }),
+        async () => "async function handle() {}",
+      );
+
+      await assert.rejects(() => runtime.handle(event), /5ms time limit/);
+      assert.equal(stopped, true);
+    });
   });
-});

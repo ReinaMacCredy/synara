@@ -92,10 +92,17 @@ export interface SupervisedRuntimeRepositoryShape {
   readonly upsertSignal: (
     signal: DerivedSignal,
   ) => Effect.Effect<void, ProjectionRepositoryError>;
-  readonly enqueueDelivery: (
-    delivery: SubscriptionDelivery,
-  ) => Effect.Effect<boolean, ProjectionRepositoryError>;
-  readonly claimDeliveries: (
+    readonly enqueueDelivery: (
+      delivery: SubscriptionDelivery,
+    ) => Effect.Effect<boolean, ProjectionRepositoryError>;
+    readonly countPendingDeliveries: (
+      subscriptionId: SubscriptionDefinition["id"],
+    ) => Effect.Effect<number, ProjectionRepositoryError>;
+    readonly countDeliveredSince: (input: {
+      readonly subscriptionId: SubscriptionDefinition["id"];
+      readonly since: string;
+    }) => Effect.Effect<number, ProjectionRepositoryError>;
+    readonly claimDeliveries: (
     input: ClaimSupervisedDeliveriesInput,
   ) => Effect.Effect<ReadonlyArray<SubscriptionDelivery>, ProjectionRepositoryError>;
   readonly updateDelivery: (

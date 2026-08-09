@@ -227,10 +227,17 @@ layer("SupervisedSignalDelivery", (it) => {
         const health = snapshot.pluginHealth.find(
           (candidate) => candidate.pluginId === plugin.pluginId,
         );
-        assert.equal(health?.consecutiveFailures, 5);
-        assert.equal(health?.circuitState, "open");
-        assert.ok(health?.circuitOpenedUntil);
-      } finally {
+          assert.equal(health?.consecutiveFailures, 5);
+          assert.equal(health?.circuitState, "open");
+          assert.ok(health?.circuitOpenedUntil);
+          assert.ok(
+            dispatched.some(
+              (command) =>
+                command.type === "supervised.plugin.mark-unhealthy" &&
+                command.pluginId === plugin.pluginId,
+            ),
+          );
+        } finally {
         yield* Effect.tryPromise(() => rm(directory, { recursive: true, force: true }));
       }
     }),

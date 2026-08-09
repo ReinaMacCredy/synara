@@ -120,6 +120,7 @@ import Migration0101 from "./Migrations/101_SupervisorFirstLifecycle.ts";
 import Migration0102 from "./Migrations/102_SupervisedToolReceipts.ts";
 import Migration0103 from "./Migrations/103_SupervisedModelRouting.ts";
 import Migration0104 from "./Migrations/104_SupervisedContextNotebookRlm.ts";
+import Migration0105 from "./Migrations/105_SupervisedSignalPluginLearning.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -237,9 +238,10 @@ export const migrationEntries = [
   [100, "SupervisorFirstGovernance", Migration0100],
   [101, "SupervisorFirstLifecycle", Migration0101],
   [102, "SupervisedToolReceipts", Migration0102],
-  [103, "SupervisedModelRouting", Migration0103],
-  [104, "SupervisedContextNotebookRlm", Migration0104],
-] as const;
+    [103, "SupervisedModelRouting", Migration0103],
+    [104, "SupervisedContextNotebookRlm", Migration0104],
+    [105, "SupervisedSignalPluginLearning", Migration0105],
+  ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>
   Migrator.fromRecord(
