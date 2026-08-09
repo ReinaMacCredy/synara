@@ -45,7 +45,10 @@ interface TopologyNode {
   readonly id: string;
   readonly kind: TopologyNodeKind;
   readonly eyebrow: string;
+  /** Short label shown on the card (demo-style, never a raw 36-char UUID). */
   readonly title: string;
+  /** Full identity for tooltip / a11y when title is truncated. */
+  readonly fullTitle?: string;
   readonly detail: string;
   readonly status: string;
 }
@@ -68,6 +71,7 @@ type TopologyFlowNodeData = {
   kind: TopologyNodeKind;
   eyebrow: string;
   title: string;
+  fullTitle?: string;
   detail: string;
   status: string;
   selected: boolean;
@@ -77,13 +81,67 @@ type TopologyFlowNode = Node<TopologyFlowNodeData, "topology">;
 
 const NODE_HEIGHT = 92;
 const ROW_GAP = 24;
-const COL_X = {
-  runtime: 0,
-  policy: 0,
-  lead: 300,
-  specialist: 620,
-  workspace: 940,
-} as const;
+const NODE_WIDTH = 220;
+const COL_GAP = 80;
+
+/** Demo-like short seat labels: `seat:lead-opus`, never full UUID. */
+function formatTopologySeatLabel(raw: string | null | undefined): {
+  readonly title: string;
+  readonly fullTitle: string;
+} {
+  if (raw == null || raw.trim().length === 0) {
+    return { title: "Unassigned Lead", fullTitle: "Unassigned Lead" };
+  }
+  const full = String(raw).trim();
+  // Already human-ish: seat:lead-opus / lead-opus
+  if (/^seat:/i.test(full) || /^lead[-_]/i.test(full)) {
+    const short = full.length > 24 ? `${full.slice(0, 22)}…` : full;
+    return { title: short, fullTitle: full };
+  }
+  // UUID or uuid-like
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(full)) {
+    return { title: `lead · ${full.slice(0, 8)}`, fullTitle: full };
+  }
+  if (full.length > 22) {
+    return { title: `${full.slice(0, 20)}…`, fullTitle: full };
+  }
+  return { title: full, fullTitle: full };
+}
+
+function formatTopologyTitle(raw: string, max = 22): {
+  readonly title: string;
+  readonly fullTitle: string;
+} {
+  const full = raw.trim();
+  if (full.length <= max) return { title: full, fullTitle: full };
+  return { title: `${full.slice(0, max - 1)}…`, fullTitle: full };
+}
+
+/** Sparse (no specialists): tight 3-column LR. Dense: room for peer column. */
+function columnX(specialistCount: number): {
+  readonly runtime: number;
+  readonly policy: number;
+  readonly lead: number;
+  readonly specialist: number;
+  readonly workspace: number;
+} {
+  if (specialistCount === 0) {
+    return {
+      runtime: 0,
+      policy: 0,
+      lead: NODE_WIDTH + COL_GAP,
+      specialist: NODE_WIDTH + COL_GAP,
+      workspace: (NODE_WIDTH + COL_GAP) * 2,
+    };
+  }
+  return {
+    runtime: 0,
+    policy: 0,
+    lead: NODE_WIDTH + COL_GAP,
+    specialist: (NODE_WIDTH + COL_GAP) * 2,
+    workspace: (NODE_WIDTH + COL_GAP) * 3,
+  };
+}
 
 function scopeAppliesToRoom(
   scope: AuthorityScope,
@@ -143,6 +201,9 @@ function buildRoomTopology(
     )
     .slice(0, 4);
 
+  const leadLabel = formatTopologySeatLabel(room.leadSeatId);
+  const policyLabel = policy ? formatTopologyTitle(policy.name, 24) : null;
+
   const nodes: TopologyNode[] = [
     {
       id: "supervised-runtime",
@@ -152,13 +213,14 @@ function buildRoomTopology(
       detail: `daemon epoch ${snapshot.health.daemonEpoch}`,
       status: snapshot.health.status,
     },
-    ...(policy
+    ...(policy && policyLabel
       ? [
           {
             id: `policy-${policy.id}`,
             kind: "policy" as const,
             eyebrow: "RunPolicy",
-            title: policy.name,
+            title: policyLabel.title,
+            fullTitle: policyLabel.fullTitle,
             detail: `${policy.maxFanOut} fan-out · ${policy.maxRecursiveCalls} recursive calls`,
             status: "active",
           },
@@ -168,18 +230,23 @@ function buildRoomTopology(
       id: room.leadSeatId ?? "unassigned-lead",
       kind: "lead",
       eyebrow: "Lead",
-      title: room.leadSeatId ? String(room.leadSeatId) : "Unassigned Lead",
+      title: leadLabel.title,
+      fullTitle: leadLabel.fullTitle,
       detail: `${tasks.length} tasks · ${activeRunCount} active runs`,
       status: room.status,
     },
-    ...specialists.map((specialist) => ({
-      id: specialist.id,
-      kind: "specialist" as const,
-      eyebrow: "Specialist",
-      title: specialist.concern,
-      detail: String(specialist.profilePresetId),
-      status: specialist.status,
-    })),
+    ...specialists.map((specialist) => {
+      const concern = formatTopologyTitle(specialist.concern, 22);
+      return {
+        id: specialist.id,
+        kind: "specialist" as const,
+        eyebrow: "Specialist",
+        title: concern.title,
+        fullTitle: concern.fullTitle,
+        detail: String(specialist.profilePresetId),
+        status: specialist.status,
+      };
+    }),
     {
       id: workspace?.id ?? "unassigned-workspace",
       kind: "workspace",
@@ -452,7 +519,11 @@ const TopologyFlowNodeView = memo(function TopologyFlowNodeView(
         </span>
         <StatusDot status={data.status} />
       </div>
-      <div className="break-words px-3 pt-1 text-[13px] font-semibold leading-snug" style={{ color: topo.text }}>
+      <div
+        className="truncate px-3 pt-1 text-[13px] font-semibold leading-snug"
+        style={{ color: topo.text }}
+        title={data.fullTitle ?? data.title}
+      >
         {data.title}
       </div>
       <div className="px-3 pt-1.5 pb-3 text-[11px] leading-snug" style={{ color: topo.muted }}>
@@ -555,6 +626,7 @@ function buildTopologyFlowGraph(
   const lead = projection.nodes.find((node) => node.kind === "lead");
   const workspace = projection.nodes.find((node) => node.kind === "workspace");
   const specialists = projection.nodes.filter((node) => node.kind === "specialist");
+  const col = columnX(specialists.length);
 
   const specialistStackHeight =
     specialists.length === 0
@@ -568,7 +640,7 @@ function buildTopologyFlowGraph(
     nodes.push({
       id: runtime.id,
       type: "topology",
-      position: { x: COL_X.runtime, y: Math.max(0, stackMid - NODE_HEIGHT - 16) },
+      position: { x: col.runtime, y: Math.max(0, stackMid - NODE_HEIGHT - 16) },
       data: { ...runtime, selected: selectedNodeId === runtime.id },
       selected: selectedNodeId === runtime.id,
       draggable: false,
@@ -578,7 +650,7 @@ function buildTopologyFlowGraph(
     nodes.push({
       id: policy.id,
       type: "topology",
-      position: { x: COL_X.policy, y: Math.max(NODE_HEIGHT + 28, stackMid + 16) },
+      position: { x: col.policy, y: Math.max(NODE_HEIGHT + 28, stackMid + 16) },
       data: { ...policy, selected: selectedNodeId === policy.id },
       selected: selectedNodeId === policy.id,
       draggable: false,
@@ -588,7 +660,7 @@ function buildTopologyFlowGraph(
     nodes.push({
       id: lead.id,
       type: "topology",
-      position: { x: COL_X.lead, y: Math.max(0, stackMid - NODE_HEIGHT / 2) },
+      position: { x: col.lead, y: Math.max(0, stackMid - NODE_HEIGHT / 2) },
       data: { ...lead, selected: selectedNodeId === lead.id },
       selected: selectedNodeId === lead.id,
       draggable: false,
@@ -599,7 +671,7 @@ function buildTopologyFlowGraph(
     nodes.push({
       id: specialist.id,
       type: "topology",
-      position: { x: COL_X.specialist, y: index * (NODE_HEIGHT + ROW_GAP) },
+      position: { x: col.specialist, y: index * (NODE_HEIGHT + ROW_GAP) },
       data: { ...specialist, selected: selectedNodeId === specialist.id },
       selected: selectedNodeId === specialist.id,
       draggable: false,
@@ -610,7 +682,7 @@ function buildTopologyFlowGraph(
     nodes.push({
       id: workspace.id,
       type: "topology",
-      position: { x: COL_X.workspace, y: Math.max(0, stackMid - NODE_HEIGHT / 2) },
+      position: { x: col.workspace, y: Math.max(0, stackMid - NODE_HEIGHT / 2) },
       data: { ...workspace, selected: selectedNodeId === workspace.id },
       selected: selectedNodeId === workspace.id,
       draggable: false,
