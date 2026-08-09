@@ -170,7 +170,351 @@ describe("Codex Synara harness policy", () => {
       rmSync(homePath, { recursive: true, force: true });
     }
   });
+});
 
+function handleServerNotificationForTest(
+  manager: CodexAppServerManager,
+  context: unknown,
+  notification: Record<string, unknown>,
+): void {
+  (
+    manager as unknown as {
+      handleServerNotification: (context: unknown, notification: Record<string, unknown>) => void;
+    }
+  ).handleServerNotification(context, notification);
+}
+
+async function handleServerRequestForTest(
+  manager: CodexAppServerManager,
+  context: unknown,
+  request: Record<string, unknown>,
+): Promise<void> {
+  await (
+    manager as unknown as {
+      handleServerRequest: (context: unknown, request: Record<string, unknown>) => Promise<void>;
+    }
+  ).handleServerRequest(context, request);
+}
+
+function createSendTurnHarness(runtimeMode: RuntimeMode = "full-access") {
+  const manager = new CodexAppServerManager();
+  const context = {
+    session: {
+      provider: "codex",
+      status: "ready",
+      threadId: "thread_1",
+      runtimeMode,
+      model: "gpt-5.3-codex",
+      activeTurnId: undefined as string | undefined,
+      resumeCursor: { threadId: "thread_1" },
+      createdAt: "2026-02-10T00:00:00.000Z",
+      updatedAt: "2026-02-10T00:00:00.000Z",
+    },
+    account: {
+      type: "unknown",
+      planType: null,
+      sparkEnabled: true,
+    },
+    nativeInstruction: undefined as string | null | undefined,
+    pendingApprovals: new Map(),
+    pendingUserInputs: new Map(),
+    collabReceiverTurns: new Map(),
+    collabReceiverParents: new Map(),
+    reviewTurnIds: new Set<string>(),
+  };
+
+  const requireSession = vi
+    .spyOn(
+      manager as unknown as { requireSession: (sessionId: string) => unknown },
+      "requireSession",
+    )
+    .mockReturnValue(context);
+  const sendRequest = vi
+    .spyOn(
+      manager as unknown as { sendRequest: (...args: unknown[]) => Promise<unknown> },
+      "sendRequest",
+    )
+    .mockResolvedValue({
+      turn: {
+        id: "turn_1",
+      },
+    });
+  const updateSession = vi
+    .spyOn(manager as unknown as { updateSession: (...args: unknown[]) => void }, "updateSession")
+    .mockImplementation(() => {});
+
+  return { manager, context, requireSession, sendRequest, updateSession };
+}
+
+function createThreadControlHarness() {
+  const manager = new CodexAppServerManager();
+  const context = {
+    lifecycleGeneration: "generation-request-a",
+    session: {
+      provider: "codex",
+      status: "ready",
+      threadId: "thread_1",
+      runtimeMode: "full-access",
+      model: "gpt-5.3-codex",
+      activeTurnId: undefined as string | undefined,
+      resumeCursor: { threadId: "thread_1" },
+      createdAt: "2026-02-10T00:00:00.000Z",
+      updatedAt: "2026-02-10T00:00:00.000Z",
+    },
+    account: {
+      type: "unknown",
+      planType: null,
+      sparkEnabled: true,
+    },
+    pendingApprovals: new Map(),
+    pendingUserInputs: new Map(),
+    collabReceiverTurns: new Map(),
+    collabReceiverParents: new Map(),
+    reviewTurnIds: new Set<string>(),
+  };
+
+  const requireSession = vi
+    .spyOn(
+      manager as unknown as { requireSession: (sessionId: string) => unknown },
+      "requireSession",
+    )
+    .mockReturnValue(context);
+  const sendRequest = vi.spyOn(
+    manager as unknown as { sendRequest: (...args: unknown[]) => Promise<unknown> },
+    "sendRequest",
+  );
+  const updateSession = vi
+    .spyOn(manager as unknown as { updateSession: (...args: unknown[]) => void }, "updateSession")
+    .mockImplementation(() => {});
+  const emitEvent = vi
+    .spyOn(manager as unknown as { emitEvent: (...args: unknown[]) => void }, "emitEvent")
+    .mockImplementation(() => {});
+
+  return { manager, context, requireSession, sendRequest, updateSession, emitEvent };
+}
+
+function createPendingApprovalHarness(runtimeMode: RuntimeMode = "approval-required") {
+  const manager = new CodexAppServerManager();
+  const context = {
+    lifecycleGeneration: "generation-request-a",
+    session: {
+      provider: "codex",
+      status: "ready",
+      threadId: "thread_1",
+      runtimeMode,
+      model: "gpt-5.3-codex",
+      activeTurnId: undefined as string | undefined,
+      resumeCursor: { threadId: "thread_1" },
+      createdAt: "2026-02-10T00:00:00.000Z",
+      updatedAt: "2026-02-10T00:00:00.000Z",
+    },
+    account: {
+      type: "unknown",
+      planType: null,
+      sparkEnabled: true,
+    },
+    nativeInstruction: undefined as string | null | undefined,
+    pendingApprovals: new Map([
+      [
+        ApprovalRequestId.makeUnsafe("req-approval-1"),
+        {
+          requestId: ApprovalRequestId.makeUnsafe("req-approval-1"),
+          jsonRpcId: 42,
+          method: "item/commandExecution/requestApproval" as const,
+          requestKind: "command" as const,
+          threadId: asThreadId("thread_1"),
+        },
+      ],
+    ]),
+    pendingUserInputs: new Map(),
+    sessionApprovalOverride: undefined as
+      | undefined
+      | {
+          approvalPolicy: "never";
+          approvalsReviewer: "user";
+          sandboxPolicy: { type: "dangerFullAccess" };
+        },
+    collabReceiverTurns: new Map(),
+    collabReceiverParents: new Map(),
+    reviewTurnIds: new Set<string>(),
+  };
+
+  const requireSession = vi
+    .spyOn(
+      manager as unknown as { requireSession: (sessionId: string) => unknown },
+      "requireSession",
+    )
+    .mockReturnValue(context);
+  const writeMessage = vi
+    .spyOn(
+      manager as unknown as { writeMessage: (...args: unknown[]) => Promise<void> },
+      "writeMessage",
+    )
+    .mockResolvedValue(undefined);
+  const emitEvent = vi
+    .spyOn(manager as unknown as { emitEvent: (...args: unknown[]) => void }, "emitEvent")
+    .mockImplementation(() => {});
+  const sendRequest = vi
+    .spyOn(
+      manager as unknown as { sendRequest: (...args: unknown[]) => Promise<unknown> },
+      "sendRequest",
+    )
+    .mockResolvedValue({
+      turn: {
+        id: "turn_1",
+      },
+    });
+  const updateSession = vi
+    .spyOn(manager as unknown as { updateSession: (...args: unknown[]) => void }, "updateSession")
+    .mockImplementation(() => {});
+
+  return {
+    manager,
+    context,
+    requireSession,
+    writeMessage,
+    emitEvent,
+    sendRequest,
+    updateSession,
+  };
+}
+
+function createPendingUserInputHarness() {
+  const manager = new CodexAppServerManager();
+  const context = {
+    session: {
+      provider: "codex",
+      status: "ready",
+      threadId: "thread_1",
+      runtimeMode: "full-access",
+      model: "gpt-5.3-codex",
+      activeTurnId: undefined as string | undefined,
+      resumeCursor: { threadId: "thread_1" },
+      createdAt: "2026-02-10T00:00:00.000Z",
+      updatedAt: "2026-02-10T00:00:00.000Z",
+    },
+    account: {
+      type: "unknown",
+      planType: null,
+      sparkEnabled: true,
+    },
+    pendingApprovals: new Map(),
+    pendingUserInputs: new Map([
+      [
+        ApprovalRequestId.makeUnsafe("req-user-input-1"),
+        {
+          requestId: ApprovalRequestId.makeUnsafe("req-user-input-1"),
+          jsonRpcId: 42,
+          threadId: asThreadId("thread_1"),
+        },
+      ],
+    ]),
+    collabReceiverTurns: new Map(),
+    collabReceiverParents: new Map(),
+    reviewTurnIds: new Set<string>(),
+  };
+
+  const requireSession = vi
+    .spyOn(
+      manager as unknown as { requireSession: (sessionId: string) => unknown },
+      "requireSession",
+    )
+    .mockReturnValue(context);
+  const writeMessage = vi
+    .spyOn(
+      manager as unknown as { writeMessage: (...args: unknown[]) => Promise<void> },
+      "writeMessage",
+    )
+    .mockResolvedValue(undefined);
+  const emitEvent = vi
+    .spyOn(manager as unknown as { emitEvent: (...args: unknown[]) => void }, "emitEvent")
+    .mockImplementation(() => {});
+
+  return { manager, context, requireSession, writeMessage, emitEvent };
+}
+
+function createCollabNotificationHarness() {
+  const manager = new CodexAppServerManager();
+  const context = {
+    session: {
+      provider: "codex",
+      status: "running",
+      threadId: asThreadId("thread_1"),
+      runtimeMode: "full-access",
+      model: "gpt-5.3-codex",
+      activeTurnId: "turn_parent",
+      resumeCursor: { threadId: "provider_parent" },
+      createdAt: "2026-02-10T00:00:00.000Z",
+      updatedAt: "2026-02-10T00:00:00.000Z",
+    },
+    account: {
+      type: "unknown",
+      planType: null,
+      sparkEnabled: true,
+    },
+    pending: new Map(),
+    pendingApprovals: new Map(),
+    pendingUserInputs: new Map(),
+    sessionApprovalOverride: undefined as
+      | undefined
+      | {
+          approvalPolicy: "never";
+          approvalsReviewer: "user";
+          sandboxPolicy: { type: "dangerFullAccess" };
+        },
+    collabReceiverTurns: new Map<string, string>(),
+    collabReceiverParents: new Map<string, string>(),
+    reviewTurnIds: new Set<string>(),
+    gatewayCredentialRetired: false,
+    nextRequestId: 1,
+    stopping: false,
+  };
+
+  const emitEvent = vi
+    .spyOn(manager as unknown as { emitEvent: (...args: unknown[]) => void }, "emitEvent")
+    .mockImplementation(() => {});
+  const updateSession = vi
+    .spyOn(manager as unknown as { updateSession: (...args: unknown[]) => void }, "updateSession")
+    .mockImplementation(() => {});
+  const requireSession = vi
+    .spyOn(
+      manager as unknown as { requireSession: (threadId: ThreadId) => unknown },
+      "requireSession",
+    )
+    .mockReturnValue(context);
+  const writeMessage = vi
+    .spyOn(
+      manager as unknown as { writeMessage: (...args: unknown[]) => Promise<void> },
+      "writeMessage",
+    )
+    .mockResolvedValue(undefined);
+
+  return { manager, context, emitEvent, updateSession, requireSession, writeMessage };
+}
+
+function createProcessOutputHarness() {
+  const manager = new CodexAppServerManager();
+  const context = {
+    session: {
+      provider: "codex",
+      status: "running",
+      threadId: asThreadId("thread_1"),
+      runtimeMode: "full-access",
+      model: "gpt-5.3-codex",
+      createdAt: "2026-02-10T00:00:00.000Z",
+      updatedAt: "2026-02-10T00:00:00.000Z",
+    },
+    reviewTurnIds: new Set<string>(),
+    stopping: false,
+  };
+  const emitEvent = vi
+    .spyOn(manager as unknown as { emitEvent: (...args: unknown[]) => void }, "emitEvent")
+    .mockImplementation(() => {});
+
+  return { manager, context, emitEvent };
+}
+
+describe("Codex app-server teardown", () => {
   it("keeps a live process routable when only the last turn status is error", () => {
     class FakeCodexChild extends EventEmitter {
       readonly pid = 5050;
