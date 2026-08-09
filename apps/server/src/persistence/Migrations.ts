@@ -115,6 +115,7 @@ import Migration0096 from "./Migrations/096_SupervisedExecutionGovernance.ts";
 import Migration0097 from "./Migrations/097_LeadSubscriptionOwnership.ts";
 import Migration0098 from "./Migrations/098_SupervisedModelSessions.ts";
 import Migration0099 from "./Migrations/099_RetireOrchestratorControlPlane.ts";
+import Migration0100 from "./Migrations/100_SupervisorFirstGovernance.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -228,8 +229,9 @@ export const migrationEntries = [
   [96, "SupervisedExecutionGovernance", Migration0096],
   [97, "LeadSubscriptionOwnership", Migration0097],
   [98, "SupervisedModelSessions", Migration0098],
-  [99, "RetireOrchestratorControlPlane", Migration0099],
-] as const;
+    [99, "RetireOrchestratorControlPlane", Migration0099],
+    [100, "SupervisorFirstGovernance", Migration0100],
+  ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>
   Migrator.fromRecord(
