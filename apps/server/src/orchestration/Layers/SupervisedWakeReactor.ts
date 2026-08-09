@@ -1,33 +1,62 @@
 import {
   CommandId,
   MessageId,
-  SupervisionAggregateId,
+  SupervisedGovernanceAggregateId,
   SupervisionObservationId,
-  type LeadSeat,
   type OrchestrationEvent,
+  type ProjectId,
+  type SupervisedGovernanceSnapshot,
   type SupervisionMission,
   type SupervisionWake,
 } from "@synara/contracts";
 import { Cause, Effect, Layer, Semaphore, Stream } from "effect";
 
+import { SupervisedGovernanceRepository } from "../../persistence/Services/SupervisedGovernanceRepository.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import {
-  SupervisionWakeReactor,
-  type SupervisionWakeReactorShape,
-} from "../Services/SupervisionWakeReactor.ts";
-import { missionScopeContainsLead } from "../supervision/missionScope.ts";
+  SupervisedWakeReactor,
+  type SupervisedWakeReactorShape,
+} from "../Services/SupervisedWakeReactor.ts";
+import { missionScopeContainsLead } from "../supervised/missionScope.ts";
 import {
-  coalesceSupervisionWakePointers,
-  isEligibleSupervisionWake,
-} from "../supervision/wakePolicy.ts";
+  coalesceSupervisedWakePointers,
+  isEligibleSupervisedWake,
+} from "../supervised/wakePolicy.ts";
 
-const AGGREGATE_ID = SupervisionAggregateId.makeUnsafe("supervision");
+const AGGREGATE_ID = SupervisedGovernanceAggregateId.makeUnsafe("supervised");
 const WAKE_DEBOUNCE_MS = 250;
 const MAX_WAKE_ATTEMPTS = 3;
 
-const commandId = (suffix: string) => CommandId.makeUnsafe(`server:supervision-wake:${suffix}`);
+const commandId = (suffix: string) => CommandId.makeUnsafe(`server:supervised-wake:${suffix}`);
 
-const eventLeadCandidates = (event: OrchestrationEvent, leads: readonly LeadSeat[]): LeadSeat[] => {
+interface CanonicalLeadView {
+  readonly id: string;
+  readonly projectId: ProjectId;
+  readonly activeThreadId: string;
+  readonly status: "active" | "rotating" | "archived";
+}
+
+const canonicalLeadViews = (governance: SupervisedGovernanceSnapshot): CanonicalLeadView[] =>
+  governance.agentSeats.flatMap((seat) =>
+    seat.identityRole === "lead" && seat.threadId !== null && seat.projectId !== null
+      ? [{
+          id: seat.id,
+          projectId: seat.projectId,
+          activeThreadId: seat.threadId,
+          status:
+            seat.lifecycleState === "draining"
+              ? "rotating"
+              : seat.lifecycleState === "retired"
+                ? "archived"
+                : "active",
+        }]
+      : [],
+  );
+
+const eventLeadCandidates = (
+  event: OrchestrationEvent,
+  leads: readonly CanonicalLeadView[],
+): CanonicalLeadView[] => {
   if (event.aggregateKind === "thread") {
     return leads.filter((lead) => lead.activeThreadId === event.aggregateId);
   }
@@ -56,9 +85,9 @@ const eventLeadCandidates = (event: OrchestrationEvent, leads: readonly LeadSeat
   );
 };
 
-const wakeText = (wake: SupervisionWake, lead: LeadSeat): string =>
+const wakeText = (wake: SupervisionWake, lead: CanonicalLeadView): string =>
   [
-    "<synara_supervision_wake>",
+    "<synara_supervised_wake>",
     "This is a durable bounded Lead-event doorbell, not a human owner instruction.",
     `mission_id: ${wake.missionId}`,
     `lead_seat_id: ${lead.id}`,
@@ -71,12 +100,25 @@ const wakeText = (wake: SupervisionWake, lead: LeadSeat): string =>
     ),
     "Read only the bounded Lead state needed to judge this episode. Do not poll, expand scope, or inspect Peer transcripts.",
     "Persist attributed advice only when a material correction is warranted.",
-    "</synara_supervision_wake>",
+    "</synara_supervised_wake>",
   ].join("\n");
 
-export const makeSupervisionWakeReactor = Effect.gen(function* () {
+export const makeSupervisedWakeReactor = Effect.gen(function* () {
   const engine = yield* OrchestrationEngineService;
+  const governanceRepository = yield* SupervisedGovernanceRepository;
   const lock = yield* Semaphore.make(1);
+  const loadState = Effect.fnUntraced(function* () {
+    const [readModel, governance] = yield* Effect.all([
+      engine.getReadModel(),
+      governanceRepository.getSnapshot(),
+    ]);
+    return {
+      readModel,
+      governance,
+      orchestration: governance.orchestration,
+      leads: canonicalLeadViews(governance),
+    };
+  });
 
   const updateWake = Effect.fnUntraced(function* (
     wake: SupervisionWake,
@@ -86,10 +128,10 @@ export const makeSupervisionWakeReactor = Effect.gen(function* () {
   ) {
     const at = new Date().toISOString();
     yield* engine.dispatch({
-      type: "supervision.wake.update",
+      type: "supervised.wake.update",
       commandId: commandId(`${wake.id}:update:${attemptCount}:${status}`),
       aggregateId: AGGREGATE_ID,
-      actor: { kind: "server", actorId: "supervision-wake-reactor" },
+      actor: { kind: "server", actorId: "supervised-wake-reactor" },
       expectedRevision: wake.attemptCount,
       createdAt: at,
       wake: { ...wake, status, error, attemptCount, updatedAt: at },
@@ -97,23 +139,27 @@ export const makeSupervisionWakeReactor = Effect.gen(function* () {
   });
 
   const dispatchWake = Effect.fnUntraced(function* (wake: SupervisionWake) {
-    const readModel = yield* engine.getReadModel();
-    const current = readModel.supervision.wakeQueue.find((candidate) => candidate.id === wake.id);
+    const { readModel, governance, orchestration, leads } = yield* loadState();
+    const current = orchestration.wakeQueue.find((candidate) => candidate.id === wake.id);
     if (!current || current.status === "delivered" || current.attemptCount >= MAX_WAKE_ATTEMPTS) {
       return;
     }
-    const mission = readModel.supervision.missions.find(
+    const mission = orchestration.missions.find(
       (candidate) => candidate.id === current.missionId && candidate.status === "active",
     );
-    const seat = readModel.supervision.supervisors.find(
-      (candidate) => candidate.id === current.supervisorSeatId && candidate.status !== "archived",
+    const seat = governance.agentSeats.find(
+      (candidate) =>
+        candidate.id === current.supervisorSeatId &&
+        candidate.identityRole === "supervisor" &&
+        candidate.threadId !== null &&
+        candidate.lifecycleState !== "retired",
     );
-    const lead = readModel.supervision.leads.find(
+    const lead = leads.find(
       (candidate) => candidate.id === current.leadSeatId && candidate.status !== "archived",
     );
     const thread = seat
       ? readModel.threads.find(
-          (candidate) => candidate.id === seat.activeThreadId && candidate.deletedAt === null,
+          (candidate) => candidate.id === seat.threadId && candidate.deletedAt === null,
         )
       : undefined;
     if (!mission || !seat || !lead || !thread) {
@@ -137,10 +183,10 @@ export const makeSupervisionWakeReactor = Effect.gen(function* () {
       engine.dispatch({
         type: "thread.turn.start",
         commandId: commandId(`${current.id}:turn:${dispatching.attemptCount}`),
-        threadId: seat.activeThreadId,
+        threadId: seat.threadId!,
         message: {
           messageId: MessageId.makeUnsafe(
-            `supervision-wake:${current.id}:${dispatching.attemptCount}`,
+            `supervised-wake:${current.id}:${dispatching.attemptCount}`,
           ),
           role: "user",
           text: wakeText(dispatching, lead),
@@ -159,14 +205,14 @@ export const makeSupervisionWakeReactor = Effect.gen(function* () {
       return;
     }
     const pointerSequence = Math.max(...dispatching.pointers.map((pointer) => pointer.sequence));
-    const cursor = readModel.supervision.observationCursors.find(
+    const cursor = orchestration.observationCursors.find(
       (candidate) => candidate.missionId === mission.id && candidate.leadSeatId === lead.id,
     );
     yield* engine.dispatch({
-      type: "supervision.observation.advance",
+      type: "supervised.observation.advance",
       commandId: commandId(`${current.id}:cursor:${pointerSequence}`),
       aggregateId: AGGREGATE_ID,
-      actor: { kind: "server", actorId: "supervision-wake-reactor" },
+      actor: { kind: "server", actorId: "supervised-wake-reactor" },
       expectedRevision: cursor?.lastSequence ?? 0,
       createdAt: new Date().toISOString(),
       cursor: {
@@ -181,8 +227,8 @@ export const makeSupervisionWakeReactor = Effect.gen(function* () {
   });
 
   const reconcileQueuedUnlocked = Effect.gen(function* () {
-    const readModel = yield* engine.getReadModel();
-    for (const wake of readModel.supervision.wakeQueue) {
+    const { orchestration } = yield* loadState();
+    for (const wake of orchestration.wakeQueue) {
       if (
         wake.status === "queued" ||
         wake.status === "dispatching" ||
@@ -192,15 +238,15 @@ export const makeSupervisionWakeReactor = Effect.gen(function* () {
       }
     }
   });
-  const reconcileQueued: SupervisionWakeReactorShape["reconcileQueued"] =
+  const reconcileQueued: SupervisedWakeReactorShape["reconcileQueued"] =
     lock.withPermits(1)(reconcileQueuedUnlocked);
 
   const reconcileMissionEndConditions = Effect.fnUntraced(function* (
     event: OrchestrationEvent | null,
   ) {
-    const readModel = yield* engine.getReadModel();
+    const { orchestration } = yield* loadState();
     const now = new Date().toISOString();
-    for (const mission of readModel.supervision.missions) {
+    for (const mission of orchestration.missions) {
       if (mission.status !== "active") continue;
       const domainEnded =
         event !== null &&
@@ -210,10 +256,10 @@ export const makeSupervisionWakeReactor = Effect.gen(function* () {
         mission.endCondition.kind === "timestamp" && mission.endCondition.endsAt <= now;
       if (!domainEnded && !timeEnded) continue;
       yield* engine.dispatch({
-        type: "supervision.mission.update",
+        type: "supervised.mission.update",
         commandId: commandId(`${mission.id}:expire:${domainEnded ? event.sequence : now}`),
         aggregateId: AGGREGATE_ID,
-        actor: { kind: "server", actorId: "supervision-wake-reactor" },
+        actor: { kind: "server", actorId: "supervised-wake-reactor" },
         expectedRevision: mission.revision,
         createdAt: now,
         mission: { ...mission, status: "expired", updatedAt: now, completedAt: now },
@@ -223,8 +269,8 @@ export const makeSupervisionWakeReactor = Effect.gen(function* () {
 
   const reconcileEventUnlocked = Effect.fnUntraced(function* (event: OrchestrationEvent) {
     yield* reconcileMissionEndConditions(event);
-    const readModel = yield* engine.getReadModel();
-    const leads = eventLeadCandidates(event, readModel.supervision.leads).filter(
+    const { readModel, orchestration, leads: canonicalLeads } = yield* loadState();
+    const leads = eventLeadCandidates(event, canonicalLeads).filter(
       (lead) => lead.status === "active" || lead.status === "rotating",
     );
     if (leads.length === 0) return;
@@ -235,7 +281,7 @@ export const makeSupervisionWakeReactor = Effect.gen(function* () {
         .map((thread) => thread.id as string),
     );
     if (
-      !isEligibleSupervisionWake({
+      !isEligibleSupervisedWake({
         eventType: event.type,
         aggregateThreadId:
           event.aggregateKind === "thread" ? event.aggregateId : null,
@@ -246,18 +292,18 @@ export const makeSupervisionWakeReactor = Effect.gen(function* () {
       return;
     }
     for (const lead of leads) {
-      const missions = readModel.supervision.missions.filter(
+      const missions = orchestration.missions.filter(
         (mission) =>
           mission.status === "active" &&
           mission.grants.includes("lead.observe") &&
           missionScopeContainsLead({ scope: mission.scope, lead, projects: readModel.projects }),
       );
       for (const mission of missions) {
-        const cursor = readModel.supervision.observationCursors.find(
+        const cursor = orchestration.observationCursors.find(
           (candidate) => candidate.missionId === mission.id && candidate.leadSeatId === lead.id,
         );
         if ((cursor?.lastSequence ?? 0) >= event.sequence) continue;
-        const existing = readModel.supervision.wakeQueue.find(
+        const existing = orchestration.wakeQueue.find(
           (wake) =>
             wake.missionId === mission.id &&
             wake.leadSeatId === lead.id &&
@@ -271,12 +317,12 @@ export const makeSupervisionWakeReactor = Effect.gen(function* () {
           aggregateId: event.aggregateId,
         };
         if (existing) {
-          const pointers = coalesceSupervisionWakePointers([...existing.pointers, pointer]);
+          const pointers = coalesceSupervisedWakePointers([...existing.pointers, pointer]);
           yield* engine.dispatch({
-            type: "supervision.wake.update",
+            type: "supervised.wake.update",
             commandId: commandId(`${existing.id}:coalesce:${event.sequence}`),
             aggregateId: AGGREGATE_ID,
-            actor: { kind: "server", actorId: "supervision-wake-reactor" },
+            actor: { kind: "server", actorId: "supervised-wake-reactor" },
             expectedRevision: existing.attemptCount,
             createdAt: event.occurredAt,
             wake: { ...existing, pointers: [...pointers], updatedAt: event.occurredAt },
@@ -299,10 +345,10 @@ export const makeSupervisionWakeReactor = Effect.gen(function* () {
           updatedAt: event.occurredAt,
         };
         yield* engine.dispatch({
-          type: "supervision.wake.enqueue",
+          type: "supervised.wake.enqueue",
           commandId: commandId(`${wake.id}:enqueue`),
           aggregateId: AGGREGATE_ID,
-          actor: { kind: "server", actorId: "supervision-wake-reactor" },
+          actor: { kind: "server", actorId: "supervised-wake-reactor" },
           expectedRevision: 0,
           createdAt: event.occurredAt,
           wake,
@@ -312,17 +358,17 @@ export const makeSupervisionWakeReactor = Effect.gen(function* () {
     yield* Effect.sleep(`${WAKE_DEBOUNCE_MS} millis`);
     yield* reconcileQueuedUnlocked;
   });
-  const reconcileEvent: SupervisionWakeReactorShape["reconcileEvent"] = (event) =>
+  const reconcileEvent: SupervisedWakeReactorShape["reconcileEvent"] = (event) =>
     lock.withPermits(1)(reconcileEventUnlocked(event));
 
-  const start: SupervisionWakeReactorShape["start"] = Effect.gen(function* () {
+  const start: SupervisedWakeReactorShape["start"] = Effect.gen(function* () {
     yield* reconcileMissionEndConditions(null).pipe(Effect.catch(() => Effect.void));
     yield* reconcileQueued.pipe(Effect.catch(() => Effect.void));
     yield* engine.streamDomainEvents.pipe(
       Stream.runForEach((event) =>
         reconcileEvent(event).pipe(
           Effect.catchCause((cause) =>
-            Effect.logWarning("supervision wake reconciliation failed", {
+            Effect.logWarning("Supervised wake reconciliation failed", {
               eventSequence: event.sequence,
               eventType: event.type,
               cause: Cause.pretty(cause),
@@ -341,10 +387,10 @@ export const makeSupervisionWakeReactor = Effect.gen(function* () {
     );
   });
 
-  return { start, reconcileEvent, reconcileQueued } satisfies SupervisionWakeReactorShape;
+  return { start, reconcileEvent, reconcileQueued } satisfies SupervisedWakeReactorShape;
 });
 
-export const SupervisionWakeReactorLive = Layer.effect(
-  SupervisionWakeReactor,
-  makeSupervisionWakeReactor,
+export const SupervisedWakeReactorLive = Layer.effect(
+  SupervisedWakeReactor,
+  makeSupervisedWakeReactor,
 );

@@ -1,13 +1,32 @@
 import { Schema } from "effect";
 
 import {
+  CommandId,
+  EventId,
   IsoDateTime,
   NonNegativeInt,
   PositiveInt,
   ProjectId,
+  ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas";
 import { RoomId, TaskNodeId } from "./supervised";
+import {
+  LeadRotation,
+  LeadSeat,
+  PeerBinding,
+  ProfilePreset,
+  ProfilePresetId,
+  ProfileSnapshot,
+  ProfileSnapshotId,
+  SupervisionAdvice,
+  SupervisionMission,
+  SupervisionObservationCursor,
+  SupervisionWake,
+  SupervisorSeat,
+  WorkflowConflict,
+  WorkflowDirective,
+} from "./supervision";
 
 const entityId = <Brand extends string>(brand: Brand) =>
   TrimmedNonEmptyString.pipe(Schema.brand(brand));
@@ -119,6 +138,19 @@ export const AgentSeat = Schema.Struct({
   lifecycleState: AgentSeatLifecycle,
   workState: AgentWorkState,
   authorityReceiptId: EffectiveAuthorityReceiptId,
+  threadId: Schema.optional(Schema.NullOr(ThreadId)).pipe(Schema.withDecodingDefault(() => null)),
+  projectId: Schema.optional(Schema.NullOr(ProjectId)).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
+  profileSnapshotId: Schema.optional(Schema.NullOr(ProfileSnapshotId)).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
+  predecessorThreadIds: Schema.optional(Schema.Array(ThreadId)).pipe(
+    Schema.withDecodingDefault(() => []),
+  ),
+  displayName: Schema.optional(Schema.NullOr(ShortText)).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
   createdAt: IsoDateTime,
   retainedAt: Schema.NullOr(IsoDateTime),
   retiredAt: Schema.NullOr(IsoDateTime),
@@ -584,6 +616,255 @@ export const ModelSelectionReceipt = Schema.Struct({
 });
 export type ModelSelectionReceipt = typeof ModelSelectionReceipt.Type;
 
+/**
+ * Canonical read slice for the profile, mission, and workflow configuration that
+ * predates the Supervisor-first governance tables. `agentSeats` is a composed
+ * read-only view; AgentSeat rows remain the sole durable actor records.
+ */
+export const SupervisedOrchestrationSnapshot = Schema.Struct({
+  revision: NonNegativeInt,
+  agentSeats: Schema.optional(Schema.Array(AgentSeat)).pipe(Schema.withDecodingDefault(() => [])),
+  profiles: Schema.Array(ProfilePreset),
+  profileSnapshots: Schema.Array(ProfileSnapshot),
+  missions: Schema.Array(SupervisionMission),
+  workflowDirectives: Schema.Array(WorkflowDirective),
+  workflowConflicts: Schema.Array(WorkflowConflict),
+  advice: Schema.Array(SupervisionAdvice),
+  observationCursors: Schema.Array(SupervisionObservationCursor),
+  wakeQueue: Schema.Array(SupervisionWake),
+  rotations: Schema.Array(LeadRotation),
+  updatedAt: IsoDateTime,
+});
+export type SupervisedOrchestrationSnapshot = typeof SupervisedOrchestrationSnapshot.Type;
+
+export const SupervisedGovernanceAggregateId = entityId("SupervisedGovernanceAggregateId");
+export type SupervisedGovernanceAggregateId = typeof SupervisedGovernanceAggregateId.Type;
+
+export const SupervisedGovernanceActor = Schema.Struct({
+  kind: Schema.Literals(["user", "thread", "server", "event", "scheduled"]),
+  actorId: TrimmedNonEmptyString,
+  threadId: Schema.optional(ThreadId),
+});
+export type SupervisedGovernanceActor = typeof SupervisedGovernanceActor.Type;
+
+const supervisedGovernanceCommandBase = {
+  commandId: CommandId,
+  aggregateId: SupervisedGovernanceAggregateId,
+  actor: SupervisedGovernanceActor,
+  expectedRevision: Schema.Int,
+  createdAt: IsoDateTime,
+};
+
+export const SupervisedGovernanceCommand = Schema.Union([
+  Schema.Struct({
+    ...supervisedGovernanceCommandBase,
+    type: Schema.Literal("supervised.profile.create"),
+    profile: ProfilePreset,
+  }),
+  Schema.Struct({
+    ...supervisedGovernanceCommandBase,
+    type: Schema.Literal("supervised.profile.update"),
+    profile: ProfilePreset,
+  }),
+  Schema.Struct({
+    ...supervisedGovernanceCommandBase,
+    type: Schema.Literals([
+      "supervised.profile.archive",
+      "supervised.profile.restore",
+      "supervised.profile.clear",
+    ]),
+    profileId: ProfilePresetId,
+  }),
+  Schema.Struct({
+    ...supervisedGovernanceCommandBase,
+    type: Schema.Literal("supervised.supervisor.create"),
+    supervisor: SupervisorSeat,
+    profilePresetId: ProfilePresetId,
+    profileSnapshot: Schema.optional(ProfileSnapshot),
+    initialMission: Schema.optional(SupervisionMission),
+  }),
+  Schema.Struct({
+    ...supervisedGovernanceCommandBase,
+    type: Schema.Literal("supervised.supervisor.update"),
+    supervisor: SupervisorSeat,
+  }),
+  Schema.Struct({
+    ...supervisedGovernanceCommandBase,
+    type: Schema.Literals(["supervised.supervisor.archive", "supervised.supervisor.restore"]),
+    supervisorSeatId: TrimmedNonEmptyString,
+  }),
+  Schema.Struct({
+    ...supervisedGovernanceCommandBase,
+    type: Schema.Literal("supervised.lead.enroll"),
+    lead: LeadSeat,
+    profilePresetId: ProfilePresetId,
+    profileSnapshot: Schema.optional(ProfileSnapshot),
+  }),
+  Schema.Struct({
+    ...supervisedGovernanceCommandBase,
+    type: Schema.Literal("supervised.peer.bind"),
+    peer: PeerBinding,
+    profilePresetId: ProfilePresetId,
+    profileSnapshot: Schema.optional(ProfileSnapshot),
+  }),
+  Schema.Struct({
+    ...supervisedGovernanceCommandBase,
+    type: Schema.Literals([
+      "supervised.mission.create",
+      "supervised.mission.update",
+      "supervised.mission.complete",
+      "supervised.mission.cancel",
+    ]),
+    mission: SupervisionMission,
+  }),
+  Schema.Struct({
+    ...supervisedGovernanceCommandBase,
+    type: Schema.Literal("supervised.workflow.apply"),
+    directive: WorkflowDirective,
+  }),
+  Schema.Struct({
+    ...supervisedGovernanceCommandBase,
+    type: Schema.Literal("supervised.workflow.resolve"),
+    conflictId: TrimmedNonEmptyString,
+    resolvedDirectiveId: TrimmedNonEmptyString,
+  }),
+  Schema.Struct({
+    ...supervisedGovernanceCommandBase,
+    type: Schema.Literal("supervised.workflow.revoke"),
+    directiveId: TrimmedNonEmptyString,
+  }),
+  Schema.Struct({
+    ...supervisedGovernanceCommandBase,
+    type: Schema.Literal("supervised.advice.send"),
+    advice: SupervisionAdvice,
+  }),
+  Schema.Struct({
+    ...supervisedGovernanceCommandBase,
+    type: Schema.Literal("supervised.observation.advance"),
+    cursor: SupervisionObservationCursor,
+  }),
+  Schema.Struct({
+    ...supervisedGovernanceCommandBase,
+    type: Schema.Literal("supervised.wake.enqueue"),
+    wake: SupervisionWake,
+  }),
+  Schema.Struct({
+    ...supervisedGovernanceCommandBase,
+    type: Schema.Literal("supervised.wake.update"),
+    wake: SupervisionWake,
+  }),
+  Schema.Struct({
+    ...supervisedGovernanceCommandBase,
+    type: Schema.Literal("supervised.lead.replace"),
+    rotation: LeadRotation,
+    profilePresetId: ProfilePresetId,
+    replacementProfileSnapshot: Schema.optional(ProfileSnapshot),
+  }),
+  Schema.Struct({
+    ...supervisedGovernanceCommandBase,
+    type: Schema.Literal("supervised.lead.rotation.advance"),
+    rotation: LeadRotation,
+  }),
+]);
+export type SupervisedGovernanceCommand = typeof SupervisedGovernanceCommand.Type;
+
+export const SupervisedFirstSendBootstrap = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("lead"),
+    profilePresetId: ProfilePresetId,
+    profileSnapshot: Schema.optional(ProfileSnapshot),
+    lead: LeadSeat,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("supervisor"),
+    profilePresetId: ProfilePresetId,
+    profileSnapshot: Schema.optional(ProfileSnapshot),
+    supervisor: SupervisorSeat,
+    initialMission: SupervisionMission,
+  }),
+]);
+export type SupervisedFirstSendBootstrap = typeof SupervisedFirstSendBootstrap.Type;
+
+export const SupervisedGovernanceEventType = Schema.Literals([
+  "supervised.profile-created",
+  "supervised.profile-updated",
+  "supervised.profile-archived",
+  "supervised.profile-restored",
+  "supervised.profile-cleared",
+  "supervised.supervisor-created",
+  "supervised.supervisor-updated",
+  "supervised.supervisor-archived",
+  "supervised.supervisor-restored",
+  "supervised.lead-enrolled",
+  "supervised.peer-bound",
+  "supervised.mission-created",
+  "supervised.mission-updated",
+  "supervised.mission-completed",
+  "supervised.mission-cancelled",
+  "supervised.workflow-applied",
+  "supervised.workflow-conflicted",
+  "supervised.workflow-resolved",
+  "supervised.workflow-reverted",
+  "supervised.advice-sent",
+  "supervised.observation-advanced",
+  "supervised.wake-enqueued",
+  "supervised.wake-updated",
+  "supervised.lead-replacement-requested",
+  "supervised.lead-rotation-advanced",
+  "supervised.lead-replaced",
+  "supervised.lead-replacement-failed",
+]);
+export type SupervisedGovernanceEventType = typeof SupervisedGovernanceEventType.Type;
+
+export const SupervisedGovernanceEventPayload = Schema.Struct({
+  acceptedRevision: Schema.Int,
+  profile: Schema.optional(ProfilePreset),
+  profileSnapshot: Schema.optional(ProfileSnapshot),
+  supervisor: Schema.optional(SupervisorSeat),
+  lead: Schema.optional(LeadSeat),
+  peers: Schema.optional(Schema.Array(PeerBinding)),
+  peer: Schema.optional(PeerBinding),
+  mission: Schema.optional(SupervisionMission),
+  workflowDirective: Schema.optional(WorkflowDirective),
+  workflowConflict: Schema.optional(WorkflowConflict),
+  advice: Schema.optional(SupervisionAdvice),
+  observationCursor: Schema.optional(SupervisionObservationCursor),
+  wake: Schema.optional(SupervisionWake),
+  rotation: Schema.optional(LeadRotation),
+});
+
+export const SupervisedGovernanceDomainEvent = Schema.Struct({
+  sequence: Schema.Int,
+  eventId: EventId,
+  aggregateKind: Schema.Literal("supervised_governance"),
+  aggregateId: SupervisedGovernanceAggregateId,
+  type: SupervisedGovernanceEventType,
+  payload: SupervisedGovernanceEventPayload,
+  occurredAt: IsoDateTime,
+  commandId: Schema.NullOr(CommandId),
+  causationEventId: Schema.NullOr(EventId),
+  correlationId: Schema.NullOr(CommandId),
+  metadata: Schema.Record(Schema.String, Schema.Unknown),
+});
+export type SupervisedGovernanceDomainEvent = typeof SupervisedGovernanceDomainEvent.Type;
+
+export const emptySupervisedOrchestrationSnapshot = (
+  updatedAt: string,
+): SupervisedOrchestrationSnapshot => ({
+  revision: 0,
+  agentSeats: [],
+  profiles: [],
+  profileSnapshots: [],
+  missions: [],
+  workflowDirectives: [],
+  workflowConflicts: [],
+  advice: [],
+  observationCursors: [],
+  wakeQueue: [],
+  rotations: [],
+  updatedAt,
+});
+
 export const SupervisedGovernanceSnapshot = Schema.Struct({
   revision: NonNegativeInt,
   workspaces: Schema.Array(SupervisedWorkspace),
@@ -618,6 +899,11 @@ export const SupervisedGovernanceSnapshot = Schema.Struct({
     Schema.withDecodingDefault(() => []),
   ),
   modelSelectionReceipts: Schema.Array(ModelSelectionReceipt),
+  orchestration: Schema.optional(SupervisedOrchestrationSnapshot).pipe(
+    Schema.withDecodingDefault(() =>
+      emptySupervisedOrchestrationSnapshot(new Date(0).toISOString()),
+    ),
+  ),
   updatedAt: IsoDateTime,
 });
 export type SupervisedGovernanceSnapshot = typeof SupervisedGovernanceSnapshot.Type;
@@ -642,5 +928,6 @@ export const emptySupervisedGovernanceSnapshot = (updatedAt: string): Supervised
   userModelPreferenceProfiles: [],
   modelTelemetryAggregates: [],
   modelSelectionReceipts: [],
+  orchestration: emptySupervisedOrchestrationSnapshot(updatedAt),
   updatedAt,
 });

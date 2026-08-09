@@ -1883,8 +1883,8 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
         ...(input.cwd !== undefined ? { cwd: input.cwd } : {}),
         ...(input.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
         ...(input.providerOptions !== undefined ? { providerOptions: input.providerOptions } : {}),
-        ...(input.supervisionContext !== undefined
-          ? { supervisionContext: input.supervisionContext }
+        ...(input.supervisedContext !== undefined
+          ? { supervisedContext: input.supervisedContext }
           : {}),
         ...(input.handoffContext !== undefined ? { handoffContext: input.handoffContext } : {}),
         runtimeMode: input.runtimeMode,

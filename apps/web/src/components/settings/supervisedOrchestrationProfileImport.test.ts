@@ -7,7 +7,7 @@ describe("supervised orchestration profile imports", () => {
     const profile = parseProfileImport(
       JSON.stringify({
         name: "JSON reviewer",
-        roleHints: ["specialist"],
+        roleHints: ["peer"],
         runtime: {
           provider: "codex",
           model: "gpt-5.6-luna",
@@ -23,6 +23,26 @@ describe("supervised orchestration profile imports", () => {
 
     expect(profile.name).toBe("JSON reviewer");
     expect(profile.runtime.model).toBe("gpt-5.6-luna");
+    expect(profile.roleHints).toEqual(["peer"]);
+  });
+
+  it("upcasts legacy Specialist role hints to Peer", () => {
+    const profile = parseProfileImport(
+      JSON.stringify({
+        name: "Legacy reviewer",
+        roleHints: ["specialist"],
+        runtime: {
+          provider: "codex",
+          model: "gpt-5.6-luna",
+          reasoningEffort: "low",
+          sandboxMode: "workspace-write",
+          approvalPolicy: "on-request",
+          developerInstructions: "Review carefully.",
+        },
+      }),
+      "legacy-reviewer.json",
+    );
+
     expect(profile.roleHints).toEqual(["peer"]);
   });
 

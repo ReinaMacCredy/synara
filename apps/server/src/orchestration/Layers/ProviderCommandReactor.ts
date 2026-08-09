@@ -12,7 +12,7 @@ import {
   type OrchestrationEvent,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   type ProviderMentionReference,
-  type ProviderSupervisionSessionContext,
+  type ProviderSupervisedSessionContext,
   type ProviderRuntimeEvent,
   ProviderKind,
   type ProviderReviewTarget,
@@ -129,8 +129,8 @@ import { TurnCheckpointCoordinator } from "../Services/TurnCheckpointCoordinator
 import { resolveProviderSessionThread as resolveProviderSessionThreadFromProjection } from "../providerSessionThread.ts";
 import {
   resolveEffectiveCanonicalAuthority,
-  resolveProjectedSupervisionCallerForThread,
-} from "../supervision/canonicalCaller.ts";
+  resolveProjectedSupervisedCallerForThread,
+} from "../supervised/canonicalCaller.ts";
 
 type ProviderQueueDrainEvent = Extract<
   ProviderRuntimeEvent,
@@ -493,7 +493,7 @@ const make = Effect.gen(function* () {
   // projected thread metadata so an option changed mid-turn is still compared
   // against the old subprocess configuration before the next turn starts.
   const threadSessionModelSelections = new Map<string, ModelSelection>();
-  const threadSessionSupervisionContexts = new Map<string, ProviderSupervisionSessionContext>();
+  const threadSessionSupervisedContexts = new Map<string, ProviderSupervisedSessionContext>();
   // Seeded from the engine's in-memory command read model, not a second snapshot query.
   // The engine loads that model once after the projection bootstrap and keeps it current
   // as commands commit, so reading it here is both free and strictly fresher than
@@ -533,12 +533,13 @@ const make = Effect.gen(function* () {
     });
   });
 
-  const resolveSupervisionSessionContext = Effect.fnUntraced(function* (
+  const resolveSupervisedSessionContext = Effect.fnUntraced(function* (
     threadId: ThreadId,
-  ): Effect.fn.Return<ProviderSupervisionSessionContext | undefined> {
+  ): Effect.fn.Return<ProviderSupervisedSessionContext | undefined> {
     const snapshot = yield* projectionSnapshotQuery.getSnapshot();
-    const resolution = resolveProjectedSupervisionCallerForThread({
-      supervision: snapshot.supervision,
+    const governance = yield* supervisedGovernanceRepository.getSnapshot();
+    const resolution = resolveProjectedSupervisedCallerForThread({
+      governance,
       threads: snapshot.threads,
       threadId,
     });
@@ -552,20 +553,19 @@ const make = Effect.gen(function* () {
         issue: `Supervised thread '${threadId}' has no active canonical authority source.`,
       });
     }
-    const governance = yield* supervisedGovernanceRepository.getSnapshot();
     const authority = resolveEffectiveCanonicalAuthority({
       governance,
       seatId: caller.seatId,
       at: new Date().toISOString(),
     });
-    const profileSnapshot = snapshot.supervision.profileSnapshots.find(
+    const profileSnapshot = governance.orchestration.profileSnapshots.find(
       (profile) => profile.id === caller.profileSnapshotId,
     );
     if (!profileSnapshot) {
       return yield* new ProviderAdapterValidationError({
         provider: profileSnapshot?.runtime.provider ?? "codex",
         operation: "thread.turn.start",
-        issue: `Supervision seat for thread '${threadId}' has no resolved profile snapshot.`,
+        issue: `Supervised seat for thread '${threadId}' has no resolved profile snapshot.`,
       });
     }
     if (!authority) {
@@ -578,14 +578,14 @@ const make = Effect.gen(function* () {
     return {
       role: caller.role,
       ...(caller.role === "supervisor"
-        ? { supervisorSeatId: caller.supervisor.id }
-        : { leadSeatId: caller.role === "peer" ? caller.leadSeatId : caller.lead.id }),
+        ? { supervisorSeatId: caller.seatId }
+        : { leadSeatId: caller.leadSeatId ?? caller.seatId }),
       profileSnapshot,
       missionIds: caller.role === "supervisor"
-        ? snapshot.supervision.missions
+        ? governance.orchestration.missions
             .filter(
               (mission) =>
-                mission.supervisorSeatId === caller.supervisor.id && mission.status === "active",
+                mission.supervisorSeatId === caller.seatId && mission.status === "active",
             )
             .map((mission) => mission.id)
         : [],
@@ -1150,15 +1150,15 @@ const make = Effect.gen(function* () {
     const resolvedProviderOptions = providerStartOptionsFromServerSettings(
       settingsSnapshot.settings,
     );
-    const desiredSupervisionContext = yield* resolveSupervisionSessionContext(threadId);
-    if (desiredSupervisionContext !== undefined) {
-      const runtime = desiredSupervisionContext.profileSnapshot.runtime;
+    const desiredSupervisedContext = yield* resolveSupervisedSessionContext(threadId);
+    if (desiredSupervisedContext !== undefined) {
+      const runtime = desiredSupervisedContext.profileSnapshot.runtime;
       if (runtime.provider !== preferredProvider) {
         return yield* new ProviderAdapterValidationError({
           provider: preferredProvider,
           operation: "thread.turn.start",
           issue:
-            `Resolved supervision profile requires provider '${runtime.provider}', ` +
+            `Resolved Supervised profile requires provider '${runtime.provider}', ` +
             `but thread '${threadId}' is bound to provider '${preferredProvider}'.`,
         });
       }
@@ -1180,14 +1180,14 @@ const make = Effect.gen(function* () {
       }
     }
     if (
-      desiredSupervisionContext !== undefined &&
+      desiredSupervisedContext !== undefined &&
       preferredProvider !== "codex" &&
       preferredProvider !== "claudeAgent"
     ) {
       return yield* new ProviderAdapterValidationError({
         provider: preferredProvider,
         operation: "thread.turn.start",
-        issue: `Provider '${preferredProvider}' does not expose a proven supervision instruction channel.`,
+        issue: `Provider '${preferredProvider}' does not expose a proven Supervised instruction channel.`,
       });
     }
     const desiredHandoffContext = thread.handoff?.crossMode ?? undefined;
@@ -1208,8 +1208,8 @@ const make = Effect.gen(function* () {
       ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
       modelSelection: desiredModelSelection,
       providerOptions: resolvedProviderOptions,
-      ...(desiredSupervisionContext !== undefined
-        ? { supervisionContext: desiredSupervisionContext }
+      ...(desiredSupervisedContext !== undefined
+        ? { supervisedContext: desiredSupervisedContext }
         : {}),
       ...(desiredHandoffContext !== undefined ? { handoffContext: desiredHandoffContext } : {}),
       runtimeMode: desiredRuntimeMode,
@@ -1263,7 +1263,7 @@ const make = Effect.gen(function* () {
           ? "in-session"
           : (yield* providerService.getCapabilities(currentProvider)).sessionModelSwitch;
       const modelChanged =
-        (desiredSupervisionContext !== undefined || requestedModelSelection !== undefined) &&
+        (desiredSupervisedContext !== undefined || requestedModelSelection !== undefined) &&
         desiredModelSelection.model !== activeSessionBeforeEnsure?.model;
       const shouldRestartForModelChange = modelChanged && sessionModelSwitch === "restart-session";
       const previousModelSelection = threadSessionModelSelections.get(threadId);
@@ -1283,16 +1283,16 @@ const make = Effect.gen(function* () {
             )
           : (currentProvider === "droid" || currentProvider === "grok") &&
             !Equal.equals(previousModelSelection, requestedModelSelection));
-      const supervisionContextChanged =
-        JSON.stringify(threadSessionSupervisionContexts.get(threadId) ?? null) !==
-        JSON.stringify(desiredSupervisionContext ?? null);
+      const supervisedContextChanged =
+        JSON.stringify(threadSessionSupervisedContexts.get(threadId) ?? null) !==
+        JSON.stringify(desiredSupervisedContext ?? null);
 
       if (
         !runtimeModeChanged &&
         !providerChanged &&
         !shouldRestartForModelChange &&
         !shouldRestartForModelSelectionChange &&
-        !supervisionContextChanged
+        !supervisedContextChanged
       ) {
           return {
             activeSessionBeforeEnsure,
@@ -1317,7 +1317,7 @@ const make = Effect.gen(function* () {
         modelChanged,
         shouldRestartForModelChange,
         shouldRestartForModelSelectionChange,
-        supervisionContextChanged,
+        supervisedContextChanged,
         hasResumeCursor: resumeCursor !== undefined,
       });
       const restartedSession = yield* startProviderSession(resumeCursor);
@@ -1330,10 +1330,10 @@ const make = Effect.gen(function* () {
         freshSessionContextBootstrapThreadIds.add(threadId);
       }
       threadSessionModelSelections.set(threadId, desiredModelSelection);
-      if (desiredSupervisionContext) {
-        threadSessionSupervisionContexts.set(threadId, desiredSupervisionContext);
+      if (desiredSupervisedContext) {
+        threadSessionSupervisedContexts.set(threadId, desiredSupervisedContext);
       } else {
-        threadSessionSupervisionContexts.delete(threadId);
+        threadSessionSupervisedContexts.delete(threadId);
       }
       yield* Effect.logInfo("provider command reactor restarted provider session", {
         threadId,
@@ -1409,10 +1409,10 @@ const make = Effect.gen(function* () {
     // restart-necessity checks compare against the live spawn state even when
     // the spawning dispatch carried no explicit model selection.
     threadSessionModelSelections.set(threadId, desiredModelSelection);
-    if (desiredSupervisionContext) {
-      threadSessionSupervisionContexts.set(threadId, desiredSupervisionContext);
+    if (desiredSupervisedContext) {
+      threadSessionSupervisedContexts.set(threadId, desiredSupervisedContext);
     } else {
-      threadSessionSupervisionContexts.delete(threadId);
+      threadSessionSupervisedContexts.delete(threadId);
     }
     yield* bindSessionToThread(startedSession);
     suppressContextBootstrapOnNextStartThreadIds.delete(threadId);

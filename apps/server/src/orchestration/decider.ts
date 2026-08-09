@@ -1504,15 +1504,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
-      const rotatingLead = readModel.supervision?.leads.find(
-        (lead) => lead.activeThreadId === command.threadId && lead.status === "rotating",
-      );
-      if (rotatingLead !== undefined && command.dispatchOrigin !== "automation") {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: "Lead rotation is freezing new dispatch until the active pointer is settled.",
-        });
-      }
       if (threadHasCheckpointRevertInProgress(targetThread)) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,

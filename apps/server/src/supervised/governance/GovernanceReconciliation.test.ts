@@ -5,21 +5,24 @@ import { Schema } from "effect";
 import {
   SupervisedGovernanceSnapshot,
   SupervisedRuntimeSnapshot,
-  SupervisionSnapshot,
   emptySupervisedGovernanceSnapshot,
   emptySupervisedRuntimeSnapshot,
-  emptySupervisionSnapshot,
 } from "@synara/contracts";
 
-import { reconcileLegacyGovernance } from "./LegacyReconciliation.ts";
+import { emptySupervisedGovernanceDecisionState } from "../../orchestration/supervised/governanceState.ts";
+import type { SupervisedGovernanceDecisionState } from "../../orchestration/supervised/governanceState.ts";
+import { reconcileGovernanceProjection } from "./GovernanceReconciliation.ts";
 import { defaultSupervisedCommandsForRole } from "../tools/Registry.ts";
 
 const now = "2026-08-09T00:00:00.000Z";
+const reconcileLegacyProjection = (
+  input: Omit<Parameters<typeof reconcileGovernanceProjection>[0], "source">,
+) => reconcileGovernanceProjection({ ...input, source: "legacy" });
 
-describe("legacy Supervised reconciliation", () => {
-  it("mirrors an activated Lead Room into canonical seats and one fail-closed Root lease", () => {
-    const supervision = Schema.decodeUnknownSync(SupervisionSnapshot)({
-      ...emptySupervisionSnapshot(now),
+describe("Supervised governance reconciliation", () => {
+  it("projects a canonical Lead Room without minting legacy authority identifiers", () => {
+    const state = ({
+      ...emptySupervisedGovernanceDecisionState(now),
       profileSnapshots: [
         {
           id: "profile-snapshot-1",
@@ -51,7 +54,7 @@ describe("legacy Supervised reconciliation", () => {
           revision: 1,
         },
       ],
-    });
+    }) as SupervisedGovernanceDecisionState;
     const runtime = Schema.decodeUnknownSync(SupervisedRuntimeSnapshot)({
       ...emptySupervisedRuntimeSnapshot(now),
       rooms: [
@@ -69,17 +72,18 @@ describe("legacy Supervised reconciliation", () => {
       ],
     });
 
-    const reconciled = reconcileLegacyGovernance({
+    const reconciled = reconcileGovernanceProjection({
       governance: emptySupervisedGovernanceSnapshot(now),
-      supervision,
+      state,
       runtime,
       at: now,
+      source: "canonical",
     });
     const decoded = Schema.decodeUnknownSync(SupervisedGovernanceSnapshot)(reconciled);
 
     assert.equal(decoded.agentSeats[0]?.identityRole, "lead");
     assert.ok(
-      decoded.authorityReceipts[0]?.allowedCommands.includes("supervised.specialist.create"),
+      decoded.authorityReceipts[0]?.allowedCommands.includes("supervised.peer.create"),
     );
     for (const command of defaultSupervisedCommandsForRole("lead")) {
       assert.ok(decoded.authorityReceipts[0]?.allowedCommands.includes(command));
@@ -89,6 +93,8 @@ describe("legacy Supervised reconciliation", () => {
     );
     assert.equal(decoded.rootLeases.length, 1);
     assert.equal(decoded.rootLeases[0]?.holderSeatId, "lead-seat-1");
+    assert.match(decoded.agentSeats[0]!.authorityReceiptId, /^supervised-projection-receipt:/);
+    assert.match(decoded.rootLeases[0]!.id, /^supervised-projection-root-lease:/);
   });
 
   it("materializes a provisional Lead seat when Room activation projects first", () => {
@@ -109,9 +115,9 @@ describe("legacy Supervised reconciliation", () => {
       ],
     });
 
-    const reconciled = reconcileLegacyGovernance({
+    const reconciled = reconcileLegacyProjection({
       governance: emptySupervisedGovernanceSnapshot(now),
-      supervision: emptySupervisionSnapshot(now),
+      state: emptySupervisedGovernanceDecisionState(now),
       runtime,
       at: now,
     });
@@ -196,9 +202,9 @@ describe("legacy Supervised reconciliation", () => {
         },
       ],
     });
-    const reconciled = reconcileLegacyGovernance({
+    const reconciled = reconcileLegacyProjection({
       governance,
-      supervision: emptySupervisionSnapshot(now),
+      state: emptySupervisedGovernanceDecisionState(now),
       runtime,
       at: now,
     });
@@ -209,8 +215,8 @@ describe("legacy Supervised reconciliation", () => {
   });
 
   it("keeps authority receipts append-only and skips unchanged rewrites", () => {
-    const supervision = Schema.decodeUnknownSync(SupervisionSnapshot)({
-      ...emptySupervisionSnapshot(now),
+    const state = ({
+      ...emptySupervisedGovernanceDecisionState(now),
       leads: [
         {
           id: "lead-seat-1",
@@ -225,7 +231,7 @@ describe("legacy Supervised reconciliation", () => {
           revision: 1,
         },
       ],
-    });
+    }) as SupervisedGovernanceDecisionState;
     const firstRuntime = Schema.decodeUnknownSync(SupervisedRuntimeSnapshot)({
       ...emptySupervisedRuntimeSnapshot(now),
       rooms: [
@@ -242,23 +248,23 @@ describe("legacy Supervised reconciliation", () => {
         },
       ],
     });
-    const first = reconcileLegacyGovernance({
+    const first = reconcileLegacyProjection({
       governance: emptySupervisedGovernanceSnapshot(now),
-      supervision,
+      state,
       runtime: firstRuntime,
       at: now,
     });
-    const unchanged = reconcileLegacyGovernance({
+    const unchanged = reconcileLegacyProjection({
       governance: first,
-      supervision,
+      state,
       runtime: firstRuntime,
       at: now,
     });
     assert.strictEqual(unchanged, first);
 
-    const expanded = reconcileLegacyGovernance({
+    const expanded = reconcileLegacyProjection({
       governance: first,
-      supervision,
+      state,
       runtime: {
         ...firstRuntime,
         rooms: [
@@ -283,8 +289,8 @@ describe("legacy Supervised reconciliation", () => {
   });
 
   it("preserves revoked legacy authority instead of issuing a successor", () => {
-    const supervision = Schema.decodeUnknownSync(SupervisionSnapshot)({
-      ...emptySupervisionSnapshot(now),
+    const state = ({
+      ...emptySupervisedGovernanceDecisionState(now),
       leads: [
         {
           id: "lead-seat-revoked",
@@ -299,7 +305,7 @@ describe("legacy Supervised reconciliation", () => {
           revision: 1,
         },
       ],
-    });
+    }) as SupervisedGovernanceDecisionState;
     const runtime = Schema.decodeUnknownSync(SupervisedRuntimeSnapshot)({
       ...emptySupervisedRuntimeSnapshot(now),
       rooms: [
@@ -316,9 +322,9 @@ describe("legacy Supervised reconciliation", () => {
         },
       ],
     });
-    const first = reconcileLegacyGovernance({
+    const first = reconcileLegacyProjection({
       governance: emptySupervisedGovernanceSnapshot(now),
-      supervision,
+      state,
       runtime,
       at: now,
     });
@@ -329,9 +335,9 @@ describe("legacy Supervised reconciliation", () => {
       authorityReceipts: [{ ...firstReceipt, revokedAt }],
     };
 
-    const reconciled = reconcileLegacyGovernance({
+    const reconciled = reconcileLegacyProjection({
       governance: revoked,
-      supervision,
+      state,
       runtime: {
         ...runtime,
         rooms: [

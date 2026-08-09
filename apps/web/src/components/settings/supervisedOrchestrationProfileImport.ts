@@ -26,10 +26,10 @@ const PROVIDERS = new Set<ProfileProviderKind>([
   "opencode",
   "pi",
 ]);
-const ROLES = new Set(["lead", "specialist"]);
-// TODO(synara): Remove this storage translation on or after 2026-11-01 once
-// ProfilePreset persists canonical Specialist role hints.
-const SPECIALIST_STORAGE_ROLE: RoomRole = "peer";
+const ROLES = new Set(["lead", "peer", "specialist"]);
+// TODO(synara): Remove the legacy Specialist import alias on or after 2027-08-09
+// once profile exports from before the canonical Peer cutover are no longer supported.
+const PEER_ROLE: RoomRole = "peer";
 const SANDBOXES = new Set<ProfileSandboxMode>([
   "read-only",
   "workspace-write",
@@ -71,11 +71,11 @@ function profileNameFromFile(fileName: string): string {
 
 function inferNativeRoleHints(instructions: unknown): readonly RoomRole[] {
   if (typeof instructions !== "string") return [];
-  const match = instructions.match(/\broom\s+role\s*:\s*(lead|specialist)\b/i);
+  const match = instructions.match(/\broom\s+role\s*:\s*(lead|peer|specialist)\b/i);
   if (!match?.[1]) return [];
   return [
     match[1].toLowerCase() === "specialist"
-      ? SPECIALIST_STORAGE_ROLE
+      ? PEER_ROLE
       : (match[1].toLowerCase() as RoomRole),
   ];
 }
@@ -163,10 +163,10 @@ export function parseProfileImport(text: string, fileName: string): ImportedProf
 
   const rawRoleHints = normalized.roleHints ?? [];
   if (!Array.isArray(rawRoleHints) || rawRoleHints.some((role) => !ROLES.has(String(role)))) {
-    throw new Error("Role hints must contain only lead or specialist.");
+    throw new Error("Role hints must contain only lead or peer.");
   }
   const roleHints = rawRoleHints.map((role) =>
-    role === "specialist" ? SPECIALIST_STORAGE_ROLE : (role as RoomRole),
+    role === "specialist" ? PEER_ROLE : (role as RoomRole),
   );
 
   const reasoningEffort = runtime.reasoningEffort;

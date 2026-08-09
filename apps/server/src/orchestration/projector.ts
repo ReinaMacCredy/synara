@@ -4,8 +4,9 @@ import {
   OrchestrationMessage,
   OrchestrationSession,
   OrchestrationThread,
-  emptySupervisionSnapshot,
+  emptySupervisedOrchestrationSnapshot,
   emptySupervisedRuntimeSnapshot,
+  SupervisedGovernanceDomainEvent,
   SupervisionDomainEvent,
   SupervisedDomainEvent,
 } from "@synara/contracts";
@@ -59,8 +60,8 @@ import {
 import { resolveStableMessageTurnId } from "./messageTurnId.ts";
 import { settleTurnStateFromSession } from "./turnLifecycle.ts";
 import { deriveTurnStartModelSelection, deriveTurnStartSession } from "./turnStartSession.ts";
-import { projectSupervisionEvent } from "./supervision/projector.ts";
 import { projectSupervisedEvent } from "./supervised/projector.ts";
+import { projectSupervisedGovernanceEvent } from "./supervised/governanceProjection.ts";
 
 type ThreadPatch = Partial<Omit<OrchestrationThread, "id" | "projectId">>;
 const MAX_THREAD_MESSAGES = 2_000;
@@ -304,7 +305,7 @@ export function createEmptyReadModel(nowIso: string): OrchestrationReadModel {
     spaces: [],
     projects: [],
     threads: [],
-    supervision: emptySupervisionSnapshot(nowIso),
+    supervisedOrchestration: emptySupervisedOrchestrationSnapshot(nowIso),
     supervised: emptySupervisedRuntimeSnapshot(nowIso),
     updatedAt: nowIso,
   };
@@ -320,6 +321,19 @@ export function projectEvent(
     updatedAt: event.occurredAt,
   };
 
+  if (
+    Schema.is(SupervisionDomainEvent)(event) ||
+    Schema.is(SupervisedGovernanceDomainEvent)(event)
+  ) {
+    return Effect.succeed({
+      ...nextBase,
+      supervisedOrchestration: projectSupervisedGovernanceEvent(
+        nextBase.supervisedOrchestration,
+        event,
+      ),
+    });
+  }
+
   switch (event.type) {
     case "supervised.room-created":
     case "supervised.room-updated":
@@ -334,6 +348,9 @@ export function projectEvent(
     case "supervised.rlm-upserted":
     case "supervised.model-session-upserted":
     case "supervised.patch-upserted":
+    case "supervised.peer-upserted":
+    // TODO(supervised-runtime): Remove the legacy event case on or after 2027-08-09
+    // once every pre-cutover journal has been replayed through the Peer upcaster.
     case "supervised.specialist-upserted":
     case "supervised.subscription-upserted":
     case "supervised.subscription-state-changed":
@@ -356,40 +373,6 @@ export function projectEvent(
         supervised: projectSupervisedEvent(
           nextBase.supervised,
           event as typeof SupervisedDomainEvent.Type,
-        ),
-      });
-    case "supervision.profile-created":
-    case "supervision.profile-updated":
-    case "supervision.profile-archived":
-    case "supervision.profile-restored":
-    case "supervision.profile-cleared":
-    case "supervision.supervisor-created":
-    case "supervision.supervisor-updated":
-    case "supervision.supervisor-archived":
-    case "supervision.supervisor-restored":
-    case "supervision.lead-enrolled":
-    case "supervision.peer-bound":
-    case "supervision.mission-created":
-    case "supervision.mission-updated":
-    case "supervision.mission-completed":
-    case "supervision.mission-cancelled":
-    case "supervision.workflow-applied":
-    case "supervision.workflow-conflicted":
-    case "supervision.workflow-resolved":
-    case "supervision.workflow-reverted":
-    case "supervision.advice-sent":
-    case "supervision.observation-advanced":
-    case "supervision.wake-enqueued":
-    case "supervision.wake-updated":
-    case "supervision.lead-replacement-requested":
-    case "supervision.lead-rotation-advanced":
-    case "supervision.lead-replaced":
-    case "supervision.lead-replacement-failed":
-      return Effect.succeed({
-        ...nextBase,
-        supervision: projectSupervisionEvent(
-          nextBase.supervision,
-          event as typeof SupervisionDomainEvent.Type,
         ),
       });
     case "space.created":

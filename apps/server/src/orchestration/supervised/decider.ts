@@ -1098,29 +1098,39 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
         patch: command.patch,
       });
     }
-        case "supervised.specialist.create":
-        case "supervised.specialist.upsert": {
-          if (command.type === "supervised.specialist.upsert") {
-            yield* requireHuman(command, "Only the Human may retain or restore specialists.");
-          } else if (
-            command.actor.kind !== "seat" ||
-            command.actor.seatId !== command.leadSeatId
-          ) {
-            return yield* reject(command, "Only the Room's active Lead may create a Specialist.");
-          }
-        const current = state.specialists.find(
-          (specialist) => specialist.id === command.specialist.id,
-        );
-        yield* requireRevision(command, current?.revision ?? null);
-        if (command.snapshot && !command.snapshot.sanitized) {
-          return yield* reject(command, "A retained SpecialistSnapshot must be sanitized.");
-        }
-        const revision = current ? current.revision + 1 : command.specialist.revision;
-        return event(command, "supervised.specialist-upserted", "specialist", command.specialist.revision, {
-          specialist: { ...command.specialist, revision, updatedAt: command.createdAt },
-          specialistSnapshot: command.snapshot,
-        });
+    case "supervised.peer.create":
+    case "supervised.peer.upsert": {
+      if (command.type === "supervised.peer.upsert") {
+        yield* requireHuman(command, "Only the Human may retain or restore Peer specialties.");
+      } else if (
+        command.actor.kind !== "seat" ||
+        command.actor.seatId !== command.leadSeatId
+      ) {
+        return yield* reject(command, "Only the Room's active Lead may create a Peer.");
       }
+      const current = state.peerSpecialties.find(
+        (specialty) => specialty.id === command.peerSpecialty.id,
+      );
+      yield* requireRevision(command, current?.revision ?? null);
+      if (command.snapshot && !command.snapshot.sanitized) {
+        return yield* reject(command, "A retained Peer specialty snapshot must be sanitized.");
+      }
+      const revision = current ? current.revision + 1 : command.peerSpecialty.revision;
+      return event(
+        command,
+        "supervised.peer-upserted",
+        "peer",
+        revision,
+        {
+          peerSpecialty: {
+            ...command.peerSpecialty,
+            revision,
+            updatedAt: command.createdAt,
+          },
+          peerSpecialtySnapshot: command.snapshot,
+        },
+      );
+    }
       case "supervised.kernel.session-upsert": {
         const run = state.runs.find((candidate) => candidate.id === command.session.runId);
         if (command.actor.kind !== "daemon") {

@@ -55,10 +55,10 @@ export const EvidenceId = id("EvidenceId");
 export type EvidenceId = typeof EvidenceId.Type;
 export const HarnessPatchId = id("HarnessPatchId");
 export type HarnessPatchId = typeof HarnessPatchId.Type;
-export const SpecialistId = id("SpecialistId");
-export type SpecialistId = typeof SpecialistId.Type;
-export const SpecialistSnapshotId = id("SpecialistSnapshotId");
-export type SpecialistSnapshotId = typeof SpecialistSnapshotId.Type;
+export const PeerSpecialtyId = id("PeerSpecialtyId");
+export type PeerSpecialtyId = typeof PeerSpecialtyId.Type;
+export const PeerSpecialtySnapshotId = id("PeerSpecialtySnapshotId");
+export type PeerSpecialtySnapshotId = typeof PeerSpecialtySnapshotId.Type;
 export const KernelSessionId = id("KernelSessionId");
 export type KernelSessionId = typeof KernelSessionId.Type;
 export const KernelExecutionId = id("KernelExecutionId");
@@ -105,7 +105,9 @@ export const AuthorityScope = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("task_node"), taskNodeId: TaskNodeId }),
   Schema.Struct({
     kind: Schema.Literal("seat"),
-    role: Schema.Literals(["lead", "specialist"]),
+    // TODO(supervised-runtime): Remove the legacy Specialist scope alias on or after
+    // 2027-08-09 once every pre-cutover authority receipt has expired or been upcast.
+    role: Schema.Literals(["lead", "peer", "specialist"]),
     seatId: TrimmedNonEmptyString,
   }),
 ]);
@@ -473,6 +475,9 @@ export type RlmEpisode = typeof RlmEpisode.Type;
 
 export const ModelSessionRole = Schema.Literals([
   "lead",
+  "peer",
+  // TODO(supervised-runtime): Remove the legacy Specialist model-session role on or after
+  // 2027-08-09 once every pre-cutover transcript has been upcast.
   "specialist",
   "rlm_root",
   "rlm_branch",
@@ -550,7 +555,12 @@ export const ModelSessionTrace = Schema.Struct({
   taskNodeId: Schema.NullOr(TaskNodeId),
   rlmEpisodeId: Schema.NullOr(RlmEpisodeId),
   parentSessionId: Schema.NullOr(ModelSessionId),
-  specialistId: Schema.NullOr(SpecialistId),
+  peerSpecialtyId: Schema.optional(Schema.NullOr(PeerSpecialtyId)).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
+  // TODO(supervised-runtime): Remove the legacy payload key on or after 2027-08-09
+  // once all model-session event payloads have passed the Peer upcaster.
+  specialistId: Schema.optional(Schema.NullOr(PeerSpecialtyId)),
   threadId: Schema.optional(Schema.NullOr(ThreadId)).pipe(Schema.withDecodingDefault(() => null)),
   role: ModelSessionRole,
   title: ShortText,
@@ -667,22 +677,22 @@ export const HarnessPatch = Schema.Struct({
 });
 export type HarnessPatch = typeof HarnessPatch.Type;
 
-export const Specialist = Schema.Struct({
-  id: SpecialistId,
+export const PeerSpecialty = Schema.Struct({
+  id: PeerSpecialtyId,
   profilePresetId: ProfilePresetId,
   concern: TrimmedNonEmptyString,
   status: Schema.Literals(["idle", "retained", "active", "expired", "revoked"]),
   allowedScopes: Schema.Array(AuthorityScope).check(Schema.isMaxLength(64)),
-  latestSnapshotId: Schema.NullOr(SpecialistSnapshotId),
+  latestSnapshotId: Schema.NullOr(PeerSpecialtySnapshotId),
   expiresAt: IsoDateTime,
   revision: NonNegativeInt,
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
-export type Specialist = typeof Specialist.Type;
-export const SpecialistSnapshot = Schema.Struct({
-  id: SpecialistSnapshotId,
-  specialistId: SpecialistId,
+export type PeerSpecialty = typeof PeerSpecialty.Type;
+export const PeerSpecialtySnapshot = Schema.Struct({
+  id: PeerSpecialtySnapshotId,
+  peerSpecialtyId: PeerSpecialtyId,
   profileContentHash: Sha256,
   contextRefs: Schema.Array(ContextRecordId).check(Schema.isMaxLength(256)),
   evidenceRefs: Schema.Array(EvidenceId).check(Schema.isMaxLength(256)),
@@ -691,7 +701,21 @@ export const SpecialistSnapshot = Schema.Struct({
   createdAt: IsoDateTime,
   expiresAt: IsoDateTime,
 });
-export type SpecialistSnapshot = typeof SpecialistSnapshot.Type;
+export type PeerSpecialtySnapshot = typeof PeerSpecialtySnapshot.Type;
+export const LegacySpecialistSnapshot = Schema.Struct({
+  id: PeerSpecialtySnapshotId,
+  specialistId: PeerSpecialtyId,
+  profileContentHash: Sha256,
+  contextRefs: Schema.Array(ContextRecordId).check(Schema.isMaxLength(256)),
+  evidenceRefs: Schema.Array(EvidenceId).check(Schema.isMaxLength(256)),
+  sanitized: Schema.Boolean,
+  compatibleSchemaVersions: Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(64)),
+  createdAt: IsoDateTime,
+  expiresAt: IsoDateTime,
+});
+// TODO(supervised-runtime): Remove LegacySpecialistSnapshot on or after 2027-08-09
+// once every pre-cutover journal has been replayed through the Peer upcaster.
+export type LegacySpecialistSnapshot = typeof LegacySpecialistSnapshot.Type;
 
 export const KernelLanguage = Schema.Literals(["javascript", "python"]);
 export const KernelSession = Schema.Struct({
@@ -725,6 +749,8 @@ export const Intervention = Schema.Struct({
   id: InterventionId,
   roomId: RoomId,
   requestedBy: SupervisedActor,
+  // TODO(supervised-runtime): Rename the persisted compatibility key after 2027-08-09
+  // once every migration-096 intervention row and journal payload has been upcast.
   specialistThreadId: ThreadId,
   reason: BoundedText,
   evidenceRefs: Schema.Array(EvidenceId).check(Schema.isMaxLength(256)),
@@ -1231,27 +1257,31 @@ export const SupervisedCommand = Schema.Union([
     type: Schema.Literal("supervised.model-session.upsert"),
     modelSession: ModelSessionTrace,
   }),
-    Schema.Struct({ ...CommandBase, type: Schema.Literal("supervised.patch.upsert"), patch: HarnessPatch }),
-    Schema.Struct({
-      ...CommandBase,
-      type: Schema.Literal("supervised.specialist.create"),
-      roomId: RoomId,
-      projectId: ProjectId,
-      leadSeatId: LeadSeatId,
-      leadThreadId: ThreadId,
-      threadId: ThreadId,
-      title: ShortText,
-      workingDirectory: TrimmedNonEmptyString,
-      profilePresetId: ProfilePresetId,
-      profileSnapshot: Schema.optional(ProfileSnapshot),
-      specialist: Specialist,
-      initialPrompt: Schema.optional(BoundedText),
-    }),
-    Schema.Struct({
-      ...CommandBase,
-      type: Schema.Literal("supervised.specialist.upsert"),
-    specialist: Specialist,
-    snapshot: Schema.optional(SpecialistSnapshot),
+  Schema.Struct({
+    ...CommandBase,
+    type: Schema.Literal("supervised.patch.upsert"),
+    patch: HarnessPatch,
+  }),
+  Schema.Struct({
+    ...CommandBase,
+    type: Schema.Literal("supervised.peer.create"),
+    roomId: RoomId,
+    projectId: ProjectId,
+    leadSeatId: LeadSeatId,
+    leadThreadId: ThreadId,
+    threadId: ThreadId,
+    title: ShortText,
+    workingDirectory: TrimmedNonEmptyString,
+    profilePresetId: ProfilePresetId,
+    profileSnapshot: Schema.optional(ProfileSnapshot),
+    peerSpecialty: PeerSpecialty,
+    initialPrompt: Schema.optional(BoundedText),
+  }),
+  Schema.Struct({
+    ...CommandBase,
+    type: Schema.Literal("supervised.peer.upsert"),
+    peerSpecialty: PeerSpecialty,
+    snapshot: Schema.optional(PeerSpecialtySnapshot),
   }),
   Schema.Struct({
     ...CommandBase,
@@ -1360,6 +1390,9 @@ export const SupervisedEventType = Schema.Literals([
   "supervised.rlm-upserted",
   "supervised.model-session-upserted",
   "supervised.patch-upserted",
+  "supervised.peer-upserted",
+  // TODO(supervised-runtime): Remove the legacy event name on or after 2027-08-09 once
+  // every pre-cutover journal has been replayed through the v1 Peer upcaster.
   "supervised.specialist-upserted",
   "supervised.kernel-session-upserted",
   "supervised.kernel-execution-upserted",
@@ -1394,6 +1427,9 @@ export const SupervisedAggregateKind = Schema.Literals([
   "rlm_episode",
   "model_session",
   "harness_patch",
+  "peer",
+  // TODO(supervised-runtime): Remove the legacy aggregate kind on or after 2027-08-09
+  // once every pre-cutover journal has been replayed through the Peer upcaster.
   "specialist",
   "kernel_session",
   "intervention",
@@ -1420,8 +1456,12 @@ export const SupervisedEventPayload = Schema.Struct({
   rlmEpisode: Schema.optional(RlmEpisode),
   modelSession: Schema.optional(ModelSessionTrace),
   patch: Schema.optional(HarnessPatch),
-  specialist: Schema.optional(Specialist),
-  specialistSnapshot: Schema.optional(SpecialistSnapshot),
+  peerSpecialty: Schema.optional(PeerSpecialty),
+  peerSpecialtySnapshot: Schema.optional(PeerSpecialtySnapshot),
+  // TODO(supervised-runtime): Remove these legacy payload keys on or after 2027-08-09
+  // once every pre-cutover journal has been replayed through the Peer upcaster.
+  specialist: Schema.optional(PeerSpecialty),
+  specialistSnapshot: Schema.optional(LegacySpecialistSnapshot),
   kernelSession: Schema.optional(KernelSession),
   kernelExecution: Schema.optional(KernelExecution),
   intervention: Schema.optional(Intervention),
@@ -1498,10 +1538,10 @@ export const SupervisedRuntimeSnapshot = Schema.Struct({
   harnessPatches: Schema.optional(Schema.Array(HarnessPatch)).pipe(
     Schema.withDecodingDefault(() => []),
   ),
-  specialists: Schema.optional(Schema.Array(Specialist)).pipe(
+  peerSpecialties: Schema.optional(Schema.Array(PeerSpecialty)).pipe(
     Schema.withDecodingDefault(() => []),
   ),
-  specialistSnapshots: Schema.optional(Schema.Array(SpecialistSnapshot)).pipe(
+  peerSpecialtySnapshots: Schema.optional(Schema.Array(PeerSpecialtySnapshot)).pipe(
     Schema.withDecodingDefault(() => []),
   ),
   kernelSessions: Schema.optional(Schema.Array(KernelSession)).pipe(
@@ -1553,8 +1593,8 @@ export const emptySupervisedRuntimeSnapshot = (at: string): SupervisedRuntimeSna
   rlmEpisodes: [],
   modelSessions: [],
   harnessPatches: [],
-  specialists: [],
-  specialistSnapshots: [],
+  peerSpecialties: [],
+  peerSpecialtySnapshots: [],
   kernelSessions: [],
   kernelExecutions: [],
   interventions: [],

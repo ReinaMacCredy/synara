@@ -11,9 +11,9 @@ import {
   TaskProcessDomainEvent,
   ORCHESTRATION_WS_METHODS,
   MessageId,
-  SupervisionAggregateId,
-  SupervisionCommand,
   SupervisedCommand,
+  SupervisedGovernanceAggregateId,
+  SupervisedGovernanceCommand,
 } from "@synara/contracts";
 import {
   Cause,
@@ -75,8 +75,9 @@ import { decideTaskProcessCommand } from "../taskProcess/decider.ts";
 import { createEmptyTaskProcessState, replayTaskProcessEvents } from "../taskProcess/projector.ts";
 import { PROJECT_METADATA_SNAPSHOT_PROJECTORS } from "../projectMetadataProjection.ts";
 import { createEmptyReadModel, projectEvent } from "../projector.ts";
-import { decideSupervisionCommand } from "../supervision/decider.ts";
 import { decideSupervisedCommand } from "../supervised/decider.ts";
+import { decideSupervisedGovernanceCommand } from "../supervised/governanceDecider.ts";
+import { projectSupervisedGovernanceDecisionEvent } from "../supervised/governanceProjector.ts";
 import { decideSupervisedRoomLifecycleForThreadCommand } from "../supervised/roomLifecycle.ts";
 import {
   OrchestrationProjectionPipeline,
@@ -88,6 +89,10 @@ import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
 } from "../Services/OrchestrationEngine.ts";
+import {
+  governanceDecisionStateFromSnapshot,
+  reconcileGovernanceProjection,
+} from "../../supervised/governance/GovernanceReconciliation.ts";
 
 const ORCHESTRATION_DISPATCH_TIMEOUT_MS = 45_000;
 const DEFERRED_PROJECTION_RETRY_DELAYS_MS = [100, 500, 2_000, 10_000, 30_000] as const;
@@ -121,8 +126,8 @@ function commandToAggregateRef(command: OrchestrationCommand): {
   readonly aggregateKind: OrchestrationAggregateKind;
   readonly aggregateId: string;
 } {
-  if (Schema.is(SupervisionCommand)(command)) {
-    return { aggregateKind: "supervision", aggregateId: command.aggregateId };
+  if (Schema.is(SupervisedGovernanceCommand)(command)) {
+    return { aggregateKind: "supervised_governance", aggregateId: command.aggregateId };
   }
   if (Schema.is(SupervisedCommand)(command)) {
     const aggregateKind = (() => {
@@ -160,9 +165,9 @@ function commandToAggregateRef(command: OrchestrationCommand): {
           return "model_session" as const;
         case "supervised.patch.upsert":
           return "harness_patch" as const;
-        case "supervised.specialist.create":
-        case "supervised.specialist.upsert":
-          return "specialist" as const;
+        case "supervised.peer.create":
+        case "supervised.peer.upsert":
+          return "peer" as const;
         case "supervised.kernel.session-upsert":
         case "supervised.kernel.execution-upsert":
           return "kernel_session" as const;
@@ -782,8 +787,13 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       }
 
       const baseDeciderReadModel = yield* buildDeciderReadModel(command);
+      let governance = yield* supervisedGovernanceRepository.getSnapshot();
+      let governanceDecisionState = governanceDecisionStateFromSnapshot({
+        governance,
+        runtime: baseDeciderReadModel.supervised,
+      });
       if (command.type === "thread.turn.start") {
-        const frozenLead = baseDeciderReadModel.supervision.leads.find(
+        const frozenLead = governanceDecisionState.leads.find(
           (lead) => lead.activeThreadId === command.threadId && lead.status === "rotating",
         );
         if (frozenLead) {
@@ -814,24 +824,24 @@ const makeOrchestrationEngine = Effect.gen(function* () {
               ...threadBootstrapDecision,
               sequence: baseDeciderReadModel.snapshotSequence,
             });
-      const supervisionBootstrapDecision =
-        command.type === "thread.turn.start" && command.supervisionBootstrap !== undefined
+      const supervisedBootstrapDecision =
+        command.type === "thread.turn.start" && command.supervisedBootstrap !== undefined
           ? yield* Effect.gen(function* () {
-              const bootstrap = command.supervisionBootstrap!;
+              const bootstrap = command.supervisedBootstrap!;
               if (bootstrap.profileSnapshot === undefined) {
                 return yield* new OrchestrationCommandInvariantError({
                   commandType: command.type,
-                  detail: "Server-resolved supervision profile snapshot is required.",
+                  detail: "Server-resolved Supervised profile snapshot is required.",
                 });
               }
-              return yield* decideSupervisionCommand({
-                state: deciderReadModel.supervision,
+              return yield* decideSupervisedGovernanceCommand({
+                state: governanceDecisionState,
                 command:
                   bootstrap.kind === "lead"
                     ? {
-                        type: "supervision.lead.enroll",
+                        type: "supervised.lead.enroll",
                         commandId: command.commandId,
-                        aggregateId: SupervisionAggregateId.makeUnsafe("supervision"),
+                        aggregateId: SupervisedGovernanceAggregateId.makeUnsafe("supervised"),
                         actor: { kind: "user", actorId: "owner" },
                         expectedRevision: 0,
                         createdAt: command.createdAt,
@@ -840,9 +850,9 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                         lead: bootstrap.lead,
                       }
                     : {
-                        type: "supervision.supervisor.create",
+                        type: "supervised.supervisor.create",
                         commandId: command.commandId,
-                        aggregateId: SupervisionAggregateId.makeUnsafe("supervision"),
+                        aggregateId: SupervisedGovernanceAggregateId.makeUnsafe("supervised"),
                         actor: { kind: "user", actorId: "owner" },
                         expectedRevision: 0,
                         createdAt: command.createdAt,
@@ -855,15 +865,30 @@ const makeOrchestrationEngine = Effect.gen(function* () {
             })
           : null;
       let commandDeciderReadModel = deciderReadModel;
-      if (supervisionBootstrapDecision !== null) {
-        for (const decision of Array.isArray(supervisionBootstrapDecision)
-          ? supervisionBootstrapDecision
-          : [supervisionBootstrapDecision]) {
-          commandDeciderReadModel = yield* projectEvent(commandDeciderReadModel, {
-            ...decision,
-            sequence: commandDeciderReadModel.snapshotSequence,
-          });
-        }
+      if (supervisedBootstrapDecision !== null) {
+        for (const decision of Array.isArray(supervisedBootstrapDecision)
+          ? supervisedBootstrapDecision
+          : [supervisedBootstrapDecision]) {
+            const projectedDecision = {
+              ...decision,
+              sequence: commandDeciderReadModel.snapshotSequence,
+            };
+            commandDeciderReadModel = yield* projectEvent(
+              commandDeciderReadModel,
+              projectedDecision,
+            );
+            governanceDecisionState = projectSupervisedGovernanceDecisionEvent(
+              governanceDecisionState,
+              projectedDecision,
+            );
+          }
+        governance = reconcileGovernanceProjection({
+          governance,
+          state: governanceDecisionState,
+          runtime: commandDeciderReadModel.supervised,
+          at: command.createdAt,
+          source: "canonical",
+        });
       }
       const supervisedRoomLifecycleDecisions =
         command.type === "thread.turn.start" || command.type === "thread.session.set"
@@ -873,7 +898,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                 commandDeciderReadModel.threads.find(
                   (thread) => thread.id === command.threadId,
                 )?.projectId ?? null,
-              supervision: commandDeciderReadModel.supervision,
+              governance,
               runtime: commandDeciderReadModel.supervised,
             })
           : [];
@@ -883,16 +908,13 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           sequence: commandDeciderReadModel.snapshotSequence,
         });
       }
-      const governance = Schema.is(SupervisedCommand)(command)
-        ? yield* supervisedGovernanceRepository.getSnapshot()
-        : undefined;
       const commandEventBase =
-        command.type === "supervised.specialist.create"
+        command.type === "supervised.peer.create"
           ? yield* Effect.gen(function* () {
               if (command.profileSnapshot === undefined) {
                 return yield* new OrchestrationCommandInvariantError({
                   commandType: command.type,
-                  detail: "Server-resolved Specialist profile snapshot is required.",
+                  detail: "Server-resolved Peer profile snapshot is required.",
                 });
               }
               const room = commandDeciderReadModel.supervised.rooms.find(
@@ -901,7 +923,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                   candidate.projectId === command.projectId &&
                   candidate.leadSeatId === command.leadSeatId,
               );
-              const lead = commandDeciderReadModel.supervision.leads.find(
+              const lead = governanceDecisionState.leads.find(
                 (candidate) =>
                   candidate.id === command.leadSeatId &&
                   candidate.projectId === command.projectId &&
@@ -911,7 +933,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
               if (!room || !lead) {
                 return yield* new OrchestrationCommandInvariantError({
                   commandType: command.type,
-                  detail: "Specialist creation requires the Room's active Lead authority.",
+                  detail: "Peer creation requires the Room's active Lead authority.",
                 });
               }
               const runtimeMode =
@@ -941,7 +963,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                   sourceThreadId: command.leadThreadId,
                   subagentAgentId: null,
                   subagentNickname: null,
-                  subagentRole: "specialist",
+                  subagentRole: "peer",
                   lastKnownPr: null,
                   createdAt: command.createdAt,
                 },
@@ -952,12 +974,12 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                 ...threadDecision,
                 sequence: commandDeciderReadModel.snapshotSequence,
               });
-              const peerDecision = yield* decideSupervisionCommand({
-                state: readModelWithThread.supervision,
+              const peerDecision = yield* decideSupervisedGovernanceCommand({
+                state: governanceDecisionState,
                 command: {
-                  type: "supervision.peer.bind",
+                  type: "supervised.peer.bind",
                   commandId: command.commandId,
-                  aggregateId: SupervisionAggregateId.makeUnsafe("supervision"),
+                  aggregateId: SupervisedGovernanceAggregateId.makeUnsafe("supervised"),
                   actor: { kind: "user", actorId: "owner" },
                   expectedRevision: 0,
                   createdAt: command.createdAt,
@@ -977,7 +999,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                   },
                 },
               });
-              const specialistDecision = yield* decideSupervisedCommand({
+              const peerSpecialtyDecision = yield* decideSupervisedCommand({
                 command,
                 state: readModelWithThread.supervised,
                 governance,
@@ -992,7 +1014,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                         threadId: command.threadId,
                         message: {
                           messageId: MessageId.makeUnsafe(
-                            `specialist:${command.specialist.id}:initial`,
+                            `peer:${command.peerSpecialty.id}:initial`,
                           ),
                           role: "user",
                           text: command.initialPrompt,
@@ -1010,14 +1032,16 @@ const makeOrchestrationEngine = Effect.gen(function* () {
               return [
                 threadDecision,
                 ...(Array.isArray(peerDecision) ? peerDecision : [peerDecision]),
-                ...(Array.isArray(specialistDecision) ? specialistDecision : [specialistDecision]),
+                ...(Array.isArray(peerSpecialtyDecision)
+                  ? peerSpecialtyDecision
+                  : [peerSpecialtyDecision]),
                 ...(Array.isArray(turnDecision) ? turnDecision : [turnDecision]),
               ];
             })
-          : Schema.is(SupervisionCommand)(command)
-            ? yield* decideSupervisionCommand({
+          : Schema.is(SupervisedGovernanceCommand)(command)
+            ? yield* decideSupervisedGovernanceCommand({
                 command,
-                state: commandDeciderReadModel.supervision,
+                state: governanceDecisionState,
               })
             : Schema.is(SupervisedCommand)(command)
               ? yield* decideSupervisedCommand({
@@ -1063,11 +1087,11 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                   });
       const eventBase = [
         ...(threadBootstrapDecision === null ? [] : [threadBootstrapDecision]),
-        ...(supervisionBootstrapDecision === null
+        ...(supervisedBootstrapDecision === null
           ? []
-          : Array.isArray(supervisionBootstrapDecision)
-            ? supervisionBootstrapDecision
-            : [supervisionBootstrapDecision]),
+          : Array.isArray(supervisedBootstrapDecision)
+            ? supervisedBootstrapDecision
+            : [supervisedBootstrapDecision]),
         ...(command.type === "thread.session.set" ? [] : supervisedRoomLifecycleDecisions),
         ...(Array.isArray(commandEventBase) ? commandEventBase : [commandEventBase]),
         ...(command.type === "thread.session.set" ? supervisedRoomLifecycleDecisions : []),

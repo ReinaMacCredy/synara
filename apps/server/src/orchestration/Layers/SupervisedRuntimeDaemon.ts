@@ -12,7 +12,7 @@ import type {
   Run,
   SubscriptionDefinition,
   SubscriptionDelivery,
-  SupervisionSnapshot,
+  SupervisedGovernanceSnapshot,
   SupervisedCommand,
   SupervisedRuntimeSnapshot,
 } from "@synara/contracts";
@@ -57,7 +57,7 @@ import {
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { SupervisedSignalDelivery } from "../Services/SupervisedSignalDelivery.ts";
-import { resolveProjectedSupervisionCaller } from "../supervision/canonicalCaller.ts";
+import { resolveProjectedSupervisedCaller } from "../supervised/canonicalCaller.ts";
 
 const hash = (value: unknown) =>
   `sha256:${createHash("sha256").update(JSON.stringify(value)).digest("hex")}`;
@@ -140,7 +140,7 @@ export function terminalRunRecoveryPath(
 export function orchestrationContextEvent(
   event: OrchestrationEvent,
   runtime: SupervisedRuntimeSnapshot,
-  supervision?: SupervisionSnapshot,
+  governance?: SupervisedGovernanceSnapshot,
 ): ControlPlaneEvent | null {
   if (event.type !== "thread.activity-appended") return null;
   const activity = event.payload.activity;
@@ -148,9 +148,9 @@ export function orchestrationContextEvent(
   const trace = runtime.modelSessions.find(
     (candidate) => candidate.threadId === event.payload.threadId,
   );
-  const projectedCaller = supervision
-    ? resolveProjectedSupervisionCaller({
-        supervision,
+  const projectedCaller = governance
+    ? resolveProjectedSupervisedCaller({
+        governance,
         threadId: event.payload.threadId,
       })
     : undefined;
@@ -160,9 +160,7 @@ export function orchestrationContextEvent(
     trace?.role === "lead"
       ? runtime.rooms.find((candidate) => candidate.id === trace.roomId)
       : runtime.rooms.find(
-          (candidate) =>
-            candidate.leadSeatId === projectedLead!.lead.id &&
-            candidate.projectId === projectedLead!.lead.projectId,
+          (candidate) => candidate.leadSeatId === projectedLead!.seatId,
         );
   if (!room) return null;
   const payload = activity.payload as Record<string, unknown>;
@@ -193,10 +191,13 @@ export function orchestrationContextEvent(
     schemaVersion: "1.0.0",
     type: "agent.context.measured",
     scope: { kind: "room", roomId: room.id },
-    subjectId: trace?.role === "lead" ? trace.id : projectedLead!.lead.id,
+    subjectId: trace?.role === "lead" ? trace.id : projectedLead!.seatId,
     eventTime: activity.createdAt,
     recordedAt: event.occurredAt,
-    revision: trace?.role === "lead" ? trace.revision : projectedLead!.lead.revision,
+    revision:
+      trace?.role === "lead"
+        ? trace.revision
+        : (governance?.agentSeats.find((seat) => seat.id === projectedLead!.seatId)?.revision ?? 0),
     causationEventId: event.causationEventId,
     correlationId: event.correlationId,
     payload: {
@@ -549,13 +550,14 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
     if (cursor >= highWater) return;
     const runtime = yield* repository.getDaemonSnapshot();
     const projection = yield* snapshotQuery.getSnapshot();
+    const governance = yield* governanceRepository.getSnapshot();
     yield* engine.readEventsThrough(cursor, highWater).pipe(
       Stream.runForEach((event) =>
         Effect.gen(function* () {
           const projected = orchestrationContextEvent(
             event,
             runtime,
-            projection.supervision,
+            governance,
           );
           if (projected) yield* repository.appendControlPlaneEvent(projected);
           yield* repository.putIngestionCursor({

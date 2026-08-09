@@ -1,14 +1,14 @@
 import type {
   OrchestrationProject,
   OrchestrationThread,
+  SupervisedGovernanceSnapshot,
   SupervisionMission,
-  SupervisionSnapshot,
   ThreadId,
 } from "@synara/contracts";
 
 import { missionScopeContainsLead } from "./missionScope.ts";
 
-export type SupervisionCallerAuthority =
+export type SupervisedCallerAuthority =
   | {
       readonly role: "supervisor";
       readonly callerThreadId: ThreadId;
@@ -22,23 +22,23 @@ export type SupervisionCallerAuthority =
       readonly missions: readonly SupervisionMission[];
     };
 
-export function resolveSupervisionCallerAuthority(input: {
-  readonly snapshot: SupervisionSnapshot;
+export function resolveSupervisedCallerAuthority(input: {
+  readonly snapshot: SupervisedGovernanceSnapshot;
   readonly projects: readonly OrchestrationProject[];
   readonly callerThreadId: ThreadId;
-}): SupervisionCallerAuthority | null {
-  const supervisor = input.snapshot.supervisors.find(
+}): SupervisedCallerAuthority | null {
+  const supervisor = input.snapshot.agentSeats.find(
     (seat) =>
-      seat.activeThreadId === input.callerThreadId &&
-      seat.status !== "archived" &&
-      seat.archivedAt === null,
+      seat.identityRole === "supervisor" &&
+      seat.threadId === input.callerThreadId &&
+      seat.lifecycleState !== "retired",
   );
   if (supervisor) {
     return {
       role: "supervisor",
       callerThreadId: input.callerThreadId,
       supervisorSeatId: supervisor.id,
-      missions: input.snapshot.missions.filter(
+      missions: input.snapshot.orchestration.missions.filter(
         (mission) =>
           mission.supervisorSeatId === supervisor.id &&
           (mission.status === "active" || mission.status === "paused"),
@@ -46,18 +46,19 @@ export function resolveSupervisionCallerAuthority(input: {
     };
   }
 
-  const lead = input.snapshot.leads.find(
+  const lead = input.snapshot.agentSeats.find(
     (seat) =>
-      seat.activeThreadId === input.callerThreadId &&
-      seat.status !== "archived" &&
-      seat.archivedAt === null,
+      seat.identityRole === "lead" &&
+      seat.threadId === input.callerThreadId &&
+      seat.projectId !== null &&
+      seat.lifecycleState !== "retired",
   );
   if (!lead) return null;
   return {
     role: "lead",
     callerThreadId: input.callerThreadId,
     leadSeatId: lead.id,
-    missions: input.snapshot.missions.filter(
+    missions: input.snapshot.orchestration.missions.filter(
       (mission) =>
         mission.status === "active" &&
         missionScopeContainsLead({ scope: mission.scope, lead, projects: input.projects }),
@@ -78,5 +79,5 @@ export function currentTurnHasHumanOrigin(input: {
   );
 }
 
-export const supervisionToolMayAccessPeer = (): false => false;
-export const supervisionToolMayAcceptOutcome = (): false => false;
+export const supervisedToolMayAccessPeer = (): false => false;
+export const supervisedToolMayAcceptOutcome = (): false => false;

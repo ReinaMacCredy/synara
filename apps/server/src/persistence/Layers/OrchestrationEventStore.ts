@@ -11,7 +11,6 @@ import {
   SpaceId,
   TaskProcessId,
   ThreadId,
-  SupervisionAggregateId,
 } from "@synara/contracts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";

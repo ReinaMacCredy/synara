@@ -1,7 +1,6 @@
 import type {
-  SupervisionCommand,
-  SupervisionDomainEvent,
-  SupervisionSnapshot,
+  SupervisedGovernanceCommand,
+  SupervisedGovernanceDomainEvent,
   WorkflowConflict,
   WorkflowDirective,
 } from "@synara/contracts";
@@ -14,22 +13,23 @@ import {
   isHumanOrigin,
   missionGrantsExpand,
   missionScopeExpands,
-} from "./invariants.ts";
+} from "./governanceInvariants.ts";
 import { mayAdvanceLeadRotation, switchLeadSeatForRotation } from "./leadRotation.ts";
+import type { SupervisedGovernanceDecisionState } from "./governanceState.ts";
 
-type UnsequencedEvent = Omit<SupervisionDomainEvent, "sequence">;
+type UnsequencedEvent = Omit<SupervisedGovernanceDomainEvent, "sequence">;
 
-const reject = (command: SupervisionCommand, detail: string) =>
+const reject = (command: SupervisedGovernanceCommand, detail: string) =>
   Effect.fail(new OrchestrationCommandInvariantError({ commandType: command.type, detail }));
 
 const event = (
-  command: SupervisionCommand,
-  type: SupervisionDomainEvent["type"],
+  command: SupervisedGovernanceCommand,
+  type: SupervisedGovernanceDomainEvent["type"],
   acceptedRevision: number,
-  payload: Omit<SupervisionDomainEvent["payload"], "acceptedRevision">,
+  payload: Omit<SupervisedGovernanceDomainEvent["payload"], "acceptedRevision">,
 ): UnsequencedEvent => ({
   eventId: EventId.makeUnsafe(crypto.randomUUID()),
-  aggregateKind: "supervision",
+  aggregateKind: "supervised_governance",
   aggregateId: command.aggregateId,
   type,
   payload: { acceptedRevision, ...payload },
@@ -37,21 +37,21 @@ const event = (
   commandId: command.commandId,
   causationEventId: null,
   correlationId: command.commandId,
-  metadata: {},
+  metadata: { schemaVersion: "supervised-governance/v1" },
 });
 
-const requireHuman = (command: SupervisionCommand) =>
+const requireHuman = (command: SupervisedGovernanceCommand) =>
   isHumanOrigin(command.actor)
     ? Effect.void
     : reject(command, "This operation requires an authenticated human-origin command.");
 
-const requireServer = (command: SupervisionCommand) =>
+const requireServer = (command: SupervisedGovernanceCommand) =>
   command.actor.kind === "server"
     ? Effect.void
-    : reject(command, "This lifecycle transition is owned by the supervision runtime.");
+    : reject(command, "This lifecycle transition is owned by the Supervised runtime.");
 
 const requireRevision = (
-  command: SupervisionCommand,
+  command: SupervisedGovernanceCommand,
   currentRevision: number,
 ): Effect.Effect<void, OrchestrationCommandInvariantError> =>
   command.expectedRevision === currentRevision
@@ -62,8 +62,8 @@ const requireRevision = (
       );
 
 const requireMissionSupervisorActor = (
-  command: SupervisionCommand,
-  state: SupervisionSnapshot,
+  command: SupervisedGovernanceCommand,
+  state: SupervisedGovernanceDecisionState,
   supervisorSeatId: string,
 ) => {
   if (isHumanOrigin(command.actor) || command.actor.kind === "server") return Effect.void;
@@ -79,9 +79,11 @@ const requireMissionSupervisorActor = (
     : reject(command, "The active mission Supervisor thread is required for this operation.");
 };
 
-export const decideSupervisionCommand = Effect.fn("decideSupervisionCommand")(function* (input: {
-  readonly command: SupervisionCommand;
-  readonly state: SupervisionSnapshot;
+export const decideSupervisedGovernanceCommand = Effect.fn(
+  "decideSupervisedGovernanceCommand",
+)(function* (input: {
+  readonly command: SupervisedGovernanceCommand;
+  readonly state: SupervisedGovernanceDecisionState;
 }): Effect.fn.Return<
   UnsequencedEvent | ReadonlyArray<UnsequencedEvent>,
   OrchestrationCommandInvariantError
@@ -89,22 +91,22 @@ export const decideSupervisionCommand = Effect.fn("decideSupervisionCommand")(fu
   const { command, state } = input;
 
   switch (command.type) {
-    case "supervision.profile.create": {
+    case "supervised.profile.create": {
       yield* requireHuman(command);
       if (state.profiles.some((profile) => profile.id === command.profile.id)) {
         return yield* reject(command, "Profile preset already exists.");
       }
       yield* requireRevision(command, 0);
-      return event(command, "supervision.profile-created", 1, {
+      return event(command, "supervised.profile-created", 1, {
         profile: { ...command.profile, revision: 1 },
       });
     }
-    case "supervision.profile.update": {
+    case "supervised.profile.update": {
       yield* requireHuman(command);
       const current = state.profiles.find((profile) => profile.id === command.profile.id);
       if (!current) return yield* reject(command, "Profile preset does not exist.");
       yield* requireRevision(command, current.revision);
-      return event(command, "supervision.profile-updated", current.revision + 1, {
+      return event(command, "supervised.profile-updated", current.revision + 1, {
         profile: {
           ...command.profile,
           createdAt: current.createdAt,
@@ -113,18 +115,18 @@ export const decideSupervisionCommand = Effect.fn("decideSupervisionCommand")(fu
         },
       });
     }
-    case "supervision.profile.archive":
-    case "supervision.profile.restore":
-    case "supervision.profile.clear": {
+    case "supervised.profile.archive":
+    case "supervised.profile.restore":
+    case "supervised.profile.clear": {
       yield* requireHuman(command);
       const current = state.profiles.find((profile) => profile.id === command.profileId);
       if (!current) return yield* reject(command, "Profile preset does not exist.");
       yield* requireRevision(command, current.revision);
-      if (command.type === "supervision.profile.clear") {
+      if (command.type === "supervised.profile.clear") {
         if (current.archivedAt === null) {
           return yield* reject(command, "Only archived profile presets can be cleared.");
         }
-        return event(command, "supervision.profile-cleared", current.revision + 1, {
+        return event(command, "supervised.profile-cleared", current.revision + 1, {
           profile: {
             ...current,
             clearedAt: command.createdAt,
@@ -133,10 +135,10 @@ export const decideSupervisionCommand = Effect.fn("decideSupervisionCommand")(fu
           },
         });
       }
-      const restoring = command.type === "supervision.profile.restore";
+      const restoring = command.type === "supervised.profile.restore";
       return event(
         command,
-        restoring ? "supervision.profile-restored" : "supervision.profile-archived",
+        restoring ? "supervised.profile-restored" : "supervised.profile-archived",
         current.revision + 1,
         {
           profile: {
@@ -149,7 +151,7 @@ export const decideSupervisionCommand = Effect.fn("decideSupervisionCommand")(fu
         },
       );
     }
-    case "supervision.supervisor.create": {
+    case "supervised.supervisor.create": {
       yield* requireHuman(command);
       if (state.supervisors.some((seat) => seat.id === command.supervisor.id)) {
         return yield* reject(command, "Supervisor seat already exists.");
@@ -159,24 +161,24 @@ export const decideSupervisionCommand = Effect.fn("decideSupervisionCommand")(fu
         return yield* reject(command, "Server-resolved profile snapshot is required.");
       }
       const supervisor = { ...command.supervisor, revision: 1 };
-      const created = event(command, "supervision.supervisor-created", 1, {
+      const created = event(command, "supervised.supervisor-created", 1, {
         supervisor,
         profileSnapshot: command.profileSnapshot,
       });
       if (command.initialMission === undefined) return created;
       return [
         created,
-        event(command, "supervision.mission-created", 1, {
+        event(command, "supervised.mission-created", 1, {
           mission: { ...command.initialMission, revision: 1 },
         }),
       ];
     }
-    case "supervision.supervisor.update": {
+    case "supervised.supervisor.update": {
       yield* requireHuman(command);
       const current = state.supervisors.find((seat) => seat.id === command.supervisor.id);
       if (!current) return yield* reject(command, "Supervisor seat does not exist.");
       yield* requireRevision(command, current.revision);
-      return event(command, "supervision.supervisor-updated", current.revision + 1, {
+      return event(command, "supervised.supervisor-updated", current.revision + 1, {
         supervisor: {
           ...command.supervisor,
           createdAt: current.createdAt,
@@ -185,16 +187,16 @@ export const decideSupervisionCommand = Effect.fn("decideSupervisionCommand")(fu
         },
       });
     }
-    case "supervision.supervisor.archive":
-    case "supervision.supervisor.restore": {
+    case "supervised.supervisor.archive":
+    case "supervised.supervisor.restore": {
       yield* requireHuman(command);
       const current = state.supervisors.find((seat) => seat.id === command.supervisorSeatId);
       if (!current) return yield* reject(command, "Supervisor seat does not exist.");
       yield* requireRevision(command, current.revision);
-      const restoring = command.type === "supervision.supervisor.restore";
+      const restoring = command.type === "supervised.supervisor.restore";
       return event(
         command,
-        restoring ? "supervision.supervisor-restored" : "supervision.supervisor-archived",
+        restoring ? "supervised.supervisor-restored" : "supervised.supervisor-archived",
         current.revision + 1,
         {
           supervisor: {
@@ -207,7 +209,7 @@ export const decideSupervisionCommand = Effect.fn("decideSupervisionCommand")(fu
         },
       );
     }
-    case "supervision.lead.enroll": {
+    case "supervised.lead.enroll": {
       yield* requireHuman(command);
       if (activeLeadForProject(state, command.lead.projectId) !== null) {
         return yield* reject(command, "Project already has an active Lead seat.");
@@ -216,15 +218,15 @@ export const decideSupervisionCommand = Effect.fn("decideSupervisionCommand")(fu
       if (command.profileSnapshot === undefined) {
         return yield* reject(command, "Server-resolved profile snapshot is required.");
       }
-      return event(command, "supervision.lead-enrolled", 1, {
+      return event(command, "supervised.lead-enrolled", 1, {
         lead: { ...command.lead, status: "active", revision: 1 },
         profileSnapshot: command.profileSnapshot,
       });
     }
-    case "supervision.peer.bind": {
+    case "supervised.peer.bind": {
       yield* requireHuman(command);
       if (state.peers.some((peer) => peer.threadId === command.peer.threadId)) {
-        return yield* reject(command, "Peer thread already has a supervision profile binding.");
+        return yield* reject(command, "Peer thread already has a Supervised profile binding.");
       }
       const lead = state.leads.find(
         (candidate) =>
@@ -238,12 +240,12 @@ export const decideSupervisionCommand = Effect.fn("decideSupervisionCommand")(fu
       if (command.profileSnapshot === undefined) {
         return yield* reject(command, "Server-resolved Peer profile snapshot is required.");
       }
-      return event(command, "supervision.peer-bound", 1, {
+      return event(command, "supervised.peer-bound", 1, {
         peer: { ...command.peer, status: "active", revision: 1 },
         profileSnapshot: command.profileSnapshot,
       });
     }
-    case "supervision.mission.create": {
+    case "supervised.mission.create": {
       yield* requireHuman(command);
       if (!state.supervisors.some((seat) => seat.id === command.mission.supervisorSeatId)) {
         return yield* reject(command, "Mission Supervisor seat does not exist.");
@@ -252,36 +254,36 @@ export const decideSupervisionCommand = Effect.fn("decideSupervisionCommand")(fu
         return yield* reject(command, "Mission already exists.");
       }
       yield* requireRevision(command, 0);
-      return event(command, "supervision.mission-created", 1, {
+      return event(command, "supervised.mission-created", 1, {
         mission: { ...command.mission, revision: 1 },
       });
     }
-    case "supervision.mission.update":
-    case "supervision.mission.complete":
-    case "supervision.mission.cancel": {
+    case "supervised.mission.update":
+    case "supervised.mission.complete":
+    case "supervised.mission.cancel": {
       const current = state.missions.find((mission) => mission.id === command.mission.id);
       if (!current) return yield* reject(command, "Mission does not exist.");
       yield* requireRevision(command, current.revision);
       yield* requireMissionSupervisorActor(command, state, current.supervisorSeatId);
       if (
-        command.type === "supervision.mission.update" &&
+        command.type === "supervised.mission.update" &&
         (missionScopeExpands(current.scope, command.mission.scope) ||
           missionGrantsExpand(current.grants, command.mission.grants))
       ) {
         yield* requireHuman(command);
       }
       const status =
-        command.type === "supervision.mission.complete"
+        command.type === "supervised.mission.complete"
           ? "completed"
-          : command.type === "supervision.mission.cancel"
+          : command.type === "supervised.mission.cancel"
             ? "cancelled"
             : command.mission.status;
       const type =
         status === "completed"
-          ? "supervision.mission-completed"
+          ? "supervised.mission-completed"
           : status === "cancelled"
-            ? "supervision.mission-cancelled"
-            : "supervision.mission-updated";
+            ? "supervised.mission-cancelled"
+            : "supervised.mission-updated";
       return event(command, type, current.revision + 1, {
         mission: {
           ...command.mission,
@@ -293,7 +295,7 @@ export const decideSupervisionCommand = Effect.fn("decideSupervisionCommand")(fu
         },
       });
     }
-    case "supervision.workflow.apply": {
+    case "supervised.workflow.apply": {
       const mission = state.missions.find(
         (candidate) =>
           candidate.id === command.directive.missionId &&
@@ -314,7 +316,7 @@ export const decideSupervisionCommand = Effect.fn("decideSupervisionCommand")(fu
           directive.instruction !== command.directive.instruction,
       );
       if (conflictWith.length === 0) {
-        return event(command, "supervision.workflow-applied", 1, {
+        return event(command, "supervised.workflow-applied", 1, {
           workflowDirective: { ...command.directive, status: "active", revision: 1 },
         });
       }
@@ -333,12 +335,12 @@ export const decideSupervisionCommand = Effect.fn("decideSupervisionCommand")(fu
         createdAt: command.createdAt,
         resolvedAt: null,
       };
-      return event(command, "supervision.workflow-conflicted", 1, {
+      return event(command, "supervised.workflow-conflicted", 1, {
         workflowDirective: conflicted,
         workflowConflict: conflict,
       });
     }
-    case "supervision.workflow.resolve": {
+    case "supervised.workflow.resolve": {
       yield* requireHuman(command);
       const current = state.workflowConflicts.find(
         (conflict) => conflict.id === command.conflictId,
@@ -350,7 +352,7 @@ export const decideSupervisionCommand = Effect.fn("decideSupervisionCommand")(fu
         return yield* reject(command, "Resolved directive is not part of this conflict.");
       }
       yield* requireRevision(command, 0);
-      return event(command, "supervision.workflow-resolved", 1, {
+      return event(command, "supervised.workflow-resolved", 1, {
         workflowConflict: {
           ...current,
           status: "resolved",
@@ -359,7 +361,7 @@ export const decideSupervisionCommand = Effect.fn("decideSupervisionCommand")(fu
         },
       });
     }
-    case "supervision.workflow.revoke": {
+    case "supervised.workflow.revoke": {
       const current = state.workflowDirectives.find(
         (directive) => directive.id === command.directiveId,
       );
@@ -379,7 +381,7 @@ export const decideSupervisionCommand = Effect.fn("decideSupervisionCommand")(fu
         yield* requireMissionSupervisorActor(command, state, current.supervisorSeatId);
       }
       yield* requireRevision(command, current.revision);
-      return event(command, "supervision.workflow-reverted", current.revision + 1, {
+      return event(command, "supervised.workflow-reverted", current.revision + 1, {
         workflowDirective: {
           ...current,
           status: "reverted",
@@ -388,7 +390,7 @@ export const decideSupervisionCommand = Effect.fn("decideSupervisionCommand")(fu
         },
       });
     }
-    case "supervision.advice.send": {
+    case "supervised.advice.send": {
       const mission = state.missions.find(
         (candidate) =>
           candidate.id === command.advice.missionId &&
@@ -399,9 +401,9 @@ export const decideSupervisionCommand = Effect.fn("decideSupervisionCommand")(fu
       if (!mission) return yield* reject(command, "Active lead.advise mission grant required.");
       yield* requireMissionSupervisorActor(command, state, mission.supervisorSeatId);
       yield* requireRevision(command, 0);
-      return event(command, "supervision.advice-sent", 1, { advice: command.advice });
+      return event(command, "supervised.advice-sent", 1, { advice: command.advice });
     }
-    case "supervision.observation.advance": {
+    case "supervised.observation.advance": {
       if (command.actor.kind === "thread") {
         return yield* reject(
           command,
@@ -413,32 +415,32 @@ export const decideSupervisionCommand = Effect.fn("decideSupervisionCommand")(fu
       if (current && command.cursor.lastSequence <= current.lastSequence) {
         return yield* reject(command, "Observation cursor must advance monotonically.");
       }
-      return event(command, "supervision.observation-advanced", command.cursor.lastSequence, {
+      return event(command, "supervised.observation-advanced", command.cursor.lastSequence, {
         observationCursor: command.cursor,
       });
     }
-    case "supervision.wake.enqueue": {
+    case "supervised.wake.enqueue": {
       yield* requireServer(command);
       const existing = state.wakeQueue.find((wake) => wake.id === command.wake.id);
-      if (existing) return yield* reject(command, "Supervision wake already exists.");
+      if (existing) return yield* reject(command, "Supervised wake already exists.");
       yield* requireRevision(command, 0);
-      return event(command, "supervision.wake-enqueued", 1, {
+      return event(command, "supervised.wake-enqueued", 1, {
         wake: { ...command.wake, status: "queued", attemptCount: 0, error: null },
       });
     }
-    case "supervision.wake.update": {
+    case "supervised.wake.update": {
       yield* requireServer(command);
       const current = state.wakeQueue.find((wake) => wake.id === command.wake.id);
-      if (!current) return yield* reject(command, "Supervision wake does not exist.");
+      if (!current) return yield* reject(command, "Supervised wake does not exist.");
       yield* requireRevision(command, current.attemptCount);
       if (current.status === "delivered") {
-        return yield* reject(command, "Delivered supervision wakes are immutable.");
+        return yield* reject(command, "Delivered Supervised wakes are immutable.");
       }
-      return event(command, "supervision.wake-updated", command.wake.attemptCount, {
+      return event(command, "supervised.wake-updated", command.wake.attemptCount, {
         wake: { ...command.wake, createdAt: current.createdAt },
       });
     }
-    case "supervision.lead.replace": {
+    case "supervised.lead.replace": {
       const lead = state.leads.find((candidate) => candidate.id === command.rotation.leadSeatId);
       if (!lead || lead.status === "archived")
         return yield* reject(command, "Active Lead required.");
@@ -480,7 +482,7 @@ export const decideSupervisionCommand = Effect.fn("decideSupervisionCommand")(fu
         updatedAt: command.createdAt,
         revision: lead.revision + 1,
       };
-      return event(command, "supervision.lead-replacement-requested", lead.revision + 1, {
+      return event(command, "supervised.lead-replacement-requested", lead.revision + 1, {
         lead: nextLead,
         profileSnapshot: command.replacementProfileSnapshot,
         rotation: {
@@ -491,7 +493,7 @@ export const decideSupervisionCommand = Effect.fn("decideSupervisionCommand")(fu
         },
       });
     }
-    case "supervision.lead.rotation.advance": {
+    case "supervised.lead.rotation.advance": {
       yield* requireServer(command);
       const current = state.rotations.find((rotation) => rotation.id === command.rotation.id);
       if (!current) return yield* reject(command, "Lead rotation does not exist.");
@@ -512,7 +514,7 @@ export const decideSupervisionCommand = Effect.fn("decideSupervisionCommand")(fu
         revision: current.revision + 1,
       };
       if (rotation.state === "switched") {
-        return event(command, "supervision.lead-replaced", lead.revision + 1, {
+        return event(command, "supervised.lead-replaced", lead.revision + 1, {
           rotation,
           lead: switchLeadSeatForRotation({ lead, rotation, occurredAt: command.createdAt }),
           peers: state.peers
@@ -531,7 +533,7 @@ export const decideSupervisionCommand = Effect.fn("decideSupervisionCommand")(fu
         });
       }
       if (rotation.state === "failed") {
-        return event(command, "supervision.lead-replacement-failed", lead.revision + 1, {
+        return event(command, "supervised.lead-replacement-failed", lead.revision + 1, {
           rotation,
           lead: {
             ...lead,
@@ -541,7 +543,7 @@ export const decideSupervisionCommand = Effect.fn("decideSupervisionCommand")(fu
           },
         });
       }
-      return event(command, "supervision.lead-rotation-advanced", current.revision + 1, {
+      return event(command, "supervised.lead-rotation-advanced", current.revision + 1, {
         rotation,
       });
     }

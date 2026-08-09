@@ -59,9 +59,9 @@ import {
 import { ProjectionThreadProposedPlan } from "../../persistence/Services/ProjectionThreadProposedPlans.ts";
 import { ProjectionThreadSession } from "../../persistence/Services/ProjectionThreadSessions.ts";
 import { ProjectionThread } from "../../persistence/Services/ProjectionThreads.ts";
-import { ProjectionSupervisionRepository } from "../../persistence/Services/ProjectionSupervision.ts";
+import { SupervisedGovernanceRepository } from "../../persistence/Services/SupervisedGovernanceRepository.ts";
 import { SupervisedRuntimeRepository } from "../../persistence/Services/SupervisedRuntimeRepository.ts";
-import { ProjectionSupervisionRepositoryLive } from "../../persistence/Layers/ProjectionSupervision.ts";
+import { SupervisedGovernanceRepositoryLive } from "../../persistence/Layers/SupervisedGovernanceRepository.ts";
 import { SupervisedRuntimeRepositoryLive } from "../../persistence/Layers/SupervisedRuntimeRepository.ts";
 import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
 import {
@@ -74,7 +74,7 @@ import {
   type ProjectionThreadCheckpointContext,
   type ProjectionSnapshotQueryShape,
 } from "../Services/ProjectionSnapshotQuery.ts";
-import { redactSupervisionSnapshotForShell } from "../supervision/profileExport.ts";
+import { redactSupervisedOrchestrationForShell } from "../supervised/governanceProjection.ts";
 
 const decodeReadModel = Schema.decodeUnknownEffect(OrchestrationReadModel);
 const decodeShellSnapshot = Schema.decodeUnknownEffect(OrchestrationShellSnapshot);
@@ -745,7 +745,7 @@ function computeSnapshotSequence(
 
 const makeProjectionSnapshotQuery = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
-  const projectionSupervisionRepository = yield* ProjectionSupervisionRepository;
+  const supervisedGovernanceRepository = yield* SupervisedGovernanceRepository;
   const supervisedRuntimeRepository = yield* SupervisedRuntimeRepository;
 
   // Soft-deleted rows can remain while their purge is fenced or deferred. `getSnapshot` is
@@ -2011,7 +2011,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           updatedAt = maxOptionalIso(updatedAt, sessions.updatedAt);
 
           const projects: ReadonlyArray<OrchestrationProject> = projectRows.map(toProjectedProject);
-          const supervision = yield* projectionSupervisionRepository.getSnapshot();
+          const supervisedOrchestration = (yield* supervisedGovernanceRepository.getSnapshot())
+            .orchestration;
           const supervised = yield* supervisedRuntimeRepository.getSnapshot({ includeDisabled: true });
 
           const threads: ReadonlyArray<OrchestrationThread> = threadRows.map((row) =>
@@ -2032,7 +2033,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             spaces: spaceRows.map(toProjectedSpace),
             projects,
             threads,
-            supervision,
+            supervisedOrchestration,
             supervised,
             updatedAt: updatedAt ?? new Date(0).toISOString(),
           };
@@ -2159,7 +2160,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           updatedAt = maxOptionalIso(updatedAt, latestTurns.updatedAt);
 
           const projects: ReadonlyArray<OrchestrationProject> = projectRows.map(toProjectedProject);
-          const supervision = yield* projectionSupervisionRepository.getSnapshot();
+          const supervisedOrchestration = (yield* supervisedGovernanceRepository.getSnapshot())
+            .orchestration;
           const supervised = yield* supervisedRuntimeRepository.getSnapshot({ includeDisabled: true });
 
           const threads: ReadonlyArray<OrchestrationThread> = threadRows.map((row) =>
@@ -2180,7 +2182,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             spaces: spaceRows.map(toProjectedSpace),
             projects,
             threads,
-            supervision,
+            supervisedOrchestration,
             supervised,
             updatedAt: updatedAt ?? new Date(0).toISOString(),
           }).pipe(
@@ -2275,8 +2277,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           let updatedAt = collectBaseUpdatedAt({ spaceRows, projectRows, threadRows, stateRows });
           updatedAt = maxOptionalIso(updatedAt, latestTurns.updatedAt);
           updatedAt = maxOptionalIso(updatedAt, sessions.updatedAt);
-          const supervision = redactSupervisionSnapshotForShell(
-            yield* projectionSupervisionRepository.getSnapshot(),
+          const supervisedOrchestration = redactSupervisedOrchestrationForShell(
+            (yield* supervisedGovernanceRepository.getSnapshot()).orchestration,
           );
 
           const snapshot = {
@@ -2294,7 +2296,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   session: sessions.byThread.get(row.threadId) ?? null,
                 }),
               ),
-            supervision,
+            supervisedOrchestration,
             updatedAt: updatedAt ?? new Date(0).toISOString(),
           };
 
@@ -2316,11 +2318,15 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         }),
       );
 
-  const getSupervisionShellSnapshot: ProjectionSnapshotQueryShape["getSupervisionShellSnapshot"] =
+  const getSupervisedOrchestrationShellSnapshot: ProjectionSnapshotQueryShape["getSupervisedOrchestrationShellSnapshot"] =
     () =>
-      projectionSupervisionRepository
+      supervisedGovernanceRepository
         .getSnapshot()
-        .pipe(Effect.map(redactSupervisionSnapshotForShell));
+        .pipe(
+          Effect.map((snapshot) =>
+            redactSupervisedOrchestrationForShell(snapshot.orchestration),
+          ),
+        );
 
   const listStaleInFlightThreadIds: ProjectionSnapshotQueryShape["listStaleInFlightThreadIds"] = (
     input,
@@ -2908,7 +2914,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getCommandReadModel,
     getSnapshot,
     getShellSnapshot,
-    getSupervisionShellSnapshot,
+    getSupervisedOrchestrationShellSnapshot,
     getCounts,
     getSnapshotSequence,
     listStaleInFlightThreadIds,
@@ -2933,6 +2939,6 @@ export const OrchestrationProjectionSnapshotQueryLive = Layer.effect(
   ProjectionSnapshotQuery,
   makeProjectionSnapshotQuery,
 ).pipe(
-  Layer.provideMerge(ProjectionSupervisionRepositoryLive),
+  Layer.provideMerge(SupervisedGovernanceRepositoryLive),
   Layer.provideMerge(SupervisedRuntimeRepositoryLive),
 );

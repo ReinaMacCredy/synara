@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import type { OrchestrationCommand, OrchestrationThread } from "@synara/contracts";
 import {
   ControlPlaneEvent,
-  emptySupervisionSnapshot,
   emptySupervisedGovernanceSnapshot,
   emptySupervisedRuntimeSnapshot,
 } from "@synara/contracts";
@@ -129,19 +128,29 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
         },
       ],
     } as never;
-    const supervision = {
-      ...emptySupervisionSnapshot(now),
-      leads: [
+    const governance = {
+      ...emptySupervisedGovernanceSnapshot(now),
+      agentSeats: [
         {
           id: "seat-lead",
+          workspaceId: "workspace-context",
+          roomIds: ["room-context"],
+          identityRole: "lead",
+          effectiveRole: "lead",
+          profileId: "profile-lead",
+          providerSessionId: null,
+          lifecycleState: "active",
+          workState: "idle",
+          authorityReceiptId: "receipt-lead",
+          threadId: "thread-lead",
           projectId: "project-context",
-          activeThreadId: "thread-lead",
           predecessorThreadIds: [],
           profileSnapshotId: "profile-lead",
-          status: "active",
+          displayName: null,
           createdAt: now,
+          retainedAt: null,
+          retiredAt: null,
           updatedAt: now,
-          archivedAt: null,
           revision: 4,
         },
       ],
@@ -169,7 +178,7 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
         metadata: {},
       } as never,
       runtime,
-      supervision,
+      governance,
     );
     assert.equal(projected?.type, "agent.context.measured");
     assert.equal(projected?.scope.kind, "room");
@@ -909,7 +918,7 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
         taskNodeId: null,
         rlmEpisodeId: episode.id,
         parentSessionId: role === "rlm_branch" ? "session-rlm-root" : null,
-        specialistId: null,
+        peerSpecialtyId: null,
         threadId,
         role,
         title,

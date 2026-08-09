@@ -1248,7 +1248,7 @@ function SidebarActivityBellButton({
 
 const SIDEBAR_SURFACE_PICKER_COPY: Record<SidebarView, { title: string; description: string }> = {
   threads: { title: "Synara", description: "Build, debug, and ship" },
-  supervised: { title: "Supervised", description: "Govern Lead Rooms and specialist work" },
+  supervised: { title: "Supervised", description: "Govern Lead Rooms and Peer work" },
 };
 
 /** Lucide LayoutGrid as IconNode data (stroke, 24×24) for morphicons. */

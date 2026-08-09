@@ -3,11 +3,11 @@ import { it } from "@effect/vitest";
 import { ProfileSnapshotId, SupervisionMissionId, SupervisorSeatId } from "@synara/contracts";
 import { Effect } from "effect";
 
-import { supervisionInstructionForSession } from "./protocolV1.ts";
+import { supervisedInstructionForSession } from "./protocolV1.ts";
 
 it.effect("requires a visible completion after Supervisor tool activity", () =>
   Effect.sync(() => {
-    const instruction = supervisionInstructionForSession({
+    const instruction = supervisedInstructionForSession({
       role: "supervisor",
       supervisorSeatId: SupervisorSeatId.makeUnsafe("supervisor-release"),
       missionIds: [SupervisionMissionId.makeUnsafe("mission-release")],

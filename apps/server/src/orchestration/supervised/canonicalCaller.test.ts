@@ -2,50 +2,21 @@ import assert from "node:assert/strict";
 
 import {
   emptySupervisedGovernanceSnapshot,
-  emptySupervisionSnapshot,
   type AgentSeat,
   type EffectiveAuthorityReceipt,
-  type LeadSeat,
-  type PeerBinding,
 } from "@synara/contracts";
 import { describe, it } from "vitest";
 
 import {
   resolveEffectiveCanonicalAuthority,
-  resolveProjectedSupervisionCaller,
-  resolveProjectedSupervisionCallerForThread,
+  resolveProjectedSupervisedCaller,
+  resolveProjectedSupervisedCallerForThread,
 } from "./canonicalCaller.ts";
 
 const now = "2026-08-09T00:00:00.000Z";
 
-const lead: LeadSeat = {
-  id: "lead-1" as never,
-  projectId: "project-1" as never,
-  activeThreadId: "shared-thread" as never,
-  predecessorThreadIds: [],
-  profileSnapshotId: "lead-profile" as never,
-  status: "active",
-  createdAt: now,
-  updatedAt: now,
-  archivedAt: null,
-  revision: 1,
-};
-
-const peer: PeerBinding = {
-  threadId: "shared-thread" as never,
-  projectId: "project-1" as never,
-  leadSeatId: lead.id,
-  rootThreadId: lead.activeThreadId,
-  profileSnapshotId: "peer-profile" as never,
-  status: "active",
-  createdAt: now,
-  updatedAt: now,
-  archivedAt: null,
-  revision: 1,
-};
-
 const seat: AgentSeat = {
-  id: lead.id as never,
+  id: "lead-1" as never,
   workspaceId: "workspace:default" as never,
   roomIds: ["room-1" as never],
   identityRole: "lead",
@@ -55,6 +26,11 @@ const seat: AgentSeat = {
   lifecycleState: "active",
   workState: "idle",
   authorityReceiptId: "receipt-1" as never,
+  threadId: "shared-thread" as never,
+  projectId: "project-1" as never,
+  profileSnapshotId: "lead-profile" as never,
+  predecessorThreadIds: [],
+  displayName: null,
   createdAt: now,
   retainedAt: null,
   retiredAt: null,
@@ -81,19 +57,15 @@ const receipt: EffectiveAuthorityReceipt = {
 };
 
 describe("canonical Supervised caller resolution", () => {
-  it("uses one stable supervisor-lead-peer precedence for projected identity", () => {
-    const caller = resolveProjectedSupervisionCaller({
-      supervision: {
-        ...emptySupervisionSnapshot(now),
-        leads: [lead],
-        peers: [peer],
-      },
-      threadId: lead.activeThreadId,
+  it("resolves projected identity from the canonical AgentSeat", () => {
+    const caller = resolveProjectedSupervisedCaller({
+      governance: { ...emptySupervisedGovernanceSnapshot(now), agentSeats: [seat] },
+      threadId: seat.threadId!,
     });
 
     assert.equal(caller?.role, "lead");
-    assert.equal(caller?.seatId, lead.id);
-    assert.equal(caller?.profileSnapshotId, lead.profileSnapshotId);
+    assert.equal(caller?.seatId, seat.id);
+    assert.equal(caller?.profileSnapshotId, seat.profileSnapshotId);
   });
 
   it("excludes revoked authority from provider prompts and execution", () => {
@@ -121,13 +93,13 @@ describe("canonical Supervised caller resolution", () => {
   });
 
   it("inherits canonical authority through the supervised native RLM lineage", () => {
-    const result = resolveProjectedSupervisionCallerForThread({
-      supervision: { ...emptySupervisionSnapshot(now), leads: [lead] },
+    const result = resolveProjectedSupervisedCallerForThread({
+      governance: { ...emptySupervisedGovernanceSnapshot(now), agentSeats: [seat] },
       threads: [
         {
           id: "rlm-root" as never,
           creationSource: "supervised_native",
-          sourceThreadId: lead.activeThreadId,
+          sourceThreadId: seat.threadId,
         },
         {
           id: "rlm-branch" as never,
@@ -139,13 +111,13 @@ describe("canonical Supervised caller resolution", () => {
     });
 
     assert.equal(result.requiresCanonicalAuthority, true);
-    assert.equal(result.caller?.seatId, lead.id);
+    assert.equal(result.caller?.seatId, seat.id);
     assert.equal(result.caller?.role, "lead");
   });
 
   it("fails closed for an orphaned supervised native descendant", () => {
-    const result = resolveProjectedSupervisionCallerForThread({
-      supervision: emptySupervisionSnapshot(now),
+    const result = resolveProjectedSupervisedCallerForThread({
+      governance: emptySupervisedGovernanceSnapshot(now),
       threads: [
         {
           id: "rlm-orphan" as never,

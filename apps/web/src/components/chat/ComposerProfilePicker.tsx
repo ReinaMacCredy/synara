@@ -47,8 +47,8 @@ export function ComposerProfilePicker(props: {
             )}
             aria-label={
               selected
-                ? `Supervision profile: ${selected.name}, ${selected.runtime.model}`
-                : "Choose a supervision profile"
+                ? `Supervised profile: ${selected.name}, ${selected.runtime.model}`
+                : "Choose a Supervised profile"
             }
             data-testid="composer-profile-picker"
           />

@@ -44,7 +44,7 @@ export const RIGHT_DOCK_PANE_META: Record<RightDockPaneKind, RightDockPaneMeta> 
   sidechat: { label: "Side chats", Icon: MessageCircleIcon },
   git: { label: "Git", Icon: GitCommitIcon },
   pullRequest: { label: "Pull request", Icon: GitPullRequestIcon },
-  supervision: { label: "Supervision", Icon: EyeIcon },
+  supervision: { label: "Supervised", Icon: EyeIcon },
 };
 
 // Neutral fallback for any pane kind we no longer recognize (e.g. stale

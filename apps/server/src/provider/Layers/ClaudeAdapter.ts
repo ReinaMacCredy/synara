@@ -41,7 +41,7 @@ import {
   type ProviderRuntimeTurnStatus,
   type ProviderSendTurnInput,
   type ProviderSession,
-  type ProviderSupervisionSessionContext,
+  type ProviderSupervisedSessionContext,
   type ThreadTokenUsageSnapshot,
   type ProviderUserInputAnswers,
   type RuntimeContentStreamKind,
@@ -92,7 +92,7 @@ import {
 
 import { buildClaudeHostMcpServers } from "../claudeHostSdkMcp.ts";
 import { renderSynaraHarnessPolicy } from "../../agentGateway/harnessPolicy.ts";
-import { supervisionInstructionForSession } from "../../orchestration/supervision/protocolV1.ts";
+import { supervisedInstructionForSession } from "../../orchestration/supervised/protocolV1.ts";
 import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
 import { HostToolRuntime } from "../../orchestration/Services/HostToolRuntime.ts";
 import { PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY } from "../Services/ProviderAdapter.ts";
@@ -1055,7 +1055,7 @@ const CLAUDE_CONTEXT_USAGE_TIMEOUT_MS = 1_000;
 const CLAUDE_INTERRUPT_TIMEOUT = Duration.seconds(10);
 export const buildEmbeddedClaudeSystemPromptAppend = (
   gatewayControlAvailable: boolean,
-  supervisionContext?: ProviderSupervisionSessionContext | null,
+  supervisedContext?: ProviderSupervisedSessionContext | null,
 ) =>
   [
     "You are running inside Synara, a coding app that embeds the Claude Agent SDK.",
@@ -1066,7 +1066,7 @@ export const buildEmbeddedClaudeSystemPromptAppend = (
     "Honor explicit user instructions about a subagent's model or effort verbatim; otherwise match task complexity: mechanical work → haiku or worker-low, standard work → sonnet or worker-medium, hard reasoning → opus or fable with worker-high and above.",
     "Provider-native subagents are provider-owned helpers, not standalone Synara supervised seats. They must not claim Synara authority or call governed Host tools outside their granted scope.",
     renderSynaraHarnessPolicy({ gatewayControlAvailable }),
-    ...(supervisionContext ? [supervisionInstructionForSession(supervisionContext)] : []),
+    ...(supervisedContext ? [supervisedInstructionForSession(supervisedContext)] : []),
   ].join("\n");
 
 const CLAUDE_WORKER_EFFORT_TIERS = ["low", "medium", "high", "xhigh"] as const;
@@ -5124,7 +5124,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             preset: "claude_code",
             append: buildEmbeddedClaudeSystemPromptAppend(
               agentGatewayCredentials !== undefined,
-              input.supervisionContext,
+              input.supervisedContext,
             ),
             // Strip per-user dynamic sections (working directory, auto-memory
             // path) into the first user message so the cached system-prompt
@@ -5168,7 +5168,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               hostRuntime: hostToolRuntime,
               threadId,
               enableHostTools:
-                input.supervisionContext != null || input.handoffContext != null,
+                input.supervisedContext != null || input.handoffContext != null,
             });
             return Object.keys(mcpServers).length > 0
               ? { mcpServers: mcpServers as NonNullable<ClaudeQueryOptions["mcpServers"]> }

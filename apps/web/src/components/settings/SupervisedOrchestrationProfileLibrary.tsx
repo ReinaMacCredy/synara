@@ -402,8 +402,8 @@ function ArchivedPopover(props: {
 
 function downloadDemo(format: "json" | "toml") {
   const json = {
-    name: "Demo Specialist",
-    roleHints: ["specialist"],
+    name: "Demo Peer",
+    roleHints: ["peer"],
     runtime: {
       provider: "codex",
       model: "gpt-5.6-luna",
@@ -414,8 +414,8 @@ function downloadDemo(format: "json" | "toml") {
       providerOptions: { features: { multi_agent: false } },
     },
   };
-  const toml = `name = "Demo Specialist"
-roleHints = ["specialist"]
+  const toml = `name = "Demo Peer"
+roleHints = ["peer"]
 
 [runtime]
 provider = "codex"
@@ -434,7 +434,7 @@ multi_agent = false
   );
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `demo-specialist-profile.${format}`;
+  anchor.download = `demo-peer-profile.${format}`;
   anchor.click();
   URL.revokeObjectURL(url);
 }

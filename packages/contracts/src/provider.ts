@@ -26,7 +26,7 @@ import {
   RuntimeMode,
   ThreadOriginEnvelope,
 } from "./orchestration";
-import { ProviderSupervisionSessionContext } from "./supervision";
+import { ProviderSupervisedSessionContext } from "./supervision";
 import { ProviderMentionReference, ProviderSkillReference } from "./providerDiscovery";
 import { AcceptedCrossModeHandoffV1 } from "./handoff";
 
@@ -63,7 +63,7 @@ export const ProviderSessionStartInput = Schema.Struct({
   approvalPolicy: Schema.optional(ProviderApprovalPolicy),
   sandboxMode: Schema.optional(ProviderSandboxMode),
   providerOptions: Schema.optional(ProviderStartOptions),
-  supervisionContext: Schema.optional(Schema.NullOr(ProviderSupervisionSessionContext)),
+  supervisedContext: Schema.optional(Schema.NullOr(ProviderSupervisedSessionContext)),
   handoffContext: Schema.optional(Schema.NullOr(AcceptedCrossModeHandoffV1)),
   runtimeMode: RuntimeMode,
 });

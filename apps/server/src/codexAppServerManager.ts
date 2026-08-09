@@ -28,7 +28,7 @@ import {
   type ProviderEvent,
   type ProviderSession,
   type ProviderSessionStartInput,
-  type ProviderSupervisionSessionContext,
+  type ProviderSupervisedSessionContext,
   type ProviderTurnStartResult,
   RuntimeMode,
   ProviderInteractionMode,
@@ -56,8 +56,8 @@ import {
   SYNARA_AGENT_GATEWAY_TOKEN_ENV,
 } from "./agentGateway/mcpInjection.ts";
 import { SYNARA_GATEWAY_HARNESS_POLICY } from "./agentGateway/harnessPolicy.ts";
-import { supervisionInstructionForSession } from "./orchestration/supervision/protocolV1.ts";
-import { codexProfileConfigArgs } from "./orchestration/supervision/profileResolver.ts";
+import { supervisedInstructionForSession } from "./orchestration/supervised/protocolV1.ts";
+import { codexProfileConfigArgs } from "./orchestration/supervised/profileResolver.ts";
 import type { HostToolRuntimeShape } from "./orchestration/Services/HostToolRuntime.ts";
 import {
   HostToolError,
@@ -181,7 +181,7 @@ interface CodexSessionContext {
   gatewayCredentialRetired?: boolean;
   session: ProviderSession;
   lifecycleGeneration?: string;
-  supervisionContext?: ProviderSupervisionSessionContext;
+  supervisedContext?: ProviderSupervisedSessionContext;
   nativeInstruction?: string | null;
   hostToolRuntime?: HostToolRuntimeShape;
   activeTurnDispatchOrigin?: MessageDispatchOrigin;
@@ -300,7 +300,7 @@ export interface CodexAppServerStartSessionInput {
   readonly serviceTier?: string;
   readonly resumeCursor?: unknown;
   readonly providerOptions?: ProviderSessionStartInput["providerOptions"];
-  readonly supervisionContext?: ProviderSessionStartInput["supervisionContext"];
+  readonly supervisedContext?: ProviderSessionStartInput["supervisedContext"];
   readonly handoffContext?: AcceptedCrossModeHandoffV1 | null;
   /** Session-scoped native tools for ephemeral system work such as handoff preparation. */
   readonly nativeToolRuntime?: HostToolRuntimeShape;
@@ -682,8 +682,8 @@ function resolveCodexTurnOverrides(context: CodexSessionContext): {
   readonly approvalsReviewer: CodexApprovalsReviewer;
   readonly sandboxPolicy: CodexTurnSandboxPolicy;
 } {
-  if (context.supervisionContext) {
-    const runtime = context.supervisionContext.profileSnapshot.runtime;
+  if (context.supervisedContext) {
+    const runtime = context.supervisedContext.profileSnapshot.runtime;
     return {
       approvalPolicy: runtime.approvalPolicy,
       approvalsReviewer: "user",
@@ -1079,11 +1079,11 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       const defaultHandoffInstruction = input.handoffContext
         ? buildHandoffDestinationInstruction(input.handoffContext)
         : undefined;
-      const defaultSupervisionInstruction = input.supervisionContext
-        ? supervisionInstructionForSession(input.supervisionContext)
+      const defaultSupervisedInstruction = input.supervisedContext
+        ? supervisedInstructionForSession(input.supervisedContext)
         : undefined;
       const combinedNativeInstruction = [
-        defaultSupervisionInstruction,
+        defaultSupervisedInstruction,
         defaultHandoffInstruction,
       ]
         .filter((value): value is string => typeof value === "string" && value.length > 0)
@@ -1092,7 +1092,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         input.developerInstructions ??
         (combinedNativeInstruction.length > 0 ? combinedNativeInstruction : undefined);
       const needsHostTools =
-        input.supervisionContext != null || input.handoffContext != null;
+        input.supervisedContext != null || input.handoffContext != null;
       const nativeToolRuntime =
         input.nativeToolRuntime ??
         (needsHostTools ? this.hostToolRuntime : undefined);
@@ -1124,10 +1124,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           gatewaySessionLease?.connection.bearerToken,
           !isNativeToolSession,
         ),
-        ...(input.supervisionContext
+        ...(input.supervisedContext
           ? {
               profileConfigArgs: codexProfileConfigArgs(
-                input.supervisionContext.profileSnapshot.runtime,
+                input.supervisedContext.profileSnapshot.runtime,
               ),
             }
           : {}),
@@ -1139,8 +1139,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         ...(input.lifecycleGeneration !== undefined
           ? { lifecycleGeneration: input.lifecycleGeneration }
           : {}),
-        ...(input.supervisionContext !== undefined
-          ? { supervisionContext: input.supervisionContext }
+        ...(input.supervisedContext !== undefined
+          ? { supervisedContext: input.supervisedContext }
           : {}),
         ...(nativeInstruction !== undefined ? { nativeInstruction } : {}),
         ...(nativeToolRuntime ? { hostToolRuntime: nativeToolRuntime } : {}),
@@ -1195,11 +1195,11 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         model: normalizedModel ?? null,
         ...(input.serviceTier !== undefined ? { serviceTier: input.serviceTier } : {}),
         cwd: resolvedCwd,
-        ...(input.supervisionContext
+        ...(input.supervisedContext
           ? {
-              approvalPolicy: input.supervisionContext.profileSnapshot.runtime.approvalPolicy,
+              approvalPolicy: input.supervisedContext.profileSnapshot.runtime.approvalPolicy,
               approvalsReviewer: "user" as const,
-              sandbox: input.supervisionContext.profileSnapshot.runtime.sandboxMode,
+              sandbox: input.supervisedContext.profileSnapshot.runtime.sandboxMode,
             }
           : mapCodexRuntimeMode(input.runtimeMode ?? "full-access")),
         ...(nativeInstruction !== undefined

@@ -9,7 +9,7 @@ describe("Supervised tool contracts", () => {
     const receipt = Schema.decodeUnknownSync(SupervisedToolInvocationReceipt)({
       id: "tool-receipt-1",
       toolId: "supervised.topology.read",
-      providerToolName: "read_supervision_state",
+      providerToolName: "read_supervised_state",
       schemaVersion: "1.0.0",
       actorSeatId: "supervisor-1",
       authorityReceiptId: "authority-1",

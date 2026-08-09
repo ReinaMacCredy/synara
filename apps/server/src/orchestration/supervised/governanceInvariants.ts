@@ -2,15 +2,16 @@ import type {
   LeadSeat,
   MissionGrant,
   MissionScope,
-  SupervisionActor,
+  SupervisedGovernanceActor,
   SupervisionMission,
-  SupervisionSnapshot,
 } from "@synara/contracts";
 
-export const isHumanOrigin = (actor: SupervisionActor): boolean => actor.kind === "user";
+import type { SupervisedGovernanceDecisionState } from "./governanceState.ts";
+
+export const isHumanOrigin = (actor: SupervisedGovernanceActor): boolean => actor.kind === "user";
 
 export function activeLeadForProject(
-  state: SupervisionSnapshot,
+  state: SupervisedGovernanceDecisionState,
   projectId: string,
 ): LeadSeat | null {
   return (
@@ -52,7 +53,7 @@ export function missionGrantsExpand(
 }
 
 export function activeMissionGrant(
-  state: SupervisionSnapshot,
+  state: SupervisedGovernanceDecisionState,
   supervisorSeatId: string,
   missionId: string,
   grant: MissionGrant,

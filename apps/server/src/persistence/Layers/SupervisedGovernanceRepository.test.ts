@@ -232,7 +232,14 @@ testLayer("SupervisedGovernanceRepository", (it) => {
 
       const reloaded = yield* repository.getSnapshot();
 
-      assert.deepStrictEqual(reloaded, { ...snapshot, revision: 1 });
+      const { orchestration, ...reloadedGovernance } = reloaded;
+      const { orchestration: _emptyOrchestration, ...expectedGovernance } = snapshot;
+      assert.deepStrictEqual(reloadedGovernance, { ...expectedGovernance, revision: 1 });
+      assert.deepStrictEqual(orchestration.agentSeats, reloaded.agentSeats);
+      assert.deepStrictEqual(
+        orchestration.profiles.map((profile) => profile.id),
+        ["profile-lead-default", "profile-peer-implementer", "profile-peer-reviewer"],
+      );
     }),
   );
 
@@ -248,6 +255,56 @@ testLayer("SupervisedGovernanceRepository", (it) => {
 
       assert.equal(competingWrite._tag, "Failure");
       assert.equal(reloaded.revision, before.revision + 1);
+    }),
+  );
+
+  it.effect("preserves persisted Supervisor profiles while adding missing defaults", () =>
+    Effect.gen(function* () {
+      const repository = yield* SupervisedGovernanceRepository;
+      const before = yield* repository.getSnapshot();
+      const supervisorProfile = {
+        id: "profile-primary-supervisor" as const,
+        name: "Primary Supervisor",
+        roleHints: ["supervisor" as const],
+        runtime: {
+          provider: "codex" as const,
+          model: "gpt-5.6-luna",
+          reasoningEffort: "high",
+          sandboxMode: "danger-full-access" as const,
+          approvalPolicy: "never" as const,
+          developerInstructions: "Preserve this owner-authored profile.",
+          providerOptions: { features: { multi_agent: false } },
+        },
+        isDefault: false,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: now,
+        revision: 7,
+      };
+
+      yield* repository.replaceSnapshot({
+        ...snapshot,
+        revision: before.revision,
+        orchestration: {
+          ...snapshot.orchestration,
+          profiles: [supervisorProfile],
+        },
+      });
+
+      const reloaded = yield* repository.getSnapshot();
+      assert.deepStrictEqual(
+        reloaded.orchestration.profiles.find((profile) => profile.id === supervisorProfile.id),
+        supervisorProfile,
+      );
+      assert.deepStrictEqual(
+        reloaded.orchestration.profiles.map((profile) => profile.id),
+        [
+          supervisorProfile.id,
+          "profile-lead-default",
+          "profile-peer-implementer",
+          "profile-peer-reviewer",
+        ],
+      );
     }),
   );
 

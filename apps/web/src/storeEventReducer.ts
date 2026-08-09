@@ -51,7 +51,7 @@ import {
 } from "./storeProjection";
 import type { AppState } from "./storeState";
 import type { ChatMessage, Thread } from "./types";
-import { projectSupervisionEvent } from "./lib/supervision";
+import { projectSupervisedOrchestrationEvent } from "./lib/supervisedOrchestration";
 
 type ThreadMessageSentEvent = Extract<OrchestrationEvent, { type: "thread.message-sent" }>;
 type ThreadActivityAppendedEvent = Extract<
@@ -757,6 +757,8 @@ function applyOrchestrationEvent(
   options?: ApplyOrchestrationEventOptions,
 ): AppState {
   switch (event.type) {
+    // TODO(synara): Remove legacy supervision event cases on or after 2027-08-09 once
+    // every supported database has replayed migration 108.
     case "supervision.profile-created":
     case "supervision.profile-updated":
     case "supervision.profile-archived":
@@ -779,9 +781,44 @@ function applyOrchestrationEvent(
     case "supervision.lead-replacement-requested":
     case "supervision.lead-replaced":
     case "supervision.lead-replacement-failed":
+    case "supervision.peer-bound":
+    case "supervision.workflow-reverted":
+    case "supervision.wake-enqueued":
+    case "supervision.wake-updated":
+    case "supervision.lead-rotation-advanced":
+    case "supervised.profile-created":
+    case "supervised.profile-updated":
+    case "supervised.profile-archived":
+    case "supervised.profile-restored":
+    case "supervised.profile-cleared":
+    case "supervised.supervisor-created":
+    case "supervised.supervisor-updated":
+    case "supervised.supervisor-archived":
+    case "supervised.supervisor-restored":
+    case "supervised.lead-enrolled":
+    case "supervised.peer-bound":
+    case "supervised.mission-created":
+    case "supervised.mission-updated":
+    case "supervised.mission-completed":
+    case "supervised.mission-cancelled":
+    case "supervised.workflow-applied":
+    case "supervised.workflow-conflicted":
+    case "supervised.workflow-resolved":
+    case "supervised.workflow-reverted":
+    case "supervised.advice-sent":
+    case "supervised.observation-advanced":
+    case "supervised.wake-enqueued":
+    case "supervised.wake-updated":
+    case "supervised.lead-replacement-requested":
+    case "supervised.lead-rotation-advanced":
+    case "supervised.lead-replaced":
+    case "supervised.lead-replacement-failed":
       return {
         ...state,
-        supervision: projectSupervisionEvent(state.supervision, event),
+        supervisedOrchestration: projectSupervisedOrchestrationEvent(
+          state.supervisedOrchestration,
+          event,
+        ),
       };
 
     case "space.created":

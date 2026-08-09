@@ -4,10 +4,11 @@ import { Effect, Schema } from "effect";
 
 import {
   ClientOrchestrationCommand,
+  SupervisedGovernanceCommand,
   OrchestrationShellStreamEvent,
   ProviderInteractionMode,
-  SupervisionCommand,
   SupervisionSnapshot,
+  emptySupervisedOrchestrationSnapshot,
   emptySupervisionSnapshot,
 } from "./index";
 
@@ -43,11 +44,11 @@ it.effect("round-trips a many-target mission and durable wake queue", () =>
           missionId: "mission-release",
           supervisorSeatId: "supervisor-c",
           leadSeatId: "lead-tech",
-          episodeKind: "supervised.specialist.created",
+          episodeKind: "supervised.peer.created",
           pointers: [
             {
               sequence: 41,
-              eventType: "supervised.specialist.created",
+              eventType: "supervised.peer.created",
               aggregateKind: "specialist",
               aggregateId: "root-tech",
             },
@@ -65,18 +66,18 @@ it.effect("round-trips a many-target mission and durable wake queue", () =>
   }),
 );
 
-it.effect("decodes live supervision shell updates", () =>
+it.effect("decodes live canonical Supervised orchestration shell updates", () =>
   Effect.gen(function* () {
-    const supervision = emptySupervisionSnapshot(now);
+    const supervisedOrchestration = emptySupervisedOrchestrationSnapshot(now);
     const event = yield* Schema.decodeUnknownEffect(OrchestrationShellStreamEvent)({
-      kind: "supervision-updated",
+      kind: "supervised-orchestration-updated",
       sequence: 42,
-      supervision,
+      supervisedOrchestration,
     });
 
-    assert.equal(event.kind, "supervision-updated");
-    if (event.kind === "supervision-updated") {
-      assert.equal(event.supervision.updatedAt, now);
+    assert.equal(event.kind, "supervised-orchestration-updated");
+    if (event.kind === "supervised-orchestration-updated") {
+      assert.equal(event.supervisedOrchestration.updatedAt, now);
     }
   }),
 );
@@ -115,7 +116,7 @@ it.effect("decodes atomic Lead first-send bootstrap on a client turn", () =>
         worktreePath: null,
         createdAt: now,
       },
-      supervisionBootstrap: {
+      supervisedBootstrap: {
         kind: "lead",
         profilePresetId: "profile-lead-default",
         lead: {
@@ -135,16 +136,16 @@ it.effect("decodes atomic Lead first-send bootstrap on a client turn", () =>
     });
     assert.equal(command.type, "thread.turn.start");
     assert.equal(command.threadBootstrap?.projectId, "project-tech");
-    assert.equal(command.supervisionBootstrap?.kind, "lead");
+    assert.equal(command.supervisedBootstrap?.kind, "lead");
   }),
 );
 
 it.effect("decodes server-only queue and rotation lifecycle commands", () =>
   Effect.gen(function* () {
-    const command = yield* Schema.decodeUnknownEffect(SupervisionCommand)({
-      type: "supervision.wake.enqueue",
+    const command = yield* Schema.decodeUnknownEffect(SupervisedGovernanceCommand)({
+      type: "supervised.wake.enqueue",
       commandId: "enqueue-wake",
-      aggregateId: "supervision",
+      aggregateId: "supervised",
       actor: { kind: "server", actorId: "wake-reactor" },
       expectedRevision: 0,
       createdAt: now,
@@ -169,6 +170,6 @@ it.effect("decodes server-only queue and rotation lifecycle commands", () =>
         updatedAt: now,
       },
     });
-    assert.equal(command.type, "supervision.wake.enqueue");
+    assert.equal(command.type, "supervised.wake.enqueue");
   }),
 );

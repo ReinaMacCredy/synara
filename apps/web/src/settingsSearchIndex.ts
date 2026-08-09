@@ -325,7 +325,7 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     id: "supervised-profiles:profiles",
     section: "supervised-profiles",
     title: "Roles & profiles",
-    keywords: "Supervised Lead Peer Specialist compatibility profiles presets model effort",
+    keywords: "Supervised Lead Peer compatibility profiles presets model effort",
     target: null,
   },
   {

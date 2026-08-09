@@ -305,10 +305,15 @@ managedAttachmentsLegacyLayer("managed attachment migration after private migrat
         [101, "SupervisorFirstLifecycle"],
         [102, "SupervisedToolReceipts"],
         [103, "SupervisedModelRouting"],
+        [104, "SupervisedContextNotebookRlm"],
+        [105, "SupervisedSignalPluginLearning"],
+        [106, "SupervisedRuntimeDeliveryAndIngestion"],
+        [107, "SupervisedToolPolicies"],
+        [108, "SupervisedCanonicalCutover"],
       ]);
 
       const tracker = yield* trackerRows(sql);
-      assert.deepStrictEqual(tracker.slice(-50), [
+      assert.deepStrictEqual(tracker.slice(-55), [
         { migration_id: 54, name: "DurableProviderCommandDelivery" },
         { migration_id: 55, name: "ManagedAttachments" },
         { migration_id: 56, name: "CommandReceiptFingerprints" },
@@ -359,6 +364,11 @@ managedAttachmentsLegacyLayer("managed attachment migration after private migrat
         { migration_id: 101, name: "SupervisorFirstLifecycle" },
         { migration_id: 102, name: "SupervisedToolReceipts" },
         { migration_id: 103, name: "SupervisedModelRouting" },
+        { migration_id: 104, name: "SupervisedContextNotebookRlm" },
+        { migration_id: 105, name: "SupervisedSignalPluginLearning" },
+        { migration_id: 106, name: "SupervisedRuntimeDeliveryAndIngestion" },
+        { migration_id: 107, name: "SupervisedToolPolicies" },
+        { migration_id: 108, name: "SupervisedCanonicalCutover" },
       ]);
       const preserved = yield* sql<{ readonly count: number }>`
         SELECT COUNT(*) AS count FROM orchestration_consumer_state
@@ -454,6 +464,11 @@ agentGatewayRetentionLegacyLayer(
         [101, "SupervisorFirstLifecycle"],
         [102, "SupervisedToolReceipts"],
         [103, "SupervisedModelRouting"],
+        [104, "SupervisedContextNotebookRlm"],
+        [105, "SupervisedSignalPluginLearning"],
+        [106, "SupervisedRuntimeDeliveryAndIngestion"],
+        [107, "SupervisedToolPolicies"],
+        [108, "SupervisedCanonicalCutover"],
       ]);
 
         const columns = yield* sql<{ readonly name: string }>`
@@ -552,11 +567,16 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [101, "SupervisorFirstLifecycle"],
         [102, "SupervisedToolReceipts"],
         [103, "SupervisedModelRouting"],
+        [104, "SupervisedContextNotebookRlm"],
+        [105, "SupervisedSignalPluginLearning"],
+        [106, "SupervisedRuntimeDeliveryAndIngestion"],
+        [107, "SupervisedToolPolicies"],
+        [108, "SupervisedCanonicalCutover"],
       ]);
 
       const tracker = yield* trackerRows(sql);
       assert.deepStrictEqual(
-        tracker.slice(-34).map((row) => [row.migration_id, row.name]),
+        tracker.slice(-39).map((row) => [row.migration_id, row.name]),
         [
           [70, "AgentGatewayOperations"],
           [71, "ProjectionThreadsGatewayProvenance"],
@@ -592,6 +612,11 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
           [101, "SupervisorFirstLifecycle"],
           [102, "SupervisedToolReceipts"],
           [103, "SupervisedModelRouting"],
+          [104, "SupervisedContextNotebookRlm"],
+          [105, "SupervisedSignalPluginLearning"],
+          [106, "SupervisedRuntimeDeliveryAndIngestion"],
+          [107, "SupervisedToolPolicies"],
+          [108, "SupervisedCanonicalCutover"],
         ],
       );
 
@@ -685,11 +710,16 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [101, "SupervisorFirstLifecycle"],
         [102, "SupervisedToolReceipts"],
         [103, "SupervisedModelRouting"],
+        [104, "SupervisedContextNotebookRlm"],
+        [105, "SupervisedSignalPluginLearning"],
+        [106, "SupervisedRuntimeDeliveryAndIngestion"],
+        [107, "SupervisedToolPolicies"],
+        [108, "SupervisedCanonicalCutover"],
       ]);
 
       const tracker = yield* trackerRows(sql);
       assert.deepStrictEqual(
-        tracker.slice(-30).map((row) => [row.migration_id, row.name]),
+        tracker.slice(-35).map((row) => [row.migration_id, row.name]),
         [
           [74, "ExternalMcpIntegrations"],
           [75, "ExternalMcpActiveCapacity"],
@@ -721,6 +751,11 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
           [101, "SupervisorFirstLifecycle"],
           [102, "SupervisedToolReceipts"],
           [103, "SupervisedModelRouting"],
+          [104, "SupervisedContextNotebookRlm"],
+          [105, "SupervisedSignalPluginLearning"],
+          [106, "SupervisedRuntimeDeliveryAndIngestion"],
+          [107, "SupervisedToolPolicies"],
+          [108, "SupervisedCanonicalCutover"],
         ],
       );
       const preservedSpaces = yield* sql<{ readonly spaceId: string }>`

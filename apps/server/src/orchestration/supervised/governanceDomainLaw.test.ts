@@ -3,17 +3,21 @@ import { it } from "@effect/vitest";
 import { Effect } from "effect";
 
 import {
-  emptySupervisionSnapshot,
+  SupervisedGovernanceAggregateId,
   type LeadRotation,
   type LeadSeat,
-  type SupervisionDomainEvent,
+  type SupervisedGovernanceDomainEvent,
   type WorkflowDirective,
 } from "@synara/contracts";
 
-import { missionScopeExpands } from "./invariants.ts";
+import { missionScopeExpands } from "./governanceInvariants.ts";
+import { emptySupervisedGovernanceDecisionState } from "./governanceState.ts";
 import { mayAdvanceLeadRotation, switchLeadSeatForRotation } from "./leadRotation.ts";
-import { projectSupervisionEvent } from "./projector.ts";
-import { coalesceSupervisionWakePointers, isEligibleSupervisionWake } from "./wakePolicy.ts";
+import { projectSupervisedGovernanceDecisionEvent } from "./governanceProjector.ts";
+import {
+  coalesceSupervisedWakePointers,
+  isEligibleSupervisedWake,
+} from "../supervised/wakePolicy.ts";
 import { effectiveWorkflowDirectives, workflowDirectiveConflicts } from "./workflowDirectives.ts";
 
 const now = "2026-08-03T10:00:00.000Z";
@@ -43,8 +47,8 @@ it.effect("detects only real scope expansion across a multi-target mission", () 
 it.effect("filters Peer noise and coalesces a Lead event burst by episode", () =>
   Effect.sync(() => {
     assert.equal(
-      isEligibleSupervisionWake({
-        eventType: "supervised.specialist-upserted",
+      isEligibleSupervisedWake({
+        eventType: "supervised.peer-upserted",
         aggregateThreadId: null,
         leadThreadIds: new Set(["root-a"]),
         peerThreadIds: new Set(["peer-a"]),
@@ -52,7 +56,7 @@ it.effect("filters Peer noise and coalesces a Lead event burst by episode", () =
       true,
     );
     assert.equal(
-      isEligibleSupervisionWake({
+      isEligibleSupervisedWake({
         eventType: "thread.message-sent",
         aggregateThreadId: "peer-a",
         leadThreadIds: new Set(["root-a"]),
@@ -61,7 +65,7 @@ it.effect("filters Peer noise and coalesces a Lead event burst by episode", () =
       false,
     );
     assert.deepEqual(
-      coalesceSupervisionWakePointers([
+      coalesceSupervisedWakePointers([
         { sequence: 3, eventType: "blocker" },
         { sequence: 5, eventType: "blocker" },
         { sequence: 4, eventType: "conflict" },
@@ -142,13 +146,13 @@ it.effect("switches a Lead pointer only after validation and retains predecessor
 
 it.effect("projects workflow resolution and wake lifecycle deterministically", () =>
   Effect.sync(() => {
-    const state = emptySupervisionSnapshot(now);
-    const event: SupervisionDomainEvent = {
+    const state = emptySupervisedGovernanceDecisionState(now);
+    const event: SupervisedGovernanceDomainEvent = {
       sequence: 1,
       eventId: "event-1" as never,
-      aggregateKind: "supervision",
-      aggregateId: "supervision" as never,
-      type: "supervision.wake-enqueued",
+      aggregateKind: "supervised_governance",
+      aggregateId: SupervisedGovernanceAggregateId.makeUnsafe("supervised"),
+      type: "supervised.wake-enqueued",
       payload: {
         acceptedRevision: 1,
         wake: {
@@ -161,8 +165,8 @@ it.effect("projects workflow resolution and wake lifecycle deterministically", (
             {
               sequence: 1,
               eventType: "conflict",
-              aggregateKind: "supervision",
-              aggregateId: "supervision",
+              aggregateKind: "supervised_governance",
+              aggregateId: "supervised",
             },
           ],
           status: "queued",
@@ -178,6 +182,6 @@ it.effect("projects workflow resolution and wake lifecycle deterministically", (
       correlationId: "command-1" as never,
       metadata: {},
     };
-    assert.equal(projectSupervisionEvent(state, event).wakeQueue.length, 1);
+    assert.equal(projectSupervisedGovernanceDecisionEvent(state, event).wakeQueue.length, 1);
   }),
 );

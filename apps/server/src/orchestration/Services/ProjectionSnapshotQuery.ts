@@ -13,7 +13,7 @@ import type {
   OrchestrationSpaceShell,
   OrchestrationReadModel,
   OrchestrationShellSnapshot,
-  SupervisionSnapshot,
+  SupervisedOrchestrationSnapshot,
   OrchestrationThreadDetailSnapshot,
   OrchestrationThread,
   OrchestrationThreadShell,
@@ -154,9 +154,9 @@ export interface ProjectionSnapshotQueryShape {
     ProjectionRepositoryError
   >;
 
-  /** Read the redacted supervision slice used by the live shell stream. */
-  readonly getSupervisionShellSnapshot: () => Effect.Effect<
-    SupervisionSnapshot,
+  /** Read the redacted canonical Supervised orchestration slice used by the live shell stream. */
+  readonly getSupervisedOrchestrationShellSnapshot: () => Effect.Effect<
+    SupervisedOrchestrationSnapshot,
     ProjectionRepositoryError
   >;
 

@@ -8,16 +8,18 @@ import {
   SupervisedWorkspaceId,
   type AgentSeat,
   type EffectiveAuthorityReceipt,
+  type LeadSeat,
   type RootAuthorityLease,
   type SupervisedGovernanceSnapshot,
   type SupervisedRuntimeSnapshot,
-  type SupervisionSnapshot,
+  type SupervisorSeat,
 } from "@synara/contracts";
 
 import {
   defaultSupervisedCommandsForRole,
   defaultSupervisedToolsForRole,
 } from "../tools/Registry.ts";
+import type { SupervisedGovernanceDecisionState } from "../../orchestration/supervised/governanceState.ts";
 
 const workspaceId = SupervisedWorkspaceId.makeUnsafe("workspace:default");
 const liveRootStatuses = new Set(["active", "transferring", "releasing"]);
@@ -41,13 +43,20 @@ const mapChanged = <T>(items: ReadonlyArray<T>, map: (item: T) => T) => {
   return changed ? next : items;
 };
 
-const legacyReceiptId = (input: {
+export type GovernanceProjectionSource = "canonical" | "legacy";
+
+const isManagedProjectionReceipt = (receiptId: string) =>
+  receiptId.startsWith("legacy-receipt:") ||
+  receiptId.startsWith("supervised-projection-receipt:");
+
+const projectionReceiptId = (input: {
   readonly seatId: string;
   readonly role: "supervisor" | "lead" | "peer";
   readonly roomIds: ReadonlyArray<string>;
   readonly rootLeaseIds: ReadonlyArray<string>;
   readonly allowedCommands: ReadonlyArray<string>;
   readonly allowedTools: ReadonlyArray<string>;
+  readonly source: GovernanceProjectionSource;
 }) => {
   const version = createHash("sha256")
     .update(
@@ -61,7 +70,9 @@ const legacyReceiptId = (input: {
     )
     .digest("hex")
     .slice(0, 16);
-  return EffectiveAuthorityReceiptId.makeUnsafe(`legacy-receipt:${input.seatId}:${version}`);
+  const prefix =
+    input.source === "legacy" ? "legacy-receipt" : "supervised-projection-receipt";
+  return EffectiveAuthorityReceiptId.makeUnsafe(`${prefix}:${input.seatId}:${version}`);
 };
 
 const seatLifecycle = (status: string): AgentSeat["lifecycleState"] => {
@@ -71,10 +82,131 @@ const seatLifecycle = (status: string): AgentSeat["lifecycleState"] => {
   return "retired";
 };
 
+const supervisorStatus = (seat: AgentSeat): SupervisorSeat["status"] => {
+  if (seat.lifecycleState === "draining") return "rotating";
+  if (seat.lifecycleState === "ready" || seat.lifecycleState === "active") return "active";
+  if (
+    ["requested", "provisioning", "bootstrapping", "recovering"].includes(
+      seat.lifecycleState,
+    )
+  ) {
+    return "queued";
+  }
+  return "archived";
+};
+
+const leadStatus = (seat: AgentSeat): LeadSeat["status"] => {
+  if (seat.lifecycleState === "draining") return "rotating";
+  if (seat.lifecycleState === "ready" || seat.lifecycleState === "active") return "active";
+  if (
+    ["requested", "provisioning", "bootstrapping", "recovering"].includes(
+      seat.lifecycleState,
+    )
+  ) {
+    return "vacant";
+  }
+  return "archived";
+};
+
+export function governanceDecisionStateFromSnapshot(input: {
+  readonly governance: SupervisedGovernanceSnapshot;
+  readonly runtime: SupervisedRuntimeSnapshot;
+}): SupervisedGovernanceDecisionState {
+  const supervisors = input.governance.agentSeats.flatMap((seat) =>
+    seat.identityRole === "supervisor" && seat.threadId !== null && seat.profileSnapshotId !== null
+      ? [
+          {
+            id: seat.id as SupervisorSeat["id"],
+            name: seat.displayName ?? "Supervisor",
+            activeThreadId: seat.threadId,
+            predecessorThreadIds: seat.predecessorThreadIds,
+            profileSnapshotId: seat.profileSnapshotId,
+            status: supervisorStatus(seat),
+            createdAt: seat.createdAt,
+            updatedAt: seat.updatedAt,
+            archivedAt: seat.retiredAt,
+            revision: seat.revision,
+          },
+        ]
+      : [],
+  );
+  const leads = input.governance.agentSeats.flatMap((seat) =>
+    seat.identityRole === "lead" &&
+    seat.threadId !== null &&
+    seat.projectId !== null &&
+    seat.profileSnapshotId !== null
+      ? [
+          {
+            id: seat.id as LeadSeat["id"],
+            projectId: seat.projectId,
+            activeThreadId: seat.threadId,
+            predecessorThreadIds: seat.predecessorThreadIds,
+            profileSnapshotId: seat.profileSnapshotId,
+            status: leadStatus(seat),
+            createdAt: seat.createdAt,
+            updatedAt: seat.updatedAt,
+            archivedAt: seat.retiredAt,
+            revision: seat.revision,
+          },
+        ]
+      : [],
+  );
+  const peers = input.governance.agentSeats.flatMap((seat) => {
+    if (
+      seat.identityRole !== "peer" ||
+      seat.threadId === null ||
+      seat.projectId === null ||
+      seat.profileSnapshotId === null
+    ) {
+      return [];
+    }
+    const room = input.runtime.rooms.find((candidate) => seat.roomIds.includes(candidate.id));
+    const lead = room?.leadSeatId
+      ? input.governance.agentSeats.find((candidate) => candidate.id === room.leadSeatId)
+      : undefined;
+    if (!room?.leadSeatId || lead?.threadId === null || lead?.threadId === undefined) return [];
+    return [
+      {
+        threadId: seat.threadId,
+        projectId: seat.projectId,
+        leadSeatId: room.leadSeatId,
+        rootThreadId: lead.threadId,
+        profileSnapshotId: seat.profileSnapshotId,
+        status: seat.lifecycleState === "retired" ? ("archived" as const) : ("active" as const),
+        createdAt: seat.createdAt,
+        updatedAt: seat.updatedAt,
+        archivedAt: seat.retiredAt,
+        revision: seat.revision,
+      },
+    ];
+  });
+  const orchestration = input.governance.orchestration;
+  return {
+    revision: orchestration.revision,
+    profiles: orchestration.profiles,
+    profileSnapshots: orchestration.profileSnapshots,
+    supervisors,
+    leads,
+    peers,
+    missions: orchestration.missions,
+    workflowDirectives: orchestration.workflowDirectives,
+    workflowConflicts: orchestration.workflowConflicts,
+    advice: orchestration.advice,
+    observationCursors: orchestration.observationCursors,
+    wakeQueue: orchestration.wakeQueue,
+    rotations: orchestration.rotations,
+    updatedAt: orchestration.updatedAt,
+  };
+}
+
 const roomIdsForLead = (runtime: SupervisedRuntimeSnapshot, leadSeatId: string) =>
   runtime.rooms.filter((room) => room.leadSeatId === leadSeatId).map((room) => room.id);
 
-const activeLegacyLeaseFor = (
+const isManagedProjectionLease = (leaseId: string) =>
+  leaseId.startsWith("legacy-root-lease:") ||
+  leaseId.startsWith("supervised-projection-root-lease:");
+
+const activeProjectionLeaseFor = (
   snapshot: SupervisedGovernanceSnapshot,
   roomId: string,
   holderSeatId: string,
@@ -84,16 +216,19 @@ const activeLegacyLeaseFor = (
       lease.roomId === roomId &&
       lease.holderSeatId === holderSeatId &&
       liveRootStatuses.has(lease.status) &&
-      lease.id.startsWith("legacy-root-lease:"),
+      isManagedProjectionLease(lease.id),
   );
 
 const rootLeaseIdFor = (
   snapshot: SupervisedGovernanceSnapshot,
   roomId: string,
   holderSeatId: string,
+  source: GovernanceProjectionSource,
 ) =>
-  activeLegacyLeaseFor(snapshot, roomId, holderSeatId)?.id ??
-  RootAuthorityLeaseId.makeUnsafe(`legacy-root-lease:${roomId}:${holderSeatId}`);
+  activeProjectionLeaseFor(snapshot, roomId, holderSeatId)?.id ??
+  RootAuthorityLeaseId.makeUnsafe(
+    `${source === "legacy" ? "legacy-root-lease" : "supervised-projection-root-lease"}:${roomId}:${holderSeatId}`,
+  );
 
 const makeReceipt = (input: {
   readonly snapshot: SupervisedGovernanceSnapshot;
@@ -102,13 +237,15 @@ const makeReceipt = (input: {
   readonly roomIds: ReadonlyArray<string>;
   readonly issuedAt: string;
   readonly at: string;
+  readonly source: GovernanceProjectionSource;
 }): EffectiveAuthorityReceipt => {
   const currentSeat = input.snapshot.agentSeats.find((seat) => seat.id === input.seatId);
   const currentReceipt = input.snapshot.authorityReceipts.find(
     (receipt) => receipt.id === currentSeat?.authorityReceiptId,
   );
   if (
-    currentReceipt?.id.startsWith("legacy-receipt:") &&
+    currentReceipt !== undefined &&
+    isManagedProjectionReceipt(currentReceipt.id) &&
     (currentReceipt.revokedAt !== null ||
       (currentReceipt.expiresAt !== null && currentReceipt.expiresAt <= input.at))
   ) {
@@ -117,12 +254,14 @@ const makeReceipt = (input: {
 
   const rootLeaseIds =
     input.role === "lead"
-      ? input.roomIds.map((roomId) => rootLeaseIdFor(input.snapshot, roomId, input.seatId))
+      ? input.roomIds.map((roomId) =>
+          rootLeaseIdFor(input.snapshot, roomId, input.seatId, input.source),
+        )
       : [];
   const allowedCommands = [
     ...(input.role === "lead"
       ? [
-          "supervised.specialist.create",
+          "supervised.peer.create",
           "supervised.task.create",
           "supervised.run.request",
           "supervised.run.transition",
@@ -145,13 +284,17 @@ const makeReceipt = (input: {
   ];
   const allowedTools = defaultSupervisedToolsForRole(input.role);
   return {
-    id: legacyReceiptId({
+    id: projectionReceiptId({
       seatId: input.seatId,
       role: input.role,
       roomIds: input.roomIds,
       rootLeaseIds,
       allowedCommands,
       allowedTools,
+      source:
+        currentReceipt?.id.startsWith("supervised-projection-receipt:") === true
+          ? "canonical"
+          : input.source,
     }),
     actorSeatId: AgentSeatId.makeUnsafe(input.seatId),
     identityRole: input.role,
@@ -170,26 +313,27 @@ const makeReceipt = (input: {
   };
 };
 
-const shouldPreserveCanonicalSeat = (
+const shouldPreserveExternallyManagedSeat = (
   snapshot: SupervisedGovernanceSnapshot,
   seatId: string,
 ) => {
   const current = snapshot.agentSeats.find((seat) => seat.id === seatId);
-  return current !== undefined && !current.authorityReceiptId.startsWith("legacy-receipt:");
+  return current !== undefined && !isManagedProjectionReceipt(current.authorityReceiptId);
 };
 
-export function reconcileLegacyGovernance(input: {
+export function reconcileGovernanceProjection(input: {
   readonly governance: SupervisedGovernanceSnapshot;
-  readonly supervision: SupervisionSnapshot;
+  readonly state: SupervisedGovernanceDecisionState;
   readonly runtime: SupervisedRuntimeSnapshot;
   readonly at: string;
+  readonly source: GovernanceProjectionSource;
 }): SupervisedGovernanceSnapshot {
   let authorityReceipts = input.governance.authorityReceipts;
   let agentSeats = input.governance.agentSeats;
   let rootLeases = input.governance.rootLeases;
 
-  for (const supervisor of input.supervision.supervisors) {
-    if (shouldPreserveCanonicalSeat(input.governance, supervisor.id)) continue;
+  for (const supervisor of input.state.supervisors) {
+    if (shouldPreserveExternallyManagedSeat(input.governance, supervisor.id)) continue;
     const receipt = makeReceipt({
       snapshot: input.governance,
       seatId: supervisor.id,
@@ -197,6 +341,7 @@ export function reconcileLegacyGovernance(input: {
       roomIds: [],
       issuedAt: supervisor.createdAt,
       at: input.at,
+      source: input.source,
     });
     authorityReceipts = upsert(authorityReceipts, receipt);
     agentSeats = upsert(agentSeats, {
@@ -210,6 +355,11 @@ export function reconcileLegacyGovernance(input: {
       lifecycleState: seatLifecycle(supervisor.status),
       workState: "idle",
       authorityReceiptId: receipt.id,
+      threadId: supervisor.activeThreadId,
+      projectId: null,
+      profileSnapshotId: supervisor.profileSnapshotId,
+      predecessorThreadIds: supervisor.predecessorThreadIds,
+      displayName: supervisor.name,
       createdAt: supervisor.createdAt,
       retainedAt: null,
       retiredAt: supervisor.archivedAt,
@@ -218,8 +368,8 @@ export function reconcileLegacyGovernance(input: {
     });
   }
 
-  for (const lead of input.supervision.leads) {
-    if (shouldPreserveCanonicalSeat(input.governance, lead.id)) continue;
+  for (const lead of input.state.leads) {
+    if (shouldPreserveExternallyManagedSeat(input.governance, lead.id)) continue;
     const roomIds = roomIdsForLead(input.runtime, lead.id);
     const receipt = makeReceipt({
       snapshot: input.governance,
@@ -228,6 +378,7 @@ export function reconcileLegacyGovernance(input: {
       roomIds,
       issuedAt: lead.createdAt,
       at: input.at,
+      source: input.source,
     });
     authorityReceipts = upsert(authorityReceipts, receipt);
     agentSeats = upsert(agentSeats, {
@@ -241,6 +392,11 @@ export function reconcileLegacyGovernance(input: {
       lifecycleState: seatLifecycle(lead.status),
       workState: "idle",
       authorityReceiptId: receipt.id,
+      threadId: lead.activeThreadId,
+      projectId: lead.projectId,
+      profileSnapshotId: lead.profileSnapshotId,
+      predecessorThreadIds: lead.predecessorThreadIds,
+      displayName: null,
       createdAt: lead.createdAt,
       retainedAt: null,
       retiredAt: lead.archivedAt,
@@ -249,8 +405,8 @@ export function reconcileLegacyGovernance(input: {
     });
   }
 
-  for (const peer of input.supervision.peers) {
-    if (shouldPreserveCanonicalSeat(input.governance, peer.threadId)) continue;
+  for (const peer of input.state.peers) {
+    if (shouldPreserveExternallyManagedSeat(input.governance, peer.threadId)) continue;
     const roomIds = roomIdsForLead(input.runtime, peer.leadSeatId);
     const receipt = makeReceipt({
       snapshot: input.governance,
@@ -259,6 +415,7 @@ export function reconcileLegacyGovernance(input: {
       roomIds,
       issuedAt: peer.createdAt,
       at: input.at,
+      source: input.source,
     });
     authorityReceipts = upsert(authorityReceipts, receipt);
     agentSeats = upsert(agentSeats, {
@@ -272,6 +429,11 @@ export function reconcileLegacyGovernance(input: {
       lifecycleState: seatLifecycle(peer.status),
       workState: "idle",
       authorityReceiptId: receipt.id,
+      threadId: peer.threadId,
+      projectId: peer.projectId,
+      profileSnapshotId: peer.profileSnapshotId,
+      predecessorThreadIds: [],
+      displayName: null,
       createdAt: peer.createdAt,
       retainedAt: null,
       retiredAt: peer.archivedAt,
@@ -306,6 +468,7 @@ export function reconcileLegacyGovernance(input: {
       roomIds: leadRooms.map((candidate) => candidate.id),
       issuedAt: createdAt,
       at: input.at,
+      source: input.source,
     });
     authorityReceipts = upsert(authorityReceipts, receipt);
     agentSeats = upsert(agentSeats, {
@@ -319,6 +482,11 @@ export function reconcileLegacyGovernance(input: {
       lifecycleState: retired ? "retired" : "active",
       workState: "idle",
       authorityReceiptId: receipt.id,
+      threadId: room.id,
+      projectId: room.projectId,
+      profileSnapshotId: null,
+      predecessorThreadIds: [],
+      displayName: null,
       createdAt,
       retainedAt: null,
       retiredAt: retired ? updatedAt : null,
@@ -329,13 +497,13 @@ export function reconcileLegacyGovernance(input: {
 
   for (const room of input.runtime.rooms) {
     if (room.leadSeatId === null) continue;
-    const canonicalLiveLease = rootLeases.find(
+    const externallyManagedLiveLease = rootLeases.find(
       (lease) =>
         lease.roomId === room.id &&
         liveRootStatuses.has(lease.status) &&
-        !lease.id.startsWith("legacy-root-lease:"),
+        !isManagedProjectionLease(lease.id),
     );
-    if (canonicalLiveLease) continue;
+    if (externallyManagedLiveLease) continue;
     const holderSeat = agentSeats.find((seat) => seat.id === room.leadSeatId);
     if (!holderSeat) {
       throw new Error(`Lead Room '${room.id}' references missing Lead seat '${room.leadSeatId}'.`);
@@ -352,7 +520,7 @@ export function reconcileLegacyGovernance(input: {
         lease.roomId === room.id &&
         lease.holderSeatId === room.leadSeatId &&
         liveRootStatuses.has(lease.status) &&
-        lease.id.startsWith("legacy-root-lease:")
+        isManagedProjectionLease(lease.id)
           ? {
               ...lease,
               status: "released" as const,
@@ -364,7 +532,7 @@ export function reconcileLegacyGovernance(input: {
       );
       continue;
     }
-    const current = activeLegacyLeaseFor(
+    const current = activeProjectionLeaseFor(
       { ...input.governance, rootLeases },
       room.id,
       room.leadSeatId,
@@ -373,7 +541,7 @@ export function reconcileLegacyGovernance(input: {
       lease.roomId === room.id &&
       lease.holderSeatId !== room.leadSeatId &&
       liveRootStatuses.has(lease.status) &&
-      lease.id.startsWith("legacy-root-lease:")
+      isManagedProjectionLease(lease.id)
         ? {
             ...lease,
             status: "released" as const,
@@ -385,7 +553,9 @@ export function reconcileLegacyGovernance(input: {
     );
     const terminal = room.status === "completed" || room.status === "archived";
     const lease: RootAuthorityLease = {
-      id: current?.id ?? rootLeaseIdFor(input.governance, room.id, room.leadSeatId),
+      id:
+        current?.id ??
+        rootLeaseIdFor(input.governance, room.id, room.leadSeatId, input.source),
       workspaceId,
       roomId: room.id,
       holderSeatId: AgentSeatId.makeUnsafe(room.leadSeatId),

@@ -289,6 +289,9 @@ export const LeadRotation = Schema.Struct({
 });
 export type LeadRotation = typeof LeadRotation.Type;
 
+// TODO(synara): Remove this legacy supervision schema envelope on or after 2027-08-09
+// once every supported database has replayed migration 108. New runtime traffic uses
+// the canonical schemas in supervisedGovernance.ts.
 export const SupervisionSnapshot = Schema.Struct({
   snapshotSequence: Schema.Int,
   profiles: Schema.Array(ProfilePreset),
@@ -539,7 +542,7 @@ export const SupervisionDomainEvent = Schema.Struct({
 });
 export type SupervisionDomainEvent = typeof SupervisionDomainEvent.Type;
 
-export const ProviderSupervisionSessionContext = Schema.Struct({
+export const ProviderSupervisedSessionContext = Schema.Struct({
   role: RoomRole,
   supervisorSeatId: Schema.optional(SupervisorSeatId),
   leadSeatId: Schema.optional(LeadSeatId),
@@ -556,4 +559,4 @@ export const ProviderSupervisionSessionContext = Schema.Struct({
   mandateIds: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
   runPolicyRevision: Schema.optional(NonNegativeInt),
 });
-export type ProviderSupervisionSessionContext = typeof ProviderSupervisionSessionContext.Type;
+export type ProviderSupervisedSessionContext = typeof ProviderSupervisedSessionContext.Type;

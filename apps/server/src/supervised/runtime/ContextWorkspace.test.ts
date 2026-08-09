@@ -35,7 +35,7 @@ const record = {
   evidenceRefs: [],
   status: "current",
   contentRevision: 1,
-  createdBy: { kind: "seat", actorId: "specialist-1", seatId: "specialist-1" },
+  createdBy: { kind: "seat", actorId: "peer-1", seatId: "peer-1" },
   createdAt: now,
   updatedAt: now,
 } as ContextRecord;

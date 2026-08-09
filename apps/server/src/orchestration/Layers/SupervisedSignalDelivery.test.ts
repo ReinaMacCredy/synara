@@ -4,13 +4,18 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { emptySupervisedRuntimeSnapshot, type OrchestrationCommand } from "@synara/contracts";
+import {
+  emptySupervisedGovernanceSnapshot,
+  emptySupervisedRuntimeSnapshot,
+  type OrchestrationCommand,
+} from "@synara/contracts";
 import { it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import { SupervisedRuntimeRepositoryLive } from "../../persistence/Layers/SupervisedRuntimeRepository.ts";
+import { SupervisedGovernanceRepository } from "../../persistence/Services/SupervisedGovernanceRepository.ts";
 import { SupervisedRuntimeRepository } from "../../persistence/Services/SupervisedRuntimeRepository.ts";
 import { builtInSubscriptions } from "../../supervised/signal/BuiltInSubscriptions.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
@@ -68,16 +73,6 @@ it("keeps plugin command requests inside the triggering subscription scope", () 
 const engineLayer = Layer.succeed(OrchestrationEngineService, {
   getReadModel: () =>
     Effect.succeed({
-      supervision: {
-        leads: [
-          {
-            id: "lead-1",
-            activeThreadId: "thread-lead-context",
-            status: "active",
-          },
-        ],
-        missions: [],
-      },
       threads: [
         {
           id: "thread-lead-context",
@@ -93,15 +88,52 @@ const engineLayer = Layer.succeed(OrchestrationEngineService, {
       return { sequence: dispatched.length };
     }),
 } as never);
+const governanceLayer = Layer.succeed(SupervisedGovernanceRepository, {
+  getSnapshot: () =>
+    Effect.succeed({
+      ...emptySupervisedGovernanceSnapshot(now),
+      agentSeats: [
+        {
+          id: "lead-1",
+          workspaceId: "workspace-1",
+          roomIds: ["room-1"],
+          identityRole: "lead",
+          effectiveRole: "lead",
+          profileId: "profile-lead",
+          providerSessionId: null,
+          lifecycleState: "active",
+          workState: "idle",
+          authorityReceiptId: "receipt-lead",
+          threadId: "thread-lead-context",
+          projectId: "project-1",
+          profileSnapshotId: "snapshot-lead",
+          predecessorThreadIds: [],
+          displayName: null,
+          createdAt: now,
+          retainedAt: null,
+          retiredAt: null,
+          revision: 0,
+          updatedAt: now,
+        },
+      ],
+    } as never),
+} as never);
 const repositoryLayer = SupervisedRuntimeRepositoryLive.pipe(
   Layer.provideMerge(SqlitePersistenceMemory),
 );
 const deliveryLayer = SupervisedSignalDeliveryLive.pipe(
   Layer.provideMerge(repositoryLayer),
   Layer.provideMerge(engineLayer),
+  Layer.provideMerge(governanceLayer),
 );
 const layer = it.layer(
-  Layer.mergeAll(SqlitePersistenceMemory, repositoryLayer, engineLayer, deliveryLayer),
+  Layer.mergeAll(
+    SqlitePersistenceMemory,
+    repositoryLayer,
+    engineLayer,
+    governanceLayer,
+    deliveryLayer,
+  ),
 );
 
 const signal = {

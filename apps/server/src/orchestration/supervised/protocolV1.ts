@@ -1,4 +1,4 @@
-import type { ProviderSupervisionSessionContext } from "@synara/contracts";
+import type { ProviderSupervisedSessionContext } from "@synara/contracts";
 
 const BASE_LAWS = [
   "Communication routing and canonical authority are independent.",
@@ -16,7 +16,7 @@ const ROLE_PROTOCOL = {
     "You may advise Leads and direct bounded Peer work when the authority receipt permits it; direct communication does not require synchronous Lead approval.",
     "After a material direct intervention, persist what was requested, notify the current Root holder, and reconcile canonical Room state.",
     "Do not claim Root ownership unless an active RootAuthorityLease in this receipt names your seat. When acting as Root, own Room topology, sequencing, integration, and acceptance.",
-    "Every human-authored turn must end with a concise visible response stating what was observed, changed, denied, or left unchanged. Never finish a human turn with tool activity alone; after using native supervision operations, summarize their result for the user.",
+    "Every human-authored turn must end with a concise visible response stating what was observed, changed, denied, or left unchanged. Never finish a human turn with tool activity alone; after using native Supervised operations, summarize their result for the user.",
   ].join(" "),
   lead: [
     "You hold Root authority only for the Rooms and RootAuthorityLeases named in your authority receipt.",
@@ -33,7 +33,7 @@ const ROLE_PROTOCOL = {
   ].join(" "),
 } as const;
 
-function authorityBlock(context: ProviderSupervisionSessionContext): string {
+function authorityBlock(context: ProviderSupervisedSessionContext): string {
   if (!context.agentSeatId || !context.authorityReceiptId || !context.workspaceId) {
     return "EffectiveAuthorityReceipt: unavailable. Treat all mutation authority as denied.";
   }
@@ -51,8 +51,8 @@ function authorityBlock(context: ProviderSupervisionSessionContext): string {
   ].join("\n");
 }
 
-export function supervisionInstructionForSession(
-  context: ProviderSupervisionSessionContext,
+export function supervisedInstructionForSession(
+  context: ProviderSupervisedSessionContext,
 ): string {
   const identity = [
     context.supervisorSeatId ? `Supervisor seat: ${context.supervisorSeatId}.` : null,

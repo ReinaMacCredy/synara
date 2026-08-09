@@ -12,7 +12,7 @@ import { CheckpointDiffQueryLive } from "./checkpointing/Layers/CheckpointDiffQu
 import { CheckpointStoreLive } from "./checkpointing/Layers/CheckpointStore";
 import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor";
 import { OrchestrationReactorLive } from "./orchestration/Layers/OrchestrationReactor";
-import { SupervisionWakeReactorLive } from "./orchestration/Layers/SupervisionWakeReactor";
+import { SupervisedWakeReactorLive } from "./orchestration/Layers/SupervisedWakeReactor";
 import { HostToolRuntimeConfiguredLive } from "./orchestration/Layers/HostToolRuntime";
 import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderCommandReactor";
 import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRuntimeIngestion";
@@ -103,7 +103,7 @@ export function makeServerRuntimeServicesLayer(
   const checkpointReactorLayer = CheckpointReactorLive.pipe(
     Layer.provideMerge(runtimeServicesLayer),
   );
-  const supervisionWakeReactorLayer = SupervisionWakeReactorLive.pipe(
+  const supervisedWakeReactorLayer = SupervisedWakeReactorLive.pipe(
     Layer.provideMerge(runtimeServicesLayer),
   );
   const profileStatsArchiveLayer = ProfileStatsArchiveLive.pipe(
@@ -113,7 +113,7 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(runtimeIngestionLayer),
     Layer.provideMerge(providerCommandReactorLayer),
     Layer.provideMerge(checkpointReactorLayer),
-    Layer.provideMerge(supervisionWakeReactorLayer),
+    Layer.provideMerge(supervisedWakeReactorLayer),
   );
   const taskProcessQueryLayer = TaskProcessQueryLive.pipe(
     Layer.provideMerge(runtimeServicesLayer),
@@ -218,7 +218,7 @@ export function makeServerRuntimeServicesLayer(
     ProjectPullRequestPinsLive,
     pullRequestServiceLayer,
     orchestrationReactorLayer,
-    supervisionWakeReactorLayer,
+    supervisedWakeReactorLayer,
     taskProcessQueryLayer,
     handoffPreparationLayer,
     providerCommandReactorLayer,

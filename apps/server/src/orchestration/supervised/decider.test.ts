@@ -5,6 +5,7 @@ import {
   emptySupervisedGovernanceSnapshot,
   emptySupervisedRuntimeSnapshot,
   type HarnessPatch,
+  type PeerSpecialty,
   type PluginInstallation,
   type Room,
   type SupervisedCommand,
@@ -846,5 +847,40 @@ describe("Supervised command authority", () => {
     );
     assert.equal(accepted.type, "supervised.evidence-published");
     assert.equal(accepted.payload.evidence?.id, evidence.id);
+  });
+
+  it("advances the accepted revision when a retained Peer specialty is updated", async () => {
+    const specialty: PeerSpecialty = {
+      id: "peer-specialty-review" as PeerSpecialty["id"],
+      profilePresetId: "profile-peer-reviewer" as PeerSpecialty["profilePresetId"],
+      concern: "review",
+      status: "retained",
+      allowedScopes: [{ kind: "room", roomId: room.id }],
+      latestSnapshotId: null,
+      expiresAt: "2027-08-09T00:00:00.000Z",
+      revision: 3,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const event = await Effect.runPromise(
+      decideSupervisedCommand({
+        command: {
+          ...baseCommand,
+          type: "supervised.peer.upsert",
+          actor: { kind: "user", actorId: "owner" },
+          aggregateId: specialty.id,
+          expectedRevision: specialty.revision,
+          peerSpecialty: specialty,
+        },
+        state: {
+          ...emptySupervisedRuntimeSnapshot(now),
+          peerSpecialties: [specialty],
+        },
+      }),
+    );
+
+    assert.equal(event.type, "supervised.peer-upserted");
+    assert.equal(event.payload.acceptedRevision, specialty.revision + 1);
+    assert.equal(event.payload.peerSpecialty?.revision, specialty.revision + 1);
   });
 });

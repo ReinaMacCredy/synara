@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveSupervisionBoundModelSelection } from "./supervision";
+import { resolveSupervisedBoundModelSelection } from "./supervisedOrchestration";
 
-describe("resolveSupervisionBoundModelSelection", () => {
+describe("resolveSupervisedBoundModelSelection", () => {
   it("uses the immutable Codex profile model and effort instead of hidden composer state", () => {
     expect(
-      resolveSupervisionBoundModelSelection({
+      resolveSupervisedBoundModelSelection({
         fallback: { provider: "codex", model: "gpt-5.6-luna" },
         runtime: {
           provider: "codex",
@@ -23,18 +23,18 @@ describe("resolveSupervisionBoundModelSelection", () => {
     });
   });
 
-  it("preserves the ordinary composer selection when no supervision snapshot is bound", () => {
+  it("preserves the ordinary composer selection when no Supervised snapshot is bound", () => {
     const fallback = {
       provider: "claudeAgent" as const,
       model: "claude-opus-4-6",
       options: { effort: "high" as const },
     };
-    expect(resolveSupervisionBoundModelSelection({ fallback, runtime: null })).toBe(fallback);
+    expect(resolveSupervisedBoundModelSelection({ fallback, runtime: null })).toBe(fallback);
   });
 
   it("omits Codex effort options when the bound profile has no effort", () => {
     expect(
-      resolveSupervisionBoundModelSelection({
+      resolveSupervisedBoundModelSelection({
         fallback: { provider: "codex", model: "gpt-5.6-luna" },
         runtime: {
           provider: "codex",

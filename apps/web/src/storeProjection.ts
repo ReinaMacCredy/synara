@@ -1251,7 +1251,8 @@ export function syncServerShellSnapshot(
 
   const normalizedState: AppState = {
     ...state,
-    supervision: snapshot.supervision ?? state.supervision,
+    supervisedOrchestration:
+      snapshot.supervisedOrchestration ?? state.supervisedOrchestration,
     threadIds: reuseThreadIdRegistry(state.threadIds, nextThreadIds),
     ...rebuildThreadShellRecords(state, snapshotThreads),
     messageIdsByThreadId: retainThreadScopedRecord(state.messageIdsByThreadId, nextThreadIds),
@@ -1376,8 +1377,11 @@ export function applyShellEvent(state: AppState, event: OrchestrationShellStream
     case "thread-removed":
       // Shell removals can be retryable draft rollbacks; explicit delete reconciliation owns tombstones.
       return removeThreadState(state, event.threadId);
-    case "supervision-updated":
-      return { ...state, supervision: event.supervision };
+    case "supervised-orchestration-updated":
+      return {
+        ...state,
+        supervisedOrchestration: event.supervisedOrchestration,
+      };
   }
 }
 
@@ -1427,7 +1431,8 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
   resetThreadDetailResumeCursors();
   let normalizedState: AppState = {
     ...state,
-    supervision: readModel.supervision ?? state.supervision,
+    supervisedOrchestration:
+      readModel.supervisedOrchestration ?? state.supervisedOrchestration,
     threadIds: reuseThreadIdRegistry(state.threadIds, nextThreadIds),
     threadShellById: retainThreadScopedRecord(state.threadShellById, nextThreadIds),
     threadSessionById: retainThreadScopedRecord(state.threadSessionById, nextThreadIds),
@@ -1488,7 +1493,7 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
     normalizedState.turnDiffIdsByThreadId === state.turnDiffIdsByThreadId &&
     normalizedState.turnDiffSummaryByThreadId === state.turnDiffSummaryByThreadId &&
     normalizedState.threadDetailSyncById === state.threadDetailSyncById &&
-    normalizedState.supervision === state.supervision &&
+    normalizedState.supervisedOrchestration === state.supervisedOrchestration &&
     state.threadsHydrated
   ) {
     // Nothing to merge, but the snapshot is still authoritative at its own sequence. Recording it

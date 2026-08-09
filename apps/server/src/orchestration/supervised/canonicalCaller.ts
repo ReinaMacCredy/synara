@@ -2,118 +2,75 @@ import type {
   AgentSeat,
   EffectiveAuthorityReceipt,
   SupervisedGovernanceSnapshot,
-  SupervisionSnapshot,
   OrchestrationThread,
   ThreadId,
 } from "@synara/contracts";
 
-type SupervisorSeat = SupervisionSnapshot["supervisors"][number];
-type LeadSeat = SupervisionSnapshot["leads"][number];
-type PeerBinding = SupervisionSnapshot["peers"][number];
-type LeadRotation = SupervisionSnapshot["rotations"][number];
+export interface ProjectedSupervisedCaller {
+  readonly role: "supervisor" | "lead" | "peer";
+  readonly seatId: string;
+  readonly profileSnapshotId: string;
+  readonly leadSeatId: string | undefined;
+}
 
-export type ProjectedSupervisionCaller =
-  | {
-      readonly role: "supervisor";
-      readonly seatId: string;
-      readonly profileSnapshotId: string;
-      readonly supervisor: SupervisorSeat;
-    }
-  | {
-      readonly role: "lead";
-      readonly seatId: string;
-      readonly profileSnapshotId: string;
-      readonly lead: LeadSeat;
-      readonly rotation: LeadRotation | undefined;
-    }
-  | {
-      readonly role: "peer";
-      readonly seatId: string;
-      readonly profileSnapshotId: string;
-      readonly leadSeatId: string;
-      readonly peer: PeerBinding;
-    };
-
-export function resolveProjectedSupervisionCaller(input: {
-  readonly supervision: SupervisionSnapshot;
+export function resolveProjectedSupervisedCaller(input: {
+  readonly governance: SupervisedGovernanceSnapshot;
   readonly threadId: ThreadId;
-}): ProjectedSupervisionCaller | undefined {
-  const supervisor = input.supervision.supervisors.find(
-    (seat) =>
-      seat.activeThreadId === input.threadId &&
-      seat.status !== "archived" &&
-      seat.archivedAt === null,
+}): ProjectedSupervisedCaller | undefined {
+  const seat = input.governance.agentSeats.find(
+    (candidate) =>
+      candidate.threadId === input.threadId &&
+      candidate.profileSnapshotId !== null &&
+      candidate.lifecycleState !== "retired",
   );
-  if (supervisor) {
+  if (seat?.profileSnapshotId) {
+    const room = seat.roomIds
+      .map((roomId) => input.governance.rootLeases.find((lease) => lease.roomId === roomId))
+      .find((lease) => lease !== undefined);
     return {
-      role: "supervisor",
-      seatId: supervisor.id,
-      profileSnapshotId: supervisor.profileSnapshotId,
-      supervisor,
+      role: seat.identityRole,
+      seatId: seat.id,
+      profileSnapshotId: seat.profileSnapshotId,
+      leadSeatId:
+        seat.identityRole === "lead"
+          ? seat.id
+          : seat.identityRole === "peer"
+            ? room?.holderSeatId
+            : undefined,
     };
   }
 
-  const lead = input.supervision.leads.find(
-    (seat) =>
-      seat.activeThreadId === input.threadId &&
-      seat.status !== "archived" &&
-      seat.archivedAt === null,
-  );
-  if (lead) {
-    return {
-      role: "lead",
-      seatId: lead.id,
-      profileSnapshotId: lead.profileSnapshotId,
-      lead,
-      rotation: undefined,
-    };
-  }
-
-  const peer = input.supervision.peers.find(
-    (binding) => binding.threadId === input.threadId && binding.status === "active",
-  );
-  if (peer) {
-    return {
-      role: "peer",
-      seatId: peer.threadId,
-      profileSnapshotId: peer.profileSnapshotId,
-      leadSeatId: peer.leadSeatId,
-      peer,
-    };
-  }
-
-  const rotation = input.supervision.rotations.find(
+  const rotation = input.governance.orchestration.rotations.find(
     (candidate) =>
       candidate.replacementThreadId === input.threadId &&
       candidate.state !== "completed" &&
       candidate.state !== "failed",
   );
   if (!rotation) return undefined;
-  const rotationLead = input.supervision.leads.find(
-    (candidate) => candidate.id === rotation.leadSeatId,
+  const rotationLead = input.governance.agentSeats.find(
+    (candidate) => candidate.id === rotation.leadSeatId && candidate.identityRole === "lead",
   );
   if (!rotationLead) return undefined;
   return {
     role: "lead",
     seatId: rotationLead.id,
     profileSnapshotId: rotation.replacementProfileSnapshotId,
-    lead: rotationLead,
-    rotation,
+    leadSeatId: rotationLead.id,
   };
 }
 
-export function resolveProjectedSupervisionCallerForThread(input: {
-  readonly supervision: SupervisionSnapshot;
+export function resolveProjectedSupervisedCallerForThread(input: {
+  readonly governance: SupervisedGovernanceSnapshot;
   readonly threads: ReadonlyArray<
     Pick<OrchestrationThread, "id" | "creationSource" | "sourceThreadId">
   >;
   readonly threadId: ThreadId;
 }): {
-  readonly caller: ProjectedSupervisionCaller | undefined;
+  readonly caller: ProjectedSupervisedCaller | undefined;
   readonly requiresCanonicalAuthority: boolean;
 } {
-  const direct = resolveProjectedSupervisionCaller({
-    supervision: input.supervision,
+  const direct = resolveProjectedSupervisedCaller({
+    governance: input.governance,
     threadId: input.threadId,
   });
   if (direct) return { caller: direct, requiresCanonicalAuthority: true };
@@ -125,8 +82,8 @@ export function resolveProjectedSupervisionCallerForThread(input: {
   const visited = new Set<ThreadId>([input.threadId]);
   let sourceThreadId = thread.sourceThreadId;
   while (sourceThreadId !== null && !visited.has(sourceThreadId)) {
-    const caller = resolveProjectedSupervisionCaller({
-      supervision: input.supervision,
+    const caller = resolveProjectedSupervisedCaller({
+      governance: input.governance,
       threadId: sourceThreadId,
     });
     if (caller) return { caller, requiresCanonicalAuthority: true };

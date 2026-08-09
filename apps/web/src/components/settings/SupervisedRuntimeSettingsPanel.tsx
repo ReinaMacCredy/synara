@@ -709,14 +709,14 @@ export function SupervisedRuntimeSettingsPanel(props: {
         />
       </SettingsSection>
 
-      <SettingsSection title="Harness patches & retained specialists">
+      <SettingsSection title="Harness patches & retained Peer specialties">
         <SettingsRow
           title="Patch activation"
           description="Evaluation evidence is required; cross-Project auto-promotion is disabled."
           control={value("Evaluation-gated")}
         />
         <SettingsRow
-          title="Retained specialists"
+          title="Retained Peer specialties"
           description="Restore only sanitized, unexpired, scope-compatible snapshots."
           control={value("Compatible only")}
         />

@@ -2,8 +2,8 @@ import type {
   OrchestrationCommand,
   ProjectId,
   SupervisedDomainEvent,
+  SupervisedGovernanceSnapshot,
   SupervisedRuntimeSnapshot,
-  SupervisionSnapshot,
 } from "@synara/contracts";
 import { Effect } from "effect";
 
@@ -29,7 +29,7 @@ export const decideSupervisedRoomLifecycleForThreadCommand = Effect.fn(
 )(function* (input: {
   readonly command: ThreadLifecycleCommand;
   readonly projectId: ProjectId | null;
-  readonly supervision: SupervisionSnapshot;
+  readonly governance: SupervisedGovernanceSnapshot;
   readonly runtime: SupervisedRuntimeSnapshot;
 }): Effect.fn.Return<
   ReadonlyArray<UnsequencedSupervisedEvent>,
@@ -43,9 +43,12 @@ export const decideSupervisedRoomLifecycleForThreadCommand = Effect.fn(
   if (input.projectId === null || room.projectId !== input.projectId) {
     return yield* reject(command, "The Lead Room does not belong to the command Thread Project.");
   }
-  const lead = input.supervision.leads.find(
+  const lead = input.governance.agentSeats.find(
     (candidate) =>
-      candidate.activeThreadId === command.threadId && candidate.status === "active",
+      candidate.identityRole === "lead" &&
+      candidate.threadId === command.threadId &&
+      candidate.projectId === input.projectId &&
+      candidate.lifecycleState === "active",
   );
   if (!lead) return yield* reject(command, "The Lead Room has no active Lead seat.");
   if (room.leadSeatId !== null && room.leadSeatId !== lead.id) {

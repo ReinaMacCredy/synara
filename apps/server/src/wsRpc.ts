@@ -8,8 +8,8 @@ import {
   PluginInstallation,
   TaskProcessDomainEvent,
   TaskProcessId,
-  SupervisionCommand,
   SupervisedCommand,
+  SupervisedGovernanceCommand,
   ThreadId,
   WS_BOOTSTRAP_METHOD,
   WS_BOOTSTRAP_PATH,
@@ -153,7 +153,7 @@ import { HandoffPreparationService } from "./handoff/Services/HandoffPreparation
 import {
   profileLaunchIssue,
   resolveProfilePreset,
-} from "./orchestration/supervision/profileResolver";
+} from "./orchestration/supervised/profileResolver";
 import {
   GitHubProjectProvisioningError,
   makeGitHubProjectProvisioner,
@@ -370,6 +370,7 @@ function isShellRelevantEvent(event: OrchestrationEvent): boolean {
     event.type === "project.deleted" ||
     event.type === "thread.deleted" ||
     event.aggregateKind === "supervision" ||
+    event.aggregateKind === "supervised_governance" ||
     (event.aggregateKind === "thread" && shouldPublishThreadShellForEvent(event))
   );
 }
@@ -820,13 +821,16 @@ const makeWsRpcHandlersLayer = () =>
               }),
             );
           default:
-            if (event.aggregateKind === "supervision") {
-              return projectionReadModelQuery.getSupervisionShellSnapshot().pipe(
-                Effect.map((supervision) =>
+            if (
+              event.aggregateKind === "supervision" ||
+              event.aggregateKind === "supervised_governance"
+            ) {
+              return projectionReadModelQuery.getSupervisedOrchestrationShellSnapshot().pipe(
+                Effect.map((supervisedOrchestration) =>
                   Option.some({
-                    kind: "supervision-updated" as const,
+                    kind: "supervised-orchestration-updated" as const,
                     sequence: event.sequence,
-                    supervision,
+                    supervisedOrchestration,
                   }),
                 ),
                 Effect.catch(() => Effect.succeed(Option.none())),
@@ -928,38 +932,38 @@ const makeWsRpcHandlersLayer = () =>
         [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
           rpcEffect(
             Effect.gen(function* () {
-                const { command: normalizedCommand, prepareWorkspaceRoot } =
-                  yield* normalizeDispatchCommand({ command });
-                let authorizedCommand = normalizedCommand;
-              if (Schema.is(SupervisionCommand)(normalizedCommand)) {
+              const { command: normalizedCommand, prepareWorkspaceRoot } =
+                yield* normalizeDispatchCommand({ command });
+              let authorizedCommand = normalizedCommand;
+              if (Schema.is(SupervisedGovernanceCommand)(normalizedCommand)) {
                 yield* requireOwnerSession;
                 const actor = { kind: "user" as const, actorId: "owner" };
                 if (
-                  normalizedCommand.type === "supervision.supervisor.create" ||
-                  normalizedCommand.type === "supervision.lead.enroll" ||
-                  normalizedCommand.type === "supervision.lead.replace"
+                  normalizedCommand.type === "supervised.supervisor.create" ||
+                  normalizedCommand.type === "supervised.lead.enroll" ||
+                  normalizedCommand.type === "supervised.lead.replace"
                 ) {
-                  const snapshot = yield* projectionReadModelQuery.getSnapshot();
-                  const preset = snapshot.supervision.profiles.find(
+                  const governance = yield* supervisedGovernanceRepository.getSnapshot();
+                  const preset = governance.orchestration.profiles.find(
                     (candidate) => candidate.id === normalizedCommand.profilePresetId,
                   );
                   if (!preset) {
-                    return yield* Effect.fail(new Error("Supervision profile does not exist."));
+                    return yield* Effect.fail(new Error("Supervised profile does not exist."));
                   }
                   const launchIssue = profileLaunchIssue(preset);
                   if (launchIssue !== null) {
                     return yield* Effect.fail(new Error(launchIssue));
                   }
                   const profileSnapshotId =
-                    normalizedCommand.type === "supervision.supervisor.create"
+                    normalizedCommand.type === "supervised.supervisor.create"
                       ? normalizedCommand.supervisor.profileSnapshotId
-                      : normalizedCommand.type === "supervision.lead.enroll"
+                      : normalizedCommand.type === "supervised.lead.enroll"
                         ? normalizedCommand.lead.profileSnapshotId
                         : normalizedCommand.rotation.replacementProfileSnapshotId;
                   authorizedCommand = {
                     ...normalizedCommand,
                     actor,
-                    ...(normalizedCommand.type === "supervision.lead.replace"
+                    ...(normalizedCommand.type === "supervised.lead.replace"
                       ? {
                           replacementProfileSnapshot: resolveProfilePreset({
                             preset,
@@ -986,16 +990,16 @@ const makeWsRpcHandlersLayer = () =>
                 };
               } else if (
                 normalizedCommand.type === "thread.turn.start" &&
-                normalizedCommand.supervisionBootstrap !== undefined
+                normalizedCommand.supervisedBootstrap !== undefined
               ) {
                 yield* requireOwnerSession;
-                const snapshot = yield* projectionReadModelQuery.getSnapshot();
-                const bootstrap = normalizedCommand.supervisionBootstrap;
-                const preset = snapshot.supervision.profiles.find(
+                const governance = yield* supervisedGovernanceRepository.getSnapshot();
+                const bootstrap = normalizedCommand.supervisedBootstrap;
+                const preset = governance.orchestration.profiles.find(
                   (candidate) => candidate.id === bootstrap.profilePresetId,
                 );
                 if (!preset) {
-                  return yield* Effect.fail(new Error("Supervision profile does not exist."));
+                  return yield* Effect.fail(new Error("Supervised profile does not exist."));
                 }
                 const launchIssue = profileLaunchIssue(preset);
                 if (launchIssue !== null) {
@@ -1007,7 +1011,7 @@ const makeWsRpcHandlersLayer = () =>
                     : bootstrap.supervisor.profileSnapshotId;
                 authorizedCommand = {
                   ...normalizedCommand,
-                  supervisionBootstrap: {
+                  supervisedBootstrap: {
                     ...bootstrap,
                     profileSnapshot: resolveProfilePreset({
                       preset,

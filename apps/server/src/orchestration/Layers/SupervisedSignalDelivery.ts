@@ -21,6 +21,7 @@ import {
 import { Effect, Layer, Schema } from "effect";
 
 import { SupervisedRuntimeRepository } from "../../persistence/Services/SupervisedRuntimeRepository.ts";
+import { SupervisedGovernanceRepository } from "../../persistence/Services/SupervisedGovernanceRepository.ts";
 import {
   GovernedPluginRuntime,
   type PluginHandlerResult,
@@ -207,6 +208,7 @@ export function subscriptionAllowsPluginRequest(
 
 export const makeSupervisedSignalDelivery = Effect.gen(function* () {
   const repository = yield* SupervisedRuntimeRepository;
+  const governanceRepository = yield* SupervisedGovernanceRepository;
   const engine = yield* OrchestrationEngineService;
 
   const appendAudit = (input: {
@@ -540,6 +542,7 @@ export const makeSupervisedSignalDelivery = Effect.gen(function* () {
       return;
     }
     const readModel = yield* engine.getReadModel();
+    const governance = yield* governanceRepository.getSnapshot();
     const contextLeadSeatId = input.signal.context.leadSeatId;
     const explicitSeatId =
       input.subscription.destination.kind === "lead_seat"
@@ -550,14 +553,15 @@ export const makeSupervisedSignalDelivery = Effect.gen(function* () {
       input.subscription.destination.kind === "concern"
         ? input.subscription.destination.concern.toLowerCase()
         : input.subscription.concern.toLowerCase();
-    const seat = readModel.supervision.leads.find(
+    const seat = governance.agentSeats.find(
       (candidate) =>
-        candidate.status !== "archived" &&
+        candidate.identityRole === "lead" &&
+        candidate.lifecycleState !== "retired" &&
         candidate.id === explicitSeatId,
     );
-    const thread = seat
+    const thread = seat?.threadId
       ? readModel.threads.find(
-          (candidate) => candidate.id === seat.activeThreadId && candidate.deletedAt === null,
+          (candidate) => candidate.id === seat.threadId && candidate.deletedAt === null,
         )
       : undefined;
     if (!seat || !thread) {
@@ -575,7 +579,7 @@ export const makeSupervisedSignalDelivery = Effect.gen(function* () {
     yield* engine.dispatch({
       type: "thread.turn.start",
       commandId: CommandId.makeUnsafe(stableId("command:signal-wake", input.delivery.id)),
-      threadId: seat.activeThreadId,
+      threadId: seat.threadId,
       message: {
         messageId: MessageId.makeUnsafe(stableId("signal-wake", input.delivery.id)),
         role: "user",
@@ -591,7 +595,7 @@ export const makeSupervisedSignalDelivery = Effect.gen(function* () {
     yield* appendAudit({
       ...input,
       outcome: "lead_woken",
-      detail: { leadSeatId: seat.id, leadThreadId: seat.activeThreadId },
+      detail: { leadSeatId: seat.id, leadThreadId: seat.threadId },
     });
   });
 

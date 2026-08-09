@@ -28,7 +28,7 @@ testLayer("SupervisedToolReceiptRepository", (it) => {
       const receipt: SupervisedToolInvocationReceipt = {
         id: SupervisedToolInvocationReceiptId.makeUnsafe("tool-receipt-1"),
         toolId: "supervised.topology.read",
-        providerToolName: "read_supervision_state",
+        providerToolName: "read_supervised_state",
         schemaVersion: "1.0.0",
         actorSeatId: AgentSeatId.makeUnsafe("retired-seat-1"),
         authorityReceiptId: EffectiveAuthorityReceiptId.makeUnsafe("retired-authority-1"),

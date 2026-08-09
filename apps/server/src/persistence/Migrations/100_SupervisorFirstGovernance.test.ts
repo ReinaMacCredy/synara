@@ -8,13 +8,13 @@ import {
   RootAuthorityLease,
   SupervisedGovernanceSnapshot,
   SupervisedRuntimeSnapshot,
-  SupervisionSnapshot,
   emptySupervisedGovernanceSnapshot,
   emptySupervisedRuntimeSnapshot,
-  emptySupervisionSnapshot,
 } from "@synara/contracts";
 
-import { reconcileLegacyGovernance } from "../../supervised/governance/LegacyReconciliation.ts";
+import { emptySupervisedGovernanceDecisionState } from "../../orchestration/supervised/governanceState.ts";
+import type { SupervisedGovernanceDecisionState } from "../../orchestration/supervised/governanceState.ts";
+import { reconcileGovernanceProjection } from "../../supervised/governance/GovernanceReconciliation.ts";
 import { runMigrations } from "../Migrations.ts";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 
@@ -111,8 +111,8 @@ schemaLayer("migration 100 Supervisor-first governance", (it) => {
       assert.equal(lease.status, "active");
       assert.equal(lease.id, "legacy-root-lease:room-1:lead-seat-1");
 
-      const supervision = Schema.decodeUnknownSync(SupervisionSnapshot)({
-        ...emptySupervisionSnapshot(now),
+      const state = {
+        ...emptySupervisedGovernanceDecisionState(now),
         leads: [
           {
             id: "lead-seat-1",
@@ -127,7 +127,7 @@ schemaLayer("migration 100 Supervisor-first governance", (it) => {
             revision: 1,
           },
         ],
-      });
+      } as SupervisedGovernanceDecisionState;
       const runtime = Schema.decodeUnknownSync(SupervisedRuntimeSnapshot)({
         ...emptySupervisedRuntimeSnapshot(now),
         rooms: [
@@ -161,17 +161,19 @@ schemaLayer("migration 100 Supervisor-first governance", (it) => {
         agentSeats: [seat],
         rootLeases: [lease],
       });
-      const reconciledMigration = reconcileLegacyGovernance({
+      const reconciledMigration = reconcileGovernanceProjection({
         governance: migrated,
-        supervision,
+        state,
         runtime,
         at: now,
+        source: "legacy",
       });
-      const reconciledRuntime = reconcileLegacyGovernance({
+      const reconciledRuntime = reconcileGovernanceProjection({
         governance: emptySupervisedGovernanceSnapshot(now),
-        supervision,
+        state,
         runtime,
         at: now,
+        source: "legacy",
       });
       const migrationSeat = reconciledMigration.agentSeats.find(
         (candidate) => candidate.id === "lead-seat-1",

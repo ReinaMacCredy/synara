@@ -7,18 +7,18 @@ import {
 import { CheckpointReactor } from "../Services/CheckpointReactor.ts";
 import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
-import { SupervisionWakeReactor } from "../Services/SupervisionWakeReactor.ts";
+import { SupervisedWakeReactor } from "../Services/SupervisedWakeReactor.ts";
 
 export const makeOrchestrationReactor = Effect.gen(function* () {
   const providerRuntimeIngestion = yield* ProviderRuntimeIngestionService;
   const providerCommandReactor = yield* ProviderCommandReactor;
   const checkpointReactor = yield* CheckpointReactor;
-  const supervisionWakeReactor = yield* SupervisionWakeReactor;
+  const supervisedWakeReactor = yield* SupervisedWakeReactor;
 
   const start: OrchestrationReactorShape["start"] = Effect.gen(function* () {
     yield* checkpointReactor.start;
     yield* providerRuntimeIngestion.start;
-    yield* supervisionWakeReactor.start;
+    yield* supervisedWakeReactor.start;
     yield* providerCommandReactor.start;
   });
 

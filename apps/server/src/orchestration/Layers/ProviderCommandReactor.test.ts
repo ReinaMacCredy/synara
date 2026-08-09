@@ -21,15 +21,15 @@ import {
   CommandId,
   ContextBundleId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
-    EventId,
-    LeadSeatId,
-    MessageId,
-    ProfileSnapshotId,
-    PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
-    ProjectId,
-    SupervisionAggregateId,
-    ThreadId,
-    TurnId,
+  EventId,
+  LeadSeatId,
+  MessageId,
+  ProfileSnapshotId,
+  PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
+  ProjectId,
+  SupervisedGovernanceAggregateId,
+  ThreadId,
+  TurnId,
 } from "@synara/contracts";
 import { PROVIDER_DELIVERY_BLOCK_SUMMARY } from "@synara/shared/providerDeliveryBlock";
 import {
@@ -90,8 +90,8 @@ import { attachmentRelativePath } from "../../attachmentStore.ts";
 import { resolveProviderAttachmentPath } from "../../provider/providerAttachmentPaths.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { checkpointRefForThreadTurn } from "../../checkpointing/Utils.ts";
-import { DEFAULT_SUPERVISION_PROFILES } from "../supervision/profileSeeds.ts";
-import { resolveProfilePreset } from "../supervision/profileResolver.ts";
+import { DEFAULT_SUPERVISED_PROFILES } from "../supervised/profileSeeds.ts";
+import { resolveProfilePreset } from "../supervised/profileResolver.ts";
 import {
   CheckpointStore,
   type CheckpointStoreShape,
@@ -6473,7 +6473,7 @@ describe("ProviderCommandReactor", () => {
         threadModelSelection: { provider: "codex", model: "gpt-5.6-luna" },
       });
       const createdAt = new Date().toISOString();
-      const profile = DEFAULT_SUPERVISION_PROFILES.find((candidate) =>
+      const profile = DEFAULT_SUPERVISED_PROFILES.find((candidate) =>
         candidate.roleHints.includes("lead"),
       )!;
       const profileSnapshotId = ProfileSnapshotId.makeUnsafe(
@@ -6482,9 +6482,9 @@ describe("ProviderCommandReactor", () => {
 
       await Effect.runPromise(
         harness.engine.dispatch({
-          type: "supervision.lead.enroll",
+          type: "supervised.lead.enroll",
           commandId: CommandId.makeUnsafe("cmd-enroll-durable-follow-up"),
-          aggregateId: SupervisionAggregateId.makeUnsafe("supervision"),
+          aggregateId: SupervisedGovernanceAggregateId.makeUnsafe("supervised"),
           actor: { kind: "user", actorId: "owner" },
           expectedRevision: 0,
           createdAt,

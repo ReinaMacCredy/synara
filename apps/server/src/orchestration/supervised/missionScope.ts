@@ -1,13 +1,13 @@
-import type {
-  LeadSeat,
-  MissionScope,
-  OrchestrationProject,
-  SupervisionMission,
-} from "@synara/contracts";
+import type { MissionScope, OrchestrationProject, ProjectId, SupervisionMission } from "@synara/contracts";
+
+interface MissionLead {
+  readonly id: string;
+  readonly projectId: ProjectId;
+}
 
 export function missionScopeContainsLead(input: {
   readonly scope: readonly MissionScope[];
-  readonly lead: LeadSeat;
+  readonly lead: MissionLead;
   readonly projects: readonly OrchestrationProject[];
 }): boolean {
   return input.scope.some((scope) => {
@@ -29,7 +29,7 @@ export function missionScopeContainsLead(input: {
 
 export function activeMissionsCoveringLead(input: {
   readonly missions: readonly SupervisionMission[];
-  readonly lead: LeadSeat;
+  readonly lead: MissionLead;
   readonly projects: readonly OrchestrationProject[];
 }): SupervisionMission[] {
   return input.missions.filter(

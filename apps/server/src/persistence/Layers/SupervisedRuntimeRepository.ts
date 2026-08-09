@@ -14,18 +14,19 @@ import {
   Intervention,
   KernelExecution,
   KernelSession,
+  LegacySpecialistSnapshot,
   LeadNotification,
   MetricSample,
   ModelSessionTrace,
   PluginInstallation,
   PluginHealth,
+  PeerSpecialty,
+  PeerSpecialtySnapshot,
   Reconciliation,
   RlmEpisode,
   Room,
   Run,
   RunPolicy,
-  Specialist,
-  SpecialistSnapshot,
   SubscriptionDefinition,
   SubscriptionDelivery,
   SubscriptionEvaluationGroupState,
@@ -51,6 +52,11 @@ import {
   SupervisedRuntimeRepository,
   type SupervisedRuntimeRepositoryShape,
 } from "../Services/SupervisedRuntimeRepository.ts";
+import {
+  upcastLegacyPeerEventV1,
+  upcastLegacyPeerModelSessionV1,
+  upcastLegacyPeerSpecialtySnapshotV1,
+} from "../../orchestration/supervised/peerUpcaster.ts";
 
 type EntityRow = { readonly entityJson: string };
 type ControlPlaneEventRow = { readonly sequence: number; readonly eventJson: string };
@@ -219,13 +225,15 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
           ORDER BY updated_at DESC, patch_id
           LIMIT ${limit}
         `;
-        const specialistRows = yield* sql<EntityRow>`
+        // Migration 094 physical names are retained for upgrade compatibility; the
+        // repository exposes only canonical Peer specialty entities after Stage 8.
+        const peerSpecialtyRows = yield* sql<EntityRow>`
           SELECT entity_json AS "entityJson"
           FROM projection_retained_specialists
           ORDER BY updated_at DESC, specialist_id
           LIMIT ${limit}
         `;
-        const specialistSnapshotRows = yield* sql<EntityRow>`
+        const peerSpecialtySnapshotRows = yield* sql<EntityRow>`
           SELECT entity_json AS "entityJson"
           FROM projection_specialist_snapshots
           ORDER BY expires_at DESC, specialist_snapshot_id
@@ -384,25 +392,29 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
           "SupervisedRuntime.getSnapshot:rlmEpisodes",
           rlmEpisodeRows,
         );
-        const modelSessions = yield* decodeRows(
+        const modelSessions = (yield* decodeRows(
           ModelSessionTrace,
           "SupervisedRuntime.getSnapshot:modelSessions",
           modelSessionRows,
-        );
+        )).map(upcastLegacyPeerModelSessionV1);
         const harnessPatches = yield* decodeRows(
           HarnessPatch,
           "SupervisedRuntime.getSnapshot:harnessPatches",
           harnessPatchRows,
         );
-        const specialists = yield* decodeRows(
-          Specialist,
-          "SupervisedRuntime.getSnapshot:specialists",
-          specialistRows,
+        const peerSpecialties = yield* decodeRows(
+          PeerSpecialty,
+          "SupervisedRuntime.getSnapshot:peerSpecialties",
+          peerSpecialtyRows,
         );
-        const specialistSnapshots = yield* decodeRows(
-          SpecialistSnapshot,
-          "SupervisedRuntime.getSnapshot:specialistSnapshots",
-          specialistSnapshotRows,
+        const peerSpecialtySnapshots = (yield* decodeRows(
+          Schema.Union([PeerSpecialtySnapshot, LegacySpecialistSnapshot]),
+          "SupervisedRuntime.getSnapshot:peerSpecialtySnapshots",
+          peerSpecialtySnapshotRows,
+        )).map((snapshot) =>
+          "specialistId" in snapshot
+            ? upcastLegacyPeerSpecialtySnapshotV1(snapshot)
+            : snapshot,
         );
         const kernelSessions = yield* decodeRows(
           KernelSession,
@@ -591,8 +603,8 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
           rlmEpisodes: rlmEpisodes.filter((episode) => runIds.has(episode.runId)),
           modelSessions: modelSessions.filter((session) => runIds.has(session.runId)),
           harnessPatches,
-          specialists,
-          specialistSnapshots,
+          peerSpecialties,
+          peerSpecialtySnapshots,
           kernelSessions: kernelSessions.filter((session) => runIds.has(session.runId)),
           kernelExecutions: kernelExecutions.filter((execution) =>
             kernelSessions.some(
@@ -1238,8 +1250,9 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
       ),
     );
 
-  const applyDomainEvent: SupervisedRuntimeRepositoryShape["applyDomainEvent"] = (event) =>
+  const applyDomainEvent: SupervisedRuntimeRepositoryShape["applyDomainEvent"] = (inputEvent) =>
     Effect.gen(function* () {
+      const event = upcastLegacyPeerEventV1(inputEvent);
       const payload = event.payload;
       switch (event.type) {
         case "supervised.room-created":
@@ -1515,17 +1528,17 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
           `;
           break;
         }
-          case "supervised.specialist-upserted": {
-          if (!payload.specialist) return;
-          const specialist = payload.specialist;
+        case "supervised.peer-upserted": {
+          if (!payload.peerSpecialty) return;
+          const specialty = payload.peerSpecialty;
           yield* sql`
             INSERT INTO projection_retained_specialists (
               specialist_id, profile_preset_id, concern, status, latest_snapshot_id,
               expires_at, revision, updated_at, entity_json
             ) VALUES (
-              ${specialist.id}, ${specialist.profilePresetId}, ${specialist.concern},
-              ${specialist.status}, ${specialist.latestSnapshotId}, ${specialist.expiresAt},
-              ${specialist.revision}, ${specialist.updatedAt}, ${JSON.stringify(specialist)}
+              ${specialty.id}, ${specialty.profilePresetId}, ${specialty.concern},
+              ${specialty.status}, ${specialty.latestSnapshotId}, ${specialty.expiresAt},
+              ${specialty.revision}, ${specialty.updatedAt}, ${JSON.stringify(specialty)}
             )
             ON CONFLICT (specialist_id) DO UPDATE SET
               status = excluded.status,
@@ -1535,55 +1548,55 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
               updated_at = excluded.updated_at,
               entity_json = excluded.entity_json
           `;
-          if (payload.specialistSnapshot) {
-            const snapshot = payload.specialistSnapshot;
+          if (payload.peerSpecialtySnapshot) {
+            const snapshot = payload.peerSpecialtySnapshot;
             yield* sql`
               INSERT OR IGNORE INTO projection_specialist_snapshots (
                 specialist_snapshot_id, specialist_id, profile_content_hash, expires_at, entity_json
               ) VALUES (
-                ${snapshot.id}, ${snapshot.specialistId}, ${snapshot.profileContentHash},
+                ${snapshot.id}, ${snapshot.peerSpecialtyId}, ${snapshot.profileContentHash},
                 ${snapshot.expiresAt}, ${JSON.stringify(snapshot)}
               )
             `;
           }
-            break;
-          }
-          case "supervised.kernel-session-upserted": {
-            if (!payload.kernelSession) return;
-            const session = payload.kernelSession;
-            yield* sql`
-              INSERT INTO projection_kernel_sessions (
-                kernel_session_id, run_id, language, status, process_id, last_used_at, entity_json
-              ) VALUES (
-                ${session.id}, ${session.runId}, ${session.language}, ${session.status},
-                ${session.processId}, ${session.lastUsedAt}, ${JSON.stringify(session)}
-              )
-              ON CONFLICT (kernel_session_id) DO UPDATE SET
-                status = excluded.status,
-                process_id = excluded.process_id,
-                last_used_at = excluded.last_used_at,
-                entity_json = excluded.entity_json
-            `;
-            break;
-          }
-          case "supervised.kernel-execution-upserted": {
-            if (!payload.kernelExecution) return;
-            const execution = payload.kernelExecution;
-            yield* sql`
-              INSERT INTO projection_kernel_executions (
-                kernel_execution_id, kernel_session_id, status, started_at, finished_at, entity_json
-              ) VALUES (
-                ${execution.id}, ${execution.kernelSessionId}, ${execution.status}, ${execution.startedAt},
-                ${execution.finishedAt}, ${JSON.stringify(execution)}
-              )
-              ON CONFLICT (kernel_execution_id) DO UPDATE SET
-                status = excluded.status,
-                started_at = excluded.started_at,
-                finished_at = excluded.finished_at,
-                entity_json = excluded.entity_json
-            `;
-            break;
-          }
+          break;
+        }
+        case "supervised.kernel-session-upserted": {
+          if (!payload.kernelSession) return;
+          const session = payload.kernelSession;
+          yield* sql`
+            INSERT INTO projection_kernel_sessions (
+              kernel_session_id, run_id, language, status, process_id, last_used_at, entity_json
+            ) VALUES (
+              ${session.id}, ${session.runId}, ${session.language}, ${session.status},
+              ${session.processId}, ${session.lastUsedAt}, ${JSON.stringify(session)}
+            )
+            ON CONFLICT (kernel_session_id) DO UPDATE SET
+              status = excluded.status,
+              process_id = excluded.process_id,
+              last_used_at = excluded.last_used_at,
+              entity_json = excluded.entity_json
+          `;
+          break;
+        }
+        case "supervised.kernel-execution-upserted": {
+          if (!payload.kernelExecution) return;
+          const execution = payload.kernelExecution;
+          yield* sql`
+            INSERT INTO projection_kernel_executions (
+              kernel_execution_id, kernel_session_id, status, started_at, finished_at, entity_json
+            ) VALUES (
+              ${execution.id}, ${execution.kernelSessionId}, ${execution.status}, ${execution.startedAt},
+              ${execution.finishedAt}, ${JSON.stringify(execution)}
+            )
+            ON CONFLICT (kernel_execution_id) DO UPDATE SET
+              status = excluded.status,
+              started_at = excluded.started_at,
+              finished_at = excluded.finished_at,
+              entity_json = excluded.entity_json
+          `;
+          break;
+        }
         case "supervised.subscription-upserted":
         case "supervised.subscription-state-changed":
           if (payload.subscription) yield* upsertSubscription(payload.subscription);
@@ -1900,28 +1913,28 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
             { concurrency: 1, discard: true },
           );
           yield* Effect.forEach(
-            snapshot.specialists,
-            (specialist) => sql`
+            snapshot.peerSpecialties,
+            (specialty) => sql`
               INSERT INTO projection_retained_specialists (
                 specialist_id, profile_preset_id, concern, status, latest_snapshot_id,
                 expires_at, revision, updated_at, entity_json
               ) VALUES (
-                ${specialist.id}, ${specialist.profilePresetId}, ${specialist.concern},
-                ${specialist.status}, ${specialist.latestSnapshotId}, ${specialist.expiresAt},
-                ${specialist.revision}, ${specialist.updatedAt}, ${JSON.stringify(specialist)}
+                ${specialty.id}, ${specialty.profilePresetId}, ${specialty.concern},
+                ${specialty.status}, ${specialty.latestSnapshotId}, ${specialty.expiresAt},
+                ${specialty.revision}, ${specialty.updatedAt}, ${JSON.stringify(specialty)}
               )
             `,
             { concurrency: 1, discard: true },
           );
           yield* Effect.forEach(
-            snapshot.specialistSnapshots,
-            (specialistSnapshot) => sql`
+            snapshot.peerSpecialtySnapshots,
+            (peerSpecialtySnapshot) => sql`
               INSERT INTO projection_specialist_snapshots (
                 specialist_snapshot_id, specialist_id, profile_content_hash, expires_at, entity_json
               ) VALUES (
-                ${specialistSnapshot.id}, ${specialistSnapshot.specialistId},
-                ${specialistSnapshot.profileContentHash}, ${specialistSnapshot.expiresAt},
-                ${JSON.stringify(specialistSnapshot)}
+                ${peerSpecialtySnapshot.id}, ${peerSpecialtySnapshot.peerSpecialtyId},
+                ${peerSpecialtySnapshot.profileContentHash}, ${peerSpecialtySnapshot.expiresAt},
+                ${JSON.stringify(peerSpecialtySnapshot)}
               )
             `,
             { concurrency: 1, discard: true },

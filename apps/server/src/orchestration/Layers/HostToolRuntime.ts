@@ -20,9 +20,9 @@ import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts"
 import { SupervisedRuntimeDaemon } from "../Services/SupervisedRuntimeDaemon.ts";
 import {
   resolveEffectiveCanonicalAuthority,
-  resolveProjectedSupervisionCaller,
-} from "../supervision/canonicalCaller.ts";
-import { makeSupervisionTools } from "../supervision/toolRegistry.ts";
+  resolveProjectedSupervisedCaller,
+} from "../supervised/canonicalCaller.ts";
+import { makeSupervisedTools } from "../supervised/toolRegistry.ts";
 
 export type SupervisedToolPolicyDecision =
   | { readonly enabled: true }
@@ -49,7 +49,7 @@ const makeHostToolRuntime = Effect.gen(function* () {
   const toolPolicyRepository = yield* SupervisedToolPolicyRepository;
   const entries = [
     ...makeHandoffDestinationTools({ snapshotQuery }),
-    ...makeSupervisionTools({
+    ...makeSupervisedTools({
       orchestrationEngine: yield* OrchestrationEngineService,
       snapshotQuery,
       governanceRepository,
@@ -60,10 +60,7 @@ const makeHostToolRuntime = Effect.gen(function* () {
 
   const loadCanonicalCaller = (context: Parameters<(typeof entries)[number]["isVisible"]>[0]) =>
     Effect.gen(function* () {
-      const [projection, governance] = yield* Effect.all([
-        snapshotQuery.getSnapshot(),
-        governanceRepository.getSnapshot(),
-      ]).pipe(
+      const governance = yield* governanceRepository.getSnapshot().pipe(
         Effect.mapError(
           (error) =>
             new HostToolError(
@@ -72,8 +69,8 @@ const makeHostToolRuntime = Effect.gen(function* () {
             ),
         ),
       );
-      const caller = resolveProjectedSupervisionCaller({
-        supervision: projection.supervision,
+      const caller = resolveProjectedSupervisedCaller({
+        governance,
         threadId: context.callerThreadId,
       });
       if (!caller) return { seat: undefined, receipt: undefined };

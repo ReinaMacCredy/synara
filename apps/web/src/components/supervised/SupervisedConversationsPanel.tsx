@@ -1,28 +1,28 @@
 import type { ModelSessionTrace, ModelTranscriptItem, SupervisedRuntimeSnapshot } from "@synara/contracts";
 import type { ReactNode } from "react";
 
+import { isPeerModelSessionRole } from "~/lib/supervisedOrchestration";
 import { cn } from "~/lib/utils";
 
-export type ConversationGroup = "lead" | "specialists" | "rlm";
+export type ConversationGroup = "lead" | "peers" | "rlm";
 
 const GROUPS: ReadonlyArray<{ readonly id: ConversationGroup; readonly label: string }> = [
   { id: "lead", label: "Lead" },
-  { id: "specialists", label: "Specialists" },
+  { id: "peers", label: "Peers" },
   { id: "rlm", label: "RLM branches" },
 ];
 
 function roleGroup(session: ModelSessionTrace): ConversationGroup {
   if (session.role === "lead") return "lead";
-  if (session.role === "specialist") return "specialists";
+  if (isPeerModelSessionRole(session.role)) return "peers";
   return "rlm";
 }
 
 function roleLabel(session: ModelSessionTrace): string {
+  if (isPeerModelSessionRole(session.role)) return "Peer";
   switch (session.role) {
     case "lead":
       return "Lead";
-    case "specialist":
-      return "Specialist";
     case "rlm_root":
       return "RLM synthesis";
     case "rlm_branch":
@@ -296,7 +296,7 @@ export function SupervisedConversationsPanel(props: {
         <div className="flex min-h-0 flex-1">{props.leadConversation}</div>
       ) : sessions.length === 0 ? (
         <div className="flex min-h-64 flex-1 items-center justify-center px-8 text-center text-xs text-muted-foreground">
-          No {props.group === "specialists" ? "Specialist" : "RLM"} model sessions have been recorded for this Room.
+          No {props.group === "peers" ? "Peer" : "RLM"} model sessions have been recorded for this Room.
         </div>
       ) : (
         <>

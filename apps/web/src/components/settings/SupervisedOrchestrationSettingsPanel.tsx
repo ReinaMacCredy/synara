@@ -1,13 +1,13 @@
 import {
   ProfilePresetId,
-  SupervisionAggregateId,
+  SupervisedGovernanceAggregateId,
   type ProfileApprovalPolicy,
   type ProfilePreset,
   type ProfileProviderKind,
   type ProfileSandboxMode,
   type ProviderKind,
   type ProviderModelDescriptor,
-  type SupervisionSnapshot,
+  type SupervisedOrchestrationSnapshot,
 } from "@synara/contracts";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -65,7 +65,7 @@ const APPROVALS: readonly ProfileApprovalPolicy[] = [
   "on-request",
   "never",
 ];
-const AGGREGATE_ID = SupervisionAggregateId.makeUnsafe("supervision");
+const AGGREGATE_ID = SupervisedGovernanceAggregateId.makeUnsafe("supervised");
 const PEER_STORAGE_ROLE = "peer" as const;
 
 const toSupervisedProductProfile = (profile: ProfilePreset): ProfilePreset | null => {
@@ -762,9 +762,9 @@ function ProfileEditorDialog(props: {
 }
 
 export function SupervisedOrchestrationSettingsPanel(props: { readonly active: boolean }) {
-  const shell = useStore((state) => state.supervision);
+  const shell = useStore((state) => state.supervisedOrchestration);
   const syncServerShellSnapshot = useStore((state) => state.syncServerShellSnapshot);
-  const [snapshot, setSnapshot] = useState<SupervisionSnapshot>(shell);
+  const [snapshot, setSnapshot] = useState<SupervisedOrchestrationSnapshot>(shell);
   const [draft, setDraft] = useState<ProfileDraft | null>(null);
   const [draftBaseline, setDraftBaseline] = useState<ProfileDraft | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -778,7 +778,7 @@ export function SupervisedOrchestrationSettingsPanel(props: { readonly active: b
     const api = readNativeApi();
     if (!api) throw new Error("Synara server unavailable.");
     const next = await api.orchestration.getSnapshot();
-    setSnapshot(next.supervision ?? shell);
+    setSnapshot(next.supervisedOrchestration ?? shell);
     syncServerShellSnapshot(await api.orchestration.getShellSnapshot());
   };
 
@@ -789,7 +789,7 @@ export function SupervisedOrchestrationSettingsPanel(props: { readonly active: b
       const api = readNativeApi();
       if (!api) return;
       const next = await api.orchestration.getSnapshot();
-      if (!cancelled) setSnapshot(next.supervision ?? shell);
+      if (!cancelled) setSnapshot(next.supervisedOrchestration ?? shell);
     })().catch((cause: unknown) => {
       if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
     });
@@ -917,7 +917,7 @@ export function SupervisedOrchestrationSettingsPanel(props: { readonly active: b
       revision: existing?.revision ?? 0,
     };
     await api.orchestration.dispatchCommand({
-      type: existing ? "supervision.profile.update" : "supervision.profile.create",
+      type: existing ? "supervised.profile.update" : "supervised.profile.create",
       commandId: newCommandId(),
       aggregateId: AGGREGATE_ID,
       actor: { kind: "user", actorId: "owner" },
@@ -931,9 +931,9 @@ export function SupervisedOrchestrationSettingsPanel(props: { readonly active: b
   const dispatchProfileLifecycle = async (
     profile: ProfilePreset,
     type:
-      | "supervision.profile.archive"
-      | "supervision.profile.restore"
-      | "supervision.profile.clear",
+      | "supervised.profile.archive"
+      | "supervised.profile.restore"
+      | "supervised.profile.clear",
   ) => {
     const api = readNativeApi();
     if (!api) throw new Error("Synara server unavailable.");
@@ -956,7 +956,7 @@ export function SupervisedOrchestrationSettingsPanel(props: { readonly active: b
     );
     for (const profile of archivedDefaults) {
       await api.orchestration.dispatchCommand({
-        type: "supervision.profile.restore",
+        type: "supervised.profile.restore",
         commandId: newCommandId(),
         aggregateId: AGGREGATE_ID,
         actor: { kind: "user", actorId: "owner" },
@@ -1035,19 +1035,19 @@ export function SupervisedOrchestrationSettingsPanel(props: { readonly active: b
         onDuplicate={beginDuplicate}
         onExport={exportProfile}
         onArchive={(profile) =>
-          perform(() => dispatchProfileLifecycle(profile, "supervision.profile.archive"))
+          perform(() => dispatchProfileLifecycle(profile, "supervised.profile.archive"))
         }
         onRestoreProfiles={(profiles) =>
           perform(async () => {
             for (const profile of profiles) {
-              await dispatchProfileLifecycle(profile, "supervision.profile.restore");
+              await dispatchProfileLifecycle(profile, "supervised.profile.restore");
             }
           })
         }
         onClearProfiles={(profiles) =>
           perform(async () => {
             for (const profile of profiles) {
-              await dispatchProfileLifecycle(profile, "supervision.profile.clear");
+              await dispatchProfileLifecycle(profile, "supervised.profile.clear");
             }
           })
         }

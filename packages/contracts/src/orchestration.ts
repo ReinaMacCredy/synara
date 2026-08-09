@@ -20,12 +20,8 @@ import {
 } from "./taskProcess";
 import {
   SupervisionAggregateId,
-  SupervisionCommand,
   SupervisionDomainEvent,
   SupervisionEventType,
-  SupervisionFirstSendBootstrap,
-  SupervisionSnapshot,
-  emptySupervisionSnapshot,
 } from "./supervision";
 import {
   SupervisedAggregateKind,
@@ -35,6 +31,15 @@ import {
   SupervisedRuntimeSnapshot,
   emptySupervisedRuntimeSnapshot,
 } from "./supervised";
+import {
+  SupervisedFirstSendBootstrap,
+  SupervisedGovernanceAggregateId,
+  SupervisedGovernanceCommand,
+  SupervisedGovernanceDomainEvent,
+  SupervisedGovernanceEventType,
+  SupervisedOrchestrationSnapshot,
+  emptySupervisedOrchestrationSnapshot,
+} from "./supervisedGovernance";
 import {
   ApprovalRequestId,
   CheckpointRef,
@@ -941,8 +946,10 @@ export const OrchestrationReadModel = Schema.Struct({
   spaces: Schema.Array(OrchestrationSpace),
   projects: Schema.Array(OrchestrationProject),
   threads: Schema.Array(OrchestrationThread),
-  supervision: Schema.optional(SupervisionSnapshot).pipe(
-    Schema.withDecodingDefault(() => emptySupervisionSnapshot(new Date(0).toISOString())),
+  supervisedOrchestration: Schema.optional(SupervisedOrchestrationSnapshot).pipe(
+    Schema.withDecodingDefault(() =>
+      emptySupervisedOrchestrationSnapshot(new Date(0).toISOString()),
+    ),
   ),
   supervised: Schema.optional(SupervisedRuntimeSnapshot).pipe(
     Schema.withDecodingDefault(() => emptySupervisedRuntimeSnapshot(new Date(0).toISOString())),
@@ -956,8 +963,10 @@ export const OrchestrationShellSnapshot = Schema.Struct({
   spaces: Schema.Array(OrchestrationSpaceShell),
   projects: Schema.Array(OrchestrationProjectShell),
   threads: Schema.Array(OrchestrationThreadShell),
-  supervision: Schema.optional(SupervisionSnapshot).pipe(
-    Schema.withDecodingDefault(() => emptySupervisionSnapshot(new Date(0).toISOString())),
+  supervisedOrchestration: Schema.optional(SupervisedOrchestrationSnapshot).pipe(
+    Schema.withDecodingDefault(() =>
+      emptySupervisedOrchestrationSnapshot(new Date(0).toISOString()),
+    ),
   ),
   updatedAt: IsoDateTime,
 });
@@ -1001,9 +1010,9 @@ export const OrchestrationShellStreamEvent = Schema.Union([
     threadId: ThreadId,
   }),
   Schema.Struct({
-    kind: Schema.Literal("supervision-updated"),
+    kind: Schema.Literal("supervised-orchestration-updated"),
     sequence: NonNegativeInt,
-    supervision: SupervisionSnapshot,
+    supervisedOrchestration: SupervisedOrchestrationSnapshot,
   }),
 ]);
 export type OrchestrationShellStreamEvent = typeof OrchestrationShellStreamEvent.Type;
@@ -1411,7 +1420,7 @@ export const ThreadTurnStartCommand = Schema.Struct({
   ),
   sourceProposedPlan: Schema.optional(SourceProposedPlanReference),
   threadBootstrap: Schema.optional(ThreadFirstSendBootstrap),
-    supervisionBootstrap: Schema.optional(SupervisionFirstSendBootstrap),
+  supervisedBootstrap: Schema.optional(SupervisedFirstSendBootstrap),
   createdAt: IsoDateTime,
 });
 
@@ -1438,7 +1447,7 @@ const ClientThreadTurnStartCommand = Schema.Struct({
   interactionMode: ProviderInteractionMode,
   sourceProposedPlan: Schema.optional(SourceProposedPlanReference),
   threadBootstrap: Schema.optional(ThreadFirstSendBootstrap),
-    supervisionBootstrap: Schema.optional(SupervisionFirstSendBootstrap),
+  supervisedBootstrap: Schema.optional(SupervisedFirstSendBootstrap),
   createdAt: IsoDateTime,
 });
 
@@ -1591,7 +1600,7 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadMessageEditAndResendCommand,
   ThreadActivityAppendCommand,
   ThreadSessionStopCommand,
-  SupervisionCommand,
+  SupervisedGovernanceCommand,
 ]);
 export type DispatchableClientOrchestrationCommand =
   typeof DispatchableClientOrchestrationCommand.Type;
@@ -1632,8 +1641,8 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadMessageEditAndResendCommand,
   ThreadActivityAppendCommand,
   ThreadSessionStopCommand,
-    TaskProcessCommand,
-  SupervisionCommand,
+  TaskProcessCommand,
+  SupervisedGovernanceCommand,
   SupervisedCommand,
 ]);
 export type ClientOrchestrationCommand = typeof ClientOrchestrationCommand.Type;
@@ -1736,8 +1745,8 @@ export type InternalOrchestrationCommand = typeof InternalOrchestrationCommand.T
 export const OrchestrationCommand = Schema.Union([
   DispatchableClientOrchestrationCommand,
   InternalOrchestrationCommand,
-    TaskProcessCommand,
-  SupervisionCommand,
+  TaskProcessCommand,
+  SupervisedGovernanceCommand,
   SupervisedCommand,
 ]);
 export type OrchestrationCommand = typeof OrchestrationCommand.Type;
@@ -1787,14 +1796,22 @@ const CoreOrchestrationEventType = Schema.Literals([
 ]);
 export const OrchestrationEventType = Schema.Union([
   CoreOrchestrationEventType,
-    TaskProcessEventType,
+  TaskProcessEventType,
   SupervisionEventType,
+  SupervisedGovernanceEventType,
   SupervisedEventType,
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 
 export const OrchestrationAggregateKind = Schema.Union([
-    Schema.Literals(["space", "project", "thread", "task_process", "supervision"]),
+  Schema.Literals([
+    "space",
+    "project",
+    "thread",
+    "task_process",
+    "supervision",
+    "supervised_governance",
+  ]),
   SupervisedAggregateKind,
 ]);
 export type OrchestrationAggregateKind = typeof OrchestrationAggregateKind.Type;
@@ -2185,7 +2202,14 @@ const EventBaseFields = {
   sequence: NonNegativeInt,
   eventId: EventId,
   aggregateKind: OrchestrationAggregateKind,
-  aggregateId: Schema.Union([SpaceId, ProjectId, ThreadId, TaskProcessId, SupervisionAggregateId]),
+  aggregateId: Schema.Union([
+    SpaceId,
+    ProjectId,
+    ThreadId,
+    TaskProcessId,
+    SupervisionAggregateId,
+    SupervisedGovernanceAggregateId,
+  ]),
   occurredAt: IsoDateTime,
   commandId: Schema.NullOr(CommandId),
   causationEventId: Schema.NullOr(EventId),
@@ -2194,8 +2218,9 @@ const EventBaseFields = {
 } as const;
 
 export const OrchestrationEvent = Schema.Union([
-    TaskProcessDomainEvent,
+  TaskProcessDomainEvent,
   SupervisionDomainEvent,
+  SupervisedGovernanceDomainEvent,
   SupervisedDomainEvent,
   Schema.Struct({
     ...EventBaseFields,

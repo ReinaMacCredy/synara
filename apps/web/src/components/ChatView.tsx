@@ -645,7 +645,7 @@ import {
   isDuplicateProjectCreateError,
   waitForRecoverableProjectForDuplicateCreate,
 } from "../lib/projectCreateRecovery";
-import { resolveSupervisionBoundModelSelection } from "../lib/supervision";
+import { resolveSupervisedBoundModelSelection } from "../lib/supervisedOrchestration";
 
 // The terminal drawer drags in xterm plus its addons (~223 KB gzip). Both mount points
 // are conditional, so loading it lazily keeps the terminal stack out of the initial
@@ -1396,8 +1396,16 @@ export default function ChatView({
     (store) => store.temporaryThreadIds[threadId] === true,
   );
   const isThreadTemporary = draftThread?.isTemporary === true || hasTemporaryThreadMarker;
-  const supervision = useStore((store) => store.supervision);
-  const specialists = supervision.peers ?? [];
+  const supervisedOrchestration = useStore((store) => store.supervisedOrchestration);
+  const supervisedSeats = supervisedOrchestration.agentSeats;
+  const leadSeats = useMemo(
+    () => supervisedSeats.filter((seat) => seat.identityRole === "lead"),
+    [supervisedSeats],
+  );
+  const peerSeats = useMemo(
+    () => supervisedSeats.filter((seat) => seat.identityRole === "peer"),
+    [supervisedSeats],
+  );
   const markWorkflowRunPaused = useWorkflowRunUiStore((store) => store.markPaused);
   const markWorkflowRunDismissed = useWorkflowRunUiStore((store) => store.markDismissed);
   const serverThread = useStore(useMemo(() => createThreadSelector(threadId), [threadId]));
@@ -1903,52 +1911,55 @@ export default function ChatView({
   const isSupervisedRoomDraft = isLocalDraftThread && draftThread?.entryPoint === "supervised";
   const supervisionDraftMode = draftThread?.supervisionMode ?? "orchestrate";
   const selectedSupervisionProfile = useMemo(() => {
-    const activeProfiles = supervision.profiles.filter((profile) => profile.archivedAt === null);
+    const activeProfiles = supervisedOrchestration.profiles.filter(
+      (profile) => profile.archivedAt === null,
+    );
     return (
       activeProfiles.find((profile) => profile.id === draftThread?.profilePresetId) ??
       activeProfiles.find((profile) => profile.roleHints.includes("lead")) ??
       activeProfiles[0] ??
       null
     );
-  }, [draftThread?.profilePresetId, supervision.profiles]);
+  }, [draftThread?.profilePresetId, supervisedOrchestration.profiles]);
   const durableSupervisionRole = useMemo(() => {
     if (!isServerThread || !supervisedMode) return null;
     if (
-      supervision.leads.some((seat) => seat.activeThreadId === threadId)
+      leadSeats.some((seat) => seat.threadId === threadId)
     ) {
       return "Lead" as const;
     }
     if (
-      specialists.some(
-        (specialist) => specialist.threadId === threadId && specialist.status === "active",
+      peerSeats.some(
+        (peer) => peer.threadId === threadId && peer.lifecycleState === "active",
       )
     ) {
-      return "Specialist" as const;
+      return "Peer" as const;
     }
     return "Lead" as const;
   }, [
     isServerThread,
     supervisedMode,
-    supervision.leads,
-    specialists,
+    leadSeats,
+    peerSeats,
     threadId,
   ]);
   const durableSupervisionProfileSnapshot = useMemo(() => {
     if (!isServerThread || !supervisedMode) return null;
     const seat =
-      supervision.leads.find((candidate) => candidate.activeThreadId === threadId) ??
-      specialists.find((candidate) => candidate.threadId === threadId) ??
+      leadSeats.find((candidate) => candidate.threadId === threadId) ??
+      peerSeats.find((candidate) => candidate.threadId === threadId) ??
       null;
-    return seat
-      ? (supervision.profileSnapshots.find((snapshot) => snapshot.id === seat.profileSnapshotId) ??
-          null)
+    return seat?.profileSnapshotId
+      ? (supervisedOrchestration.profileSnapshots.find(
+          (snapshot) => snapshot.id === seat.profileSnapshotId,
+        ) ?? null)
       : null;
   }, [
     isServerThread,
     supervisedMode,
-    supervision.leads,
-    specialists,
-    supervision.profileSnapshots,
+    leadSeats,
+    peerSeats,
+    supervisedOrchestration.profileSnapshots,
     threadId,
   ]);
   useLayoutEffect(() => {
@@ -7704,13 +7715,14 @@ export default function ChatView({
       }
     }
     if (isSupervisedRoomDraft && supervisionDraftMode === "supervise") {
-      const activeLead = supervision.leads.find(
-        (lead) => lead.projectId === draftThread?.projectId && lead.status !== "archived",
+      const activeLead = leadSeats.find(
+        (lead) =>
+          lead.projectId === draftThread?.projectId && lead.lifecycleState !== "retired",
       );
-      if (activeLead) {
+      if (activeLead?.threadId) {
         await navigate({
           to: "/supervised/$roomId",
-          params: { roomId: activeLead.activeThreadId },
+          params: { roomId: activeLead.threadId },
         });
         return true;
       }
@@ -7718,10 +7730,10 @@ export default function ChatView({
     const promoteToLead = isSupervisedRoomDraft && supervisionDraftMode === "supervise";
     const supervisionProfileForSend = promoteToLead ? selectedSupervisionProfile : null;
     if (promoteToLead && supervisionProfileForSend === null) {
-      setStoreThreadError(activeThread.id, "Choose an active supervision profile before sending.");
+      setStoreThreadError(activeThread.id, "Choose an active Supervised profile before sending.");
       return false;
     }
-    const effectiveModelSelectionForSend = resolveSupervisionBoundModelSelection({
+    const effectiveModelSelectionForSend = resolveSupervisedBoundModelSelection({
       fallback: selectedModelSelectionForSend,
       runtime:
         supervisionProfileForSend?.runtime ?? durableSupervisionProfileSnapshot?.runtime ?? null,
@@ -8462,7 +8474,7 @@ export default function ChatView({
           ...(atomicThreadBootstrap ? { threadBootstrap: atomicThreadBootstrap } : {}),
           ...(promotedLeadSeatId !== null && supervisionProfileForSend !== null
             ? {
-                supervisionBootstrap: {
+                supervisedBootstrap: {
                   kind: "lead" as const,
                   profilePresetId: supervisionProfileForSend.id,
                   lead: {
@@ -9784,7 +9796,7 @@ export default function ChatView({
     isSupervisedRoomDraft && supervisionDraftMode === "supervise";
   const composerPickerControls = supervisionProfilePickerActive ? (
     <ComposerProfilePicker
-      profiles={supervision.profiles}
+      profiles={supervisedOrchestration.profiles}
       selectedProfileId={selectedSupervisionProfile?.id ?? null}
       disabled={isComposerEditorDisabled}
       compact={isComposerFooterCompact}

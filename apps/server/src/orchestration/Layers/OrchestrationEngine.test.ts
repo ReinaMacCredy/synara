@@ -10,7 +10,6 @@ import {
   ProfileSnapshotId,
   ProjectId,
   ProjectTaskId,
-  SupervisionAggregateId,
   TaskProcessId,
   TaskProgressEntryId,
   TaskThreadBindingId,
@@ -41,8 +40,8 @@ import {
 } from "../Services/ProjectionPipeline.ts";
 import { ServerConfig } from "../../config.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { DEFAULT_SUPERVISION_PROFILES } from "../supervision/profileSeeds.ts";
-import { resolveProfilePreset } from "../supervision/profileResolver.ts";
+import { DEFAULT_SUPERVISED_PROFILES } from "../supervised/profileSeeds.ts";
+import { resolveProfilePreset } from "../supervised/profileResolver.ts";
 
 /**
  * Command ids whose fingerprinting throws synchronously, standing in for any
@@ -1289,7 +1288,7 @@ describe("OrchestrationEngine", () => {
     const projectId = asProjectId("project-supervised-activation");
     const threadId = ThreadId.makeUnsafe("thread-supervised-activation");
     const leadSeatId = LeadSeatId.makeUnsafe("lead-supervised-activation");
-    const preset = DEFAULT_SUPERVISION_PROFILES.find(
+    const preset = DEFAULT_SUPERVISED_PROFILES.find(
       (candidate) => candidate.id === "profile-lead-default",
     )!;
     const profileSnapshotId = ProfileSnapshotId.makeUnsafe("profile-snapshot-activation");
@@ -1354,7 +1353,7 @@ describe("OrchestrationEngine", () => {
           worktreePath: null,
           createdAt,
         },
-        supervisionBootstrap: {
+        supervisedBootstrap: {
           kind: "lead",
           profilePresetId: preset.id,
           profileSnapshot,
@@ -1404,6 +1403,21 @@ describe("OrchestrationEngine", () => {
         Effect.map((chunk): OrchestrationEvent[] => Array.from(chunk)),
       ),
     );
+    expect(
+      events.some(
+        (event) =>
+          event.commandId === "command-turn-supervised-activation" &&
+          event.aggregateKind === "supervised_governance" &&
+          event.type === "supervised.lead-enrolled",
+      ),
+    ).toBe(true);
+    expect(
+      events.some(
+        (event) =>
+          event.commandId === "command-turn-supervised-activation" &&
+          event.aggregateKind === "supervision",
+      ),
+    ).toBe(false);
     const sessionIndex = events.findIndex(
       (event) =>
         event.commandId === "command-session-supervised-activation" &&

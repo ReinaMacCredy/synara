@@ -3,6 +3,8 @@ import type {
   SupervisedRuntimeSnapshot,
 } from "@synara/contracts";
 
+import { upcastLegacyPeerEventV1 } from "./peerUpcaster.ts";
+
 const upsert = <T extends { readonly id: string }>(items: ReadonlyArray<T>, item: T) => {
   const index = items.findIndex((candidate) => candidate.id === item.id);
   if (index < 0) return [...items, item];
@@ -13,8 +15,9 @@ const upsert = <T extends { readonly id: string }>(items: ReadonlyArray<T>, item
 
 export function projectSupervisedEvent(
   snapshot: SupervisedRuntimeSnapshot,
-  event: SupervisedDomainEvent,
+  inputEvent: SupervisedDomainEvent,
 ): SupervisedRuntimeSnapshot {
+  const event = upcastLegacyPeerEventV1(inputEvent);
   const next: SupervisedRuntimeSnapshot = {
     ...snapshot,
     snapshotSequence: event.sequence,
@@ -87,15 +90,15 @@ export function projectSupervisedEvent(
         return payload.patch
           ? { ...next, harnessPatches: upsert(next.harnessPatches, payload.patch) }
           : next;
-      case "supervised.specialist-upserted":
+      case "supervised.peer-upserted":
         return {
           ...next,
-          specialists: payload.specialist
-            ? upsert(next.specialists, payload.specialist)
-            : next.specialists,
-          specialistSnapshots: payload.specialistSnapshot
-            ? upsert(next.specialistSnapshots, payload.specialistSnapshot)
-            : next.specialistSnapshots,
+          peerSpecialties: payload.peerSpecialty
+            ? upsert(next.peerSpecialties, payload.peerSpecialty)
+            : next.peerSpecialties,
+          peerSpecialtySnapshots: payload.peerSpecialtySnapshot
+            ? upsert(next.peerSpecialtySnapshots, payload.peerSpecialtySnapshot)
+            : next.peerSpecialtySnapshots,
         };
       case "supervised.kernel-session-upserted":
         return payload.kernelSession

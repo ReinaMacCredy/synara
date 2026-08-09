@@ -52,7 +52,7 @@ import { RuntimeReceiptBusLive } from "../src/orchestration/Layers/RuntimeReceip
 import { OrchestrationReactorLive } from "../src/orchestration/Layers/OrchestrationReactor.ts";
 import { ProviderCommandReactorLive } from "../src/orchestration/Layers/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionLive } from "../src/orchestration/Layers/ProviderRuntimeIngestion.ts";
-import { SupervisionWakeReactorLive } from "../src/orchestration/Layers/SupervisionWakeReactor.ts";
+import { SupervisedWakeReactorLive } from "../src/orchestration/Layers/SupervisedWakeReactor.ts";
 import { TurnCheckpointCoordinatorLive } from "../src/orchestration/Layers/TurnCheckpointCoordinator.ts";
 import {
   OrchestrationEngineService,
@@ -320,14 +320,14 @@ export const makeOrchestrationIntegrationHarness = (
     const checkpointReactorLayer = CheckpointReactorLive.pipe(
       Layer.provideMerge(runtimeServicesLayer),
     );
-    const supervisionWakeReactorLayer = SupervisionWakeReactorLive.pipe(
+    const supervisedWakeReactorLayer = SupervisedWakeReactorLive.pipe(
       Layer.provideMerge(runtimeServicesLayer),
     );
     const orchestrationReactorLayer = OrchestrationReactorLive.pipe(
       Layer.provideMerge(runtimeIngestionLayer),
       Layer.provideMerge(providerCommandReactorLayer),
       Layer.provideMerge(checkpointReactorLayer),
-      Layer.provideMerge(supervisionWakeReactorLayer),
+      Layer.provideMerge(supervisedWakeReactorLayer),
     );
     const layer = orchestrationReactorLayer.pipe(
       Layer.provide(persistenceLayer),

@@ -3,9 +3,9 @@
 // Exports: AppState, its initial value, and immutable empty normalized records.
 
 import {
-  emptySupervisionSnapshot,
+  emptySupervisedOrchestrationSnapshot,
   type MessageId,
-  type SupervisionSnapshot,
+  type SupervisedOrchestrationSnapshot,
   type ThreadId,
   type TurnId,
 } from "@synara/contracts";
@@ -32,7 +32,7 @@ export interface AppState {
   shellSnapshotSequence?: number;
   spaces: Space[];
   projects: Project[];
-  supervision: SupervisionSnapshot;
+  supervisedOrchestration: SupervisedOrchestrationSnapshot;
   sidebarThreadSummaryById: Record<string, SidebarThreadSummary>;
   threadsHydrated: boolean;
   threadIds?: ThreadId[];
@@ -88,7 +88,7 @@ export const initialState: AppState = {
   shellSnapshotSequence: 0,
   spaces: [],
   projects: [],
-  supervision: emptySupervisionSnapshot(new Date(0).toISOString()),
+  supervisedOrchestration: emptySupervisedOrchestrationSnapshot(new Date(0).toISOString()),
   sidebarThreadSummaryById: {},
   threadsHydrated: false,
   threadIds: [],

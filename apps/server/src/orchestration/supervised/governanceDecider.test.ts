@@ -3,7 +3,7 @@ import { it } from "@effect/vitest";
 import { Effect } from "effect";
 
 import {
-  emptySupervisionSnapshot,
+  SupervisedGovernanceAggregateId,
   type LeadRotation,
   type LeadSeat,
   type PeerBinding,
@@ -14,8 +14,9 @@ import {
   type WorkflowDirective,
 } from "@synara/contracts";
 
-import { decideSupervisionCommand } from "./decider.ts";
-import { projectSupervisionEvent } from "./projector.ts";
+import { decideSupervisedGovernanceCommand } from "./governanceDecider.ts";
+import { projectSupervisedGovernanceDecisionEvent } from "./governanceProjector.ts";
+import { emptySupervisedGovernanceDecisionState } from "./governanceState.ts";
 
 const now = "2026-08-03T10:00:00.000Z";
 const snapshotProfile: ProfileSnapshot = {
@@ -87,7 +88,7 @@ const mission: SupervisionMission = {
 };
 
 const state = {
-  ...emptySupervisionSnapshot(now),
+  ...emptySupervisedGovernanceDecisionState(now),
   profileSnapshots: [snapshotProfile],
   supervisors: [supervisor],
   leads: [lead],
@@ -96,18 +97,18 @@ const state = {
 
 const base = {
   commandId: "command" as never,
-  aggregateId: "supervision" as never,
+  aggregateId: SupervisedGovernanceAggregateId.makeUnsafe("supervised"),
   createdAt: now,
 };
 
 it.effect("clears only archived profile presets and projects a durable tombstone", () =>
   Effect.gen(function* () {
     const current = { ...state, profiles: [archivedPreset] };
-    const cleared = yield* decideSupervisionCommand({
+    const cleared = yield* decideSupervisedGovernanceCommand({
       state: current,
       command: {
         ...base,
-        type: "supervision.profile.clear",
+        type: "supervised.profile.clear",
         actor: { kind: "user", actorId: "owner" },
         expectedRevision: archivedPreset.revision,
         profileId: archivedPreset.id,
@@ -115,17 +116,17 @@ it.effect("clears only archived profile presets and projects a durable tombstone
     });
     assert.equal(Array.isArray(cleared), false);
     if (Array.isArray(cleared)) return;
-    assert.equal(cleared.type, "supervision.profile-cleared");
-    const projected = projectSupervisionEvent(current, { ...cleared, sequence: 1 });
+    assert.equal(cleared.type, "supervised.profile-cleared");
+    const projected = projectSupervisedGovernanceDecisionEvent(current, { ...cleared, sequence: 1 });
     assert.equal(projected.profiles[0]?.clearedAt, now);
     assert.equal(projected.profiles[0]?.revision, 3);
 
     const denied = yield* Effect.exit(
-      decideSupervisionCommand({
+      decideSupervisedGovernanceCommand({
         state: { ...state, profiles: [{ ...archivedPreset, archivedAt: null }] },
         command: {
           ...base,
-          type: "supervision.profile.clear",
+          type: "supervised.profile.clear",
           actor: { kind: "user", actorId: "owner" },
           expectedRevision: archivedPreset.revision,
           profileId: archivedPreset.id,
@@ -139,11 +140,11 @@ it.effect("clears only archived profile presets and projects a durable tombstone
 it.effect("enforces one active Lead per Project without restricting ordinary Roots", () =>
   Effect.gen(function* () {
     const exit = yield* Effect.exit(
-      decideSupervisionCommand({
+      decideSupervisedGovernanceCommand({
         state,
         command: {
           ...base,
-          type: "supervision.lead.enroll",
+          type: "supervised.lead.enroll",
           actor: { kind: "user", actorId: "owner" },
           expectedRevision: 0,
           profilePresetId: "profile-default" as never,
@@ -160,11 +161,11 @@ it.effect("enforces one active Lead per Project without restricting ordinary Roo
 it.effect("denies non-human scope expansion while allowing a bounded mission completion", () =>
   Effect.gen(function* () {
     const expandExit = yield* Effect.exit(
-      decideSupervisionCommand({
+      decideSupervisedGovernanceCommand({
         state,
         command: {
           ...base,
-          type: "supervision.mission.update",
+          type: "supervised.mission.update",
           actor: {
             kind: "thread",
             actorId: supervisor.activeThreadId,
@@ -177,11 +178,11 @@ it.effect("denies non-human scope expansion while allowing a bounded mission com
     );
     assert.equal(expandExit._tag, "Failure");
 
-    const completed = yield* decideSupervisionCommand({
+    const completed = yield* decideSupervisedGovernanceCommand({
       state,
       command: {
         ...base,
-        type: "supervision.mission.complete",
+        type: "supervised.mission.complete",
         actor: {
           kind: "thread",
           actorId: supervisor.activeThreadId,
@@ -216,11 +217,11 @@ it.effect("keeps a conflicting workflow inactive until an owner resolves it", ()
       instruction: "Skip backward compatibility checks",
       revision: 0,
     };
-    const conflictEvent = yield* decideSupervisionCommand({
+    const conflictEvent = yield* decideSupervisedGovernanceCommand({
       state: { ...state, workflowDirectives: [current] },
       command: {
         ...base,
-        type: "supervision.workflow.apply",
+        type: "supervised.workflow.apply",
         actor: {
           kind: "thread",
           actorId: supervisor.activeThreadId,
@@ -232,9 +233,9 @@ it.effect("keeps a conflicting workflow inactive until an owner resolves it", ()
     });
     assert.equal(Array.isArray(conflictEvent), false);
     if (Array.isArray(conflictEvent)) return;
-    assert.equal(conflictEvent.type, "supervision.workflow-conflicted");
+    assert.equal(conflictEvent.type, "supervised.workflow-conflicted");
     assert.equal(conflictEvent.payload.workflowDirective?.status, "conflicted");
-    const projected = projectSupervisionEvent(
+    const projected = projectSupervisedGovernanceDecisionEvent(
       { ...state, workflowDirectives: [current] },
       { ...conflictEvent, sequence: 1 },
     );
@@ -277,11 +278,11 @@ it.effect(
         updatedAt: now,
         revision: 0,
       };
-      const requested = yield* decideSupervisionCommand({
+      const requested = yield* decideSupervisedGovernanceCommand({
         state: rotationState,
         command: {
           ...base,
-          type: "supervision.lead.replace",
+          type: "supervised.lead.replace",
           actor: {
             kind: "thread",
             actorId: supervisor.activeThreadId,
@@ -295,11 +296,11 @@ it.effect(
       });
       assert.equal(Array.isArray(requested), false);
       if (Array.isArray(requested)) return;
-      assert.equal(requested.type, "supervision.lead-replacement-requested");
+      assert.equal(requested.type, "supervised.lead-replacement-requested");
       assert.equal(requested.payload.lead?.activeThreadId, lead.activeThreadId);
       assert.equal(requested.payload.lead?.status, "rotating");
 
-      let projected = projectSupervisionEvent(rotationState, { ...requested, sequence: 1 });
+      let projected = projectSupervisedGovernanceDecisionEvent(rotationState, { ...requested, sequence: 1 });
       const phases: LeadRotation["state"][] = [
         "frozen",
         "replacement_created",
@@ -309,12 +310,12 @@ it.effect(
       ];
       for (const phase of phases) {
         const current = projected.rotations[0]!;
-        const advanced = yield* decideSupervisionCommand({
+        const advanced = yield* decideSupervisedGovernanceCommand({
           state: projected,
           command: {
             ...base,
             commandId: `command-${phase}` as never,
-            type: "supervision.lead.rotation.advance",
+            type: "supervised.lead.rotation.advance",
             actor: { kind: "server", actorId: "lead-rotation-reactor" },
             expectedRevision: current.revision,
             rotation: { ...current, state: phase },
@@ -322,7 +323,7 @@ it.effect(
         });
         assert.equal(Array.isArray(advanced), false);
         if (!Array.isArray(advanced)) {
-          projected = projectSupervisionEvent(projected, {
+          projected = projectSupervisedGovernanceDecisionEvent(projected, {
             ...advanced,
             sequence: projected.snapshotSequence + 1,
           });
@@ -359,11 +360,11 @@ it.effect("admits wake lifecycle only from the server runtime", () =>
       updatedAt: now,
     };
     const denied = yield* Effect.exit(
-      decideSupervisionCommand({
+      decideSupervisedGovernanceCommand({
         state,
         command: {
           ...base,
-          type: "supervision.wake.enqueue",
+          type: "supervised.wake.enqueue",
           actor: { kind: "user", actorId: "owner" },
           expectedRevision: 0,
           wake,
@@ -371,11 +372,11 @@ it.effect("admits wake lifecycle only from the server runtime", () =>
       }),
     );
     assert.equal(denied._tag, "Failure");
-    const accepted = yield* decideSupervisionCommand({
+    const accepted = yield* decideSupervisedGovernanceCommand({
       state,
       command: {
         ...base,
-        type: "supervision.wake.enqueue",
+        type: "supervised.wake.enqueue",
         actor: { kind: "server", actorId: "wake-reactor" },
         expectedRevision: 0,
         wake,

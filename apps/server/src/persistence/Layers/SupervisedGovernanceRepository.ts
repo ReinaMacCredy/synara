@@ -12,6 +12,7 @@ import {
   RootAuthorityLease,
   RoleAssumption,
   StandingMandate,
+  SupervisedOrchestrationSnapshot,
   SupervisedWorkspace,
   SupervisorNotebookEntry,
   SupervisorNotebookCompactionReceipt,
@@ -30,9 +31,14 @@ import {
   SupervisedGovernanceRepository,
   type SupervisedGovernanceRepositoryShape,
 } from "../Services/SupervisedGovernanceRepository.ts";
+import { DEFAULT_SUPERVISED_PROFILES } from "../../orchestration/supervised/profileSeeds.ts";
 
 type EntityRow = { readonly entityJson: string };
-type StateRow = { readonly revision: number; readonly updatedAt: string };
+type StateRow = {
+  readonly revision: number;
+  readonly orchestrationJson: string;
+  readonly updatedAt: string;
+};
 
 const decodeRows = <A, I>(
   schema: Schema.Schema<A, I>,
@@ -51,6 +57,30 @@ const decodeRows = <A, I>(
 
 const persistenceError = (operation: string) => (error: unknown) =>
   isPersistenceError(error) ? error : toPersistenceSqlError(operation)(error);
+
+const decodeOrchestration = (value: string) =>
+  Effect.try({
+    try: () => Schema.decodeUnknownSync(SupervisedOrchestrationSnapshot)(JSON.parse(value)),
+    catch: toPersistenceDecodeCauseError("SupervisedGovernance.getSnapshot.orchestration"),
+  }).pipe(
+    Effect.map((snapshot) => {
+      const productProfiles = snapshot.profiles.map((profile) =>
+        profile.id === "profile-peer-implementer"
+          ? { ...profile, name: "Peer Implementer" }
+          : profile.id === "profile-peer-reviewer"
+            ? { ...profile, name: "Peer Reviewer" }
+            : profile,
+      );
+      const existing = new Set(productProfiles.map((profile) => profile.id));
+      return {
+        ...snapshot,
+        profiles: [
+          ...productProfiles,
+          ...DEFAULT_SUPERVISED_PROFILES.filter((profile) => !existing.has(profile.id)),
+        ],
+      };
+    }),
+  );
 
 const orderNotebookEntriesForInsert = (
   entries: ReadonlyArray<SupervisorNotebookEntry>,
@@ -93,10 +123,14 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
   const getSnapshot: SupervisedGovernanceRepositoryShape["getSnapshot"] = () =>
     Effect.gen(function* () {
       const stateRows = yield* sql<StateRow>`
-        SELECT revision, updated_at AS "updatedAt"
+        SELECT revision, orchestration_json AS "orchestrationJson", updated_at AS "updatedAt"
         FROM supervised_governance_state
         WHERE singleton_id = 1
       `;
+      const orchestration = yield* decodeOrchestration(
+        stateRows[0]?.orchestrationJson ??
+          '{"revision":0,"profiles":[],"profileSnapshots":[],"missions":[],"workflowDirectives":[],"workflowConflicts":[],"advice":[],"observationCursors":[],"wakeQueue":[],"rotations":[],"updatedAt":"1970-01-01T00:00:00.000Z"}',
+      );
       const workspaceRows = yield* sql<EntityRow>`
         SELECT entity_json AS "entityJson"
         FROM projection_supervised_workspaces
@@ -187,6 +221,11 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
         FROM supervised_model_selection_receipts
         ORDER BY created_at DESC, receipt_id
       `;
+      const agentSeats = yield* decodeRows(
+        AgentSeat,
+        "SupervisedGovernance.getSnapshot.agentSeats",
+        seatRows,
+      );
 
       return {
         revision: stateRows[0]?.revision ?? 0,
@@ -195,11 +234,7 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
           "SupervisedGovernance.getSnapshot.workspaces",
           workspaceRows,
         ),
-        agentSeats: yield* decodeRows(
-          AgentSeat,
-          "SupervisedGovernance.getSnapshot.agentSeats",
-          seatRows,
-        ),
+        agentSeats,
         providerSessions: yield* decodeRows(
           GovernedProviderSession,
           "SupervisedGovernance.getSnapshot.providerSessions",
@@ -280,6 +315,7 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
           "SupervisedGovernance.getSnapshot.modelSelectionReceipts",
           modelSelectionRows,
         ),
+        orchestration: { ...orchestration, agentSeats },
         updatedAt: stateRows[0]?.updatedAt ?? "1970-01-01T00:00:00.000Z",
       };
     }).pipe(Effect.mapError(persistenceError("SupervisedGovernance.getSnapshot")));
@@ -287,7 +323,7 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
   const getModelRoutingState: SupervisedGovernanceRepositoryShape["getModelRoutingState"] = () =>
     Effect.gen(function* () {
       const stateRows = yield* sql<StateRow>`
-        SELECT revision, updated_at AS "updatedAt"
+        SELECT revision, orchestration_json AS "orchestrationJson", updated_at AS "updatedAt"
         FROM supervised_governance_state
         WHERE singleton_id = 1
       `;
@@ -524,6 +560,14 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
     sql.withTransaction(
       Effect.gen(function* () {
         yield* advanceRevision(snapshot.revision, snapshot.updatedAt);
+        yield* sql`
+          UPDATE supervised_governance_state
+          SET orchestration_json = ${JSON.stringify({
+            ...snapshot.orchestration,
+            agentSeats: [],
+          })}
+          WHERE singleton_id = 1
+        `;
         yield* sql`DELETE FROM supervised_model_selection_receipts`;
         yield* sql`DELETE FROM supervised_model_telemetry_aggregates`;
         yield* sql`DELETE FROM supervised_user_model_preference_profiles`;

@@ -1,27 +1,26 @@
-import type {
-  MissionScope,
-  ModelSelection,
-  ProfileRuntimeConfig,
-  SupervisionDomainEvent,
-  SupervisionMission,
-  SupervisionSnapshot,
-} from "@synara/contracts";
+import type { ProfilePreset, SupervisedGovernanceDomainEvent } from "@synara/contracts";
 
-import { buildModelSelection } from "../providerModelOptions";
+import {
+  emptySupervisedGovernanceDecisionState,
+  type SupervisedGovernanceDecisionState,
+} from "./governanceState.ts";
 
-const upsert = <A>(rows: readonly A[], next: A, id: (row: A) => string): A[] => {
+const upsert = <A>(rows: ReadonlyArray<A>, next: A, id: (row: A) => string): A[] => {
   const index = rows.findIndex((row) => id(row) === id(next));
-  return index === -1 ? [...rows, next] : [...rows.slice(0, index), next, ...rows.slice(index + 1)];
+  return index < 0 ? [...rows, next] : [...rows.slice(0, index), next, ...rows.slice(index + 1)];
 };
 
-export function projectSupervisionEvent(
-  state: SupervisionSnapshot,
-  event: SupervisionDomainEvent,
-): SupervisionSnapshot {
+export const createEmptySupervisedGovernanceState = (at = new Date(0).toISOString()) =>
+  emptySupervisedGovernanceDecisionState(at);
+
+export function projectSupervisedGovernanceDecisionEvent(
+  state: SupervisedGovernanceDecisionState,
+  event: SupervisedGovernanceDomainEvent,
+): SupervisedGovernanceDecisionState {
   const payload = event.payload;
-  let next: SupervisionSnapshot = {
+  let next: SupervisedGovernanceDecisionState = {
     ...state,
-    snapshotSequence: event.sequence,
+    revision: event.sequence,
     updatedAt: event.occurredAt,
   };
   if (payload.profile !== undefined) {
@@ -42,6 +41,18 @@ export function projectSupervisionEvent(
   if (payload.lead !== undefined) {
     next = { ...next, leads: upsert(next.leads, payload.lead, (row) => row.id) };
   }
+  if (payload.peer !== undefined) {
+    next = { ...next, peers: upsert(next.peers, payload.peer, (row) => row.threadId) };
+  }
+  if (payload.peers !== undefined) {
+    next = {
+      ...next,
+      peers: payload.peers.reduce(
+        (peers, peer) => upsert(peers, peer, (row) => row.threadId),
+        [...next.peers],
+      ),
+    };
+  }
   if (payload.mission !== undefined) {
     next = { ...next, missions: upsert(next.missions, payload.mission, (row) => row.id) };
   }
@@ -60,7 +71,7 @@ export function projectSupervisionEvent(
     next = {
       ...next,
       workflowConflicts: upsert(next.workflowConflicts, conflict, (row) => row.id),
-      ...(event.type === "supervision.workflow-resolved"
+      ...(event.type === "supervised.workflow-resolved"
         ? {
             workflowDirectives: next.workflowDirectives.map((directive) =>
               conflict.directiveIds.includes(directive.id)
@@ -98,46 +109,11 @@ export function projectSupervisionEvent(
   return next;
 }
 
-export function supervisionScopeLabel(scope: MissionScope): string {
-  switch (scope.kind) {
-    case "all_projects":
-      return "All projects";
-    case "space":
-      return "Space";
-    case "project":
-      return "Project";
-    case "lead":
-      return "Lead";
-  }
-}
-
-export function supervisionScopesLabel(scopes: readonly MissionScope[]): string {
-  return scopes.map(supervisionScopeLabel).join(", ");
-}
-
-export function activeMissionsForSupervisor(
-  snapshot: SupervisionSnapshot,
-  supervisorSeatId: string,
-): SupervisionMission[] {
-  return snapshot.missions.filter(
-    (mission) =>
-      mission.supervisorSeatId === supervisorSeatId &&
-      (mission.status === "active" || mission.status === "paused"),
-  );
-}
-
-export function resolveSupervisionBoundModelSelection(input: {
-  readonly fallback: ModelSelection;
-  readonly runtime: ProfileRuntimeConfig | null;
-}): ModelSelection {
-  const runtime = input.runtime;
-  if (runtime === null) return input.fallback;
-  if (runtime.provider === "codex") {
-    return buildModelSelection(
-      "codex",
-      runtime.model,
-      runtime.reasoningEffort ? { reasoningEffort: runtime.reasoningEffort } : undefined,
-    );
-  }
-  return buildModelSelection(runtime.provider, runtime.model);
-}
+export const replaySupervisedGovernanceEvents = (
+  events: ReadonlyArray<SupervisedGovernanceDomainEvent>,
+  seedProfiles: ReadonlyArray<ProfilePreset> = [],
+): SupervisedGovernanceDecisionState =>
+  events.reduce(projectSupervisedGovernanceDecisionEvent, {
+    ...createEmptySupervisedGovernanceState(),
+    profiles: [...seedProfiles],
+  });

@@ -9,7 +9,7 @@ import {
   ThreadId,
   ThreadMarkerId,
   TurnId,
-  emptySupervisionSnapshot,
+  emptySupervisedOrchestrationSnapshot,
   type OrchestrationReadModel,
   type OrchestrationShellStreamEvent,
   type ThreadMarker,
@@ -35,7 +35,7 @@ import {
 import type { AppState } from "./storeState";
 import { getThreadFromState } from "./threadDerivation";
 
-const EMPTY_SUPERVISION = emptySupervisionSnapshot("2026-02-27T00:00:00.000Z");
+const EMPTY_SUPERVISION = emptySupervisedOrchestrationSnapshot("2026-02-27T00:00:00.000Z");
 import {
   makeThread,
   makeActivity,
@@ -50,21 +50,21 @@ import {
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type Thread } from "./types";
 
 describe("store projection", () => {
-  it("replaces the supervision slice when a live shell update arrives", () => {
+  it("replaces the canonical supervised orchestration slice when a live shell update arrives", () => {
     const initial = makeState(makeThread());
-    const supervision = {
-      ...initial.supervision,
-      snapshotSequence: 12,
+    const supervisedOrchestration = {
+      ...initial.supervisedOrchestration,
+      revision: 12,
       updatedAt: "2026-08-03T12:00:00.000Z",
     };
 
     const next = applyShellEvent(initial, {
-      kind: "supervision-updated",
+      kind: "supervised-orchestration-updated",
       sequence: 12,
-      supervision,
+      supervisedOrchestration,
     } satisfies OrchestrationShellStreamEvent);
 
-    expect(next.supervision).toBe(supervision);
+    expect(next.supervisedOrchestration).toBe(supervisedOrchestration);
   });
 
   it("preserves a semantic branch when a temp worktree branch arrives from the read model", () => {
@@ -249,7 +249,7 @@ describe("store projection", () => {
 
   it("reuses the existing project slot for shell upserts that keep the same workspace root", () => {
     const initialState: AppState = {
-      supervision: EMPTY_SUPERVISION,
+      supervisedOrchestration: EMPTY_SUPERVISION,
       spaces: [],
       projects: [
         makeProject({
@@ -291,7 +291,7 @@ describe("store projection", () => {
   it("moves shell projects to Void with the deletion timestamp", () => {
     const spaceId = SpaceId.makeUnsafe("space-shell-delete");
     const initialState: AppState = {
-      supervision: EMPTY_SUPERVISION,
+      supervisedOrchestration: EMPTY_SUPERVISION,
       spaces: [
         {
           id: spaceId,
@@ -330,7 +330,7 @@ describe("store projection", () => {
   it("drops descendant thread state when a shell project removal arrives", () => {
     const initialState = syncServerReadModel(
       {
-        supervision: EMPTY_SUPERVISION,
+        supervisedOrchestration: EMPTY_SUPERVISION,
         spaces: [],
         projects: [
           makeProject({

@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState, type ReactNode } from "react";
 
 import { supervisedRuntimeQueryOptions } from "~/lib/supervisedRuntime";
+import { isPeerModelSessionRole } from "~/lib/supervisedOrchestration";
 import { makeSupervisedSyntheticEvent } from "~/lib/supervisedSyntheticEvent";
 import { readNativeApi } from "~/nativeApi";
 import { cn } from "~/lib/utils";
@@ -261,7 +262,7 @@ function ActivityPanel(props: {
         .map((intervention) => ({
           id: `intervention:${intervention.id}`,
           title: "Governed intervention",
-          description: `${intervention.requestedBy.actorId} → Specialist ${intervention.specialistThreadId} · Lead notification and reconciliation are durable`,
+          description: `${intervention.requestedBy.actorId} → Peer ${intervention.specialistThreadId} · Lead notification and reconciliation are durable`,
           status: intervention.status,
           at: intervention.updatedAt,
         })),
@@ -442,7 +443,11 @@ export function SupervisedOperationsDock(props: {
       .toSorted((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
     if (!session) return;
     setConversationGroup(
-      session.role === "lead" ? "lead" : session.role === "specialist" ? "specialists" : "rlm",
+      session.role === "lead"
+        ? "lead"
+        : isPeerModelSessionRole(session.role)
+          ? "peers"
+          : "rlm",
     );
     setSelectedSessionId(session.id);
     setTab("conversation");

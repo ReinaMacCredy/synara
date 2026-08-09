@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 
 import {
+  emptySupervisedGovernanceSnapshot,
   emptySupervisedRuntimeSnapshot,
-  emptySupervisionSnapshot,
   type OrchestrationCommand,
   type ProjectId,
   type Room,
-  type SupervisionSnapshot,
+  type SupervisedGovernanceSnapshot,
 } from "@synara/contracts";
 import { Effect } from "effect";
 import { describe, it } from "vitest";
@@ -26,20 +26,33 @@ const room = (status: Room["status"], leadSeatId: Room["leadSeatId"] = null): Ro
   createdAt: now,
   updatedAt: now,
 });
-const supervision: SupervisionSnapshot = {
-  ...emptySupervisionSnapshot(now),
-  leads: [
+const governance: SupervisedGovernanceSnapshot = {
+  ...emptySupervisedGovernanceSnapshot(now),
+  agentSeats: [
     {
-      id: "lead-1" as SupervisionSnapshot["leads"][number]["id"],
+      id: "lead-1" as SupervisedGovernanceSnapshot["agentSeats"][number]["id"],
+      workspaceId:
+        "workspace-1" as SupervisedGovernanceSnapshot["agentSeats"][number]["workspaceId"],
+      roomIds: ["thread-1" as Room["id"]],
+      identityRole: "lead",
+      effectiveRole: "lead",
+      profileId: "profile-1" as SupervisedGovernanceSnapshot["agentSeats"][number]["profileId"],
+      providerSessionId: null,
+      lifecycleState: "active",
+      workState: "idle",
+      authorityReceiptId:
+        "receipt-1" as SupervisedGovernanceSnapshot["agentSeats"][number]["authorityReceiptId"],
+      threadId: "thread-1" as SupervisedGovernanceSnapshot["agentSeats"][number]["threadId"],
       projectId,
-      activeThreadId: "thread-1" as SupervisionSnapshot["leads"][number]["activeThreadId"],
+      profileSnapshotId:
+        "profile-1" as SupervisedGovernanceSnapshot["agentSeats"][number]["profileSnapshotId"],
       predecessorThreadIds: [],
-      profileSnapshotId: "profile-1" as SupervisionSnapshot["leads"][number]["profileSnapshotId"],
-      status: "active",
+      displayName: null,
       createdAt: now,
-      updatedAt: now,
-      archivedAt: null,
+      retainedAt: null,
+      retiredAt: null,
       revision: 0,
+      updatedAt: now,
     },
   ],
 };
@@ -75,7 +88,7 @@ describe("server-owned Lead Room lifecycle", () => {
       decideSupervisedRoomLifecycleForThreadCommand({
         command: turnStart as Extract<OrchestrationCommand, { type: "thread.turn.start" }>,
         projectId,
-        supervision,
+        governance,
         runtime: { ...emptySupervisedRuntimeSnapshot(now), rooms: [room("draft")] },
       }),
     );
@@ -90,7 +103,7 @@ describe("server-owned Lead Room lifecycle", () => {
       decideSupervisedRoomLifecycleForThreadCommand({
         command: sessionSet("ready") as Extract<OrchestrationCommand, { type: "thread.session.set" }>,
         projectId,
-        supervision,
+        governance,
         runtime: {
           ...emptySupervisedRuntimeSnapshot(now),
           rooms: [room("provisioning", "lead-1" as Room["leadSeatId"])],
@@ -106,7 +119,7 @@ describe("server-owned Lead Room lifecycle", () => {
       decideSupervisedRoomLifecycleForThreadCommand({
         command: sessionSet("error") as Extract<OrchestrationCommand, { type: "thread.session.set" }>,
         projectId,
-        supervision,
+        governance,
         runtime: {
           ...emptySupervisedRuntimeSnapshot(now),
           rooms: [room("provisioning", "lead-1" as Room["leadSeatId"])],
@@ -122,7 +135,7 @@ describe("server-owned Lead Room lifecycle", () => {
       decideSupervisedRoomLifecycleForThreadCommand({
         command: turnStart as Extract<OrchestrationCommand, { type: "thread.turn.start" }>,
         projectId,
-        supervision,
+        governance,
         runtime: {
           ...emptySupervisedRuntimeSnapshot(now),
           rooms: [room("active", "lead-stale" as Room["leadSeatId"])],

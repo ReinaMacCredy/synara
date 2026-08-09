@@ -1,14 +1,15 @@
 import assert from "node:assert/strict";
+
 import { describe, it } from "vitest";
 
-import type { Specialist, SpecialistSnapshot } from "@synara/contracts";
+import type { PeerSpecialty, PeerSpecialtySnapshot } from "@synara/contracts";
 
-import { mayResumeSpecialist } from "./RetainedSpecialists.ts";
+import { mayResumePeerSpecialty } from "./RetainedPeerSpecialties.ts";
 
 const now = "2026-08-07T00:00:00.000Z";
-const hash = `sha256:${"a".repeat(64)}` as SpecialistSnapshot["profileContentHash"];
-const specialist = {
-  id: "specialist-1",
+const hash = `sha256:${"a".repeat(64)}` as PeerSpecialtySnapshot["profileContentHash"];
+const specialty = {
+  id: "peer-specialty-1",
   profilePresetId: "profile-1",
   concern: "security",
   status: "retained",
@@ -18,10 +19,10 @@ const specialist = {
   revision: 1,
   createdAt: now,
   updatedAt: now,
-} as Specialist;
+} as PeerSpecialty;
 const snapshot = {
   id: "snapshot-1",
-  specialistId: "specialist-1",
+  peerSpecialtyId: "peer-specialty-1",
   profileContentHash: hash,
   contextRefs: [],
   evidenceRefs: [],
@@ -29,12 +30,12 @@ const snapshot = {
   compatibleSchemaVersions: ["1.0.0"],
   createdAt: now,
   expiresAt: "2026-08-08T00:00:00.000Z",
-} as SpecialistSnapshot;
+} as PeerSpecialtySnapshot;
 
-describe("Retained specialists", () => {
+describe("Retained Peer specialties", () => {
   it("resumes only sanitized, compatible, scoped snapshots", () => {
-    const decision = mayResumeSpecialist({
-      specialist,
+    const decision = mayResumePeerSpecialty({
+      specialty,
       snapshot,
       requestedScope: { kind: "project", projectId: "project-1" as never },
       activeProfileContentHash: hash,
@@ -43,8 +44,8 @@ describe("Retained specialists", () => {
     });
     assert.equal(decision.allowed, true);
     assert.equal(
-      mayResumeSpecialist({
-        specialist,
+      mayResumePeerSpecialty({
+        specialty,
         snapshot: { ...snapshot, sanitized: false },
         requestedScope: { kind: "project", projectId: "project-1" as never },
         activeProfileContentHash: hash,

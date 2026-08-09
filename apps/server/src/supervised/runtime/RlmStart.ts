@@ -492,7 +492,7 @@ export function startRlm(input: StartRlmInput) {
         taskNodeId: run.taskNodeId,
         rlmEpisodeId: episode.id,
         parentSessionId: inputTrace.parentSessionId,
-        specialistId: null,
+        peerSpecialtyId: null,
         threadId: inputTrace.threadId,
         role: inputTrace.role,
         title: inputTrace.title,

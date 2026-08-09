@@ -16,7 +16,6 @@ import {
   SpaceId,
   TaskProcessId,
   ThreadId,
-  SupervisionAggregateId,
 } from "@synara/contracts";
 import { ServiceMap } from "effect";
 import type { Effect, Stream } from "effect";

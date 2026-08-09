@@ -4,6 +4,7 @@ import {
   TaskProcessDomainEvent,
   SupervisionDomainEvent,
   SupervisedDomainEvent,
+  SupervisedGovernanceDomainEvent,
   type OrchestrationEvent,
 } from "@synara/contracts";
 import {
@@ -36,10 +37,12 @@ import {
 } from "../../persistence/Services/ProjectionPendingInteractions.ts";
 import { ProjectionProjectRepository } from "../../persistence/Services/ProjectionProjects.ts";
 import { ProjectionTaskProcessRepository } from "../../persistence/Services/ProjectionTaskProcess.ts";
-import { ProjectionSupervisionRepository } from "../../persistence/Services/ProjectionSupervision.ts";
 import { SupervisedGovernanceRepository } from "../../persistence/Services/SupervisedGovernanceRepository.ts";
 import { SupervisedRuntimeRepository } from "../../persistence/Services/SupervisedRuntimeRepository.ts";
-import { reconcileLegacyGovernance } from "../../supervised/governance/LegacyReconciliation.ts";
+import {
+  governanceDecisionStateFromSnapshot,
+  reconcileGovernanceProjection,
+} from "../../supervised/governance/GovernanceReconciliation.ts";
 import { ProjectionSpaceRepository } from "../../persistence/Services/ProjectionSpaces.ts";
 import { ProjectionStateRepository } from "../../persistence/Services/ProjectionState.ts";
 import { ProjectionThreadActivityRepository } from "../../persistence/Services/ProjectionThreadActivities.ts";
@@ -64,7 +67,6 @@ import {
 import { ProjectionPendingInteractionRepositoryLive } from "../../persistence/Layers/ProjectionPendingInteractions.ts";
 import { ProjectionProjectRepositoryLive } from "../../persistence/Layers/ProjectionProjects.ts";
 import { ProjectionTaskProcessRepositoryLive } from "../../persistence/Layers/ProjectionTaskProcess.ts";
-import { ProjectionSupervisionRepositoryLive } from "../../persistence/Layers/ProjectionSupervision.ts";
 import { SupervisedGovernanceRepositoryLive } from "../../persistence/Layers/SupervisedGovernanceRepository.ts";
 import { SupervisedRuntimeRepositoryLive } from "../../persistence/Layers/SupervisedRuntimeRepository.ts";
 import { ProjectionSpaceRepositoryLive } from "../../persistence/Layers/ProjectionSpaces.ts";
@@ -106,7 +108,11 @@ import {
   projectTaskProcessEvent,
   type TaskProcessAggregateState,
 } from "../taskProcess/projector.ts";
-import { projectSupervisionEvent } from "../supervision/projector.ts";
+import {
+  projectSupervisedGovernanceEvent,
+  upcastLegacySupervisionEvent,
+} from "../supervised/governanceProjection.ts";
+import { projectSupervisedGovernanceDecisionEvent } from "../supervised/governanceProjector.ts";
 
 export const ORCHESTRATION_PROJECTOR_NAMES = {
   hot: "projection.hot",
@@ -123,7 +129,6 @@ export const ORCHESTRATION_PROJECTOR_NAMES = {
   // widened projector replays approval and user-input history exactly once.
   pendingInteractions: "projection.pending-approvals",
   taskProcess: "projection.task-process",
-  supervision: "projection.supervision",
   supervised: "projection.supervised",
 } as const;
 
@@ -492,7 +497,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
   const projectionStateRepository = yield* ProjectionStateRepository;
   const projectionProjectRepository = yield* ProjectionProjectRepository;
   const projectionTaskProcessRepository = yield* ProjectionTaskProcessRepository;
-  const projectionSupervisionRepository = yield* ProjectionSupervisionRepository;
   const supervisedGovernanceRepository = yield* SupervisedGovernanceRepository;
   const supervisedRuntimeRepository = yield* SupervisedRuntimeRepository;
   const projectionSpaceRepository = yield* ProjectionSpaceRepository;
@@ -583,28 +587,59 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
 
   const reconcileGovernance = (at: string) =>
     Effect.gen(function* () {
-      const supervision = yield* projectionSupervisionRepository.getSnapshot();
       const runtime = yield* supervisedRuntimeRepository.getSnapshot({ includeDisabled: true });
       const governance = yield* supervisedGovernanceRepository.getSnapshot();
-      const reconciled = reconcileLegacyGovernance({ governance, supervision, runtime, at });
+      const state = governanceDecisionStateFromSnapshot({ governance, runtime });
+      const reconciled = reconcileGovernanceProjection({
+        governance,
+        state,
+        runtime,
+        at,
+        source: "canonical",
+      });
       if (reconciled !== governance) {
         yield* supervisedGovernanceRepository.replaceSnapshot(reconciled);
       }
     });
 
-  const applySupervisionProjection: ProjectorDefinition["apply"] = (event) => {
-    if (!Schema.is(SupervisionDomainEvent)(event)) return Effect.void;
-    return Effect.gen(function* () {
-      const current = yield* projectionSupervisionRepository.getSnapshot();
-      const next = projectSupervisionEvent(current, event);
-      yield* projectionSupervisionRepository.replaceSnapshot(next);
-      yield* reconcileGovernance(event.occurredAt);
-    });
-  };
-
   const applySupervisedProjection: ProjectorDefinition["apply"] = (event) => {
-    if (!Schema.is(SupervisedDomainEvent)(event)) return Effect.void;
+    if (
+      !Schema.is(SupervisedDomainEvent)(event) &&
+      !Schema.is(SupervisedGovernanceDomainEvent)(event) &&
+      !Schema.is(SupervisionDomainEvent)(event)
+    ) {
+      return Effect.void;
+    }
     return Effect.gen(function* () {
+      if (
+        Schema.is(SupervisionDomainEvent)(event) ||
+        Schema.is(SupervisedGovernanceDomainEvent)(event)
+      ) {
+        const runtime = yield* supervisedRuntimeRepository.getSnapshot({ includeDisabled: true });
+        const governance = yield* supervisedGovernanceRepository.getSnapshot();
+        const current = governanceDecisionStateFromSnapshot({ governance, runtime });
+        const canonicalEvent =
+          event.aggregateKind === "supervised_governance"
+            ? event
+            : upcastLegacySupervisionEvent(event);
+        const next = projectSupervisedGovernanceDecisionEvent(current, canonicalEvent);
+        const staged = {
+          ...governance,
+          orchestration: projectSupervisedGovernanceEvent(
+            governance.orchestration,
+            canonicalEvent,
+          ),
+        };
+        const reconciled = reconcileGovernanceProjection({
+          governance: staged,
+          state: next,
+          runtime,
+          at: event.occurredAt,
+          source: event.aggregateKind === "supervision" ? "legacy" : "canonical",
+        });
+        yield* supervisedGovernanceRepository.replaceSnapshot(reconciled);
+        return;
+      }
       yield* supervisedRuntimeRepository.applyDomainEvent(event);
       yield* reconcileGovernance(event.occurredAt);
     });
@@ -1910,15 +1945,12 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
       apply: applyTaskProcessProjection,
     },
     {
-      name: ORCHESTRATION_PROJECTOR_NAMES.supervision,
-      phase: "hot",
-      shouldApply: Schema.is(SupervisionDomainEvent),
-      apply: applySupervisionProjection,
-    },
-    {
       name: ORCHESTRATION_PROJECTOR_NAMES.supervised,
       phase: "hot",
-      shouldApply: Schema.is(SupervisedDomainEvent),
+      shouldApply: (event) =>
+        Schema.is(SupervisedDomainEvent)(event) ||
+        Schema.is(SupervisedGovernanceDomainEvent)(event) ||
+        Schema.is(SupervisionDomainEvent)(event),
       apply: applySupervisedProjection,
     },
     {
@@ -2363,7 +2395,6 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   Layer.provideMerge(NodeServices.layer),
   Layer.provideMerge(ProjectionProjectRepositoryLive),
   Layer.provideMerge(ProjectionTaskProcessRepositoryLive),
-  Layer.provideMerge(ProjectionSupervisionRepositoryLive),
   Layer.provideMerge(SupervisedGovernanceRepositoryLive),
   Layer.provideMerge(SupervisedRuntimeRepositoryLive),
   Layer.provideMerge(ProjectionSpaceRepositoryLive),

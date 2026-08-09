@@ -3,7 +3,7 @@
 // Exports: Minimal normalized-state and orchestration payload fixtures.
 
 import {
-  emptySupervisionSnapshot,
+  emptySupervisedOrchestrationSnapshot,
   EventId,
   ProjectId,
   ThreadId,
@@ -119,7 +119,7 @@ export function makeState(thread: Thread): AppState {
   return {
     spaces: [],
     projects: [makeProject()],
-    supervision: emptySupervisionSnapshot(new Date(0).toISOString()),
+    supervisedOrchestration: emptySupervisedOrchestrationSnapshot(new Date(0).toISOString()),
     sidebarThreadSummaryById: {},
     threadsHydrated: true,
     threadIds: [thread.id],

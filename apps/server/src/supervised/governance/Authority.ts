@@ -7,7 +7,7 @@ import type {
 const rootOwnedCommands = new Set<SupervisedCommand["type"]>([
   "supervised.room.update",
   "supervised.task.create",
-  "supervised.specialist.create",
+  "supervised.peer.create",
   "supervised.compaction.request",
   "supervised.handoff.request",
 ]);
@@ -62,7 +62,7 @@ function commandRoomId(
         ? null
         : runtime.runs.find((run) => run.id === lease.runId)?.roomId ?? null;
     }
-    case "supervised.specialist.create":
+    case "supervised.peer.create":
     case "supervised.compaction.request":
     case "supervised.handoff.request":
       return command.roomId;
