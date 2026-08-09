@@ -6,8 +6,15 @@ import {
   AgentSeat,
   EffectiveAuthorityReceipt,
   RootAuthorityLease,
+  SupervisedGovernanceSnapshot,
+  SupervisedRuntimeSnapshot,
+  SupervisionSnapshot,
+  emptySupervisedGovernanceSnapshot,
+  emptySupervisedRuntimeSnapshot,
+  emptySupervisionSnapshot,
 } from "@synara/contracts";
 
+import { reconcileLegacyGovernance } from "../../supervised/governance/LegacyReconciliation.ts";
 import { runMigrations } from "../Migrations.ts";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 
@@ -102,6 +109,88 @@ schemaLayer("migration 100 Supervisor-first governance", (it) => {
       assert.deepStrictEqual(receipt.allowedTools, []);
       assert.equal(lease.holderSeatId, "lead-seat-1");
       assert.equal(lease.status, "active");
+      assert.equal(lease.id, "legacy-root-lease:room-1:lead-seat-1");
+
+      const supervision = Schema.decodeUnknownSync(SupervisionSnapshot)({
+        ...emptySupervisionSnapshot(now),
+        leads: [
+          {
+            id: "lead-seat-1",
+            projectId: "project-1",
+            activeThreadId: "lead-thread",
+            predecessorThreadIds: [],
+            profileSnapshotId: "profile-snapshot-1",
+            status: "active",
+            createdAt: now,
+            updatedAt: now,
+            archivedAt: null,
+            revision: 1,
+          },
+        ],
+      });
+      const runtime = Schema.decodeUnknownSync(SupervisedRuntimeSnapshot)({
+        ...emptySupervisedRuntimeSnapshot(now),
+        rooms: [
+          {
+            id: "room-1",
+            projectId: "project-1",
+            title: "Room",
+            leadSeatId: "lead-seat-1",
+            status: "active",
+            graphRevision: 0,
+            revision: 1,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+      });
+      const migrated = Schema.decodeUnknownSync(SupervisedGovernanceSnapshot)({
+        ...emptySupervisedGovernanceSnapshot(now),
+        workspaces: [
+          {
+            id: "workspace:default",
+            ownerNamespace: "local",
+            title: "Local Supervised Workspace",
+            lifecycleState: "active",
+            revision: 0,
+            createdAt: "1970-01-01T00:00:00.000Z",
+            updatedAt: "1970-01-01T00:00:00.000Z",
+          },
+        ],
+        authorityReceipts: [receipt],
+        agentSeats: [seat],
+        rootLeases: [lease],
+      });
+      const reconciledMigration = reconcileLegacyGovernance({
+        governance: migrated,
+        supervision,
+        runtime,
+        at: now,
+      });
+      const reconciledRuntime = reconcileLegacyGovernance({
+        governance: emptySupervisedGovernanceSnapshot(now),
+        supervision,
+        runtime,
+        at: now,
+      });
+      const migrationSeat = reconciledMigration.agentSeats.find(
+        (candidate) => candidate.id === "lead-seat-1",
+      )!;
+      const runtimeSeat = reconciledRuntime.agentSeats.find(
+        (candidate) => candidate.id === "lead-seat-1",
+      )!;
+      const migrationReceipt = reconciledMigration.authorityReceipts.find(
+        (candidate) => candidate.id === migrationSeat.authorityReceiptId,
+      )!;
+      const runtimeReceipt = reconciledRuntime.authorityReceipts.find(
+        (candidate) => candidate.id === runtimeSeat.authorityReceiptId,
+      )!;
+      assert.deepStrictEqual(migrationSeat, runtimeSeat);
+      assert.deepStrictEqual(migrationReceipt, runtimeReceipt);
+      assert.deepStrictEqual(
+        reconciledMigration.rootLeases.map(({ acquiredUnderReceiptId: _, ...item }) => item),
+        reconciledRuntime.rootLeases.map(({ acquiredUnderReceiptId: _, ...item }) => item),
+      );
 
       const duplicateLease = yield* Effect.exit(sql`
         INSERT INTO projection_supervised_root_authority_leases (

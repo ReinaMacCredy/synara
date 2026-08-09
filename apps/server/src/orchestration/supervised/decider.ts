@@ -1,6 +1,7 @@
 import type {
   SupervisedCommand,
   SupervisedDomainEvent,
+  SupervisedGovernanceSnapshot,
   SupervisedRuntimeSnapshot,
 } from "@synara/contracts";
 import { EventId } from "@synara/contracts";
@@ -13,6 +14,7 @@ import {
   type RunResourceUsage,
 } from "../../supervised/runtime/RunPolicy.ts";
 import { transitionRoom } from "../../supervised/governance/Lifecycle.ts";
+import { validateSupervisedSeatAuthority } from "../../supervised/governance/Authority.ts";
 
 type UnsequencedEvent = Omit<SupervisedDomainEvent, "sequence">;
 
@@ -223,8 +225,15 @@ function event(
 export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(function* (input: {
   readonly command: SupervisedCommand;
   readonly state: SupervisedRuntimeSnapshot;
+  readonly governance?: SupervisedGovernanceSnapshot;
 }): Effect.fn.Return<UnsequencedEvent, OrchestrationCommandInvariantError> {
   const { command, state } = input;
+  const seatAuthorityError = validateSupervisedSeatAuthority({
+    command,
+    runtime: state,
+    governance: input.governance,
+  });
+  if (seatAuthorityError !== null) return yield* reject(command, seatAuthorityError);
   yield* requirePluginAuthority(command, state);
   switch (command.type) {
     case "supervised.room.create": {
@@ -249,6 +258,27 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
       );
       if (!current) return yield* reject(command, "Room does not exist.");
       yield* requireRevision(command, current.revision);
+      if (
+        current.projectId !== command.room.projectId &&
+        (current.status !== "draft" || current.leadSeatId !== null)
+      ) {
+        return yield* reject(
+          command,
+          "Room Project can only change while the Room is an unassigned draft.",
+        );
+      }
+      if (current.leadSeatId !== command.room.leadSeatId) {
+        if (
+          current.status !== "draft" ||
+          current.leadSeatId !== null ||
+          command.room.leadSeatId === null
+        ) {
+          return yield* reject(
+            command,
+            "Room Lead authority can only be assigned once while the Room is draft; later changes require the Root transfer saga.",
+          );
+        }
+      }
       let room;
       try {
         room =
@@ -312,12 +342,12 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
       if (state.runs.some((run) => run.id === command.run.id)) {
         return yield* reject(command, "Run already exists.");
       }
-        if (!state.runPolicies.some((policy) => policy.id === command.run.policyId)) {
-          return yield* reject(command, "RunPolicy does not exist.");
-        }
-        if (command.run.status !== "queued") {
-          return yield* reject(command, "A requested Run must begin queued.");
-        }
+      if (!state.runPolicies.some((policy) => policy.id === command.run.policyId)) {
+        return yield* reject(command, "RunPolicy does not exist.");
+      }
+      if (command.run.status !== "queued") {
+        return yield* reject(command, "A requested Run must begin queued.");
+      }
       yield* requireRevision(command, null);
       return event(command, "supervised.run-requested", "supervised_run", command.run.revision, {
         run: command.run,
@@ -325,12 +355,20 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
     }
     case "supervised.run.transition": {
       const current = state.runs.find((run) => run.id === command.runId);
-      yield* requireHumanOrMatchingSeat(
-        command,
-        [current?.ownerSeatId],
-        "Only the Human or Run owner may transition this Run.",
-      );
       if (!current) return yield* reject(command, "Run does not exist.");
+      if (
+        !(
+          command.actor.kind === "daemon" &&
+          current.status === "interrupted" &&
+          command.status === "recovering"
+        )
+      ) {
+        yield* requireHumanOrMatchingSeat(
+          command,
+          [current.ownerSeatId],
+          "Only the Human or Run owner may transition this Run.",
+        );
+      }
       yield* requireRevision(command, current.revision);
       let run;
       try {
@@ -343,7 +381,7 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
         metadata: { reason: command.reason },
       });
     }
-      case "supervised.run-policy.upsert": {
+    case "supervised.run-policy.upsert": {
       yield* requireHuman(command, "Only the Human may change a RunPolicy.");
       const current = state.runPolicies.find(
         (policy) => policy.id === command.runPolicy.id,

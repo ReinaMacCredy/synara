@@ -587,7 +587,9 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
       const runtime = yield* supervisedRuntimeRepository.getSnapshot({ includeDisabled: true });
       const governance = yield* supervisedGovernanceRepository.getSnapshot();
       const reconciled = reconcileLegacyGovernance({ governance, supervision, runtime, at });
-      yield* supervisedGovernanceRepository.replaceSnapshot(reconciled);
+      if (reconciled !== governance) {
+        yield* supervisedGovernanceRepository.replaceSnapshot(reconciled);
+      }
     });
 
   const applySupervisionProjection: ProjectorDefinition["apply"] = (event) => {

@@ -234,4 +234,31 @@ testLayer("SupervisedGovernanceRepository", (it) => {
       assert.equal(reloaded.revision, before.revision + 1);
     }),
   );
+
+  it.effect("reinserts notebook supersession chains in foreign-key order", () =>
+    Effect.gen(function* () {
+      const repository = yield* SupervisedGovernanceRepository;
+      const before = yield* repository.getSnapshot();
+      const predecessor = snapshot.notebookEntries[0]!;
+      const successor = {
+        ...predecessor,
+        id: "notebook-2" as typeof predecessor.id,
+        content: "Updated observation.",
+        supersedesEntryId: predecessor.id,
+        createdAt: "2026-08-09T00:01:00.000Z",
+      };
+
+      yield* repository.replaceSnapshot({
+        ...snapshot,
+        revision: before.revision,
+        notebookEntries: [successor, predecessor],
+      });
+      const reloaded = yield* repository.getSnapshot();
+
+      assert.deepStrictEqual(
+        reloaded.notebookEntries.map((entry) => entry.id),
+        [successor.id, predecessor.id],
+      );
+    }),
+  );
 });

@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { it } from "@effect/vitest";
 import { Effect, Layer, Schema } from "effect";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import {
   ControlPlaneEvent,
   DerivedSignal,
+  SupervisedDomainEvent,
   SubscriptionDefinition,
   SubscriptionDelivery,
 } from "@synara/contracts";
@@ -57,6 +59,73 @@ const subscription = Schema.decodeUnknownSync(SubscriptionDefinition)({
 });
 
 testLayer("SupervisedRuntimeRepository", (it) => {
+  it.effect("updates the indexed Room Project when a draft moves", () =>
+    Effect.gen(function* () {
+      const repository = yield* SupervisedRuntimeRepository;
+      const sql = yield* SqlClient.SqlClient;
+      const room = {
+        id: "room-project-move",
+        projectId: "project-original",
+        title: "Room",
+        leadSeatId: null,
+        status: "draft",
+        graphRevision: 0,
+        revision: 0,
+        createdAt: now,
+        updatedAt: now,
+      } as const;
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id, kind, title, workspace_root, scripts_json, created_at, updated_at
+        ) VALUES
+          ('project-original', 'project', 'Original', '/tmp/original', '[]', ${now}, ${now}),
+          ('project-selected', 'project', 'Selected', '/tmp/selected', '[]', ${now}, ${now})
+      `;
+      const event = (input: {
+        sequence: number;
+        eventId: string;
+        type: "supervised.room-created" | "supervised.room-updated";
+        room: typeof room | (Omit<typeof room, "projectId" | "revision"> & {
+          projectId: "project-selected";
+          revision: 1;
+        });
+      }) =>
+        Schema.decodeUnknownSync(SupervisedDomainEvent)({
+          sequence: input.sequence,
+          eventId: input.eventId,
+          aggregateKind: "supervised_room",
+          aggregateId: room.id,
+          type: input.type,
+          payload: { acceptedRevision: input.room.revision, actor, room: input.room },
+          occurredAt: now,
+          commandId: null,
+          causationEventId: null,
+          correlationId: null,
+          metadata: { schemaVersion: "1.0.0" },
+        });
+
+      yield* repository.applyDomainEvent(
+        event({ sequence: 1, eventId: "event-room-created", type: "supervised.room-created", room }),
+      );
+      yield* repository.applyDomainEvent(
+        event({
+          sequence: 2,
+          eventId: "event-room-moved",
+          type: "supervised.room-updated",
+          room: { ...room, projectId: "project-selected", revision: 1 },
+        }),
+      );
+
+      const rows = yield* sql<{ readonly projectId: string; readonly jsonProjectId: string }>`
+        SELECT project_id AS "projectId", json_extract(entity_json, '$.projectId') AS "jsonProjectId"
+        FROM projection_supervised_rooms
+        WHERE room_id = ${room.id}
+      `;
+      assert.equal(rows[0]?.projectId, "project-selected");
+      assert.equal(rows[0]?.jsonProjectId, "project-selected");
+    }),
+  );
+
   it.effect("appends facts idempotently and replays from a durable cursor", () =>
     Effect.gen(function* () {
       const repository = yield* SupervisedRuntimeRepository;

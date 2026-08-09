@@ -77,7 +77,9 @@ describe("legacy Supervised reconciliation", () => {
     const decoded = Schema.decodeUnknownSync(SupervisedGovernanceSnapshot)(reconciled);
 
     assert.equal(decoded.agentSeats[0]?.identityRole, "lead");
-    assert.deepStrictEqual(decoded.authorityReceipts[0]?.allowedCommands, []);
+    assert.deepStrictEqual(decoded.authorityReceipts[0]?.allowedCommands, [
+      "supervised.specialist.create",
+    ]);
     assert.equal(decoded.rootLeases.length, 1);
     assert.equal(decoded.rootLeases[0]?.holderSeatId, "lead-seat-1");
   });
@@ -197,5 +199,79 @@ describe("legacy Supervised reconciliation", () => {
     assert.equal(reconciled.agentSeats[0]?.profileId, "canonical-profile");
     assert.equal(reconciled.authorityReceipts.length, 1);
     assert.equal(reconciled.rootLeases[0]?.acquiredUnderReceiptId, "canonical-receipt");
+  });
+
+  it("keeps authority receipts append-only and skips unchanged rewrites", () => {
+    const supervision = Schema.decodeUnknownSync(SupervisionSnapshot)({
+      ...emptySupervisionSnapshot(now),
+      leads: [
+        {
+          id: "lead-seat-1",
+          projectId: "project-1",
+          activeThreadId: "thread-1",
+          predecessorThreadIds: [],
+          profileSnapshotId: "profile-snapshot-1",
+          status: "active",
+          createdAt: now,
+          updatedAt: now,
+          archivedAt: null,
+          revision: 1,
+        },
+      ],
+    });
+    const firstRuntime = Schema.decodeUnknownSync(SupervisedRuntimeSnapshot)({
+      ...emptySupervisedRuntimeSnapshot(now),
+      rooms: [
+        {
+          id: "room-1",
+          projectId: "project-1",
+          title: "Room one",
+          leadSeatId: "lead-seat-1",
+          status: "active",
+          graphRevision: 0,
+          revision: 1,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ],
+    });
+    const first = reconcileLegacyGovernance({
+      governance: emptySupervisedGovernanceSnapshot(now),
+      supervision,
+      runtime: firstRuntime,
+      at: now,
+    });
+    const unchanged = reconcileLegacyGovernance({
+      governance: first,
+      supervision,
+      runtime: firstRuntime,
+      at: now,
+    });
+    assert.strictEqual(unchanged, first);
+
+    const expanded = reconcileLegacyGovernance({
+      governance: first,
+      supervision,
+      runtime: {
+        ...firstRuntime,
+        rooms: [
+          ...firstRuntime.rooms,
+          {
+            ...firstRuntime.rooms[0]!,
+            id: "room-2" as typeof firstRuntime.rooms[number]["id"],
+            title: "Room two",
+            revision: 0,
+          },
+        ],
+      },
+      at: "2026-08-09T00:01:00.000Z",
+    });
+    const currentReceiptId = expanded.agentSeats.find(
+      (seat) => seat.id === "lead-seat-1",
+    )?.authorityReceiptId;
+
+    assert.equal(expanded.authorityReceipts.length, 2);
+    assert.notEqual(currentReceiptId, first.agentSeats[0]?.authorityReceiptId);
+    assert.ok(expanded.authorityReceipts.some((receipt) => receipt.id === currentReceiptId));
   });
 });

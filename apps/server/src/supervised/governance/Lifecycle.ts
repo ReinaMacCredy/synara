@@ -428,7 +428,11 @@ export function recoverGovernanceSnapshot(
       at,
     );
   });
-  const recoveringSeatIds = new Set(providerSessions.filter((session) => session.lifecycleState === "recovering").map((session) => session.seatId));
+  const recoveringSeatIds = new Set(
+    providerSessions
+      .filter((session) => session.lifecycleState === "recovering")
+      .map((session) => session.seatId),
+  );
   const agentSeats = snapshot.agentSeats.map((seat) =>
     recoveringSeatIds.has(seat.id) && seat.lifecycleState !== "recovering"
       ? {
@@ -442,13 +446,13 @@ export function recoverGovernanceSnapshot(
   const roleAssumptions = snapshot.roleAssumptions.map((assumption) => {
     if (assumption.lifecycleState === "lease_transferred") {
       actions.push({ kind: "reconcile_root_transfer", sagaId: assumption.id });
-      return transitionRoleAssumption(
-        assumption,
-        assumption.operation === "assume" ? "topology_reconciled" : "released",
-        at,
-      );
+      return assumption;
     }
-    if (["requested", "authority_validated", "destination_ready", "previous_root_notified"].includes(assumption.lifecycleState)) {
+    if (
+      ["requested", "authority_validated", "destination_ready", "previous_root_notified"].includes(
+        assumption.lifecycleState,
+      )
+    ) {
       return transitionRoleAssumption(
         assumption,
         "failed",
@@ -461,9 +465,17 @@ export function recoverGovernanceSnapshot(
   const leadReplacements = snapshot.leadReplacements.map((replacement) => {
     if (replacement.lifecycleState === "lease_transferred") {
       actions.push({ kind: "reconcile_root_transfer", sagaId: replacement.id });
-      return transitionLeadReplacement(replacement, "topology_reconciled", at);
+      return replacement;
     }
-    if (["requested", "provisioning_replacement", "replacement_ready", "handoff_prepared", "handoff_accepted"].includes(replacement.lifecycleState)) {
+    if (
+      [
+        "requested",
+        "provisioning_replacement",
+        "replacement_ready",
+        "handoff_prepared",
+        "handoff_accepted",
+      ].includes(replacement.lifecycleState)
+    ) {
       return transitionLeadReplacement(
         replacement,
         "failed",
@@ -495,4 +507,83 @@ export function recoverGovernanceSnapshot(
     : snapshot;
   assertExclusiveRootLeases(recovered);
   return { snapshot: recovered, actions };
+}
+
+export function settleGovernanceRecoveryActions(
+  snapshot: SupervisedGovernanceSnapshot,
+  actions: GovernanceRecoveryResult["actions"],
+  at: string,
+): SupervisedGovernanceSnapshot {
+  let next = snapshot;
+  for (const action of actions) {
+    if (action.kind === "resume_provider") {
+      const providerSession = next.providerSessions.find(
+        (session) => session.id === action.providerSessionId,
+      );
+      if (!providerSession || providerSession.lifecycleState !== "recovering") continue;
+      const failedProviderSession = transitionProviderSession(providerSession, "failed", at);
+      next = {
+        ...next,
+        providerSessions: next.providerSessions.map((session) =>
+          session.id === failedProviderSession.id ? failedProviderSession : session,
+        ),
+        agentSeats: next.agentSeats.map((seat) =>
+          seat.id === failedProviderSession.seatId && seat.lifecycleState === "recovering"
+            ? transitionAgentSeat(seat, "failed", at)
+            : seat,
+        ),
+        updatedAt: at,
+      };
+      continue;
+    }
+    if (action.kind === "resume_intervention") {
+      const intervention = next.directInterventions.find(
+        (candidate) => candidate.id === action.interventionId,
+      );
+      if (!intervention || intervention.lifecycleState !== "executing") continue;
+      const failedIntervention = transitionDirectIntervention(intervention, "failed", at);
+      next = {
+        ...next,
+        directInterventions: next.directInterventions.map((candidate) =>
+          candidate.id === failedIntervention.id ? failedIntervention : candidate,
+        ),
+        updatedAt: at,
+      };
+      continue;
+    }
+
+    const assumption = next.roleAssumptions.find(
+      (candidate) => candidate.id === action.sagaId,
+    );
+    if (assumption?.lifecycleState === "lease_transferred") {
+      const reconciled = transitionRoleAssumption(
+        assumption,
+        assumption.operation === "assume" ? "topology_reconciled" : "released",
+        at,
+      );
+      next = {
+        ...next,
+        roleAssumptions: next.roleAssumptions.map((candidate) =>
+          candidate.id === reconciled.id ? reconciled : candidate,
+        ),
+        updatedAt: at,
+      };
+      continue;
+    }
+    const replacement = next.leadReplacements.find(
+      (candidate) => candidate.id === action.sagaId,
+    );
+    if (replacement?.lifecycleState === "lease_transferred") {
+      const reconciled = transitionLeadReplacement(replacement, "topology_reconciled", at);
+      next = {
+        ...next,
+        leadReplacements: next.leadReplacements.map((candidate) =>
+          candidate.id === reconciled.id ? reconciled : candidate,
+        ),
+        updatedAt: at,
+      };
+    }
+  }
+  assertExclusiveRootLeases(next);
+  return next;
 }

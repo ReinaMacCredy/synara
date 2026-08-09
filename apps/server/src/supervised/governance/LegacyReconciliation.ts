@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
   AgentProfileId,
   AgentSeatId,
@@ -18,13 +20,42 @@ const liveRootStatuses = new Set(["active", "transferring", "releasing"]);
 const upsert = <T extends { readonly id: string }>(items: ReadonlyArray<T>, value: T) => {
   const index = items.findIndex((item) => item.id === value.id);
   if (index < 0) return [...items, value];
+  if (JSON.stringify(items[index]) === JSON.stringify(value)) return items;
   const next = items.slice();
   next[index] = value;
   return next;
 };
 
-const legacyReceiptId = (seatId: string) =>
-  EffectiveAuthorityReceiptId.makeUnsafe(`legacy-receipt:${seatId}`);
+const mapChanged = <T>(items: ReadonlyArray<T>, map: (item: T) => T) => {
+  let changed = false;
+  const next = items.map((item) => {
+    const mapped = map(item);
+    if (mapped !== item) changed = true;
+    return mapped;
+  });
+  return changed ? next : items;
+};
+
+const legacyReceiptId = (input: {
+  readonly seatId: string;
+  readonly role: "supervisor" | "lead" | "peer";
+  readonly roomIds: ReadonlyArray<string>;
+  readonly rootLeaseIds: ReadonlyArray<string>;
+  readonly allowedCommands: ReadonlyArray<string>;
+}) => {
+  const version = createHash("sha256")
+    .update(
+      JSON.stringify({
+        role: input.role,
+        roomIds: [...input.roomIds].sort(),
+        rootLeaseIds: [...input.rootLeaseIds].sort(),
+        allowedCommands: input.allowedCommands,
+      }),
+    )
+    .digest("hex")
+    .slice(0, 16);
+  return EffectiveAuthorityReceiptId.makeUnsafe(`legacy-receipt:${input.seatId}:${version}`);
+};
 
 const seatLifecycle = (status: string): AgentSeat["lifecycleState"] => {
   if (status === "active") return "active";
@@ -63,26 +94,36 @@ const makeReceipt = (input: {
   readonly role: "supervisor" | "lead" | "peer";
   readonly roomIds: ReadonlyArray<string>;
   readonly issuedAt: string;
-}): EffectiveAuthorityReceipt => ({
-  id: legacyReceiptId(input.seatId),
-  actorSeatId: AgentSeatId.makeUnsafe(input.seatId),
-  identityRole: input.role,
-  effectiveRole: input.role,
-  workspaceScopes: [workspaceId],
-  roomScopes: input.roomIds as EffectiveAuthorityReceipt["roomScopes"],
-  taskNodeScopes: [],
-  allowedCommands: [],
-  allowedTools: [],
-  rootLeaseIds:
+}): EffectiveAuthorityReceipt => {
+  const rootLeaseIds =
     input.role === "lead"
       ? input.roomIds.map((roomId) => rootLeaseIdFor(input.snapshot, roomId, input.seatId))
-      : [],
-  mandateIds: [],
-  runPolicyRevision: 0,
-  issuedAt: input.issuedAt,
-  expiresAt: null,
-  revokedAt: null,
-});
+      : [];
+  const allowedCommands = input.role === "lead" ? ["supervised.specialist.create"] : [];
+  return {
+    id: legacyReceiptId({
+      seatId: input.seatId,
+      role: input.role,
+      roomIds: input.roomIds,
+      rootLeaseIds,
+      allowedCommands,
+    }),
+    actorSeatId: AgentSeatId.makeUnsafe(input.seatId),
+    identityRole: input.role,
+    effectiveRole: input.role,
+    workspaceScopes: [workspaceId],
+    roomScopes: input.roomIds as EffectiveAuthorityReceipt["roomScopes"],
+    taskNodeScopes: [],
+    allowedCommands,
+    allowedTools: input.role === "lead" ? ["create_specialist"] : [],
+    rootLeaseIds,
+    mandateIds: [],
+    runPolicyRevision: 0,
+    issuedAt: input.issuedAt,
+    expiresAt: null,
+    revokedAt: null,
+  };
+};
 
 const shouldPreserveCanonicalSeat = (
   snapshot: SupervisedGovernanceSnapshot,
@@ -98,9 +139,9 @@ export function reconcileLegacyGovernance(input: {
   readonly runtime: SupervisedRuntimeSnapshot;
   readonly at: string;
 }): SupervisedGovernanceSnapshot {
-  let authorityReceipts = input.governance.authorityReceipts.slice();
-  let agentSeats = input.governance.agentSeats.slice();
-  let rootLeases = input.governance.rootLeases.slice();
+  let authorityReceipts = input.governance.authorityReceipts;
+  let agentSeats = input.governance.agentSeats;
+  let rootLeases = input.governance.rootLeases;
 
   for (const supervisor of input.supervision.supervisors) {
     if (shouldPreserveCanonicalSeat(input.governance, supervisor.id)) continue;
@@ -255,7 +296,7 @@ export function reconcileLegacyGovernance(input: {
       room.id,
       room.leadSeatId,
     );
-    rootLeases = rootLeases.map((lease) =>
+    rootLeases = mapChanged(rootLeases, (lease) =>
       lease.roomId === room.id &&
       lease.holderSeatId !== room.leadSeatId &&
       liveRootStatuses.has(lease.status) &&
@@ -276,7 +317,7 @@ export function reconcileLegacyGovernance(input: {
       roomId: room.id,
       holderSeatId: AgentSeatId.makeUnsafe(room.leadSeatId),
       status: terminal ? "released" : "active",
-      acquiredUnderReceiptId: holderSeat.authorityReceiptId,
+      acquiredUnderReceiptId: current?.acquiredUnderReceiptId ?? holderSeat.authorityReceiptId,
       predecessorLeaseId: null,
       acquiredAt: room.createdAt,
       releasedAt: terminal ? room.updatedAt : null,
@@ -301,6 +342,15 @@ export function reconcileLegacyGovernance(input: {
           updatedAt: input.at,
         },
       ];
+
+  if (
+    workspaces === input.governance.workspaces &&
+    authorityReceipts === input.governance.authorityReceipts &&
+    agentSeats === input.governance.agentSeats &&
+    rootLeases === input.governance.rootLeases
+  ) {
+    return input.governance;
+  }
 
   return {
     ...input.governance,

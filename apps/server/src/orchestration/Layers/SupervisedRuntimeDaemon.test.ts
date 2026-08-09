@@ -4,6 +4,7 @@ import type { OrchestrationCommand } from "@synara/contracts";
 import { ControlPlaneEvent, emptySupervisedGovernanceSnapshot } from "@synara/contracts";
 import { it } from "@effect/vitest";
 import { Effect, Layer, Schema } from "effect";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import { SupervisedGovernanceRepositoryLive } from "../../persistence/Layers/SupervisedGovernanceRepository.ts";
@@ -99,7 +100,7 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
     }),
   );
 
-  it.effect("recovers an interrupted governed provider session after restart", () =>
+  it.effect("leaves active provider startup alone until restart recovery", () =>
     Effect.gen(function* () {
       const daemon = yield* SupervisedRuntimeDaemon;
       const governance = yield* SupervisedGovernanceRepository;
@@ -145,7 +146,7 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
             effectiveRole: "lead",
             profileId: "profile-lead" as never,
             providerSessionId: "provider-lead",
-            lifecycleState: "active",
+            lifecycleState: "provisioning",
             workState: "idle",
             authorityReceiptId: "receipt-lead" as never,
             createdAt: now,
@@ -162,7 +163,7 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
             seatId: "lead-1" as never,
             provider: "codex",
             nativeSessionId: "native-lead",
-            lifecycleState: "interrupted",
+            lifecycleState: "creating",
             createdAt: now,
             retainedAt: null,
             closedAt: null,
@@ -172,12 +173,132 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
         ],
       });
 
-      yield* daemon.restart;
-      const recovered = yield* governance.getSnapshot();
+      yield* daemon.reconcile;
+      let recovered = yield* governance.getSnapshot();
+      assert.equal(recovered.providerSessions[0]?.lifecycleState, "creating");
+      assert.equal(recovered.agentSeats[0]?.lifecycleState, "provisioning");
 
-      assert.equal(recovered.providerSessions[0]?.lifecycleState, "recovering");
-      assert.equal(recovered.agentSeats[0]?.lifecycleState, "recovering");
+      yield* daemon.restart;
+      recovered = yield* governance.getSnapshot();
+
+      assert.equal(recovered.providerSessions[0]?.lifecycleState, "failed");
+      assert.equal(recovered.agentSeats[0]?.lifecycleState, "failed");
       assert.equal(recovered.revision, 2);
+    }),
+  );
+
+  it.effect("requests recovery for interrupted Runs only during restart", () =>
+    Effect.gen(function* () {
+      dispatched.length = 0;
+      const daemon = yield* SupervisedRuntimeDaemon;
+      const repository = yield* SupervisedRuntimeRepository;
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id, kind, title, workspace_root, scripts_json, created_at, updated_at
+        ) VALUES ('project-1', 'project', 'Project', '/tmp/project', '[]', ${at(0)}, ${at(0)})
+      `;
+      yield* repository.applyDomainEvent({
+        sequence: 1,
+        eventId: "event-room-for-interrupted-run",
+        aggregateKind: "supervised_room",
+        aggregateId: "room-1",
+        type: "supervised.room-created",
+        payload: {
+          acceptedRevision: 0,
+          actor: { kind: "daemon", actorId: "test" },
+          room: {
+            id: "room-1",
+            projectId: "project-1",
+            title: "Room",
+            leadSeatId: null,
+            status: "active",
+            graphRevision: 0,
+            revision: 0,
+            createdAt: at(0),
+            updatedAt: at(0),
+          },
+        },
+        occurredAt: at(0),
+        commandId: "command-room-for-interrupted-run",
+        causationEventId: null,
+        correlationId: "command-room-for-interrupted-run",
+        metadata: { schemaVersion: "1.0.0" },
+      } as never);
+      yield* repository.applyDomainEvent({
+        sequence: 2,
+        eventId: "event-task-for-interrupted-run",
+        aggregateKind: "supervised_task",
+        aggregateId: "task-1",
+        type: "supervised.task-created",
+        payload: {
+          acceptedRevision: 0,
+          actor: { kind: "daemon", actorId: "test" },
+          task: {
+            id: "task-1",
+            roomId: "room-1",
+            title: "Task",
+            intent: "Recover the interrupted Run.",
+            acceptanceCriteria: [],
+            lifecycle: "active",
+            activeGraphRevision: 0,
+            revision: 0,
+            createdAt: at(0),
+            updatedAt: at(0),
+          },
+        },
+        occurredAt: at(0),
+        commandId: "command-task-for-interrupted-run",
+        causationEventId: null,
+        correlationId: "command-task-for-interrupted-run",
+        metadata: { schemaVersion: "1.0.0" },
+      } as never);
+      yield* repository.applyDomainEvent({
+        sequence: 3,
+        eventId: "event-interrupted-run",
+        aggregateKind: "supervised_run",
+        aggregateId: "run-interrupted",
+        type: "supervised.run-requested",
+        payload: {
+          acceptedRevision: 0,
+          actor: { kind: "daemon", actorId: "test" },
+          run: {
+            id: "run-interrupted",
+            roomId: "room-1",
+            taskId: "task-1",
+            taskNodeId: null,
+            taskNodeRevisionId: null,
+            ownerSeatId: "peer-1",
+            policyId: "policy-1",
+            status: "interrupted",
+            attempt: 1,
+            daemonEpoch: 1,
+            startedAt: at(0),
+            lastProgressAt: at(0),
+            finishedAt: null,
+            revision: 2,
+            createdAt: at(0),
+            updatedAt: at(0),
+          },
+        },
+        occurredAt: at(0),
+        commandId: "command-interrupted-run",
+        causationEventId: null,
+        correlationId: "command-interrupted-run",
+        metadata: { schemaVersion: "1.0.0" },
+      } as never);
+
+      yield* daemon.restart;
+
+      assert.ok(
+        dispatched.some(
+          (command) =>
+            command.type === "supervised.run.transition" &&
+            command.runId === "run-interrupted" &&
+            command.status === "recovering",
+        ),
+      );
+      yield* sql`DELETE FROM projection_projects WHERE project_id = 'project-1'`;
     }),
   );
 

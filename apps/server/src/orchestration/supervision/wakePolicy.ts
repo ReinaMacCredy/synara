@@ -23,9 +23,7 @@ export function isEligibleSupervisionWake(input: {
 }): boolean {
   if (SUPERVISION_IGNORED_EVENT_TYPES.has(input.eventType)) return false;
   if (!SUPERVISION_WAKE_EVENT_TYPES.has(input.eventType)) return false;
-  if (input.aggregateThreadId === null) {
-    return input.eventType.startsWith("supervision.");
-  }
+  if (input.aggregateThreadId === null) return true;
   if (input.peerThreadIds.has(input.aggregateThreadId)) return false;
   return input.leadThreadIds.has(input.aggregateThreadId);
 }

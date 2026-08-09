@@ -5,7 +5,7 @@ import { type ProjectId } from "@synara/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { Project } from "../types";
-import { resolveFirstSendTarget } from "./chatFirstSend";
+import { resolveFirstSendTarget, resolvesFirstSendTargetToProject } from "./chatFirstSend";
 
 function makeProject(overrides: Partial<Project> = {}): Project {
   return {
@@ -71,6 +71,23 @@ describe("resolveFirstSendTarget", () => {
         createWorkspaceRootIfMissing: false,
       },
     });
+    expect(resolvesFirstSendTargetToProject(result)).toBe(true);
+  });
+
+  it("does not treat a managed general-chat target as a Lead project", () => {
+    const result = resolveFirstSendTarget({
+      activeProject: makeProject(),
+      chatWorkspaceRoot: "/Users/tester/Documents/Synara",
+      createdAt: new Date(2026, 5, 11, 23, 30, 43),
+      isFirstMessage: true,
+      isHomeChatContainer: true,
+      projects: [makeProject()],
+      selectedWorkspaceRoot: null,
+      title: "General chat",
+      titleSeed: "General chat",
+    });
+
+    expect(resolvesFirstSendTargetToProject(result)).toBe(false);
   });
 
   it("uses the current project outside a home chat first send", () => {

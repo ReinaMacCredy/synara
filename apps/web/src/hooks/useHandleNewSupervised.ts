@@ -1,6 +1,5 @@
 import {
   CommandId,
-  LeadSeatId,
   RoomId,
   type ProjectId,
   type ThreadId,
@@ -92,9 +91,28 @@ export async function ensureSupervisedRoom(input: {
   };
   const existing = await readExisting();
   if (existing) {
-    if (existing.projectId !== input.projectId) {
+    if (existing.projectId === input.projectId) {
+      return roomId;
+    }
+    if (existing.status !== "draft" || existing.leadSeatId !== null) {
       throw new Error("The Lead Room belongs to a different Project.");
     }
+    const updatedAt = new Date().toISOString();
+    await api.orchestration.dispatchCommand({
+      type: "supervised.room.update",
+      commandId: CommandId.makeUnsafe(crypto.randomUUID()),
+      actor: { kind: "user", actorId: "owner" },
+      aggregateId: roomId,
+      expectedRevision: existing.revision,
+      idempotencyKey: `room-project:${roomId}:${input.projectId}:${existing.revision}`,
+      createdAt: updatedAt,
+      room: {
+        ...existing,
+        projectId: input.projectId,
+        title: input.title?.trim() || existing.title,
+        updatedAt,
+      },
+    });
     return roomId;
   }
 
@@ -134,75 +152,6 @@ export async function ensureSupervisedRoom(input: {
       await new Promise((resolve) => setTimeout(resolve, 40 * (attempt + 1)));
     }
     throw new Error("The Lead Room was committed but its projection has not caught up yet.");
-  }
-  return roomId;
-}
-
-export async function activateSupervisedRoom(input: {
-  readonly threadId: ThreadId;
-  readonly projectId: ProjectId;
-  readonly leadSeatId?: LeadSeatId;
-}): Promise<RoomId> {
-  const api = readNativeApi();
-  if (!api) throw new Error("The Synara server is unavailable.");
-  const roomId = RoomId.makeUnsafe(input.threadId);
-  const snapshot = await api.orchestration.getSupervisedRuntime({
-    includeDisabled: true,
-    limit: 500,
-  });
-  const room = snapshot.rooms.find((candidate) => candidate.id === roomId);
-  if (!room) throw new Error("The Lead Room no longer exists.");
-  if (room.status !== "draft" && room.projectId !== input.projectId) {
-    throw new Error("The Lead Room belongs to a different Project.");
-  }
-  const leadSeatId =
-    input.leadSeatId ??
-    (
-      await api.orchestration.getSnapshot()
-    ).supervision.leads.find(
-      (candidate) =>
-        candidate.activeThreadId === input.threadId && candidate.status !== "archived",
-    )?.id;
-  if (leadSeatId === undefined) {
-    throw new Error("The Lead Room has no active Lead seat.");
-  }
-  if (room.status === "active") {
-    if (room.leadSeatId === leadSeatId) return roomId;
-    const updatedAt = new Date().toISOString();
-    await api.orchestration.dispatchCommand({
-      type: "supervised.room.update",
-      commandId: CommandId.makeUnsafe(crypto.randomUUID()),
-      actor: { kind: "user", actorId: "owner" },
-      aggregateId: roomId,
-      expectedRevision: room.revision,
-      idempotencyKey: `room-rebind:${roomId}:${leadSeatId}:${room.revision}`,
-      createdAt: updatedAt,
-      room: { ...room, leadSeatId, updatedAt },
-    });
-    return roomId;
-  }
-  if (!["draft", "provisioning", "ready"].includes(room.status)) {
-    throw new Error(`The Lead Room cannot activate from '${room.status}'.`);
-  }
-
-  let current = { ...room, projectId: input.projectId, leadSeatId };
-  const lifecycleStates = ["draft", "provisioning", "ready", "active"] as const;
-  const currentIndex = lifecycleStates.indexOf(
-    current.status as (typeof lifecycleStates)[number],
-  );
-  for (const status of lifecycleStates.slice(currentIndex + 1)) {
-    const updatedAt = new Date().toISOString();
-    await api.orchestration.dispatchCommand({
-      type: "supervised.room.update",
-      commandId: CommandId.makeUnsafe(crypto.randomUUID()),
-      actor: { kind: "user", actorId: "owner" },
-      aggregateId: roomId,
-      expectedRevision: current.revision,
-      idempotencyKey: `room-lifecycle:${roomId}:${status}:${current.revision}`,
-      createdAt: updatedAt,
-      room: { ...current, status, updatedAt },
-    });
-    current = { ...current, status, revision: current.revision + 1, updatedAt };
   }
   return roomId;
 }

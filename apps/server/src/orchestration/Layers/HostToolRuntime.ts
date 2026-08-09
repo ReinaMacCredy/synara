@@ -1,12 +1,13 @@
 import { Effect, Layer } from "effect";
 
 import { makeHandoffDestinationTools } from "../../handoff/handoffDestinationToolRegistry.ts";
-import { HostToolRuntime } from "../Services/HostToolRuntime.ts";
+import { SupervisedGovernanceRepository } from "../../persistence/Services/SupervisedGovernanceRepository.ts";
 import { HostToolError, hostToolFailure } from "../hostTools/runtime.ts";
-import { makeSupervisionTools } from "../supervision/toolRegistry.ts";
+import { OrchestrationLayerLive } from "../runtimeLayer.ts";
+import { HostToolRuntime } from "../Services/HostToolRuntime.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
-import { OrchestrationLayerLive } from "../runtimeLayer.ts";
+import { makeSupervisionTools } from "../supervision/toolRegistry.ts";
 
 const makeHostToolRuntime = Effect.gen(function* () {
   const snapshotQuery = yield* ProjectionSnapshotQuery;
@@ -15,6 +16,7 @@ const makeHostToolRuntime = Effect.gen(function* () {
     ...makeSupervisionTools({
       orchestrationEngine: yield* OrchestrationEngineService,
       snapshotQuery,
+      governanceRepository: yield* SupervisedGovernanceRepository,
     }),
   ];
   const byName = new Map(entries.map((entry) => [entry.definition.name, entry]));

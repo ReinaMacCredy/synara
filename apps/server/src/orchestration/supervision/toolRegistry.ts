@@ -21,14 +21,15 @@ import {
 } from "@synara/contracts";
 import { Effect, Option, Schema } from "effect";
 
-import type { OrchestrationEngineShape } from "../Services/OrchestrationEngine.ts";
-import type { ProjectionSnapshotQueryShape } from "../Services/ProjectionSnapshotQuery.ts";
+import type { SupervisedGovernanceRepositoryShape } from "../../persistence/Services/SupervisedGovernanceRepository.ts";
 import {
   HostToolError,
   hostToolFailure as hostToolFailure,
   hostToolSuccess as hostToolSuccess,
   type HostToolEntry,
 } from "../hostTools/runtime.ts";
+import type { OrchestrationEngineShape } from "../Services/OrchestrationEngine.ts";
+import type { ProjectionSnapshotQueryShape } from "../Services/ProjectionSnapshotQuery.ts";
 import { missionScopeContainsLead } from "./missionScope.ts";
 import { profileLaunchIssue, resolveProfilePreset } from "./profileResolver.ts";
 import { currentTurnHasHumanOrigin, resolveSupervisionCallerAuthority } from "./toolPolicy.ts";
@@ -73,6 +74,7 @@ const decode = <S extends Schema.Top>(schema: S, value: unknown, label: string):
 export interface SupervisionToolsInput {
   readonly orchestrationEngine: OrchestrationEngineShape;
   readonly snapshotQuery: ProjectionSnapshotQueryShape;
+  readonly governanceRepository: SupervisedGovernanceRepositoryShape;
 }
 
 export function makeSupervisionTools(
@@ -787,6 +789,26 @@ export function makeSupervisionTools(
             );
           }
           const createdAt = new Date().toISOString();
+          const governance = yield* input.governanceRepository.getSnapshot().pipe(
+            Effect.mapError(
+              (error) =>
+                new HostToolError(
+                  "supervision_state_unavailable",
+                  error instanceof Error ? error.message : String(error),
+                ),
+            ),
+          );
+          const leadAgentSeat = governance.agentSeats.find(
+            (candidate) => candidate.id === lead.id,
+          );
+          if (!leadAgentSeat) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervision_authority_unavailable",
+                "The active Lead has no durable authority receipt.",
+              ),
+            );
+          }
           const specialistId = SpecialistId.makeUnsafe(randomUUID());
           const threadId = ThreadId.makeUnsafe(`specialist:${randomUUID()}`);
           const profileSnapshot = resolveProfilePreset({
@@ -803,6 +825,7 @@ export function makeSupervisionTools(
               actorId: context.callerThreadId,
               seatId: lead.id,
             },
+            authorityReceiptId: leadAgentSeat.authorityReceiptId,
             expectedRevision: 0,
             idempotencyKey: `specialist-create:${specialistId}`,
             createdAt,

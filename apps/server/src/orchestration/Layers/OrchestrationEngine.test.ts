@@ -1282,6 +1282,144 @@ describe("OrchestrationEngine", () => {
     await system.dispose();
   });
 
+  it("owns Lead Room activation in the turn and provider-session transactions", async () => {
+    const system = await createOrchestrationSystem();
+    const { engine } = system;
+    const createdAt = "2026-08-09T00:00:00.000Z";
+    const projectId = asProjectId("project-supervised-activation");
+    const threadId = ThreadId.makeUnsafe("thread-supervised-activation");
+    const leadSeatId = LeadSeatId.makeUnsafe("lead-supervised-activation");
+    const preset = DEFAULT_SUPERVISION_PROFILES.find(
+      (candidate) => candidate.id === "profile-lead-default",
+    )!;
+    const profileSnapshotId = ProfileSnapshotId.makeUnsafe("profile-snapshot-activation");
+    const profileSnapshot = resolveProfilePreset({
+      preset,
+      snapshotId: profileSnapshotId,
+      createdAt,
+    });
+    await system.run(
+      engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.makeUnsafe("command-project-supervised-activation"),
+        projectId,
+        title: "Supervised activation",
+        workspaceRoot: "/tmp/project-supervised-activation",
+        defaultModelSelection: { provider: "codex", model: "gpt-5.6-sol" },
+        createdAt,
+      }),
+    );
+    await system.run(
+      engine.dispatch({
+        type: "supervised.room.create",
+        commandId: CommandId.makeUnsafe("command-room-supervised-activation"),
+        actor: { kind: "user", actorId: "owner" },
+        aggregateId: threadId,
+        expectedRevision: 0,
+        idempotencyKey: "room-supervised-activation",
+        createdAt,
+        room: {
+          id: threadId,
+          projectId,
+          title: "Lead Room",
+          leadSeatId: null,
+          status: "draft",
+          graphRevision: 0,
+          revision: 0,
+          createdAt,
+          updatedAt: createdAt,
+        },
+      }),
+    );
+    await system.run(
+      engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("command-turn-supervised-activation"),
+        threadId,
+        message: {
+          messageId: asMessageId("message-supervised-activation"),
+          role: "user",
+          text: "Start the Room.",
+          attachments: [],
+        },
+        runtimeMode: "full-access",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        threadBootstrap: {
+          projectId,
+          title: "Lead Room",
+          modelSelection: { provider: "codex", model: "gpt-5.6-sol" },
+          runtimeMode: "full-access",
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          branch: null,
+          worktreePath: null,
+          createdAt,
+        },
+        supervisionBootstrap: {
+          kind: "lead",
+          profilePresetId: preset.id,
+          profileSnapshot,
+          lead: {
+            id: leadSeatId,
+            projectId,
+            activeThreadId: threadId,
+            predecessorThreadIds: [],
+            profileSnapshotId,
+            status: "active",
+            createdAt,
+            updatedAt: createdAt,
+            archivedAt: null,
+            revision: 0,
+          },
+        },
+        createdAt,
+      }),
+    );
+    let runtime = await system.run(engine.getReadModel());
+    expect(runtime.supervised.rooms.find((room) => room.id === threadId)?.status).toBe(
+      "provisioning",
+    );
+
+    await system.run(
+      engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("command-session-supervised-activation"),
+        threadId,
+        session: {
+          threadId,
+          status: "ready",
+          providerName: "codex",
+          runtimeMode: "full-access",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: "2026-08-09T00:00:01.000Z",
+        },
+        createdAt: "2026-08-09T00:00:01.000Z",
+      }),
+    );
+    runtime = await system.run(engine.getReadModel());
+    expect(runtime.supervised.rooms.find((room) => room.id === threadId)?.status).toBe("active");
+
+    const events = await system.run(
+      Stream.runCollect(engine.readEvents(0)).pipe(
+        Effect.map((chunk): OrchestrationEvent[] => Array.from(chunk)),
+      ),
+    );
+    const sessionIndex = events.findIndex(
+      (event) =>
+        event.commandId === "command-session-supervised-activation" &&
+        event.type === "thread.session-set",
+    );
+    const readyIndex = events.findIndex(
+      (event) =>
+        event.commandId === "command-session-supervised-activation" &&
+        event.type === "supervised.room-updated" &&
+        event.payload.room?.status === "ready",
+    );
+    expect(sessionIndex).toBeGreaterThanOrEqual(0);
+    expect(readyIndex).toBeGreaterThan(sessionIndex);
+    await system.dispose();
+  });
+
   it("retries deferred projection catch-up while idle until it recovers", async () => {
     let bootstrapCalls = 0;
     let deferredCalls = 0;

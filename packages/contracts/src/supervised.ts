@@ -1018,6 +1018,7 @@ export type ContextPressureSignalContext = typeof ContextPressureSignalContext.T
 const CommandBase = {
   commandId: CommandId,
   actor: SupervisedActor,
+  authorityReceiptId: Schema.optional(TrimmedNonEmptyString),
   aggregateId: TrimmedNonEmptyString,
   expectedRevision: NonNegativeInt,
   idempotencyKey: TrimmedNonEmptyString,

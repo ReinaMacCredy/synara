@@ -283,7 +283,7 @@ export default Effect.gen(function* () {
             'allowedCommands', json_array(),
             'allowedTools', json_array(),
             'rootLeaseIds', json(COALESCE((
-              SELECT json_group_array('legacy-root-lease:' || room_id)
+              SELECT json_group_array('legacy-root-lease:' || room_id || ':' || source.lead_seat_id)
               FROM projection_supervised_rooms
               WHERE lead_seat_id = source.lead_seat_id
             ), '[]')),
@@ -473,7 +473,7 @@ export default Effect.gen(function* () {
           authority_receipt_id, revision, updated_at, entity_json
         )
         SELECT
-          'legacy-root-lease:' || room_id,
+          'legacy-root-lease:' || room_id || ':' || lead_seat_id,
           'workspace:default',
           room_id,
           lead_seat_id,
@@ -482,7 +482,7 @@ export default Effect.gen(function* () {
           revision,
           updated_at,
           json_object(
-            'id', 'legacy-root-lease:' || room_id,
+            'id', 'legacy-root-lease:' || room_id || ':' || lead_seat_id,
             'workspaceId', 'workspace:default',
             'roomId', room_id,
             'holderSeatId', lead_seat_id,

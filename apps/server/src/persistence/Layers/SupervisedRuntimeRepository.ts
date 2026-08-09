@@ -1039,6 +1039,7 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
               ${room.graphRevision}, ${room.revision}, ${room.updatedAt}, ${JSON.stringify(room)}
             )
             ON CONFLICT (room_id) DO UPDATE SET
+              project_id = excluded.project_id,
               lead_seat_id = excluded.lead_seat_id,
               status = excluded.status,
               graph_revision = excluded.graph_revision,

@@ -49,6 +49,26 @@ const decodeRows = <A, I>(
 const persistenceError = (operation: string) => (error: unknown) =>
   isPersistenceError(error) ? error : toPersistenceSqlError(operation)(error);
 
+const orderNotebookEntriesForInsert = (
+  entries: ReadonlyArray<SupervisorNotebookEntry>,
+): ReadonlyArray<SupervisorNotebookEntry> => {
+  const remaining = entries.toSorted(
+    (left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+  );
+  const ordered: SupervisorNotebookEntry[] = [];
+  const inserted = new Set<string>();
+  while (remaining.length > 0) {
+    const nextIndex = remaining.findIndex(
+      (entry) => entry.supersedesEntryId === null || inserted.has(entry.supersedesEntryId),
+    );
+    if (nextIndex < 0) return [...ordered, ...remaining];
+    const [entry] = remaining.splice(nextIndex, 1);
+    ordered.push(entry!);
+    inserted.add(entry!.id);
+  }
+  return ordered;
+};
+
 const makeSupervisedGovernanceRepository = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
 
@@ -396,7 +416,7 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
           { concurrency: 1, discard: true },
         );
         yield* Effect.forEach(
-          snapshot.notebookEntries,
+          orderNotebookEntriesForInsert(snapshot.notebookEntries),
           (entry) => sql`
             INSERT INTO projection_supervised_notebook_entries (
               entry_id, workspace_id, room_id, task_node_id, concern, kind,

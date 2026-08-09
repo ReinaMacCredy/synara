@@ -147,7 +147,11 @@ import {
 } from "../lib/advisorConsultation";
 
 import { ensureHomeChatProject, isHomeChatContainerProject } from "../lib/chatProjects";
-import { resolveFirstSendTarget } from "../lib/chatFirstSend";
+import {
+  resolveFirstSendTarget,
+  resolvesFirstSendTargetToProject,
+} from "../lib/chatFirstSend";
+import { ensureSupervisedRoom } from "../hooks/useHandleNewSupervised";
 import { readActiveSpaceId } from "../spacesUiStore";
 import {
   createOrRecoverProjectFromPath,
@@ -185,7 +189,6 @@ import {
 } from "../lib/automationDraft";
 import { dispatchThreadRename } from "../lib/threadRename";
 import { useHandleNewChat } from "../hooks/useHandleNewChat";
-import { activateSupervisedRoom } from "../hooks/useHandleNewSupervised";
 import { splitComposerDropzoneFiles, useComposerDropzone } from "../hooks/useComposerDropzone";
 import { useComposerImageIntake } from "../hooks/useComposerImageIntake";
 import { useDiffRouteSearch } from "../hooks/useDiffRouteSearch";
@@ -662,6 +665,7 @@ const EMPTY_PROVIDER_SKILLS: ProviderSkillDescriptor[] = [];
 const LOCAL_PROJECT_DRAFT_CONTEXT = {
   envMode: "local",
   worktreePath: null,
+  workingDirectory: null,
   branch: null,
   lastKnownPr: null,
 } as const;
@@ -7879,6 +7883,13 @@ export default function ChatView({
       title,
       titleSeed,
     });
+    if (promoteToLead && !resolvesFirstSendTargetToProject(firstSendTarget)) {
+      setStoreThreadError(
+        activeThread.id,
+        "Supervise can create a Lead only inside a real Project workspace.",
+      );
+      return false;
+    }
     let {
       targetProjectId: targetProjectIdForSend,
       targetProjectKind: targetProjectKindForSend,
@@ -7894,13 +7905,6 @@ export default function ChatView({
           targetProjectDefaultModelSelection: activeProject.defaultModelSelection ?? null,
         }
         : firstSendTarget.target;
-      if (promoteToLead && targetProjectKindForSend !== "project") {
-        setStoreThreadError(
-          activeThread.id,
-          "Supervise can create a Lead only inside a real Project workspace.",
-        );
-        return false;
-      }
       let nextRuntimeModeForSend = runtimeModeForSend;
     let nextThreadEnvMode = envModeForSend;
     let nextThreadBranch = activeThread.branch;
@@ -7986,6 +7990,21 @@ export default function ChatView({
       nextAssociatedWorktreePath = null;
       nextAssociatedWorktreeBranch = null;
       nextAssociatedWorktreeRef = null;
+    }
+
+    if (promoteToLead && targetProjectKindForSend !== "project") {
+      setStoreThreadError(
+        activeThread.id,
+        "Supervise can create a Lead only inside a real Project workspace.",
+      );
+      return false;
+    }
+    if (promoteToLead) {
+      await ensureSupervisedRoom({
+        threadId: threadIdForSend,
+        projectId: targetProjectIdForSend,
+        title,
+      });
     }
 
     // The branch query can finish just after the user chooses New worktree. Use the
@@ -8402,18 +8421,6 @@ export default function ChatView({
           modelSelection: effectiveModelSelectionForSend,
           runtimeMode: nextRuntimeModeForSend,
           interactionMode: interactionModeForSend,
-        });
-      }
-
-      if (supervisedMode) {
-        await activateSupervisedRoom({
-          threadId: threadIdForSend,
-          projectId: targetProjectIdForSend,
-          ...(promotedLeadSeatId !== null
-            ? { leadSeatId: promotedLeadSeatId }
-            : draftThread?.leadSeatId !== undefined
-              ? { leadSeatId: draftThread.leadSeatId }
-              : {}),
         });
       }
 

@@ -41,6 +41,8 @@ import {
 } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
 import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedAttachments.ts";
 import { ManagedAttachmentRepositoryLive } from "../../persistence/Layers/ManagedAttachments.ts";
+import { SupervisedGovernanceRepository } from "../../persistence/Services/SupervisedGovernanceRepository.ts";
+import { SupervisedGovernanceRepositoryLive } from "../../persistence/Layers/SupervisedGovernanceRepository.ts";
 import {
   LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
   type ManagedAttachmentPrincipal,
@@ -75,6 +77,7 @@ import { PROJECT_METADATA_SNAPSHOT_PROJECTORS } from "../projectMetadataProjecti
 import { createEmptyReadModel, projectEvent } from "../projector.ts";
 import { decideSupervisionCommand } from "../supervision/decider.ts";
 import { decideSupervisedCommand } from "../supervised/decider.ts";
+import { decideSupervisedRoomLifecycleForThreadCommand } from "../supervised/roomLifecycle.ts";
 import {
   OrchestrationProjectionPipeline,
   type ShellMetadataOrchestrationEvent,
@@ -246,6 +249,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   const eventStore = yield* OrchestrationEventStore;
   const commandReceiptRepository = yield* OrchestrationCommandReceiptRepository;
   const managedAttachments = yield* ManagedAttachmentRepository;
+  const supervisedGovernanceRepository = yield* SupervisedGovernanceRepository;
   const projectionPipeline = yield* OrchestrationProjectionPipeline;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const serverConfig = yield* ServerConfig;
@@ -846,7 +850,40 @@ const makeOrchestrationEngine = Effect.gen(function* () {
               });
             })
           : null;
-        const commandEventBase = command.type === "supervised.specialist.create"
+      let commandDeciderReadModel = deciderReadModel;
+      if (supervisionBootstrapDecision !== null) {
+        for (const decision of Array.isArray(supervisionBootstrapDecision)
+          ? supervisionBootstrapDecision
+          : [supervisionBootstrapDecision]) {
+          commandDeciderReadModel = yield* projectEvent(commandDeciderReadModel, {
+            ...decision,
+            sequence: commandDeciderReadModel.snapshotSequence,
+          });
+        }
+      }
+      const supervisedRoomLifecycleDecisions =
+        command.type === "thread.turn.start" || command.type === "thread.session.set"
+          ? yield* decideSupervisedRoomLifecycleForThreadCommand({
+              command,
+              projectId:
+                commandDeciderReadModel.threads.find(
+                  (thread) => thread.id === command.threadId,
+                )?.projectId ?? null,
+              supervision: commandDeciderReadModel.supervision,
+              runtime: commandDeciderReadModel.supervised,
+            })
+          : [];
+      for (const decision of supervisedRoomLifecycleDecisions) {
+        commandDeciderReadModel = yield* projectEvent(commandDeciderReadModel, {
+          ...decision,
+          sequence: commandDeciderReadModel.snapshotSequence,
+        });
+      }
+      const governance = Schema.is(SupervisedCommand)(command)
+        ? yield* supervisedGovernanceRepository.getSnapshot()
+        : undefined;
+      const commandEventBase =
+        command.type === "supervised.specialist.create"
           ? yield* Effect.gen(function* () {
               if (command.profileSnapshot === undefined) {
                 return yield* new OrchestrationCommandInvariantError({
@@ -854,13 +891,13 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                   detail: "Server-resolved Specialist profile snapshot is required.",
                 });
               }
-              const room = deciderReadModel.supervised.rooms.find(
+              const room = commandDeciderReadModel.supervised.rooms.find(
                 (candidate) =>
                   candidate.id === command.roomId &&
                   candidate.projectId === command.projectId &&
                   candidate.leadSeatId === command.leadSeatId,
               );
-              const lead = deciderReadModel.supervision.leads.find(
+              const lead = commandDeciderReadModel.supervision.leads.find(
                 (candidate) =>
                   candidate.id === command.leadSeatId &&
                   candidate.projectId === command.projectId &&
@@ -904,12 +941,12 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                   lastKnownPr: null,
                   createdAt: command.createdAt,
                 },
-                readModel: deciderReadModel,
+                readModel: commandDeciderReadModel,
                 workspacePaths: deciderWorkspacePaths,
               });
-              const readModelWithThread = yield* projectEvent(deciderReadModel, {
+              const readModelWithThread = yield* projectEvent(commandDeciderReadModel, {
                 ...threadDecision,
-                sequence: deciderReadModel.snapshotSequence,
+                sequence: commandDeciderReadModel.snapshotSequence,
               });
               const peerDecision = yield* decideSupervisionCommand({
                 state: readModelWithThread.supervision,
@@ -939,6 +976,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
               const specialistDecision = yield* decideSupervisedCommand({
                 command,
                 state: readModelWithThread.supervised,
+                governance,
               });
               const turnDecision =
                 command.initialPrompt === undefined
@@ -949,7 +987,9 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                         commandId: command.commandId,
                         threadId: command.threadId,
                         message: {
-                          messageId: MessageId.makeUnsafe(`specialist:${command.specialist.id}:initial`),
+                          messageId: MessageId.makeUnsafe(
+                            `specialist:${command.specialist.id}:initial`,
+                          ),
                           role: "user",
                           text: command.initialPrompt,
                           attachments: [],
@@ -971,49 +1011,62 @@ const makeOrchestrationEngine = Effect.gen(function* () {
               ];
             })
           : Schema.is(SupervisionCommand)(command)
-            ? yield* decideSupervisionCommand({ command, state: deciderReadModel.supervision })
-            : Schema.is(TaskProcessCommand)(command)
-            ? yield* Effect.gen(function* () {
-                const storedEvents = yield* eventStore
-                  .readAggregateEvents({
-                    aggregateKind: "task_process",
-                    aggregateId: command.processId,
-                  })
-                  .pipe(
-                    Effect.mapError((error) =>
-                      makeCommandInternalError(
-                        command,
-                        `Failed to load TaskProcess aggregate: ${error.message}`,
-                      ),
-                    ),
-                  );
-                const taskProcessEvents = storedEvents.filter(Schema.is(TaskProcessDomainEvent));
-                if (taskProcessEvents.length !== storedEvents.length) {
-                  return yield* makeCommandInternalError(
-                    command,
-                    "TaskProcess stream contains an event with the wrong aggregate schema.",
-                  );
-                  }
-                  const state = replayTaskProcessEvents(taskProcessEvents);
-                  return yield* decideTaskProcessCommand({
-                    command,
-                    state,
-                    readModel: deciderReadModel,
-                  });
-                })
-            : yield* decideOrchestrationCommand({
+            ? yield* decideSupervisionCommand({
                 command,
-                readModel: deciderReadModel,
-                workspacePaths: deciderWorkspacePaths,
-              });
-        const eventBase = [
-          ...(threadBootstrapDecision === null ? [] : [threadBootstrapDecision]),
-          ...(supervisionBootstrapDecision === null
+                state: commandDeciderReadModel.supervision,
+              })
+            : Schema.is(SupervisedCommand)(command)
+              ? yield* decideSupervisedCommand({
+                  command,
+                  state: commandDeciderReadModel.supervised,
+                  governance,
+                })
+              : Schema.is(TaskProcessCommand)(command)
+                ? yield* Effect.gen(function* () {
+                    const storedEvents = yield* eventStore
+                      .readAggregateEvents({
+                        aggregateKind: "task_process",
+                        aggregateId: command.processId,
+                      })
+                      .pipe(
+                        Effect.mapError((error) =>
+                          makeCommandInternalError(
+                            command,
+                            `Failed to load TaskProcess aggregate: ${error.message}`,
+                          ),
+                        ),
+                      );
+                    const taskProcessEvents = storedEvents.filter(
+                      Schema.is(TaskProcessDomainEvent),
+                    );
+                    if (taskProcessEvents.length !== storedEvents.length) {
+                      return yield* makeCommandInternalError(
+                        command,
+                        "TaskProcess stream contains an event with the wrong aggregate schema.",
+                      );
+                    }
+                    const state = replayTaskProcessEvents(taskProcessEvents);
+                    return yield* decideTaskProcessCommand({
+                      command,
+                      state,
+                      readModel: commandDeciderReadModel,
+                    });
+                  })
+                : yield* decideOrchestrationCommand({
+                    command,
+                    readModel: commandDeciderReadModel,
+                    workspacePaths: deciderWorkspacePaths,
+                  });
+      const eventBase = [
+        ...(threadBootstrapDecision === null ? [] : [threadBootstrapDecision]),
+        ...(supervisionBootstrapDecision === null
           ? []
           : Array.isArray(supervisionBootstrapDecision)
             ? supervisionBootstrapDecision
             : [supervisionBootstrapDecision]),
+        ...(command.type === "thread.session.set" ? [] : supervisedRoomLifecycleDecisions),
         ...(Array.isArray(commandEventBase) ? commandEventBase : [commandEventBase]),
+        ...(command.type === "thread.session.set" ? supervisedRoomLifecycleDecisions : []),
       ];
       const eventBases = Array.isArray(eventBase) ? eventBase : [eventBase];
       const transactionalCommitEffect: Effect.Effect<
@@ -1686,4 +1739,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
 export const OrchestrationEngineLive = Layer.effect(
   OrchestrationEngineService,
   makeOrchestrationEngine,
-).pipe(Layer.provideMerge(ManagedAttachmentRepositoryLive));
+).pipe(
+  Layer.provideMerge(ManagedAttachmentRepositoryLive),
+  Layer.provideMerge(SupervisedGovernanceRepositoryLive),
+);

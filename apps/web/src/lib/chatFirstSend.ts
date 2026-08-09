@@ -25,6 +25,14 @@ export type FirstSendTargetResolution =
   | { kind: "existing-project"; target: FirstSendProjectTarget }
   | { kind: "create-project"; creation: FirstSendProjectCreation };
 
+export function resolvesFirstSendTargetToProject(
+  resolution: FirstSendTargetResolution,
+): boolean {
+  return resolution.kind === "create-project"
+    ? resolution.creation.kind === "project"
+    : resolution.target.targetProjectKind === "project";
+}
+
 function buildProjectTarget(project: Project): FirstSendProjectTarget {
   return {
     targetProjectId: project.id,

@@ -9,19 +9,20 @@ import type {
   SupervisedCommand,
 } from "@synara/contracts";
 import { CommandId } from "@synara/contracts";
-import { Effect, Exit, Fiber, Layer, Ref, Scope, Semaphore } from "effect";
+import { Effect, Exit, Fiber, Layer, Queue, Ref, Scope, Semaphore } from "effect";
 
 import { SupervisedRuntimeRepository } from "../../persistence/Services/SupervisedRuntimeRepository.ts";
 import { SupervisedGovernanceRepository } from "../../persistence/Services/SupervisedGovernanceRepository.ts";
-import { recoverGovernanceSnapshot } from "../../supervised/governance/Lifecycle.ts";
+import {
+  recoverGovernanceSnapshot,
+  settleGovernanceRecoveryActions,
+} from "../../supervised/governance/Lifecycle.ts";
 import {
   builtInEventSchemas,
   builtInRunPolicy,
   builtInSubscriptions,
 } from "../../supervised/signal/BuiltInSubscriptions.ts";
-import {
-  evaluateSubscriptionEvent,
-} from "../../supervised/signal/SubscriptionEvaluator.ts";
+import { evaluateSubscriptionEvent } from "../../supervised/signal/SubscriptionEvaluator.ts";
 import {
   SupervisedRuntimeDaemon,
   type SupervisedRuntimeDaemonShape,
@@ -65,6 +66,7 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
     Scope.close(scope, Exit.void),
   );
   const workerFiber = yield* Ref.make<Fiber.Fiber<void, never> | null>(null);
+  const reconcileWake = yield* Queue.sliding<void>(1);
 
   const ensureBuiltIns = Effect.gen(function* () {
     const snapshot = yield* repository.getSnapshot({ includeDisabled: true });
@@ -213,15 +215,70 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
       }),
     );
 
-  const reconcile: SupervisedRuntimeDaemonShape["reconcile"] = Effect.gen(function* () {
+  const recoverDurableWork = Effect.gen(function* () {
+    const now = new Date().toISOString();
     const governanceBefore = yield* governanceRepository.getSnapshot();
-    const governanceRecovery = recoverGovernanceSnapshot(
-      governanceBefore,
-      new Date().toISOString(),
+    const governanceRecovery = recoverGovernanceSnapshot(governanceBefore, now);
+    const recoveredGovernance = settleGovernanceRecoveryActions(
+      governanceRecovery.snapshot,
+      governanceRecovery.actions,
+      now,
     );
-    if (governanceRecovery.snapshot !== governanceBefore) {
-      yield* governanceRepository.replaceSnapshot(governanceRecovery.snapshot);
+    if (recoveredGovernance !== governanceBefore) {
+      yield* governanceRepository.replaceSnapshot(recoveredGovernance);
     }
+    if (governanceRecovery.actions.length > 0) {
+      yield* Effect.logWarning("Supervised governance restart actions settled", {
+        resumedOrFailedProviders: governanceRecovery.actions.filter(
+          (action) => action.kind === "resume_provider",
+        ).length,
+        failedInterventions: governanceRecovery.actions.filter(
+          (action) => action.kind === "resume_intervention",
+        ).length,
+        reconciledRootTransfers: governanceRecovery.actions.filter(
+          (action) => action.kind === "reconcile_root_transfer",
+        ).length,
+      });
+    }
+
+    const runtimeBefore = yield* repository.getSnapshot({ includeDisabled: true });
+    const interruptedRuns = runtimeBefore.runs.filter((run) => run.status === "interrupted");
+    yield* Effect.forEach(
+      interruptedRuns,
+      (run) =>
+        engine.dispatch({
+          type: "supervised.run.transition",
+          commandId: CommandId.makeUnsafe(
+            stableId("command:run-recover", {
+              runId: run.id,
+              revision: run.revision,
+              daemonEpoch: runtimeBefore.health.daemonEpoch,
+            }),
+          ),
+          actor: { kind: "daemon", actorId: workerId },
+          aggregateId: run.id,
+          expectedRevision: run.revision,
+          idempotencyKey: `run-recover:${run.id}:${run.revision}:${runtimeBefore.health.daemonEpoch}`,
+          runId: run.id,
+          status: "recovering",
+          reason: "Daemon restart recovery.",
+          createdAt: now,
+        }),
+      { concurrency: 1, discard: true },
+    );
+    const runtimeAfter = yield* repository.getSnapshot({ includeDisabled: true });
+    yield* repository.setHealth(
+      {
+        ...runtimeAfter.health,
+        status: "recovering",
+        lastRecoveryAt: now,
+        updatedAt: now,
+      },
+      runtimeAfter.snapshotSequence,
+    );
+  });
+
+  const reconcile: SupervisedRuntimeDaemonShape["reconcile"] = Effect.gen(function* () {
     yield* ensureBuiltIns;
     const before = yield* repository.getSnapshot({ includeDisabled: true });
     const now = new Date().toISOString();
@@ -300,7 +357,7 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
         deadLetterCount: after.deadLetters.filter((letter) => letter.status === "open").length,
         unhealthyPluginCount: after.plugins.filter((plugin) => plugin.status === "unhealthy")
           .length,
-        lastRecoveryAt: new Date().toISOString(),
+        lastRecoveryAt: after.health.lastRecoveryAt,
         updatedAt: new Date().toISOString(),
       },
       after.snapshotSequence,
@@ -308,10 +365,13 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
   });
 
   const ingest: SupervisedRuntimeDaemonShape["ingest"] = (event) =>
-    repository.appendControlPlaneEvent(event);
+    repository.appendControlPlaneEvent(event).pipe(
+      Effect.andThen(Queue.offer(reconcileWake, undefined)),
+      Effect.asVoid,
+    );
 
   const backgroundLoop = Effect.forever(
-    Effect.sleep("1 second").pipe(
+    Effect.race(Queue.take(reconcileWake), Effect.sleep("30 seconds")).pipe(
       Effect.andThen(reconcile),
       Effect.catch((error) =>
         Effect.logError("Supervised runtime reconciliation failed", { error }),
@@ -331,6 +391,11 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
   });
 
   const start: SupervisedRuntimeDaemonShape["start"] = Effect.gen(function* () {
+    yield* recoverDurableWork.pipe(
+      Effect.catch((error) =>
+        Effect.logError("Supervised durable work recovery failed", { error }),
+      ),
+    );
     yield* reconcile.pipe(
       Effect.catch((error) =>
         Effect.logError("Supervised runtime startup reconciliation failed", { error }),
@@ -353,6 +418,7 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
         },
         before.snapshotSequence,
       );
+      yield* recoverDurableWork;
       yield* reconcile;
       yield* launchBackgroundLoop;
       return (yield* repository.getSnapshot({ includeDisabled: true })).health;

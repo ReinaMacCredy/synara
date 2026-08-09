@@ -15,6 +15,7 @@ import {
 import {
   assertExclusiveRootLeases,
   recoverGovernanceSnapshot,
+  settleGovernanceRecoveryActions,
   transferRootAuthority,
   transitionAgentSeat,
   transitionDirectIntervention,
@@ -258,10 +259,10 @@ describe("Supervisor-first lifecycle", () => {
         actorSeatId: "supervisor-1",
         previousRootSeatId: "lead-old",
         handoffId: "handoff-1",
-          previousLeaseId: "lease-old",
-          nextLeaseId: "lease-supervisor",
-          operation: "assume",
-          lifecycleState: "previous_root_notified",
+        previousLeaseId: "lease-old",
+        nextLeaseId: "lease-supervisor",
+        operation: "assume",
+        lifecycleState: "previous_root_notified",
         requestedUnderReceiptId: "receipt-supervisor",
         failureReason: null,
         createdAt: now,
@@ -275,6 +276,40 @@ describe("Supervisor-first lifecycle", () => {
 
     assert.equal(recovered.snapshot.roleAssumptions[0]?.lifecycleState, "failed");
     assert.equal(recovered.snapshot.rootLeases[0]?.status, "active");
+  });
+
+  it("settles post-transfer recovery actions instead of advancing them implicitly", () => {
+    const snapshot = baseSnapshot();
+    snapshot.roleAssumptions = [
+      Schema.decodeUnknownSync(RoleAssumption)({
+        id: "assumption-after",
+        workspaceId: "workspace-1",
+        roomId: "room-1",
+        actorSeatId: "supervisor-1",
+        previousRootSeatId: "lead-old",
+        handoffId: "handoff-1",
+        previousLeaseId: "lease-old",
+        nextLeaseId: "lease-supervisor",
+        operation: "assume",
+        lifecycleState: "lease_transferred",
+        requestedUnderReceiptId: "receipt-supervisor",
+        failureReason: null,
+        createdAt: now,
+        completedAt: null,
+        revision: 4,
+        updatedAt: now,
+      }),
+    ];
+
+    const recovered = recoverGovernanceSnapshot(snapshot, later);
+    assert.equal(recovered.snapshot.roleAssumptions[0]?.lifecycleState, "lease_transferred");
+    const settled = settleGovernanceRecoveryActions(
+      recovered.snapshot,
+      recovered.actions,
+      later,
+    );
+
+    assert.equal(settled.roleAssumptions[0]?.lifecycleState, "topology_reconciled");
   });
 
   it("requires Lead notification before intervention reconciliation", () => {

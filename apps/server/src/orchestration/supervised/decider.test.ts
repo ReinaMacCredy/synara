@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 
 import {
   DEFAULT_SUPERVISED_RUN_POLICY,
+  emptySupervisedGovernanceSnapshot,
   emptySupervisedRuntimeSnapshot,
   type PluginInstallation,
   type Room,
   type SupervisedCommand,
+  type SupervisedGovernanceSnapshot,
 } from "@synara/contracts";
 import { describe, it } from "@effect/vitest";
 import { Effect } from "effect";
@@ -76,6 +78,62 @@ const installation = (overrides: Partial<PluginInstallation> = {}): PluginInstal
   ...overrides,
 });
 
+const governanceForSeat = (
+  seatId: string,
+  allowedCommands: ReadonlyArray<string>,
+): SupervisedGovernanceSnapshot => ({
+  ...emptySupervisedGovernanceSnapshot(now),
+  workspaces: [
+    {
+      id: "workspace-1" as never,
+      ownerNamespace: "owner",
+      title: "Workspace",
+      lifecycleState: "active",
+      revision: 0,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ],
+  authorityReceipts: [
+    {
+      id: `receipt-${seatId}` as never,
+      actorSeatId: seatId as never,
+      identityRole: seatId.startsWith("lead") ? "lead" : "peer",
+      effectiveRole: seatId.startsWith("lead") ? "lead" : "peer",
+      workspaceScopes: ["workspace-1" as never],
+      roomScopes: [room.id],
+      taskNodeScopes: [],
+      allowedCommands,
+      allowedTools: [],
+      rootLeaseIds: [],
+      mandateIds: [],
+      runPolicyRevision: 0,
+      issuedAt: now,
+      expiresAt: null,
+      revokedAt: null,
+    },
+  ],
+  agentSeats: [
+    {
+      id: seatId as never,
+      workspaceId: "workspace-1" as never,
+      roomIds: [room.id],
+      identityRole: seatId.startsWith("lead") ? "lead" : "peer",
+      effectiveRole: seatId.startsWith("lead") ? "lead" : "peer",
+      profileId: `profile-${seatId}` as never,
+      providerSessionId: null,
+      lifecycleState: "active",
+      workState: "idle",
+      authorityReceiptId: `receipt-${seatId}` as never,
+      createdAt: now,
+      retainedAt: null,
+      retiredAt: null,
+      revision: 0,
+      updatedAt: now,
+    },
+  ],
+});
+
 describe("Supervised command authority", () => {
   it("denies a Seat that does not own the Room mutation", async () => {
     const command: SupervisedCommand = {
@@ -108,6 +166,61 @@ describe("Supervised command authority", () => {
       decideSupervisedCommand({
         command,
         state: { ...emptySupervisedRuntimeSnapshot(now), rooms: [draft] },
+      }),
+    );
+
+    assert.equal(exit._tag, "Failure");
+  });
+
+  it("rejects direct rebinding of an active Room Lead", async () => {
+    const exit = await Effect.runPromiseExit(
+      decideSupervisedCommand({
+        command: {
+          ...baseCommand,
+          type: "supervised.room.update",
+          actor: { kind: "user", actorId: "owner" },
+          room: { ...room, leadSeatId: "lead-2" as typeof room.leadSeatId },
+        },
+        state: { ...emptySupervisedRuntimeSnapshot(now), rooms: [room] },
+      }),
+    );
+
+    assert.equal(exit._tag, "Failure");
+  });
+
+  it("allows the Human to move an unassigned draft Room to its selected Project", async () => {
+    const draft = {
+      ...room,
+      leadSeatId: null,
+      status: "draft" as const,
+      revision: 0,
+    };
+    const event = await Effect.runPromise(
+      decideSupervisedCommand({
+        command: {
+          ...baseCommand,
+          type: "supervised.room.update",
+          actor: { kind: "user", actorId: "owner" },
+          expectedRevision: draft.revision,
+          room: { ...draft, projectId: "project-2" as Room["projectId"] },
+        },
+        state: { ...emptySupervisedRuntimeSnapshot(now), rooms: [draft] },
+      }),
+    );
+
+    assert.equal(event.payload.room?.projectId, "project-2");
+  });
+
+  it("rejects moving an active Room to another Project", async () => {
+    const exit = await Effect.runPromiseExit(
+      decideSupervisedCommand({
+        command: {
+          ...baseCommand,
+          type: "supervised.room.update",
+          actor: { kind: "user", actorId: "owner" },
+          room: { ...room, projectId: "project-2" as Room["projectId"] },
+        },
+        state: { ...emptySupervisedRuntimeSnapshot(now), rooms: [room] },
       }),
     );
 
@@ -257,18 +370,52 @@ describe("Supervised command authority", () => {
       ...baseCommand,
       type: "supervised.claim.acquire",
       actor: { kind: "seat", actorId: run.ownerSeatId, seatId: run.ownerSeatId },
+      authorityReceiptId: `receipt-${run.ownerSeatId}`,
       aggregateId: claim.id,
       expectedRevision: 0,
       claim,
     } as SupervisedCommand;
     const state = { ...emptySupervisedRuntimeSnapshot(now), rooms: [room], runs: [run] };
-    const accepted = await Effect.runPromise(decideSupervisedCommand({ command, state }));
+    const governance = governanceForSeat(run.ownerSeatId, ["supervised.claim.acquire"]);
+    const accepted = await Effect.runPromise(
+      decideSupervisedCommand({ command, state, governance }),
+    );
     assert.equal(accepted.type, "supervised.claim-acquired");
+
+    const revoked = await Effect.runPromiseExit(
+      decideSupervisedCommand({
+        command,
+        state,
+        governance: {
+          ...governance,
+          authorityReceipts: governance.authorityReceipts.map((receipt) => ({
+            ...receipt,
+            revokedAt: now,
+          })),
+        },
+      }),
+    );
+    assert.equal(revoked._tag, "Failure");
+    const outOfScope = await Effect.runPromiseExit(
+      decideSupervisedCommand({
+        command,
+        state,
+        governance: {
+          ...governance,
+          authorityReceipts: governance.authorityReceipts.map((receipt) => ({
+            ...receipt,
+            roomScopes: [],
+          })),
+        },
+      }),
+    );
+    assert.equal(outOfScope._tag, "Failure");
 
     const denied = await Effect.runPromiseExit(
       decideSupervisedCommand({
         command: { ...command, aggregateId: "claim-2", claim: { ...claim, id: "claim-2" } },
         state: { ...state, workClaims: [claim] },
+        governance,
       }),
     );
     assert.equal(denied._tag, "Failure");
@@ -295,6 +442,7 @@ describe("Supervised command authority", () => {
       ...baseCommand,
       type: "supervised.intervention.propose",
       actor: intervention.requestedBy,
+      authorityReceiptId: "receipt-lead-architecture",
       aggregateId: intervention.id,
       expectedRevision: 0,
       intervention,
@@ -325,6 +473,9 @@ describe("Supervised command authority", () => {
       decideSupervisedCommand({
         command,
         state: { ...emptySupervisedRuntimeSnapshot(now), rooms: [room] },
+        governance: governanceForSeat("lead-architecture", [
+          "supervised.intervention.propose",
+        ]),
       }),
     );
     assert.equal(accepted.type, "supervised.intervention-proposed");
