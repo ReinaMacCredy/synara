@@ -293,6 +293,7 @@ export const makeOrchestrationIntegrationHarness = (
     const runtimeServicesLayer = Layer.mergeAll(
       orchestrationLayer,
       OrchestrationProjectionSnapshotQueryLive,
+      OrchestrationCommandReceiptRepositoryLive,
       ProjectionCheckpointRepositoryLive,
       ProjectionPendingInteractionRepositoryLive,
       checkpointStoreLayer,

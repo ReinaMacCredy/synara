@@ -18,6 +18,7 @@ function makeEvent(input: {
   aggregateKind: OrchestrationEvent["aggregateKind"];
   aggregateId: string;
   commandId: string | null;
+  metadata?: OrchestrationEvent["metadata"];
   payload: unknown;
 }): OrchestrationEvent {
   return {
@@ -35,7 +36,7 @@ function makeEvent(input: {
     commandId: input.commandId === null ? null : CommandId.makeUnsafe(input.commandId),
     causationEventId: null,
     correlationId: null,
-    metadata: {},
+    metadata: input.metadata ?? {},
     payload: input.payload as never,
   } as OrchestrationEvent;
 }
@@ -131,6 +132,7 @@ describe("orchestration projector", () => {
         aggregateId: "context-workspace-1",
         occurredAt: now,
         commandId: "cmd-context-workspace",
+        metadata: { schemaVersion: "1.0.0" },
         payload: { contextWorkspace: { id: "context-workspace-1" } },
       }),
       makeEvent({
@@ -140,6 +142,7 @@ describe("orchestration projector", () => {
         aggregateId: "evidence-1",
         occurredAt: now,
         commandId: "cmd-evidence",
+        metadata: { schemaVersion: "1.0.0" },
         payload: { evidence: { id: "evidence-1" } },
       }),
       makeEvent({
@@ -149,6 +152,7 @@ describe("orchestration projector", () => {
         aggregateId: "rlm-episode-1",
         occurredAt: now,
         commandId: "cmd-rlm",
+        metadata: { schemaVersion: "1.0.0" },
         payload: { rlmEpisode: { id: "rlm-episode-1" } },
       }),
       makeEvent({
@@ -158,6 +162,7 @@ describe("orchestration projector", () => {
         aggregateId: "model-session-1",
         occurredAt: now,
         commandId: "cmd-model-session",
+        metadata: { schemaVersion: "1.0.0" },
         payload: { modelSession: { id: "model-session-1" } },
       }),
     ];
