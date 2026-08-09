@@ -125,6 +125,7 @@ function SupervisedIndexRouteView() {
           surfaceMode="single"
           isFocusedPane
           panelState={DRAFT_PANEL_STATE}
+          supervisedMode
           onToggleDiff={noopChatSurfaceAction}
           onToggleBrowser={noopChatSurfaceAction}
           onOpenBrowserUrl={noopChatSurfaceAction}

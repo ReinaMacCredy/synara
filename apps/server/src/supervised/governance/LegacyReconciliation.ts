@@ -192,6 +192,52 @@ export function reconcileLegacyGovernance(input: {
   }
 
   for (const room of input.runtime.rooms) {
+    if (room.leadSeatId === null || agentSeats.some((seat) => seat.id === room.leadSeatId)) {
+      continue;
+    }
+    const leadRooms = input.runtime.rooms.filter(
+      (candidate) => candidate.leadSeatId === room.leadSeatId,
+    );
+    const createdAt = leadRooms.reduce(
+      (earliest, candidate) =>
+        candidate.createdAt < earliest ? candidate.createdAt : earliest,
+      room.createdAt,
+    );
+    const updatedAt = leadRooms.reduce(
+      (latest, candidate) => (candidate.updatedAt > latest ? candidate.updatedAt : latest),
+      room.updatedAt,
+    );
+    const retired = leadRooms.every(
+      (candidate) => candidate.status === "completed" || candidate.status === "archived",
+    );
+    const receipt = makeReceipt({
+      snapshot: { ...input.governance, rootLeases },
+      seatId: room.leadSeatId,
+      role: "lead",
+      roomIds: leadRooms.map((candidate) => candidate.id),
+      issuedAt: createdAt,
+    });
+    authorityReceipts = upsert(authorityReceipts, receipt);
+    agentSeats = upsert(agentSeats, {
+      id: AgentSeatId.makeUnsafe(room.leadSeatId),
+      workspaceId,
+      roomIds: leadRooms.map((candidate) => candidate.id),
+      identityRole: "lead",
+      effectiveRole: "lead",
+      profileId: AgentProfileId.makeUnsafe(`${room.leadSeatId}:initial-profile`),
+      providerSessionId: null,
+      lifecycleState: retired ? "retired" : "active",
+      workState: "idle",
+      authorityReceiptId: receipt.id,
+      createdAt,
+      retainedAt: null,
+      retiredAt: retired ? updatedAt : null,
+      revision: Math.max(...leadRooms.map((candidate) => candidate.revision)),
+      updatedAt,
+    });
+  }
+
+  for (const room of input.runtime.rooms) {
     if (room.leadSeatId === null) continue;
     const canonicalLiveLease = rootLeases.find(
       (lease) =>
@@ -200,6 +246,10 @@ export function reconcileLegacyGovernance(input: {
         !lease.id.startsWith("legacy-root-lease:"),
     );
     if (canonicalLiveLease) continue;
+    const holderSeat = agentSeats.find((seat) => seat.id === room.leadSeatId);
+    if (!holderSeat) {
+      throw new Error(`Lead Room '${room.id}' references missing Lead seat '${room.leadSeatId}'.`);
+    }
     const current = activeLegacyLeaseFor(
       { ...input.governance, rootLeases },
       room.id,
@@ -226,7 +276,7 @@ export function reconcileLegacyGovernance(input: {
       roomId: room.id,
       holderSeatId: AgentSeatId.makeUnsafe(room.leadSeatId),
       status: terminal ? "released" : "active",
-      acquiredUnderReceiptId: legacyReceiptId(room.leadSeatId),
+      acquiredUnderReceiptId: holderSeat.authorityReceiptId,
       predecessorLeaseId: null,
       acquiredAt: room.createdAt,
       releasedAt: terminal ? room.updatedAt : null,

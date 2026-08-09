@@ -82,6 +82,41 @@ describe("legacy Supervised reconciliation", () => {
     assert.equal(decoded.rootLeases[0]?.holderSeatId, "lead-seat-1");
   });
 
+  it("materializes a provisional Lead seat when Room activation projects first", () => {
+    const runtime = Schema.decodeUnknownSync(SupervisedRuntimeSnapshot)({
+      ...emptySupervisedRuntimeSnapshot(now),
+      rooms: [
+        {
+          id: "room-before-lead",
+          projectId: "project-1",
+          title: "Room",
+          leadSeatId: "lead-before-bootstrap",
+          status: "provisioning",
+          graphRevision: 0,
+          revision: 1,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ],
+    });
+
+    const reconciled = reconcileLegacyGovernance({
+      governance: emptySupervisedGovernanceSnapshot(now),
+      supervision: emptySupervisionSnapshot(now),
+      runtime,
+      at: now,
+    });
+    const decoded = Schema.decodeUnknownSync(SupervisedGovernanceSnapshot)(reconciled);
+
+    assert.equal(decoded.agentSeats[0]?.id, "lead-before-bootstrap");
+    assert.equal(decoded.agentSeats[0]?.lifecycleState, "active");
+    assert.equal(decoded.rootLeases[0]?.holderSeatId, "lead-before-bootstrap");
+    assert.equal(
+      decoded.rootLeases[0]?.acquiredUnderReceiptId,
+      decoded.agentSeats[0]?.authorityReceiptId,
+    );
+  });
+
   it("does not overwrite a seat that already uses a canonical authority receipt", () => {
     const governance = Schema.decodeUnknownSync(SupervisedGovernanceSnapshot)({
       ...emptySupervisedGovernanceSnapshot(now),
@@ -136,14 +171,31 @@ describe("legacy Supervised reconciliation", () => {
       ],
     });
 
+    const runtime = Schema.decodeUnknownSync(SupervisedRuntimeSnapshot)({
+      ...emptySupervisedRuntimeSnapshot(now),
+      rooms: [
+        {
+          id: "room-canonical",
+          projectId: "project-1",
+          title: "Room",
+          leadSeatId: "lead-seat-1",
+          status: "active",
+          graphRevision: 0,
+          revision: 1,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ],
+    });
     const reconciled = reconcileLegacyGovernance({
       governance,
       supervision: emptySupervisionSnapshot(now),
-      runtime: emptySupervisedRuntimeSnapshot(now),
+      runtime,
       at: now,
     });
 
     assert.equal(reconciled.agentSeats[0]?.profileId, "canonical-profile");
     assert.equal(reconciled.authorityReceipts.length, 1);
+    assert.equal(reconciled.rootLeases[0]?.acquiredUnderReceiptId, "canonical-receipt");
   });
 });
