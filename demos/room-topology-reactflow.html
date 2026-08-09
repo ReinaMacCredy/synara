@@ -1,0 +1,1342 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Synara · Room Topology · React Flow demo (adaptive)</title>
+    <link rel="stylesheet" href="https://esm.sh/@xyflow/react@12.6.0/dist/style.css" />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg-root: #0c0c0d;
+        --bg-surface: #121214;
+        --bg-elevated: #17171a;
+        --bg-hover: #1e1e22;
+        --border: rgba(255, 255, 255, 0.1);
+        --border-strong: rgba(255, 255, 255, 0.16);
+        --text: #f4f4f5;
+        --muted: #a1a1aa;
+        --muted-2: #71717a;
+        --accent: #818cf8;
+        --accent-soft: rgba(129, 140, 248, 0.18);
+        --good: #34d399;
+        --warn: #fbbf24;
+        --bad: #f87171;
+        --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body,
+      #root {
+        margin: 0;
+        height: 100%;
+        background: var(--bg-root);
+        color: var(--text);
+        font-family: var(--font);
+      }
+
+      button {
+        font: inherit;
+        color: inherit;
+        background: none;
+        border: 0;
+        cursor: pointer;
+      }
+
+      .shell {
+        display: grid;
+        grid-template-columns: 248px 1fr;
+        height: 100%;
+        min-height: 0;
+      }
+
+      .sidebar {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        border-right: 1px solid var(--border);
+        background: var(--bg-surface);
+      }
+
+      .sidebar-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 44px;
+        padding: 0 12px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .eyebrow {
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .sidebar-body {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding: 12px 8px;
+      }
+
+      .nav-btn {
+        display: flex;
+        width: 100%;
+        align-items: center;
+        gap: 8px;
+        border-radius: 8px;
+        padding: 7px 8px;
+        text-align: left;
+        font-size: 11px;
+        color: var(--muted);
+        transition: background 120ms ease, color 120ms ease;
+      }
+
+      .nav-btn:hover {
+        background: var(--bg-hover);
+        color: var(--text);
+      }
+
+      .nav-btn.is-selected {
+        background: var(--bg-hover);
+        color: var(--text);
+      }
+
+      .nav-btn.is-lead {
+        padding-left: 16px;
+      }
+
+      .nav-btn.is-peer {
+        padding-left: 28px;
+      }
+
+      .section-label {
+        margin: 18px 8px 8px;
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: color-mix(in srgb, var(--muted) 70%, transparent);
+      }
+
+      .policy-card {
+        margin: 8px 4px 0;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-size: 10px;
+        color: var(--muted);
+        background: var(--bg-elevated);
+      }
+
+      .policy-card-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        color: var(--text);
+        font-weight: 500;
+      }
+
+      .policy-card .row {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        margin-top: 6px;
+      }
+
+      .sidebar-foot {
+        border-top: 1px solid var(--border);
+        padding: 10px 12px;
+        display: grid;
+        gap: 8px;
+      }
+
+      .hint {
+        font-size: 10px;
+        line-height: 1.45;
+        color: var(--muted-2);
+      }
+
+      .toggle-row,
+      .grow-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .chip-btn {
+        flex: 1 1 auto;
+        min-width: 0;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 7px 8px;
+        font-size: 10px;
+        color: var(--muted);
+        background: var(--bg-elevated);
+        transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+        white-space: nowrap;
+      }
+
+      .chip-btn:hover {
+        color: var(--text);
+        border-color: var(--border-strong);
+      }
+
+      .chip-btn.is-on {
+        color: var(--text);
+        border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+        background: var(--accent-soft);
+      }
+
+      .chip-btn:disabled {
+        opacity: 0.35;
+        cursor: not-allowed;
+      }
+
+      .stat-line {
+        font-size: 10px;
+        color: var(--muted);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .canvas {
+        display: flex;
+        min-width: 0;
+        min-height: 0;
+        flex-direction: column;
+        background: var(--bg-root);
+      }
+
+      .tab-bar {
+        display: flex;
+        height: 40px;
+        align-items: flex-end;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .tab {
+        display: flex;
+        height: 100%;
+        align-items: center;
+        gap: 8px;
+        border-right: 1px solid var(--border);
+        padding: 0 12px;
+        font-size: 11px;
+      }
+
+      .pulse {
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        background: var(--accent);
+        box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent);
+        animation: pulse 1.8s ease-out infinite;
+      }
+
+      @keyframes pulse {
+        70% {
+          box-shadow: 0 0 0 8px transparent;
+        }
+        100% {
+          box-shadow: 0 0 0 0 transparent;
+        }
+      }
+
+      .crumb {
+        display: flex;
+        height: 32px;
+        align-items: center;
+        border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+        padding: 0 12px;
+        font-size: 10px;
+        color: var(--muted);
+      }
+
+      .crumb-sep {
+        padding: 0 6px;
+        color: color-mix(in srgb, var(--muted) 35%, transparent);
+      }
+
+      .stage {
+        position: relative;
+        flex: 1;
+        min-height: 0;
+      }
+
+      .react-flow {
+        --xy-background-color: transparent;
+        --xy-node-border-default: transparent;
+        --xy-node-background-color-default: transparent;
+        --xy-edge-stroke-default: #71717a;
+        --xy-edge-stroke-width-default: 1.25;
+        --xy-controls-button-background-color: var(--bg-surface);
+        --xy-controls-button-background-color-hover: var(--bg-hover);
+        --xy-controls-button-color: var(--muted);
+        --xy-controls-button-color-hover: var(--text);
+        --xy-controls-button-border-color: var(--border);
+        --xy-minimap-background-color: var(--bg-surface);
+        --xy-minimap-mask-background-color: rgba(12, 12, 13, 0.55);
+        --xy-minimap-node-background-color: #3f3f46;
+        background: transparent !important;
+      }
+
+      .react-flow__attribution {
+        background: transparent !important;
+        color: var(--muted-2) !important;
+        font-size: 9px !important;
+      }
+
+      .react-flow__controls {
+        border: 1px solid var(--border) !important;
+        border-radius: 8px !important;
+        overflow: hidden;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      }
+
+      .react-flow__minimap {
+        border: 1px solid var(--border) !important;
+        border-radius: 10px !important;
+        overflow: hidden;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      }
+
+      .react-flow__edge-path {
+        stroke: #71717a !important;
+      }
+
+      .react-flow__edge-textbg {
+        fill: var(--bg-root);
+      }
+
+      .react-flow__edge-text {
+        fill: var(--muted) !important;
+        font-size: 10px !important;
+        font-family: var(--font) !important;
+      }
+
+      .hud {
+        pointer-events: none;
+        position: absolute;
+        inset: auto 12px 12px 12px;
+        z-index: 5;
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .hud-pill {
+        pointer-events: auto;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: color-mix(in srgb, var(--bg-surface) 92%, transparent);
+        backdrop-filter: blur(10px);
+        padding: 6px 10px;
+        font-size: 10px;
+        color: var(--muted);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+      }
+
+      .hud-pill .live {
+        color: var(--accent);
+      }
+
+      .footer {
+        display: flex;
+        height: 32px;
+        align-items: center;
+        justify-content: space-between;
+        border-top: 1px solid var(--border);
+        padding: 0 12px;
+        font-size: 10px;
+        color: var(--muted);
+      }
+
+      .footer-right {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .topo-node {
+        width: 210px;
+        border: 1.5px solid var(--node-border, #71717a);
+        border-radius: 10px;
+        background: var(--node-bg, var(--bg-elevated));
+        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+        transition: border-color 140ms ease, box-shadow 140ms ease;
+        overflow: hidden;
+      }
+
+      .topo-node.is-selected {
+        border-color: var(--accent);
+        box-shadow:
+          0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent),
+          0 12px 30px rgba(0, 0, 0, 0.35);
+      }
+
+      .topo-node.is-live {
+        animation: nodeGlow 2.2s ease-in-out infinite;
+      }
+
+      @keyframes nodeGlow {
+        0%,
+        100% {
+          box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+        }
+        50% {
+          box-shadow:
+            0 0 0 1px color-mix(in srgb, var(--good) 35%, transparent),
+            0 14px 32px rgba(0, 0, 0, 0.34);
+        }
+      }
+
+      .topo-node-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 10px 12px 0;
+      }
+
+      .topo-eyebrow {
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted-2);
+      }
+
+      .topo-title {
+        padding: 4px 12px 0;
+        font-size: 13px;
+        font-weight: 600;
+        line-height: 1.25;
+        color: var(--text);
+        word-break: break-word;
+      }
+
+      .topo-detail {
+        padding: 6px 12px 12px;
+        font-size: 11px;
+        line-height: 1.4;
+        color: var(--muted);
+      }
+
+      .status-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        background: var(--muted-2);
+        flex-shrink: 0;
+      }
+
+      .status-dot.is-good {
+        background: var(--good);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 18%, transparent);
+      }
+
+      .status-dot.is-warn {
+        background: var(--warn);
+      }
+
+      .status-dot.is-bad {
+        background: var(--bad);
+      }
+
+      .kind-runtime {
+        --node-border: #71717a;
+        --node-bg: #17171a;
+      }
+      .kind-policy {
+        --node-border: #52525b;
+        --node-bg: #141416;
+      }
+      .kind-lead {
+        --node-border: #71717a;
+        --node-bg: #17171a;
+      }
+      .kind-peer {
+        --node-border: #52525b;
+        --node-bg: #17171a;
+      }
+      .kind-workspace {
+        --node-border: #52525b;
+        --node-bg: #141416;
+      }
+
+      .handle {
+        width: 8px !important;
+        height: 8px !important;
+        border: 1.5px solid #a1a1aa !important;
+        background: var(--bg-root) !important;
+      }
+
+      .banner {
+        position: absolute;
+        top: 12px;
+        left: 50%;
+        z-index: 6;
+        transform: translateX(-50%);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--bg-surface) 92%, transparent);
+        backdrop-filter: blur(10px);
+        padding: 6px 12px;
+        font-size: 10px;
+        color: var(--muted);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+        white-space: nowrap;
+      }
+
+      .banner strong {
+        color: var(--text);
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "react": "https://esm.sh/react@18.3.1",
+          "react/jsx-runtime": "https://esm.sh/react@18.3.1/jsx-runtime",
+          "react-dom": "https://esm.sh/react-dom@18.3.1",
+          "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
+          "@xyflow/react": "https://esm.sh/@xyflow/react@12.6.0?external=react,react-dom",
+          "htm": "https://esm.sh/htm@3.1.1"
+        }
+      }
+    </script>
+
+    <script type="module">
+      import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+      import { createRoot } from "react-dom/client";
+      import {
+        Background,
+        BackgroundVariant,
+        Controls,
+        Handle,
+        MarkerType,
+        MiniMap,
+        Position,
+        ReactFlow,
+        ReactFlowProvider,
+        useEdgesState,
+        useNodesState,
+        useReactFlow,
+      } from "@xyflow/react";
+      import htm from "htm";
+
+      const html = htm.bind(React.createElement);
+
+      // ── Domain sample: root → many leads → many peers ────────────
+      // Mirrors governance shape: leads own peers via parentId (leadSeatId).
+      const NODE_W = 210;
+      const NODE_H = 92;
+      const COL_X = {
+        runtime: 0,
+        policy: 0,
+        lead: 300,
+        peer: 620,
+        workspace: 940,
+      };
+      const ROW_GAP = 24;
+      const LEAD_BLOCK_GAP = 36;
+
+      const PEER_PROFILES = [
+        { title: "implementation", profile: "code-impl" },
+        { title: "review", profile: "code-review" },
+        { title: "test", profile: "test-runner" },
+        { title: "research", profile: "explore" },
+        { title: "docs", profile: "docs-writer" },
+        { title: "security", profile: "sec-review" },
+      ];
+
+      const LEAD_NAMES = ["opus", "sonnet", "fable", "codex", "grok", "kilo"];
+
+      function makeId(prefix) {
+        return `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
+      }
+
+      function buildInitialProjection() {
+        const leadA = "lead-opus";
+        const leadB = "lead-sonnet";
+        return {
+          roomTitle: "auth-hardening",
+          roomStatus: "active",
+          graphRevision: 14,
+          taskCount: 11,
+          activeRunCount: 4,
+          contextRecordCount: 18,
+          contextSequence: 42,
+          policy: {
+            name: "supervised-default",
+            maxWallTimeMs: 45 * 60_000,
+            maxFanOut: 8,
+            maxRecursiveCalls: 3,
+          },
+          nodes: [
+            {
+              id: "runtime-1",
+              kind: "runtime",
+              parentId: null,
+              eyebrow: "Control plane",
+              title: "Supervised runtime",
+              detail: "daemon epoch 7",
+              status: "healthy",
+            },
+            {
+              id: "policy-1",
+              kind: "policy",
+              parentId: null,
+              eyebrow: "RunPolicy",
+              title: "supervised-default",
+              detail: "8 fan-out · 3 recursive calls",
+              status: "active",
+            },
+            {
+              id: leadA,
+              kind: "lead",
+              parentId: "runtime-1",
+              eyebrow: "Lead",
+              title: "seat:lead-opus",
+              detail: "3 peers · 2 active runs",
+              status: "running",
+            },
+            {
+              id: leadB,
+              kind: "lead",
+              parentId: "runtime-1",
+              eyebrow: "Lead",
+              title: "seat:lead-sonnet",
+              detail: "2 peers · 1 active run",
+              status: "active",
+            },
+            {
+              id: "peer-impl",
+              kind: "peer",
+              parentId: leadA,
+              eyebrow: "Peer",
+              title: "implementation",
+              detail: "profile:code-impl",
+              status: "running",
+            },
+            {
+              id: "peer-review",
+              kind: "peer",
+              parentId: leadA,
+              eyebrow: "Peer",
+              title: "review",
+              detail: "profile:code-review",
+              status: "active",
+            },
+            {
+              id: "peer-test",
+              kind: "peer",
+              parentId: leadA,
+              eyebrow: "Peer",
+              title: "test",
+              detail: "profile:test-runner",
+              status: "waiting",
+            },
+            {
+              id: "peer-research",
+              kind: "peer",
+              parentId: leadB,
+              eyebrow: "Peer",
+              title: "research",
+              detail: "profile:explore",
+              status: "running",
+            },
+            {
+              id: "peer-docs",
+              kind: "peer",
+              parentId: leadB,
+              eyebrow: "Peer",
+              title: "docs",
+              detail: "profile:docs-writer",
+              status: "active",
+            },
+            {
+              id: "ws-1",
+              kind: "workspace",
+              parentId: null,
+              eyebrow: "Durable truth",
+              title: "Context workspace",
+              detail: "18 retained records",
+              status: "sequence 42",
+            },
+          ],
+        };
+      }
+
+      function isHealthy(status) {
+        return ["healthy", "active", "retained", "running", "present"].includes(status);
+      }
+
+      function statusTone(status) {
+        if (isHealthy(status)) return "good";
+        if (["waiting", "paused", "stalled", "pending"].includes(status)) return "warn";
+        if (["failed", "error", "stopped"].includes(status)) return "bad";
+        return "muted";
+      }
+
+      function StatusDot({ status }) {
+        const tone = statusTone(status);
+        return html`<span
+          className=${`status-dot ${tone === "good" ? "is-good" : ""} ${tone === "warn" ? "is-warn" : ""} ${tone === "bad" ? "is-bad" : ""}`}
+          title=${status}
+          aria-hidden="true"
+        />`;
+      }
+
+      function TopologyNode({ data, selected }) {
+        const live = data.status === "running" || data.status === "healthy";
+        return html`
+          <div
+            className=${`topo-node kind-${data.kind} ${selected ? "is-selected" : ""} ${live && data.liveSim ? "is-live" : ""}`}
+          >
+            <${Handle} type="target" position=${Position.Left} className="handle" />
+            <div className="topo-node-head">
+              <span className="topo-eyebrow">${data.eyebrow}</span>
+              <${StatusDot} status=${data.status} />
+            </div>
+            <div className="topo-title">${data.title}</div>
+            <div className="topo-detail">${data.status} · ${data.detail}</div>
+            <${Handle} type="source" position=${Position.Right} className="handle" />
+          </div>
+        `;
+      }
+
+      const nodeTypes = { topology: TopologyNode };
+
+      /**
+       * Adaptive hierarchical layout:
+       * - columns fixed by kind (runtime/policy | lead | peer | workspace)
+       * - each lead claims a vertical block tall enough for its peers
+       * - root/policy/workspace re-center against the full lead stack
+       *
+       * This is the "flex" part: N leads × M peers reflows without hardcoding.
+       * For wilder graphs (cycles, freeform), swap this for elkjs/dagre.
+       */
+      function layoutNodes(projection, selectedNodeId, liveSim) {
+        const runtime = projection.nodes.find((n) => n.kind === "runtime");
+        const policy = projection.nodes.find((n) => n.kind === "policy");
+        const workspace = projection.nodes.find((n) => n.kind === "workspace");
+        const leads = projection.nodes.filter((n) => n.kind === "lead");
+        const peers = projection.nodes.filter((n) => n.kind === "peer");
+
+        const peersByLead = new Map(leads.map((l) => [l.id, []]));
+        for (const peer of peers) {
+          const bucket = peersByLead.get(peer.parentId);
+          if (bucket) bucket.push(peer);
+          else {
+            // orphan peer: attach under first lead visually
+            if (leads[0]) peersByLead.get(leads[0].id)?.push(peer);
+          }
+        }
+
+        const positions = new Map();
+        let cursorY = 0;
+        const leadCenters = [];
+
+        for (const lead of leads) {
+          const children = peersByLead.get(lead.id) ?? [];
+          const blockH = Math.max(
+            NODE_H,
+            children.length * NODE_H + Math.max(children.length - 1, 0) * ROW_GAP,
+          );
+          const leadY = cursorY + (blockH - NODE_H) / 2;
+          positions.set(lead.id, { x: COL_X.lead, y: leadY });
+          leadCenters.push(leadY + NODE_H / 2);
+
+          let peerY = cursorY;
+          for (const peer of children) {
+            positions.set(peer.id, { x: COL_X.peer, y: peerY });
+            peerY += NODE_H + ROW_GAP;
+          }
+
+          cursorY += blockH + LEAD_BLOCK_GAP;
+        }
+
+        if (leads.length === 0) {
+          cursorY = NODE_H;
+        }
+
+        const stackH = Math.max(cursorY - LEAD_BLOCK_GAP, NODE_H);
+        const stackMid = stackH / 2;
+
+        if (runtime) {
+          positions.set(runtime.id, {
+            x: COL_X.runtime,
+            y: Math.max(0, stackMid - NODE_H - 20),
+          });
+        }
+        if (policy) {
+          positions.set(policy.id, {
+            x: COL_X.policy,
+            y: Math.max(NODE_H + 40, stackMid + 20),
+          });
+        }
+        if (workspace) {
+          // place workspace centered on peer column height
+          positions.set(workspace.id, {
+            x: COL_X.workspace,
+            y: Math.max(0, stackMid - NODE_H / 2),
+          });
+        }
+
+        return projection.nodes.map((node) => {
+          const pos = positions.get(node.id) ?? { x: 0, y: 0 };
+          return {
+            id: node.id,
+            type: "topology",
+            position: pos,
+            data: { ...node, liveSim },
+            selected: selectedNodeId === node.id,
+          };
+        });
+      }
+
+      function layoutEdges(projection) {
+        const runtime = projection.nodes.find((n) => n.kind === "runtime");
+        const policy = projection.nodes.find((n) => n.kind === "policy");
+        const workspace = projection.nodes.find((n) => n.kind === "workspace");
+        const leads = projection.nodes.filter((n) => n.kind === "lead");
+        const peers = projection.nodes.filter((n) => n.kind === "peer");
+
+        const edges = [];
+        const solid = {
+          type: "smoothstep",
+          markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14, color: "#71717a" },
+          style: { stroke: "#71717a", strokeWidth: 1.25 },
+          labelStyle: { fill: "#a1a1aa", fontSize: 10 },
+          labelBgStyle: { fill: "#0c0c0d" },
+          labelBgPadding: [4, 6],
+          labelBgBorderRadius: 4,
+        };
+        const dashed = {
+          ...solid,
+          style: { stroke: "#52525b", strokeWidth: 1.25, strokeDasharray: "5 4" },
+          markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14, color: "#52525b" },
+        };
+
+        for (const lead of leads) {
+          if (runtime) {
+            edges.push({
+              ...solid,
+              id: `e-${runtime.id}-${lead.id}`,
+              source: runtime.id,
+              target: lead.id,
+              label: "governs",
+            });
+          }
+          if (policy) {
+            edges.push({
+              ...solid,
+              id: `e-${policy.id}-${lead.id}`,
+              source: policy.id,
+              target: lead.id,
+              label: "bounds",
+            });
+          }
+        }
+
+        for (const peer of peers) {
+          const leadId = peer.parentId;
+          if (leadId) {
+            edges.push({
+              ...solid,
+              id: `e-${leadId}-${peer.id}`,
+              source: leadId,
+              target: peer.id,
+              label: "delegates",
+              animated: peer.status === "running",
+            });
+          }
+          if (workspace) {
+            edges.push({
+              ...dashed,
+              id: `e-${peer.id}-${workspace.id}`,
+              source: peer.id,
+              target: workspace.id,
+              label: "checkpoints",
+            });
+          }
+        }
+
+        // no peers yet → lead still checkpoints into workspace
+        if (workspace) {
+          for (const lead of leads) {
+            const hasPeers = peers.some((p) => p.parentId === lead.id);
+            if (!hasPeers) {
+              edges.push({
+                ...dashed,
+                id: `e-${lead.id}-${workspace.id}`,
+                source: lead.id,
+                target: workspace.id,
+                label: "checkpoints",
+              });
+            }
+          }
+        }
+
+        return edges;
+      }
+
+      function recountLeadDetails(nodes) {
+        return nodes.map((node) => {
+          if (node.kind !== "lead") return node;
+          const peerCount = nodes.filter((n) => n.kind === "peer" && n.parentId === node.id).length;
+          const active = nodes.filter(
+            (n) =>
+              n.kind === "peer" &&
+              n.parentId === node.id &&
+              ["running", "active"].includes(n.status),
+          ).length;
+          return {
+            ...node,
+            detail: `${peerCount} peer${peerCount === 1 ? "" : "s"} · ${active} active`,
+          };
+        });
+      }
+
+      function Sidebar({
+        projection,
+        selectedNodeId,
+        onSelect,
+        liveSim,
+        onToggleLive,
+        onAddLead,
+        onAddPeer,
+        onRemoveSelected,
+        onRelayout,
+      }) {
+        const leads = projection.nodes.filter((n) => n.kind === "lead");
+        const peers = projection.nodes.filter((n) => n.kind === "peer");
+        const workspace = projection.nodes.filter((n) => n.kind === "workspace");
+        const runtime = projection.nodes.find((n) => n.kind === "runtime");
+        const selected = projection.nodes.find((n) => n.id === selectedNodeId) ?? null;
+        const canAddPeer = selected?.kind === "lead" || leads.length > 0;
+        const canRemove =
+          selected && (selected.kind === "lead" || selected.kind === "peer");
+
+        return html`
+          <aside className="sidebar">
+            <div className="sidebar-head">
+              <span className="eyebrow">Room topology</span>
+              <span style=${{ color: "var(--muted)", fontSize: 12 }}>⎇</span>
+            </div>
+            <div className="sidebar-body">
+              ${runtime
+                ? html`
+                    <button
+                      type="button"
+                      className=${`nav-btn ${selectedNodeId === runtime.id ? "is-selected" : ""}`}
+                      onClick=${() => onSelect(runtime.id)}
+                    >
+                      <${StatusDot} status=${runtime.status} />
+                      <span>${runtime.title}</span>
+                    </button>
+                  `
+                : null}
+
+              ${leads.map((lead) => {
+                const children = peers.filter((p) => p.parentId === lead.id);
+                return html`
+                  <div key=${lead.id}>
+                    <button
+                      type="button"
+                      className=${`nav-btn is-lead ${selectedNodeId === lead.id ? "is-selected" : ""}`}
+                      onClick=${() => onSelect(lead.id)}
+                    >
+                      <${StatusDot} status=${lead.status} />
+                      <span style=${{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                        >${lead.title}</span
+                      >
+                    </button>
+                    ${children.map(
+                      (peer) => html`
+                        <button
+                          key=${peer.id}
+                          type="button"
+                          className=${`nav-btn is-peer ${selectedNodeId === peer.id ? "is-selected" : ""}`}
+                          onClick=${() => onSelect(peer.id)}
+                        >
+                          <${StatusDot} status=${peer.status} />
+                          <span style=${{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                            >${peer.title}</span
+                          >
+                        </button>
+                      `,
+                    )}
+                  </div>
+                `;
+              })}
+
+              <div className="section-label">Durable workspace</div>
+              ${workspace.map(
+                (node) => html`
+                  <button
+                    key=${node.id}
+                    type="button"
+                    className=${`nav-btn ${selectedNodeId === node.id ? "is-selected" : ""}`}
+                    onClick=${() => onSelect(node.id)}
+                  >
+                    <${StatusDot} status=${node.status} />
+                    <span>${node.title}</span>
+                  </button>
+                `,
+              )}
+
+              <div className="section-label">RunPolicy</div>
+              <div className="policy-card">
+                <div className="policy-card-title">
+                  <span>${projection.policy?.name ?? "No effective policy"}</span>
+                  <${StatusDot} status=${projection.policy ? "active" : "pending"} />
+                </div>
+                <div className="row">
+                  <span>Wall time</span>
+                  <span
+                    >${projection.policy
+                      ? Math.round(projection.policy.maxWallTimeMs / 60_000) + " min"
+                      : "—"}</span
+                  >
+                </div>
+                <div className="row">
+                  <span>Fan-out</span>
+                  <span>${projection.policy?.maxFanOut ?? "—"}</span>
+                </div>
+                <div className="row">
+                  <span>Recursive calls</span>
+                  <span>${projection.policy?.maxRecursiveCalls ?? "—"}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="sidebar-foot">
+              <div className="stat-line">
+                ${leads.length} lead${leads.length === 1 ? "" : "s"} · ${peers.length} peer${peers.length === 1 ? "" : "s"} · rev
+                ${projection.graphRevision}
+              </div>
+              <div className="grow-row">
+                <button type="button" className="chip-btn" onClick=${onAddLead}>+ lead</button>
+                <button
+                  type="button"
+                  className="chip-btn"
+                  disabled=${!canAddPeer}
+                  onClick=${onAddPeer}
+                  title=${selected?.kind === "lead" ? "Add peer under selected lead" : "Add peer under last lead"}
+                >
+                  + peer
+                </button>
+                <button
+                  type="button"
+                  className="chip-btn"
+                  disabled=${!canRemove}
+                  onClick=${onRemoveSelected}
+                >
+                  − selected
+                </button>
+              </div>
+              <div className="toggle-row">
+                <button
+                  type="button"
+                  className=${`chip-btn ${liveSim ? "is-on" : ""}`}
+                  onClick=${onToggleLive}
+                >
+                  ${liveSim ? "● live sim on" : "○ live sim off"}
+                </button>
+                <button type="button" className="chip-btn" onClick=${onRelayout}>
+                  re-layout + fit
+                </button>
+              </div>
+              <div className="hint">
+                Adaptive layout: each lead gets a vertical block sized by its peers. Add leads/peers — graph reflows. Scroll zoom, drag pan.
+              </div>
+            </div>
+          </aside>
+        `;
+      }
+
+      function FitHelper({ token }) {
+        const { fitView } = useReactFlow();
+        useEffect(() => {
+          if (token === 0) return;
+          const t = setTimeout(() => fitView({ padding: 0.16, duration: 320 }), 50);
+          return () => clearTimeout(t);
+        }, [token, fitView]);
+        return null;
+      }
+
+      function TopologyCanvas({
+        projection,
+        selectedNodeId,
+        onSelect,
+        liveSim,
+        layoutToken,
+        autoFitToken,
+      }) {
+        // Full re-layout whenever structure/status/selection changes (demo keeps positions managed).
+        const rfNodes = useMemo(
+          () => layoutNodes(projection, selectedNodeId, liveSim),
+          [projection, selectedNodeId, liveSim, layoutToken],
+        );
+        const rfEdges = useMemo(() => layoutEdges(projection), [projection]);
+
+        const [nodes, setNodes, onNodesChange] = useNodesState(rfNodes);
+        const [edges, setEdges, onEdgesChange] = useEdgesState(rfEdges);
+
+        useEffect(() => {
+          setNodes(rfNodes);
+          setEdges(rfEdges);
+        }, [rfNodes, rfEdges, setNodes, setEdges]);
+
+        const onNodeClick = useCallback((_e, node) => onSelect(node.id), [onSelect]);
+        const onPaneClick = useCallback(() => onSelect(null), [onSelect]);
+        const selected = projection.nodes.find((n) => n.id === selectedNodeId) ?? null;
+        const leadCount = projection.nodes.filter((n) => n.kind === "lead").length;
+        const peerCount = projection.nodes.filter((n) => n.kind === "peer").length;
+
+        return html`
+          <section className="canvas">
+            <div className="tab-bar">
+              <div className="tab">
+                <span className="pulse"></span>
+                governance.graph
+              </div>
+            </div>
+            <div className="crumb">
+              <span>${projection.roomTitle}</span>
+              <span className="crumb-sep">›</span>
+              <span>live topology</span>
+              <span className="crumb-sep">·</span>
+              <span>${leadCount} leads · ${peerCount} peers</span>
+            </div>
+            <div className="stage">
+              <div className="banner">
+                Adaptive demo · <strong>N leads × M peers reflow</strong> · not wired to Synara
+              </div>
+              <${ReactFlow}
+                nodes=${nodes}
+                edges=${edges}
+                onNodesChange=${onNodesChange}
+                onEdgesChange=${onEdgesChange}
+                onNodeClick=${onNodeClick}
+                onPaneClick=${onPaneClick}
+                nodeTypes=${nodeTypes}
+                fitView
+                fitViewOptions=${{ padding: 0.16 }}
+                minZoom=${0.2}
+                maxZoom=${1.75}
+                nodesDraggable=${true}
+                nodesConnectable=${false}
+                elementsSelectable=${true}
+                panOnScroll=${true}
+                defaultEdgeOptions=${{ type: "smoothstep" }}
+              >
+                <${Background}
+                  variant=${BackgroundVariant.Dots}
+                  gap=${20}
+                  size=${1}
+                  color="rgba(255,255,255,0.08)"
+                />
+                <${Controls} showInteractive=${false} position="bottom-right" />
+                <${MiniMap}
+                  pannable
+                  zoomable
+                  position="bottom-left"
+                  nodeStrokeColor=${(n) => (n.selected ? "#818cf8" : "#52525b")}
+                  nodeColor=${(n) => (n.selected ? "#312e81" : "#27272a")}
+                />
+                <${FitHelper} token=${autoFitToken} />
+              </${ReactFlow}>
+
+              <div className="hud">
+                <div className="hud-pill">
+                  <span className="live">●</span>
+                  ${" "}Live topology · revision ${projection.graphRevision}
+                  ${selected ? ` · selected ${selected.title}` : ""}
+                </div>
+              </div>
+            </div>
+            <div className="footer">
+              <span>${projection.taskCount} tasks · ${projection.activeRunCount} active runs</span>
+              <span
+                >${projection.contextRecordCount} context records · sequence
+                ${projection.contextSequence}</span
+              >
+              <span className="footer-right">
+                <${StatusDot} status="healthy" />
+                runtime healthy
+              </span>
+            </div>
+          </section>
+        `;
+      }
+
+      function App() {
+        const [projection, setProjection] = useState(buildInitialProjection);
+        const [selectedNodeId, setSelectedNodeId] = useState("lead-opus");
+        const [liveSim, setLiveSim] = useState(true);
+        const [layoutToken, setLayoutToken] = useState(0);
+        const [autoFitToken, setAutoFitToken] = useState(0);
+        const leadNameIdx = useRef(2);
+        const peerProfileIdx = useRef(0);
+
+        useEffect(() => {
+          if (!liveSim) return;
+          const id = setInterval(() => {
+            setProjection((prev) => {
+              const cycle = ["running", "active", "waiting", "running"];
+              return {
+                ...prev,
+                activeRunCount: 1 + Math.floor(Math.random() * 5),
+                nodes: recountLeadDetails(
+                  prev.nodes.map((node) => {
+                    if (node.kind !== "peer") return node;
+                    if (node.id.includes("review")) return node;
+                    const idx = cycle.indexOf(node.status);
+                    return { ...node, status: cycle[(Math.max(idx, 0) + 1) % cycle.length] };
+                  }),
+                ),
+              };
+            });
+          }, 2200);
+          return () => clearInterval(id);
+        }, [liveSim]);
+
+        const bumpStructure = useCallback((mutator) => {
+          setProjection((prev) => {
+            const nextNodes = recountLeadDetails(mutator([...prev.nodes]));
+            const leads = nextNodes.filter((n) => n.kind === "lead").length;
+            const peers = nextNodes.filter((n) => n.kind === "peer").length;
+            return {
+              ...prev,
+              graphRevision: prev.graphRevision + 1,
+              taskCount: peers + leads,
+              activeRunCount: nextNodes.filter(
+                (n) => n.kind === "peer" && n.status === "running",
+              ).length,
+              nodes: nextNodes,
+            };
+          });
+          setLayoutToken((t) => t + 1);
+          setAutoFitToken((t) => t + 1);
+        }, []);
+
+        const onAddLead = useCallback(() => {
+          const name = LEAD_NAMES[leadNameIdx.current % LEAD_NAMES.length];
+          leadNameIdx.current += 1;
+          const id = makeId("lead");
+          bumpStructure((nodes) => [
+            ...nodes,
+            {
+              id,
+              kind: "lead",
+              parentId: "runtime-1",
+              eyebrow: "Lead",
+              title: `seat:lead-${name}`,
+              detail: "0 peers · 0 active",
+              status: "active",
+            },
+          ]);
+          setSelectedNodeId(id);
+        }, [bumpStructure]);
+
+        const onAddPeer = useCallback(() => {
+          setProjection((prev) => {
+            const leads = prev.nodes.filter((n) => n.kind === "lead");
+            if (leads.length === 0) return prev;
+            const selectedLead =
+              prev.nodes.find((n) => n.id === selectedNodeId && n.kind === "lead") ??
+              leads[leads.length - 1];
+            const profile = PEER_PROFILES[peerProfileIdx.current % PEER_PROFILES.length];
+            peerProfileIdx.current += 1;
+            const id = makeId("peer");
+            const nodes = recountLeadDetails([
+              ...prev.nodes,
+              {
+                id,
+                kind: "peer",
+                parentId: selectedLead.id,
+                eyebrow: "Peer",
+                title: profile.title,
+                detail: `profile:${profile.profile}`,
+                status: "running",
+              },
+            ]);
+            setSelectedNodeId(id);
+            setLayoutToken((t) => t + 1);
+            setAutoFitToken((t) => t + 1);
+            return {
+              ...prev,
+              graphRevision: prev.graphRevision + 1,
+              taskCount: nodes.filter((n) => n.kind === "peer" || n.kind === "lead").length,
+              activeRunCount: nodes.filter((n) => n.kind === "peer" && n.status === "running")
+                .length,
+              nodes,
+            };
+          });
+        }, [selectedNodeId]);
+
+        const onRemoveSelected = useCallback(() => {
+          if (!selectedNodeId) return;
+          bumpStructure((nodes) => {
+            const target = nodes.find((n) => n.id === selectedNodeId);
+            if (!target || (target.kind !== "lead" && target.kind !== "peer")) return nodes;
+            // removing a lead also drops its peers
+            return nodes.filter(
+              (n) => n.id !== target.id && !(n.kind === "peer" && n.parentId === target.id),
+            );
+          });
+          setSelectedNodeId(null);
+        }, [bumpStructure, selectedNodeId]);
+
+        const onRelayout = useCallback(() => {
+          setLayoutToken((t) => t + 1);
+          setAutoFitToken((t) => t + 1);
+        }, []);
+
+        return html`
+          <div className="shell">
+            <${Sidebar}
+              projection=${projection}
+              selectedNodeId=${selectedNodeId}
+              onSelect=${setSelectedNodeId}
+              liveSim=${liveSim}
+              onToggleLive=${() => setLiveSim((v) => !v)}
+              onAddLead=${onAddLead}
+              onAddPeer=${onAddPeer}
+              onRemoveSelected=${onRemoveSelected}
+              onRelayout=${onRelayout}
+            />
+            <${ReactFlowProvider}>
+              <${TopologyCanvas}
+                projection=${projection}
+                selectedNodeId=${selectedNodeId}
+                onSelect=${setSelectedNodeId}
+                liveSim=${liveSim}
+                layoutToken=${layoutToken}
+                autoFitToken=${autoFitToken}
+              />
+            </${ReactFlowProvider}>
+          </div>
+        `;
+      }
+
+      createRoot(document.getElementById("root")).render(html`<${App} />`);
+    </script>
+  </body>
+</html>

@@ -1,11 +1,43 @@
 import type { AuthorityScope, SupervisedRuntimeSnapshot } from "@synara/contracts";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import {
+  Background,
+  BackgroundVariant,
+  BaseEdge,
+  Controls,
+  EdgeLabelRenderer,
+  Handle,
+  MarkerType,
+  MiniMap,
+  Position,
+  ReactFlow,
+  ReactFlowProvider,
+  getSmoothStepPath,
+  useEdgesState,
+  useNodesState,
+  useReactFlow,
+  type Edge,
+  type EdgeProps,
+  type Node,
+  type NodeProps,
+} from "@xyflow/react";
+import {
+  createContext,
+  memo,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  type CSSProperties,
+  type MouseEvent,
+} from "react";
 
+import { useTheme } from "~/hooks/useTheme";
 import { supervisedRuntimeQueryOptions } from "~/lib/supervisedRuntime";
 import { cn } from "~/lib/utils";
-import { GitBranchIcon, MinusIcon, PlusIcon } from "~/lib/icons";
-import { useTheme } from "~/hooks/useTheme";
+import { GitBranchIcon } from "~/lib/icons";
+
+import "@xyflow/react/dist/style.css";
 
 type TopologyNodeKind = "runtime" | "policy" | "lead" | "specialist" | "workspace";
 
@@ -30,6 +62,28 @@ interface RoomTopologyProjection {
   readonly contextRecordCount: number;
   readonly contextSequence: number;
 }
+
+type TopologyFlowNodeData = {
+  id: string;
+  kind: TopologyNodeKind;
+  eyebrow: string;
+  title: string;
+  detail: string;
+  status: string;
+  selected: boolean;
+};
+
+type TopologyFlowNode = Node<TopologyFlowNodeData, "topology">;
+
+const NODE_HEIGHT = 92;
+const ROW_GAP = 24;
+const COL_X = {
+  runtime: 0,
+  policy: 0,
+  lead: 300,
+  specialist: 620,
+  workspace: 940,
+} as const;
 
 function scopeAppliesToRoom(
   scope: AuthorityScope,
@@ -78,9 +132,10 @@ function buildRoomTopology(
     null;
   const workspace = snapshot.contextWorkspaces.find((candidate) => candidate.roomId === roomId) ?? null;
   const contextRecordCount = workspace
-    ? snapshot.contextRecords.filter((record) => record.workspaceId === workspace.id).length
+    ? (snapshot.contextRecords ?? []).filter((record) => record.workspaceId === workspace.id)
+        .length
     : 0;
-  const specialists = snapshot.specialists
+  const specialists = (snapshot.specialists ?? [])
     .filter((specialist) =>
       specialist.allowedScopes.some((scope) =>
         scopeAppliesToRoom(scope, roomId, room.projectId, taskIds, taskNodeIds),
@@ -158,13 +213,16 @@ function useRoomTopology(roomId: string) {
   return { ...query, projection };
 }
 
+function isHealthyStatus(status: string): boolean {
+  return ["healthy", "active", "retained", "running", "present"].includes(status);
+}
+
 function StatusDot({ status }: { readonly status: string }) {
-  const healthy = ["healthy", "active", "retained", "running", "present"].includes(status);
   return (
     <span
       className={cn(
         "size-1.5 shrink-0 rounded-full",
-        healthy ? "bg-emerald-500" : "bg-muted-foreground/55",
+        isHealthyStatus(status) ? "bg-emerald-500" : "bg-muted-foreground/55",
       )}
       aria-hidden="true"
     />
@@ -174,7 +232,7 @@ function StatusDot({ status }: { readonly status: string }) {
 export function SupervisedTopologySidebar(props: {
   readonly roomId: string;
   readonly selectedNodeId: string | null;
-  readonly onSelectNode: (nodeId: string) => void;
+  readonly onSelectNode: (nodeId: string | null) => void;
 }) {
   const query = useRoomTopology(props.roomId);
   const projection = query.projection;
@@ -266,221 +324,526 @@ export function SupervisedTopologySidebar(props: {
   );
 }
 
-function mermaidLabel(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("[", "&#91;")
-    .replaceAll("]", "&#93;")
-    .replaceAll(/\s+/g, " ")
-    .trim();
+type TopologyPalette = {
+  readonly canvas: string;
+  readonly nodeBg: string;
+  readonly nodeBgSubtle: string;
+  readonly nodeBorder: string;
+  readonly nodeBorderQuiet: string;
+  readonly text: string;
+  readonly muted: string;
+  readonly muted2: string;
+  readonly accent: string;
+  readonly edge: string;
+  readonly edgeQuiet: string;
+  readonly labelBg: string;
+  readonly labelText: string;
+  readonly labelBorder: string;
+  readonly handleBorder: string;
+  readonly handleBg: string;
+  readonly controlBg: string;
+  readonly controlBorder: string;
+  readonly controlText: string;
+  readonly controlHover: string;
+  readonly minimapNode: string;
+  readonly minimapSelected: string;
+  readonly mask: string;
+  readonly dots: string;
+  readonly shadow: string;
+  readonly selectedShadow: string;
+  readonly liveShadow: string;
+};
+
+const TOPO_DARK: TopologyPalette = {
+  canvas: "#0c0c0d",
+  nodeBg: "#17171a",
+  nodeBgSubtle: "#141416",
+  nodeBorder: "#71717a",
+  nodeBorderQuiet: "#52525b",
+  text: "#f4f4f5",
+  muted: "#a1a1aa",
+  muted2: "#71717a",
+  accent: "#818cf8",
+  edge: "#71717a",
+  edgeQuiet: "#52525b",
+  labelBg: "#0c0c0d",
+  labelText: "#a1a1aa",
+  labelBorder: "#3f3f46",
+  handleBorder: "#a1a1aa",
+  handleBg: "#0c0c0d",
+  controlBg: "#121214",
+  controlBorder: "#3f3f46",
+  controlText: "#a1a1aa",
+  controlHover: "#1e1e22",
+  minimapNode: "#27272a",
+  minimapSelected: "#312e81",
+  mask: "rgba(12,12,13,0.55)",
+  dots: "rgba(255,255,255,0.08)",
+  shadow: "0 10px 28px rgba(0,0,0,0.28)",
+  selectedShadow: "0 0 0 1px rgba(129,140,248,0.55), 0 12px 30px rgba(0,0,0,0.35)",
+  liveShadow: "0 0 0 1px rgba(52,211,153,0.22), 0 10px 28px rgba(0,0,0,0.28)",
+};
+
+const TOPO_LIGHT: TopologyPalette = {
+  canvas: "#fafafa",
+  nodeBg: "#ffffff",
+  nodeBgSubtle: "#f4f4f5",
+  nodeBorder: "#a1a1aa",
+  nodeBorderQuiet: "#d4d4d8",
+  text: "#18181b",
+  muted: "#71717a",
+  muted2: "#a1a1aa",
+  accent: "#2563eb",
+  edge: "#a1a1aa",
+  edgeQuiet: "#d4d4d8",
+  labelBg: "#ffffff",
+  labelText: "#52525b",
+  labelBorder: "#e4e4e7",
+  handleBorder: "#a1a1aa",
+  handleBg: "#ffffff",
+  controlBg: "#ffffff",
+  controlBorder: "#e4e4e7",
+  controlText: "#71717a",
+  controlHover: "#f4f4f5",
+  minimapNode: "#e4e4e7",
+  minimapSelected: "#bfdbfe",
+  mask: "rgba(250,250,250,0.55)",
+  dots: "rgba(0,0,0,0.08)",
+  shadow: "0 8px 20px rgba(0,0,0,0.08)",
+  selectedShadow: "0 0 0 1px rgba(37,99,235,0.45), 0 10px 24px rgba(0,0,0,0.10)",
+  liveShadow: "0 0 0 1px rgba(16,185,129,0.28), 0 8px 20px rgba(0,0,0,0.08)",
+};
+
+const TopologyPaletteContext = createContext<TopologyPalette>(TOPO_DARK);
+
+function useTopologyPalette(): TopologyPalette {
+  return useContext(TopologyPaletteContext);
 }
 
-function diagramNodeLabel(node: TopologyNode): string {
-  return [node.eyebrow.toUpperCase(), node.title, `${node.status} · ${node.detail}`]
-    .map(mermaidLabel)
-    .join("<br/>");
-}
+const TopologyFlowNodeView = memo(function TopologyFlowNodeView(
+  props: NodeProps<TopologyFlowNode>,
+) {
+  const topo = useTopologyPalette();
+  const { data, selected } = props;
+  const live = data.status === "running" || data.status === "healthy";
+  const subtle = data.kind === "policy" || data.kind === "workspace";
+  return (
+    <div
+      className="w-[220px] overflow-hidden rounded-[10px] border-[1.5px] transition-[border-color,box-shadow]"
+      style={{
+        background: subtle ? topo.nodeBgSubtle : topo.nodeBg,
+        borderColor: selected ? topo.accent : subtle ? topo.nodeBorderQuiet : topo.nodeBorder,
+        color: topo.text,
+        boxShadow: selected ? topo.selectedShadow : live ? topo.liveShadow : topo.shadow,
+      }}
+    >
+      <Handle
+        type="target"
+        position={Position.Left}
+        className="!size-2 !border-[1.5px]"
+        style={{ borderColor: topo.handleBorder, background: topo.handleBg }}
+      />
+      <div className="flex items-center justify-between gap-2 px-3 pt-2.5">
+        <span
+          className="text-[10px] font-semibold uppercase tracking-[0.12em]"
+          style={{ color: topo.muted2 }}
+        >
+          {data.eyebrow}
+        </span>
+        <StatusDot status={data.status} />
+      </div>
+      <div className="break-words px-3 pt-1 text-[13px] font-semibold leading-snug" style={{ color: topo.text }}>
+        {data.title}
+      </div>
+      <div className="px-3 pt-1.5 pb-3 text-[11px] leading-snug" style={{ color: topo.muted }}>
+        {data.status} · {data.detail}
+      </div>
+      <Handle
+        type="source"
+        position={Position.Right}
+        className="!size-2 !border-[1.5px]"
+        style={{ borderColor: topo.handleBorder, background: topo.handleBg }}
+      />
+    </div>
+  );
+});
 
-function buildMermaidDefinition(
+const topologyNodeTypes = {
+  topology: TopologyFlowNodeView,
+};
+
+type TopologyEdgeData = {
+  readonly labelOffsetX?: number;
+  readonly labelOffsetY?: number;
+};
+
+/** HTML labels with path-offset so stroke never covers the chip. */
+const TopologyLabeledEdge = memo(function TopologyLabeledEdge(
+  props: EdgeProps<Edge<TopologyEdgeData>>,
+) {
+  const topo = useTopologyPalette();
+  const {
+    id,
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+    sourcePosition,
+    targetPosition,
+    label,
+    style,
+    markerEnd,
+    data,
+  } = props;
+  const [edgePath, labelX, labelY] = getSmoothStepPath({
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+    sourcePosition,
+    targetPosition,
+  });
+  const labelText = typeof label === "string" || typeof label === "number" ? String(label) : null;
+
+  // Pull the chip off the stroke: vertical-ish edges shift sideways, horizontal-ish shift up.
+  const dx = targetX - sourceX;
+  const dy = targetY - sourceY;
+  const mostlyVertical = Math.abs(dy) > Math.abs(dx) * 0.55;
+  const autoOffsetX = mostlyVertical ? (dx >= 0 ? 14 : -14) : 0;
+  const autoOffsetY = mostlyVertical ? 0 : -12;
+  const offsetX = data?.labelOffsetX ?? autoOffsetX;
+  const offsetY = data?.labelOffsetY ?? autoOffsetY;
+
+  return (
+    <>
+      <BaseEdge
+        id={id}
+        path={edgePath}
+        {...(style !== undefined ? { style } : {})}
+        {...(markerEnd !== undefined ? { markerEnd } : {})}
+      />
+      {labelText ? (
+        <EdgeLabelRenderer>
+          <div
+            className="nodrag nopan pointer-events-none absolute z-10 rounded px-1.5 py-0.5 text-[10px] font-medium leading-none shadow-sm"
+            style={{
+              transform: `translate(-50%, -50%) translate(${labelX + offsetX}px, ${labelY + offsetY}px)`,
+              background: topo.labelBg,
+              color: topo.labelText,
+              border: `1px solid ${topo.labelBorder}`,
+            }}
+          >
+            {labelText}
+          </div>
+        </EdgeLabelRenderer>
+      ) : null}
+    </>
+  );
+});
+
+const topologyEdgeTypes = {
+  topology: TopologyLabeledEdge,
+};
+
+function buildTopologyFlowGraph(
   projection: RoomTopologyProjection,
   selectedNodeId: string | null,
-  dark: boolean,
-): { readonly definition: string; readonly diagramNodeIds: ReadonlyMap<string, string> } {
+  palette: TopologyPalette,
+): { readonly nodes: TopologyFlowNode[]; readonly edges: Edge[] } {
   const runtime = projection.nodes.find((node) => node.kind === "runtime");
   const policy = projection.nodes.find((node) => node.kind === "policy");
   const lead = projection.nodes.find((node) => node.kind === "lead");
   const workspace = projection.nodes.find((node) => node.kind === "workspace");
   const specialists = projection.nodes.filter((node) => node.kind === "specialist");
-  const diagramNodeIds = new Map<string, string>();
-  const lines = ["flowchart LR"];
+
+  const specialistStackHeight =
+    specialists.length === 0
+      ? NODE_HEIGHT
+      : specialists.length * NODE_HEIGHT + (specialists.length - 1) * ROW_GAP;
+  const stackMid = specialistStackHeight / 2;
+
+  const nodes: TopologyFlowNode[] = [];
 
   if (runtime) {
-    lines.push(`runtime["${diagramNodeLabel(runtime)}"]`);
-    diagramNodeIds.set("runtime", runtime.id);
+    nodes.push({
+      id: runtime.id,
+      type: "topology",
+      position: { x: COL_X.runtime, y: Math.max(0, stackMid - NODE_HEIGHT - 16) },
+      data: { ...runtime, selected: selectedNodeId === runtime.id },
+      selected: selectedNodeId === runtime.id,
+      draggable: false,
+    });
   }
   if (policy) {
-    lines.push(`policy["${diagramNodeLabel(policy)}"]`);
-    diagramNodeIds.set("policy", policy.id);
+    nodes.push({
+      id: policy.id,
+      type: "topology",
+      position: { x: COL_X.policy, y: Math.max(NODE_HEIGHT + 28, stackMid + 16) },
+      data: { ...policy, selected: selectedNodeId === policy.id },
+      selected: selectedNodeId === policy.id,
+      draggable: false,
+    });
   }
   if (lead) {
-    lines.push(`lead["${diagramNodeLabel(lead)}"]`);
-    diagramNodeIds.set("lead", lead.id);
+    nodes.push({
+      id: lead.id,
+      type: "topology",
+      position: { x: COL_X.lead, y: Math.max(0, stackMid - NODE_HEIGHT / 2) },
+      data: { ...lead, selected: selectedNodeId === lead.id },
+      selected: selectedNodeId === lead.id,
+      draggable: false,
+    });
   }
+
   specialists.forEach((specialist, index) => {
-    const id = `specialist_${index}`;
-    lines.push(`${id}["${diagramNodeLabel(specialist)}"]`);
-    diagramNodeIds.set(id, specialist.id);
+    nodes.push({
+      id: specialist.id,
+      type: "topology",
+      position: { x: COL_X.specialist, y: index * (NODE_HEIGHT + ROW_GAP) },
+      data: { ...specialist, selected: selectedNodeId === specialist.id },
+      selected: selectedNodeId === specialist.id,
+      draggable: false,
+    });
   });
+
   if (workspace) {
-    lines.push(`workspace["${diagramNodeLabel(workspace)}"]`);
-    diagramNodeIds.set("workspace", workspace.id);
+    nodes.push({
+      id: workspace.id,
+      type: "topology",
+      position: { x: COL_X.workspace, y: Math.max(0, stackMid - NODE_HEIGHT / 2) },
+      data: { ...workspace, selected: selectedNodeId === workspace.id },
+      selected: selectedNodeId === workspace.id,
+      draggable: false,
+    });
   }
 
-  if (runtime && lead) lines.push("runtime -->|governs| lead");
-  if (policy && lead) lines.push("policy -->|bounds| lead");
-  if (lead && specialists.length > 0) {
-    specialists.forEach((_, index) => lines.push(`lead -->|delegates| specialist_${index}`));
+  const baseEdge = {
+    type: "topology" as const,
+    markerEnd: {
+      type: MarkerType.ArrowClosed,
+      width: 14,
+      height: 14,
+      color: palette.edge,
+    },
+    style: { stroke: palette.edge, strokeWidth: 1.25 },
+  };
+
+  const edges: Edge<TopologyEdgeData>[] = [];
+  if (runtime && lead) {
+    edges.push({
+      ...baseEdge,
+      id: `e-${runtime.id}-${lead.id}`,
+      source: runtime.id,
+      target: lead.id,
+      label: "governs",
+      data: { labelOffsetX: 0, labelOffsetY: -14 },
+    });
   }
-  if (workspace && specialists.length > 0) {
-    specialists.forEach((_, index) =>
-      lines.push(`specialist_${index} -.->|checkpoints| workspace`),
-    );
-  } else if (lead && workspace) {
-    lines.push("lead -.->|checkpoints| workspace");
+  if (policy && lead) {
+    edges.push({
+      ...baseEdge,
+      id: `e-${policy.id}-${lead.id}`,
+      source: policy.id,
+      target: lead.id,
+      label: "bounds",
+      // Policy sits below runtime → lead: shift chip off the vertical join.
+      data: { labelOffsetX: 16, labelOffsetY: 0 },
+    });
+  }
+  for (const specialist of specialists) {
+    if (lead) {
+      edges.push({
+        ...baseEdge,
+        id: `e-${lead.id}-${specialist.id}`,
+        source: lead.id,
+        target: specialist.id,
+        label: "delegates",
+        animated: specialist.status === "running",
+        data: { labelOffsetX: 0, labelOffsetY: -12 },
+      });
+    }
+    if (workspace) {
+      edges.push({
+        ...baseEdge,
+        id: `e-${specialist.id}-${workspace.id}`,
+        source: specialist.id,
+        target: workspace.id,
+        label: "checkpoints",
+        style: { stroke: palette.edgeQuiet, strokeWidth: 1.25, strokeDasharray: "5 4" },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          width: 14,
+          height: 14,
+          color: palette.edgeQuiet,
+        },
+        data: { labelOffsetX: 0, labelOffsetY: -12 },
+      });
+    }
+  }
+  if (lead && workspace && specialists.length === 0) {
+    edges.push({
+      ...baseEdge,
+      id: `e-${lead.id}-${workspace.id}`,
+      source: lead.id,
+      target: workspace.id,
+      label: "checkpoints",
+      style: { stroke: palette.edgeQuiet, strokeWidth: 1.25, strokeDasharray: "5 4" },
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        width: 14,
+        height: 14,
+        color: palette.edgeQuiet,
+      },
+      data: { labelOffsetX: 0, labelOffsetY: -12 },
+    });
   }
 
-  const surface = dark ? "#171717" : "#ffffff";
-  const subtleSurface = dark ? "#141414" : "#fafafa";
-  const text = dark ? "#f4f4f5" : "#18181b";
-  const border = dark ? "#71717a" : "#71717a";
-  const quietBorder = dark ? "#52525b" : "#a1a1aa";
-  const accent = dark ? "#818cf8" : "#2563eb";
-  lines.push(`classDef runtime fill:${surface},stroke:${border},stroke-width:1.5px,color:${text}`);
-  lines.push(`classDef policy fill:${subtleSurface},stroke:${quietBorder},stroke-width:1.25px,color:${text}`);
-  lines.push(`classDef lead fill:${surface},stroke:${border},stroke-width:1.5px,color:${text}`);
-  lines.push(`classDef specialist fill:${surface},stroke:${quietBorder},stroke-width:1.25px,color:${text}`);
-  lines.push(`classDef workspace fill:${subtleSurface},stroke:${quietBorder},stroke-width:1.25px,color:${text}`);
-  lines.push(`classDef selected stroke:${accent},stroke-width:3px`);
-  if (runtime) lines.push("class runtime runtime");
-  if (policy) lines.push("class policy policy");
-  if (lead) lines.push("class lead lead");
-  if (workspace) lines.push("class workspace workspace");
-  if (specialists.length > 0) {
-    lines.push(`class ${specialists.map((_, index) => `specialist_${index}`).join(",")} specialist`);
-  }
-  for (const [diagramId, nodeId] of diagramNodeIds) {
-    if (nodeId === selectedNodeId) lines.push(`class ${diagramId} selected`);
-  }
-  return { definition: lines.join("\n"), diagramNodeIds };
+  return { nodes, edges };
 }
 
-function MermaidTopologyGraph(props: {
+/** Sparse room graphs (runtime/policy/lead/workspace ± few specialists) should not zoom out to postage-stamp size. */
+const SPARSE_NODE_COUNT = 6;
+const FIT_MIN_ZOOM_SPARSE = 0.9;
+const FIT_MIN_ZOOM_DENSE = 0.45;
+const FIT_MAX_ZOOM = 1.25;
+const FIT_PADDING = 0.12;
+
+function FitViewOnProjection(props: {
+  readonly revision: number;
+  readonly nodeCount: number;
+}) {
+  const { fitView } = useReactFlow();
+  useEffect(() => {
+    const sparse = props.nodeCount <= SPARSE_NODE_COUNT;
+    const timer = window.setTimeout(() => {
+      void fitView({
+        padding: FIT_PADDING,
+        minZoom: sparse ? FIT_MIN_ZOOM_SPARSE : FIT_MIN_ZOOM_DENSE,
+        maxZoom: FIT_MAX_ZOOM,
+        duration: 220,
+      });
+    }, 40);
+    return () => window.clearTimeout(timer);
+  }, [fitView, props.revision, props.nodeCount]);
+  return null;
+}
+
+function TopologyReactFlowGraph(props: {
   readonly projection: RoomTopologyProjection;
   readonly selectedNodeId: string | null;
-  readonly onSelectNode: (nodeId: string) => void;
+  readonly onSelectNode: (nodeId: string | null) => void;
 }) {
-  const hostRef = useRef<HTMLDivElement | null>(null);
-  const diagramId = useId().replaceAll(":", "-");
-  const renderSequenceRef = useRef(0);
-  const [renderError, setRenderError] = useState<string | null>(null);
   const { resolvedTheme } = useTheme();
   const dark = resolvedTheme === "dark";
-  const { definition, diagramNodeIds } = buildMermaidDefinition(
-    props.projection,
-    props.selectedNodeId,
-    dark,
+  const palette = dark ? TOPO_DARK : TOPO_LIGHT;
+
+  const graph = useMemo(
+    () => buildTopologyFlowGraph(props.projection, props.selectedNodeId, palette),
+    [props.projection, props.selectedNodeId, palette],
   );
-  const diagramNodeIdsRef = useRef(diagramNodeIds);
-  diagramNodeIdsRef.current = diagramNodeIds;
+  const [nodes, setNodes, onNodesChange] = useNodesState<TopologyFlowNode>(graph.nodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(graph.edges);
 
   useEffect(() => {
-    const host = hostRef.current;
-    if (!host) return;
-    let cancelled = false;
-    const renderSequence = ++renderSequenceRef.current;
-    host.replaceChildren();
+    setNodes(graph.nodes);
+    setEdges(graph.edges);
+  }, [graph, setNodes, setEdges]);
 
-    void import("mermaid")
-      .then(async ({ default: mermaid }) => {
-        mermaid.initialize({
-          startOnLoad: false,
-          securityLevel: "strict",
-          theme: "base",
-          themeVariables: {
-            background: "transparent",
-            fontFamily: "inherit",
-            fontSize: "13px",
-            lineColor: dark ? "#a1a1aa" : "#71717a",
-            edgeLabelBackground: dark ? "#0f0f10" : "#ffffff",
-            primaryColor: dark ? "#171717" : "#ffffff",
-            primaryTextColor: dark ? "#f4f4f5" : "#18181b",
-            primaryBorderColor: "#71717a",
-          },
-          flowchart: {
-            curve: "basis",
-            htmlLabels: true,
-            nodeSpacing: 56,
-            rankSpacing: 104,
-            padding: 18,
-          },
-        });
-        const rendered = await mermaid.render(
-          `supervised-topology-${diagramId}-${renderSequence}`,
-          definition,
-        );
-        if (
-          cancelled ||
-          renderSequence !== renderSequenceRef.current ||
-          !hostRef.current
-        ) {
-          return;
-        }
-        hostRef.current.innerHTML = rendered.svg;
-        hostRef.current.querySelectorAll<SVGGElement>("g.node").forEach((node) => {
-          const diagramNodeId = [...diagramNodeIdsRef.current.keys()].find(
-            (candidate) =>
-              node.dataset.id === candidate ||
-              node.id === candidate ||
-              node.id.startsWith(`flowchart-${candidate}-`) ||
-              node.id.includes(`-${candidate}-`) ||
-              node.id.endsWith(`-${candidate}`),
-          );
-          const runtimeNodeId = diagramNodeId
-            ? diagramNodeIdsRef.current.get(diagramNodeId)
-            : undefined;
-          if (!runtimeNodeId) return;
-          node.querySelector("rect")?.setAttribute("rx", "8");
-          node.querySelector("rect")?.setAttribute("ry", "8");
-          node.style.cursor = "pointer";
-          node.setAttribute("role", "button");
-          node.setAttribute("tabindex", "0");
-          node.setAttribute("aria-label", `Select ${runtimeNodeId}`);
-          const select = () => props.onSelectNode(runtimeNodeId);
-          node.addEventListener("click", select);
-          node.addEventListener("keydown", (event) => {
-            if (event.key === "Enter" || event.key === " ") select();
-          });
-        });
-        setRenderError(null);
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        setRenderError(error instanceof Error ? error.message : "Unable to render topology.");
-      });
+  const onSelectNode = props.onSelectNode;
+  const onNodeClick = useCallback(
+    (_event: MouseEvent, node: TopologyFlowNode) => {
+      onSelectNode(node.id);
+    },
+    [onSelectNode],
+  );
 
-    return () => {
-      cancelled = true;
-    };
-  }, [dark, definition, diagramId, props.onSelectNode]);
-
-  if (renderError) {
-    return (
-      <div className="flex min-h-64 items-center justify-center text-xs text-destructive">
-        {renderError}
-      </div>
-    );
-  }
+  const onPaneClick = useCallback(() => {
+    onSelectNode(null);
+  }, [onSelectNode]);
 
   return (
-    <div
-      ref={hostRef}
-      className="mx-auto flex min-h-[440px] w-full min-w-0 items-center justify-center px-6 py-8 [&_svg]:h-auto [&_svg]:max-h-[460px] [&_svg]:w-full [&_.edgeLabel]:text-[11px] [&_.label]:leading-5 [&_g.node]:drop-shadow-sm"
-      aria-label="Room governance topology"
-    />
+    <TopologyPaletteContext.Provider value={palette}>
+      <div
+        className="h-full min-h-0 w-full min-w-0"
+        aria-label="Room governance topology"
+        style={{ background: palette.canvas }}
+      >
+        <ReactFlow<TopologyFlowNode>
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onNodeClick={onNodeClick}
+          onPaneClick={onPaneClick}
+          nodeTypes={topologyNodeTypes}
+          fitView
+          fitViewOptions={{
+            padding: FIT_PADDING,
+            minZoom: FIT_MIN_ZOOM_SPARSE,
+            maxZoom: FIT_MAX_ZOOM,
+          }}
+          minZoom={0.35}
+          maxZoom={1.75}
+          nodesDraggable={false}
+          nodesConnectable={false}
+          elementsSelectable
+          panOnScroll
+          zoomOnScroll
+          colorMode={dark ? "dark" : "light"}
+          proOptions={{ hideAttribution: false }}
+          edgeTypes={topologyEdgeTypes}
+          defaultEdgeOptions={{ type: "topology" }}
+          className="supervised-topology-flow"
+          style={
+            {
+              background: palette.canvas,
+              ["--xy-controls-button-background-color"]: palette.controlBg,
+              ["--xy-controls-button-background-color-hover"]: palette.controlHover,
+              ["--xy-controls-button-color"]: palette.controlText,
+              ["--xy-controls-button-color-hover"]: palette.text,
+              ["--xy-controls-button-border-color"]: palette.controlBorder,
+            } as CSSProperties
+          }
+        >
+          <Background
+            variant={BackgroundVariant.Dots}
+            gap={20}
+            size={1}
+            color={palette.dots}
+          />
+          <Controls
+            showInteractive={false}
+            position="bottom-right"
+            className="!overflow-hidden !rounded-md !border !shadow-sm"
+            style={{ borderColor: palette.controlBorder, background: palette.controlBg }}
+          />
+          <MiniMap
+            pannable
+            zoomable
+            position="bottom-left"
+            className="!overflow-hidden !rounded-md !border !shadow-sm"
+            style={{ borderColor: palette.controlBorder, background: palette.controlBg }}
+            nodeStrokeColor={(node) => (node.selected ? palette.accent : palette.nodeBorderQuiet)}
+            nodeColor={(node) => (node.selected ? palette.minimapSelected : palette.minimapNode)}
+            maskColor={palette.mask}
+          />
+          <FitViewOnProjection
+            revision={props.projection.graphRevision}
+            nodeCount={graph.nodes.length}
+          />
+        </ReactFlow>
+      </div>
+    </TopologyPaletteContext.Provider>
   );
 }
 
 export function SupervisedTopologyCanvas(props: {
   readonly roomId: string;
   readonly selectedNodeId: string | null;
-  readonly onSelectNode: (nodeId: string) => void;
+  readonly onSelectNode: (nodeId: string | null) => void;
 }) {
   const query = useRoomTopology(props.roomId);
   const projection = query.projection;
-  const [zoom, setZoom] = useState(1);
   const selectedNode = projection?.nodes.find((node) => node.id === props.selectedNodeId) ?? null;
 
   return (
@@ -502,66 +865,43 @@ export function SupervisedTopologyCanvas(props: {
           <span>Loading durable topology…</span>
         )}
       </div>
-      <div
-        className="relative min-h-0 flex-1 overflow-auto"
-        style={{
-          backgroundImage:
-            "radial-gradient(circle, color-mix(in srgb, var(--color-border) 60%, transparent) 1px, transparent 1px)",
-          backgroundSize: "20px 20px",
-        }}
-      >
+      <div className="relative min-h-0 flex-1 overflow-hidden">
         {!projection ? (
           <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
             {query.isLoading ? "Projecting Room topology…" : "Room topology is unavailable."}
           </div>
         ) : (
-          <div
-            className="mx-auto w-full min-w-0 max-w-[1080px] origin-center transition-transform duration-150"
-            style={{ transform: `scale(${zoom})` }}
-          >
-            <MermaidTopologyGraph
+          <ReactFlowProvider>
+            <TopologyReactFlowGraph
               projection={projection}
               selectedNodeId={props.selectedNodeId}
               onSelectNode={props.onSelectNode}
             />
-          </div>
+          </ReactFlowProvider>
         )}
 
         {projection ? (
-          <div className="pointer-events-none sticky bottom-0 flex items-end justify-between gap-4 p-3">
-            <div className="pointer-events-auto rounded-md border border-border/65 bg-[var(--color-background-surface)] px-2.5 py-1.5 text-[10px] text-muted-foreground shadow-sm">
-              <span className="text-[var(--color-text-accent)]">●</span> Live topology · revision {projection.graphRevision}
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-center p-3">
+            <div className="pointer-events-auto rounded-md border border-border/65 bg-[var(--color-background-surface)]/95 px-2.5 py-1.5 text-[10px] text-muted-foreground shadow-sm backdrop-blur-sm">
+              <span className="text-[var(--color-text-accent)]">●</span> Live topology · revision{" "}
+              {projection.graphRevision}
               {selectedNode ? <span> · selected {selectedNode.title}</span> : null}
-            </div>
-            <div className="pointer-events-auto flex items-center rounded-md border border-border/65 bg-[var(--color-background-surface)] shadow-sm">
-              <button
-                type="button"
-                aria-label="Zoom out topology"
-                className="flex size-8 items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-35"
-                disabled={zoom <= 0.8}
-                onClick={() => setZoom((value) => Math.max(0.8, Number((value - 0.1).toFixed(1))))}
-              >
-                <MinusIcon className="size-3.5" />
-              </button>
-              <span className="w-10 text-center text-[10px] text-muted-foreground">{Math.round(zoom * 100)}%</span>
-              <button
-                type="button"
-                aria-label="Zoom in topology"
-                className="flex size-8 items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-35"
-                disabled={zoom >= 1.2}
-                onClick={() => setZoom((value) => Math.min(1.2, Number((value + 0.1).toFixed(1))))}
-              >
-                <PlusIcon className="size-3.5" />
-              </button>
             </div>
           </div>
         ) : null}
       </div>
       {projection ? (
         <div className="flex h-8 shrink-0 items-center justify-between border-t border-border/55 px-3 text-[10px] text-muted-foreground">
-          <span>{projection.taskCount} tasks · {projection.activeRunCount} active runs</span>
-          <span>{projection.contextRecordCount} context records · sequence {projection.contextSequence}</span>
-          <span className="flex items-center gap-1.5"><StatusDot status={query.data?.health.status ?? "stopped"} /> runtime {query.data?.health.status}</span>
+          <span>
+            {projection.taskCount} tasks · {projection.activeRunCount} active runs
+          </span>
+          <span>
+            {projection.contextRecordCount} context records · sequence {projection.contextSequence}
+          </span>
+          <span className="flex items-center gap-1.5">
+            <StatusDot status={query.data?.health.status ?? "stopped"} /> runtime{" "}
+            {query.data?.health.status}
+          </span>
         </div>
       ) : null}
     </section>
