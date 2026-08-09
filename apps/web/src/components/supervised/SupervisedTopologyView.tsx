@@ -28,18 +28,20 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
+  useState,
   type CSSProperties,
-  type MouseEvent,
+  type MouseEvent as ReactMouseEvent,
 } from "react";
 
 import { useTheme } from "~/hooks/useTheme";
 import { supervisedRuntimeQueryOptions } from "~/lib/supervisedRuntime";
 import { cn } from "~/lib/utils";
-import { GitBranchIcon } from "~/lib/icons";
+import { GitBranchIcon, XIcon } from "~/lib/icons";
 
 import "@xyflow/react/dist/style.css";
 
-type TopologyNodeKind = "runtime" | "policy" | "lead" | "specialist" | "workspace";
+type TopologyNodeKind = "runtime" | "policy" | "lead" | "peer" | "workspace";
 
 interface TopologyNode {
   readonly id: string;
@@ -117,20 +119,20 @@ function formatTopologyTitle(raw: string, max = 22): {
   return { title: `${full.slice(0, max - 1)}…`, fullTitle: full };
 }
 
-/** Sparse (no specialists): tight 3-column LR. Dense: room for peer column. */
-function columnX(specialistCount: number): {
+/** Sparse (no peers): tight 3-column LR. Dense: room for peer column. */
+function columnX(peerCount: number): {
   readonly runtime: number;
   readonly policy: number;
   readonly lead: number;
-  readonly specialist: number;
+  readonly peer: number;
   readonly workspace: number;
 } {
-  if (specialistCount === 0) {
+  if (peerCount === 0) {
     return {
       runtime: 0,
       policy: 0,
       lead: NODE_WIDTH + COL_GAP,
-      specialist: NODE_WIDTH + COL_GAP,
+      peer: NODE_WIDTH + COL_GAP,
       workspace: (NODE_WIDTH + COL_GAP) * 2,
     };
   }
@@ -138,7 +140,7 @@ function columnX(specialistCount: number): {
     runtime: 0,
     policy: 0,
     lead: NODE_WIDTH + COL_GAP,
-    specialist: (NODE_WIDTH + COL_GAP) * 2,
+    peer: (NODE_WIDTH + COL_GAP) * 2,
     workspace: (NODE_WIDTH + COL_GAP) * 3,
   };
 }
@@ -193,9 +195,9 @@ function buildRoomTopology(
     ? (snapshot.contextRecords ?? []).filter((record) => record.workspaceId === workspace.id)
         .length
     : 0;
-  const specialists = (snapshot.specialists ?? [])
-    .filter((specialist) =>
-      specialist.allowedScopes.some((scope) =>
+  const peers = (snapshot.peerSpecialties ?? [])
+    .filter((peer) =>
+      peer.allowedScopes.some((scope) =>
         scopeAppliesToRoom(scope, roomId, room.projectId, taskIds, taskNodeIds),
       ),
     )
@@ -235,16 +237,16 @@ function buildRoomTopology(
       detail: `${tasks.length} tasks · ${activeRunCount} active runs`,
       status: room.status,
     },
-    ...specialists.map((specialist) => {
-      const concern = formatTopologyTitle(specialist.concern, 22);
+    ...peers.map((peer) => {
+      const concern = formatTopologyTitle(peer.concern, 22);
       return {
-        id: specialist.id,
-        kind: "specialist" as const,
-        eyebrow: "Specialist",
+        id: peer.id,
+        kind: "peer" as const,
+        eyebrow: "Peer",
         title: concern.title,
         fullTitle: concern.fullTitle,
-        detail: String(specialist.profilePresetId),
-        status: specialist.status,
+        detail: String(peer.profilePresetId),
+        status: peer.status,
       };
     }),
     {
@@ -329,7 +331,7 @@ export function SupervisedTopologySidebar(props: {
                     props.selectedNodeId === node.id
                       ? "bg-[var(--color-background-button-secondary-hover)] text-foreground"
                       : "text-muted-foreground hover:bg-[var(--color-background-button-secondary-hover)] hover:text-foreground",
-                    node.kind === "specialist" && "pl-7",
+                    node.kind === "peer" && "pl-7",
                     node.kind === "lead" && "pl-4",
                   )}
                   onClick={() => props.onSelectNode(node.id)}
@@ -625,14 +627,14 @@ function buildTopologyFlowGraph(
   const policy = projection.nodes.find((node) => node.kind === "policy");
   const lead = projection.nodes.find((node) => node.kind === "lead");
   const workspace = projection.nodes.find((node) => node.kind === "workspace");
-  const specialists = projection.nodes.filter((node) => node.kind === "specialist");
-  const col = columnX(specialists.length);
+  const peers = projection.nodes.filter((node) => node.kind === "peer");
+  const col = columnX(peers.length);
 
-  const specialistStackHeight =
-    specialists.length === 0
+  const peerStackHeight =
+    peers.length === 0
       ? NODE_HEIGHT
-      : specialists.length * NODE_HEIGHT + (specialists.length - 1) * ROW_GAP;
-  const stackMid = specialistStackHeight / 2;
+      : peers.length * NODE_HEIGHT + (peers.length - 1) * ROW_GAP;
+  const stackMid = peerStackHeight / 2;
 
   const nodes: TopologyFlowNode[] = [];
 
@@ -667,13 +669,13 @@ function buildTopologyFlowGraph(
     });
   }
 
-  specialists.forEach((specialist, index) => {
+  peers.forEach((peer, index) => {
     nodes.push({
-      id: specialist.id,
+      id: peer.id,
       type: "topology",
-      position: { x: col.specialist, y: index * (NODE_HEIGHT + ROW_GAP) },
-      data: { ...specialist, selected: selectedNodeId === specialist.id },
-      selected: selectedNodeId === specialist.id,
+      position: { x: col.peer, y: index * (NODE_HEIGHT + ROW_GAP) },
+      data: { ...peer, selected: selectedNodeId === peer.id },
+      selected: selectedNodeId === peer.id,
       draggable: false,
     });
   });
@@ -722,23 +724,23 @@ function buildTopologyFlowGraph(
       data: { labelOffsetX: 16, labelOffsetY: 0 },
     });
   }
-  for (const specialist of specialists) {
+  for (const peer of peers) {
     if (lead) {
       edges.push({
         ...baseEdge,
-        id: `e-${lead.id}-${specialist.id}`,
+        id: `e-${lead.id}-${peer.id}`,
         source: lead.id,
-        target: specialist.id,
+        target: peer.id,
         label: "delegates",
-        animated: specialist.status === "running",
+        animated: peer.status === "running",
         data: { labelOffsetX: 0, labelOffsetY: -12 },
       });
     }
     if (workspace) {
       edges.push({
         ...baseEdge,
-        id: `e-${specialist.id}-${workspace.id}`,
-        source: specialist.id,
+        id: `e-${peer.id}-${workspace.id}`,
+        source: peer.id,
         target: workspace.id,
         label: "checkpoints",
         style: { stroke: palette.edgeQuiet, strokeWidth: 1.25, strokeDasharray: "5 4" },
@@ -752,7 +754,7 @@ function buildTopologyFlowGraph(
       });
     }
   }
-  if (lead && workspace && specialists.length === 0) {
+  if (lead && workspace && peers.length === 0) {
     edges.push({
       ...baseEdge,
       id: `e-${lead.id}-${workspace.id}`,
@@ -773,12 +775,432 @@ function buildTopologyFlowGraph(
   return { nodes, edges };
 }
 
-/** Sparse room graphs (runtime/policy/lead/workspace ± few specialists) should not zoom out to postage-stamp size. */
+/** Sparse room graphs (runtime/policy/lead/workspace ± few peers) should not zoom out to postage-stamp size. */
 const SPARSE_NODE_COUNT = 6;
 const FIT_MIN_ZOOM_SPARSE = 0.9;
 const FIT_MIN_ZOOM_DENSE = 0.45;
 const FIT_MAX_ZOOM = 1.25;
 const FIT_PADDING = 0.12;
+const PEEK_WIDTH = 320;
+const PEEK_PAD = 10;
+const PEEK_CURSOR_OFFSET = 14;
+
+type PeekAnchor = { readonly x: number; readonly y: number };
+type PeekLiveKind = "respond" | "tool" | "status";
+type PeekLiveLine = {
+  readonly id: string;
+  readonly at: string;
+  readonly kind: PeekLiveKind;
+  readonly text: string;
+};
+
+function formatClock(iso: string | undefined): string {
+  if (!iso) return "—";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+}
+
+function peekEnterLabel(kind: TopologyNodeKind): string {
+  switch (kind) {
+    case "runtime":
+      return "Enter runtime diagnostics";
+    case "policy":
+      return "Open RunPolicy settings";
+    case "lead":
+      return "Enter lead chat";
+    case "peer":
+      return "Enter peer thread";
+    case "workspace":
+      return "Browse context records";
+  }
+}
+
+function peekLiveState(
+  node: TopologyNode,
+): "streaming" | "waiting" | "idle" | "failed" {
+  const status = node.status.toLowerCase();
+  if (["failed", "error", "stopped"].includes(status)) return "failed";
+  if (["running", "healthy"].includes(status)) return "streaming";
+  if (["waiting", "paused", "queued", "admitted", "stalled", "pending"].includes(status)) {
+    return "waiting";
+  }
+  return "idle";
+}
+
+function buildPeekMeta(
+  node: TopologyNode,
+  projection: RoomTopologyProjection,
+  snapshot: SupervisedRuntimeSnapshot | undefined,
+): ReadonlyArray<readonly [string, string]> {
+  switch (node.kind) {
+    case "runtime":
+      return [
+        ["Health", snapshot?.health.status ?? node.status],
+        ["Daemon epoch", String(snapshot?.health.daemonEpoch ?? "—")],
+        ["Active runs", String(projection.activeRunCount)],
+      ];
+    case "policy":
+      return [
+        ["Wall time", projection.policy ? `${Math.round(projection.policy.maxWallTimeMs / 60_000)} min` : "—"],
+        ["Fan-out", projection.policy ? String(projection.policy.maxFanOut) : "—"],
+        ["Recursive calls", projection.policy ? String(projection.policy.maxRecursiveCalls) : "—"],
+      ];
+    case "lead":
+      return [
+        ["Status", node.status],
+        ["Tasks", String(projection.taskCount)],
+        ["Active runs", String(projection.activeRunCount)],
+      ];
+    case "peer":
+      return [
+        ["Status", node.status],
+        ["Detail", node.detail],
+        ["Room tasks", String(projection.taskCount)],
+      ];
+    case "workspace":
+      return [
+        ["Status", node.status],
+        ["Records", String(projection.contextRecordCount)],
+        ["Sequence", String(projection.contextSequence)],
+      ];
+  }
+}
+
+function buildPeekLiveLines(
+  node: TopologyNode,
+  projection: RoomTopologyProjection,
+  snapshot: SupervisedRuntimeSnapshot | undefined,
+): ReadonlyArray<PeekLiveLine> {
+  const updatedAt = snapshot?.updatedAt;
+  const clock = formatClock(updatedAt);
+  const lines: PeekLiveLine[] = [];
+  const push = (kind: PeekLiveKind, text: string, suffix = "") => {
+    lines.push({
+      id: `${node.id}:${lines.length}:${suffix}`,
+      at: clock,
+      kind,
+      text,
+    });
+  };
+
+  switch (node.kind) {
+    case "runtime": {
+      push("status", `daemon ${snapshot?.health.status ?? "unknown"} · epoch ${snapshot?.health.daemonEpoch ?? "—"}`);
+      push("status", `${projection.activeRunCount} active runs · ${projection.taskCount} tasks`);
+      const activeRuns = (snapshot?.runs ?? [])
+        .filter((run) =>
+          ["admitted", "queued", "running", "waiting", "paused", "stalled"].includes(run.status),
+        )
+        .slice(0, 4);
+      for (const run of activeRuns) {
+        push(
+          "tool",
+          `run ${String(run.id).slice(0, 8)} · ${run.status} · attempt ${run.attempt}`,
+          String(run.id),
+        );
+      }
+      if (activeRuns.length === 0) {
+        push("respond", "No active runs in this room yet.");
+      }
+      break;
+    }
+    case "policy": {
+      if (projection.policy) {
+        push(
+          "status",
+          `${projection.policy.name} bounds · fan-out ${projection.policy.maxFanOut} · recursive ${projection.policy.maxRecursiveCalls}`,
+        );
+        push(
+          "status",
+          `wall ${Math.round(projection.policy.maxWallTimeMs / 60_000)} min applied to lead seat`,
+        );
+      } else {
+        push("status", "No effective RunPolicy on this room.");
+      }
+      push("respond", "Policy is configuration — no process stream.");
+      break;
+    }
+    case "lead": {
+      push("status", `lead ${node.status} · ${projection.taskCount} tasks`);
+      push("respond", node.detail);
+      const scoped = (snapshot?.runs ?? [])
+        .filter((run) =>
+          ["admitted", "queued", "running", "waiting", "paused", "stalled"].includes(run.status),
+        )
+        .slice(0, 4);
+      for (const run of scoped) {
+        push(
+          "tool",
+          `owner ${String(run.ownerSeatId).slice(0, 12)} · ${run.status}`,
+          String(run.id),
+        );
+      }
+      if (scoped.length === 0) push("status", "Waiting for delegated work.");
+      break;
+    }
+    case "peer": {
+      push("status", `peer ${node.status}`);
+      push("tool", node.detail);
+      if (isHealthyStatus(node.status) || node.status === "running") {
+        push("respond", `${node.title}: working · checkpoints pending`);
+      } else if (node.status === "waiting" || node.status === "queued") {
+        push("status", "Queued / waiting on upstream checkpoint");
+      } else {
+        push("respond", "No live peer process yet.");
+      }
+      break;
+    }
+    case "workspace": {
+      push(
+        "status",
+        projection.workspaceId
+          ? `sequence ${projection.contextSequence} · ${projection.contextRecordCount} retained records`
+          : "Workspace not created yet",
+      );
+      const records = (snapshot?.contextRecords ?? [])
+        .filter((record) =>
+          projection.workspaceId ? record.workspaceId === projection.workspaceId : false,
+        )
+        .slice(-3);
+      for (const record of records) {
+        push(
+          "status",
+          `record ${String(record.id).slice(0, 8)} · ${record.kind} · rev ${record.contentRevision}`,
+          String(record.id),
+        );
+      }
+      if (records.length === 0) push("respond", "No recent context append events.");
+      break;
+    }
+  }
+  return lines;
+}
+
+function clampPeekPosition(
+  container: DOMRect,
+  clientX: number,
+  clientY: number,
+  peekHeight: number,
+): PeekAnchor {
+  const originX = clientX - container.left;
+  const originY = clientY - container.top;
+  let x = originX + PEEK_CURSOR_OFFSET;
+  let y = originY + PEEK_CURSOR_OFFSET;
+  if (x + PEEK_WIDTH > container.width - PEEK_PAD) {
+    x = originX - PEEK_WIDTH - PEEK_CURSOR_OFFSET;
+  }
+  if (y + peekHeight > container.height - PEEK_PAD) {
+    y = originY - peekHeight - PEEK_CURSOR_OFFSET;
+  }
+  return {
+    x: Math.max(PEEK_PAD, Math.min(x, container.width - PEEK_WIDTH - PEEK_PAD)),
+    y: Math.max(PEEK_PAD, Math.min(y, container.height - peekHeight - PEEK_PAD)),
+  };
+}
+
+function TopologyNodePeek(props: {
+  readonly node: TopologyNode;
+  readonly projection: RoomTopologyProjection;
+  readonly snapshot: SupervisedRuntimeSnapshot | undefined;
+  readonly anchor: PeekAnchor;
+  readonly onClose: () => void;
+  readonly onEnter: () => void;
+  readonly onSelectParentLead: (() => void) | null;
+}) {
+  const liveState = peekLiveState(props.node);
+  const meta = buildPeekMeta(props.node, props.projection, props.snapshot);
+  const lines = buildPeekLiveLines(props.node, props.projection, props.snapshot);
+  const fullId = props.node.fullTitle ?? props.node.id;
+
+  return (
+    <div
+      role="dialog"
+      aria-label={`${props.node.eyebrow} peek`}
+      className="absolute z-30 flex w-[320px] flex-col overflow-hidden rounded-[14px] border border-border/70 bg-[var(--color-background-surface)]/95 shadow-2xl backdrop-blur-md"
+      style={{ left: props.anchor.x, top: props.anchor.y }}
+      onMouseDown={(event) => event.stopPropagation()}
+      onClick={(event) => event.stopPropagation()}
+    >
+      <div className="flex items-start justify-between gap-2 px-3 pt-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            <StatusDot status={props.node.status} />
+            {props.node.eyebrow}
+          </div>
+          <div className="mt-1 truncate text-[14px] font-semibold text-foreground" title={fullId}>
+            {props.node.title}
+          </div>
+        </div>
+        <button
+          type="button"
+          aria-label="Close node peek"
+          className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--color-background-button-secondary-hover)] hover:text-foreground"
+          onClick={props.onClose}
+        >
+          <XIcon className="size-3.5" />
+        </button>
+      </div>
+      <div className="mt-1 truncate px-3 font-mono text-[10px] text-muted-foreground/80" title={fullId}>
+        {fullId}
+      </div>
+      <dl className="mt-2.5 space-y-1.5 px-3 text-[11px] text-muted-foreground">
+        {meta.map(([label, value]) => (
+          <div key={label} className="flex justify-between gap-3">
+            <dt>{label}</dt>
+            <dd className="max-w-[58%] truncate text-right font-medium text-foreground">{value}</dd>
+          </div>
+        ))}
+      </dl>
+
+      <div className="mx-3 mt-3 overflow-hidden rounded-[10px] border border-border/60 bg-[var(--color-background-root)]">
+        <div className="flex items-center justify-between gap-2 border-b border-border/50 px-2.5 py-1.5 text-[10px] text-muted-foreground">
+          <span>Live process</span>
+          <span
+            className={cn(
+              "inline-flex items-center gap-1.5 font-medium",
+              liveState === "streaming" && "text-emerald-500",
+              liveState === "waiting" && "text-amber-500",
+              liveState === "failed" && "text-destructive",
+              liveState === "idle" && "text-muted-foreground/70",
+            )}
+          >
+            <span
+              className={cn(
+                "size-1.5 rounded-full",
+                liveState === "streaming" && "bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.2)]",
+                liveState === "waiting" && "bg-amber-500",
+                liveState === "failed" && "bg-destructive",
+                liveState === "idle" && "bg-muted-foreground/50",
+              )}
+            />
+            {liveState}
+          </span>
+        </div>
+        <div className="max-h-[132px] min-h-[88px] space-y-1.5 overflow-y-auto px-2.5 py-2 font-mono text-[10.5px] leading-snug">
+          {lines.length === 0 ? (
+            <p className="font-sans text-[11px] text-muted-foreground/70">
+              No live activity for this node yet.
+            </p>
+          ) : (
+            lines.map((line) => (
+              <p
+                key={line.id}
+                className={cn(
+                  "m-0 text-muted-foreground",
+                  line.kind === "respond" && "text-foreground/90",
+                  line.kind === "tool" && "text-sky-400/90",
+                  line.kind === "status" && "text-amber-200/80",
+                )}
+              >
+                <span className="mr-1.5 text-muted-foreground/55">{line.at}</span>
+                {line.text}
+              </p>
+            ))
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2 p-3">
+        <button
+          type="button"
+          className="min-w-[140px] flex-1 rounded-md border border-[color-mix(in_srgb,var(--color-text-accent)_45%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-text-accent)_16%,transparent)] px-2.5 py-2 text-left text-[11px] font-medium text-foreground"
+          onClick={props.onEnter}
+        >
+          {peekEnterLabel(props.node.kind)}
+        </button>
+        <button
+          type="button"
+          className="rounded-md border border-border/65 px-2.5 py-2 text-[11px] text-muted-foreground hover:text-foreground"
+          onClick={() => {
+            void navigator.clipboard?.writeText(fullId);
+          }}
+        >
+          Copy id
+        </button>
+        {props.onSelectParentLead ? (
+          <button
+            type="button"
+            className="rounded-md border border-border/65 px-2.5 py-2 text-[11px] text-muted-foreground hover:text-foreground"
+            onClick={props.onSelectParentLead}
+          >
+            Open parent lead
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function TopologyFullView(props: {
+  readonly node: TopologyNode;
+  readonly projection: RoomTopologyProjection;
+  readonly snapshot: SupervisedRuntimeSnapshot | undefined;
+  readonly onBack: () => void;
+}) {
+  const meta = buildPeekMeta(props.node, props.projection, props.snapshot);
+  const lines = buildPeekLiveLines(props.node, props.projection, props.snapshot);
+  return (
+    <div className="absolute inset-0 z-40 flex flex-col bg-[var(--color-background-root)]">
+      <div className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border/60 bg-[var(--color-background-surface)] px-3">
+        <div className="min-w-0">
+          <div className="truncate text-[13px] font-semibold text-foreground">
+            {peekEnterLabel(props.node.kind).replace(/^(Enter |Open |Browse )/i, "")}
+          </div>
+          <div className="truncate text-[11px] text-muted-foreground">
+            Full view · {props.node.eyebrow} · {props.node.fullTitle ?? props.node.id}
+          </div>
+        </div>
+        <button
+          type="button"
+          className="rounded-md border border-border/65 px-2.5 py-1.5 text-[11px] text-muted-foreground hover:text-foreground"
+          onClick={props.onBack}
+        >
+          ← Back to topology
+        </button>
+      </div>
+      <div className="grid min-h-0 flex-1 grid-cols-[1fr_260px]">
+        <div className="min-h-0 space-y-2 overflow-y-auto border-r border-border/50 px-4 py-3 font-mono text-[12px] leading-relaxed text-muted-foreground">
+          {lines.map((line) => (
+            <p
+              key={line.id}
+              className={cn(
+                "m-0",
+                line.kind === "respond" && "text-foreground/90",
+                line.kind === "tool" && "text-sky-400/90",
+                line.kind === "status" && "text-amber-200/80",
+              )}
+            >
+              <span className="mr-2 text-muted-foreground/50">{line.at}</span>
+              {line.text}
+            </p>
+          ))}
+          <p className="mt-4 font-sans text-[12px] text-foreground/80">
+            Full seat transcript / tools would mount here. Topology stays one step away.
+          </p>
+        </div>
+        <aside className="min-h-0 overflow-y-auto bg-[var(--color-background-surface)] px-3 py-3 text-[11px] text-muted-foreground">
+          <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/70">
+            Seat context
+          </div>
+          <dl className="space-y-2">
+            {meta.map(([label, value]) => (
+              <div key={label} className="flex justify-between gap-2">
+                <dt>{label}</dt>
+                <dd className="truncate font-medium text-foreground">{value}</dd>
+              </div>
+            ))}
+          </dl>
+        </aside>
+      </div>
+    </div>
+  );
+}
 
 function FitViewOnProjection(props: {
   readonly revision: number;
@@ -804,6 +1226,7 @@ function TopologyReactFlowGraph(props: {
   readonly projection: RoomTopologyProjection;
   readonly selectedNodeId: string | null;
   readonly onSelectNode: (nodeId: string | null) => void;
+  readonly onNodePointerSelect: (nodeId: string, clientX: number, clientY: number) => void;
 }) {
   const { resolvedTheme } = useTheme();
   const dark = resolvedTheme === "dark";
@@ -821,17 +1244,16 @@ function TopologyReactFlowGraph(props: {
     setEdges(graph.edges);
   }, [graph, setNodes, setEdges]);
 
-  const onSelectNode = props.onSelectNode;
   const onNodeClick = useCallback(
-    (_event: MouseEvent, node: TopologyFlowNode) => {
-      onSelectNode(node.id);
+    (event: ReactMouseEvent, node: TopologyFlowNode) => {
+      props.onNodePointerSelect(node.id, event.clientX, event.clientY);
     },
-    [onSelectNode],
+    [props],
   );
 
   const onPaneClick = useCallback(() => {
-    onSelectNode(null);
-  }, [onSelectNode]);
+    props.onSelectNode(null);
+  }, [props]);
 
   return (
     <TopologyPaletteContext.Provider value={palette}>
@@ -917,6 +1339,83 @@ export function SupervisedTopologyCanvas(props: {
   const query = useRoomTopology(props.roomId);
   const projection = query.projection;
   const selectedNode = projection?.nodes.find((node) => node.id === props.selectedNodeId) ?? null;
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const peekRef = useRef<HTMLDivElement | null>(null);
+  const graphSelectRef = useRef(false);
+  const [anchor, setAnchor] = useState<PeekAnchor | null>(null);
+  const [fullViewNodeId, setFullViewNodeId] = useState<string | null>(null);
+  const fullViewNode =
+    projection?.nodes.find((node) => node.id === fullViewNodeId) ?? null;
+
+  const placeFromClient = useCallback((clientX: number, clientY: number) => {
+    const host = hostRef.current;
+    if (!host) return;
+    const rect = host.getBoundingClientRect();
+    const peekHeight = peekRef.current?.offsetHeight ?? 380;
+    setAnchor(clampPeekPosition(rect, clientX, clientY, peekHeight));
+  }, []);
+
+  const placeDefault = useCallback(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const rect = host.getBoundingClientRect();
+    placeFromClient(rect.left + rect.width * 0.55, rect.top + rect.height * 0.32);
+  }, [placeFromClient]);
+
+  const handleGraphSelect = useCallback(
+    (nodeId: string, clientX: number, clientY: number) => {
+      graphSelectRef.current = true;
+      placeFromClient(clientX, clientY);
+      props.onSelectNode(nodeId);
+    },
+    [placeFromClient, props],
+  );
+
+  useEffect(() => {
+    if (!props.selectedNodeId) {
+      setAnchor(null);
+      setFullViewNodeId(null);
+      return;
+    }
+    if (graphSelectRef.current) {
+      graphSelectRef.current = false;
+      return;
+    }
+    // Sidebar (or external) selection — open peek at a sensible canvas point.
+    placeDefault();
+  }, [placeDefault, props.selectedNodeId]);
+
+  useEffect(() => {
+    if (!props.selectedNodeId || !anchor) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (fullViewNodeId) {
+        setFullViewNodeId(null);
+        return;
+      }
+      props.onSelectNode(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [anchor, fullViewNodeId, props]);
+
+  // Re-clamp after peek mounts / content height settles.
+  useEffect(() => {
+    if (!props.selectedNodeId || !anchor || !hostRef.current || !peekRef.current) return;
+    const host = hostRef.current.getBoundingClientRect();
+    const height = peekRef.current.offsetHeight;
+    setAnchor((current) => {
+      if (!current) return current;
+      const next = {
+        x: Math.max(PEEK_PAD, Math.min(current.x, host.width - PEEK_WIDTH - PEEK_PAD)),
+        y: Math.max(PEEK_PAD, Math.min(current.y, host.height - height - PEEK_PAD)),
+      };
+      if (next.x === current.x && next.y === current.y) return current;
+      return next;
+    });
+  }, [anchor, props.selectedNodeId, selectedNode?.id, query.dataUpdatedAt]);
+
+  const leadNode = projection?.nodes.find((node) => node.kind === "lead") ?? null;
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--color-background-root)]">
@@ -937,7 +1436,7 @@ export function SupervisedTopologyCanvas(props: {
           <span>Loading durable topology…</span>
         )}
       </div>
-      <div className="relative min-h-0 flex-1 overflow-hidden">
+      <div ref={hostRef} className="relative min-h-0 flex-1 overflow-hidden">
         {!projection ? (
           <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
             {query.isLoading ? "Projecting Room topology…" : "Room topology is unavailable."}
@@ -948,18 +1447,50 @@ export function SupervisedTopologyCanvas(props: {
               projection={projection}
               selectedNodeId={props.selectedNodeId}
               onSelectNode={props.onSelectNode}
+              onNodePointerSelect={handleGraphSelect}
             />
           </ReactFlowProvider>
         )}
 
         {projection ? (
           <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-center p-3">
-            <div className="pointer-events-auto rounded-md border border-border/65 bg-[var(--color-background-surface)]/95 px-2.5 py-1.5 text-[10px] text-muted-foreground shadow-sm backdrop-blur-sm">
+            <div className="rounded-md border border-border/65 bg-[var(--color-background-surface)]/95 px-2.5 py-1.5 text-[10px] text-muted-foreground shadow-sm backdrop-blur-sm">
               <span className="text-[var(--color-text-accent)]">●</span> Live topology · revision{" "}
               {projection.graphRevision}
-              {selectedNode ? <span> · selected {selectedNode.title}</span> : null}
+              {selectedNode ? <span> · peek {selectedNode.title}</span> : null}
             </div>
           </div>
+        ) : null}
+
+        {projection && selectedNode && anchor && !fullViewNode ? (
+          <div ref={peekRef}>
+            <TopologyNodePeek
+              node={selectedNode}
+              projection={projection}
+              snapshot={query.data}
+              anchor={anchor}
+              onClose={() => props.onSelectNode(null)}
+              onEnter={() => setFullViewNodeId(selectedNode.id)}
+              onSelectParentLead={
+                selectedNode.kind === "peer" && leadNode
+                  ? () => {
+                      graphSelectRef.current = true;
+                      placeDefault();
+                      props.onSelectNode(leadNode.id);
+                    }
+                  : null
+              }
+            />
+          </div>
+        ) : null}
+
+        {projection && fullViewNode ? (
+          <TopologyFullView
+            node={fullViewNode}
+            projection={projection}
+            snapshot={query.data}
+            onBack={() => setFullViewNodeId(null)}
+          />
         ) : null}
       </div>
       {projection ? (
