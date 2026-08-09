@@ -14,6 +14,8 @@ import {
   type SupervisionSnapshot,
 } from "@synara/contracts";
 
+import { defaultSupervisedToolsForRole } from "../tools/Registry.ts";
+
 const workspaceId = SupervisedWorkspaceId.makeUnsafe("workspace:default");
 const liveRootStatuses = new Set(["active", "transferring", "releasing"]);
 
@@ -42,6 +44,7 @@ const legacyReceiptId = (input: {
   readonly roomIds: ReadonlyArray<string>;
   readonly rootLeaseIds: ReadonlyArray<string>;
   readonly allowedCommands: ReadonlyArray<string>;
+  readonly allowedTools: ReadonlyArray<string>;
 }) => {
   const version = createHash("sha256")
     .update(
@@ -50,6 +53,7 @@ const legacyReceiptId = (input: {
         roomIds: [...input.roomIds].sort(),
         rootLeaseIds: [...input.rootLeaseIds].sort(),
         allowedCommands: input.allowedCommands,
+        allowedTools: input.allowedTools,
       }),
     )
     .digest("hex")
@@ -100,6 +104,7 @@ const makeReceipt = (input: {
       ? input.roomIds.map((roomId) => rootLeaseIdFor(input.snapshot, roomId, input.seatId))
       : [];
   const allowedCommands = input.role === "lead" ? ["supervised.specialist.create"] : [];
+  const allowedTools = defaultSupervisedToolsForRole(input.role);
   return {
     id: legacyReceiptId({
       seatId: input.seatId,
@@ -107,6 +112,7 @@ const makeReceipt = (input: {
       roomIds: input.roomIds,
       rootLeaseIds,
       allowedCommands,
+      allowedTools,
     }),
     actorSeatId: AgentSeatId.makeUnsafe(input.seatId),
     identityRole: input.role,
@@ -115,7 +121,7 @@ const makeReceipt = (input: {
     roomScopes: input.roomIds as EffectiveAuthorityReceipt["roomScopes"],
     taskNodeScopes: [],
     allowedCommands,
-    allowedTools: input.role === "lead" ? ["create_specialist"] : [],
+    allowedTools,
     rootLeaseIds,
     mandateIds: [],
     runPolicyRevision: 0,

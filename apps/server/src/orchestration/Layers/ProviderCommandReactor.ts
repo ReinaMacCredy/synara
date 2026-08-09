@@ -97,6 +97,7 @@ import {
 } from "../../persistence/Services/OrchestrationEventDeliveries.ts";
 import { QueuedTurnPromotionRepository } from "../../persistence/Services/QueuedTurnPromotions.ts";
 import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedAttachments.ts";
+import { SupervisedGovernanceRepository } from "../../persistence/Services/SupervisedGovernanceRepository.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { providerStartOptionsFromServerSettings } from "@synara/shared/serverSettings";
@@ -466,6 +467,7 @@ const make = Effect.gen(function* () {
   const textGeneration = yield* TextGeneration;
   const serverSettings = yield* ServerSettingsService;
   const managedAttachments = yield* ManagedAttachmentRepository;
+  const supervisedGovernanceRepository = yield* SupervisedGovernanceRepository;
   const serverConfig = yield* ServerConfig;
   const handledTurnStartKeys = yield* Cache.make<string, true>({
     capacity: HANDLED_TURN_START_KEY_MAX,
@@ -556,6 +558,14 @@ const make = Effect.gen(function* () {
       : undefined;
     const seat = supervisor ?? lead ?? rotationLead;
     if (!seat && !peer) return undefined;
+    const governance = yield* supervisedGovernanceRepository.getSnapshot();
+    const canonicalSeatId = supervisor?.id ?? peer?.threadId ?? (lead ?? rotationLead)?.id;
+    const canonicalSeat = governance.agentSeats.find(
+      (candidate) => candidate.id === canonicalSeatId,
+    );
+    const authorityReceipt = governance.authorityReceipts.find(
+      (candidate) => candidate.id === canonicalSeat?.authorityReceiptId,
+    );
     const profileSnapshotId =
       pendingLeadRotation?.replacementProfileSnapshotId ??
       seat?.profileSnapshotId ??
@@ -584,6 +594,20 @@ const make = Effect.gen(function* () {
             )
             .map((mission) => mission.id)
         : [],
+      ...(canonicalSeat && authorityReceipt
+        ? {
+            agentSeatId: canonicalSeat.id,
+            workspaceId: canonicalSeat.workspaceId,
+            roomIds: canonicalSeat.roomIds,
+            effectiveRole: authorityReceipt.effectiveRole,
+            authorityReceiptId: authorityReceipt.id,
+            allowedTools: authorityReceipt.allowedTools,
+            allowedCommands: authorityReceipt.allowedCommands,
+            rootLeaseIds: authorityReceipt.rootLeaseIds,
+            mandateIds: authorityReceipt.mandateIds,
+            runPolicyRevision: authorityReceipt.runPolicyRevision,
+          }
+        : {}),
     };
   });
   const editResendTurnStartKeys = new Set<string>();

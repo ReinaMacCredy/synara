@@ -205,6 +205,10 @@ export function makeSupervisionTools(
       inputSchema: objectSchema({}),
       readOnly: true,
       providerSupport: { codex: "native", claude: "unsupported" },
+      supervised: {
+        toolId: "supervised.topology.read",
+        schemaVersion: "1.0.0",
+      },
     },
     {
       visible: () => true,
@@ -287,6 +291,10 @@ export function makeSupervisionTools(
       ),
       readOnly: false,
       providerSupport: { codex: "native", claude: "unsupported" },
+      supervised: {
+        toolId: "supervised.work.assign",
+        schemaVersion: "1.0.0",
+      },
     },
     {
       visible: (_state, role) => role === "supervisor",
@@ -372,6 +380,10 @@ export function makeSupervisionTools(
         ),
         readOnly: false,
         providerSupport: { codex: "native", claude: "unsupported" },
+        supervised: {
+          toolId: "supervised.work.assign",
+          schemaVersion: "1.0.0",
+        },
       },
       {
         visible: (_state, role) => role === "supervisor",
@@ -451,6 +463,10 @@ export function makeSupervisionTools(
       ),
       readOnly: false,
       providerSupport: { codex: "native", claude: "unsupported" },
+      supervised: {
+        toolId: "supervised.message.send",
+        schemaVersion: "1.0.0",
+      },
     },
     {
       visible: (_state, role) => role === "supervisor",
@@ -527,6 +543,10 @@ export function makeSupervisionTools(
       ),
       readOnly: false,
       providerSupport: { codex: "native", claude: "unsupported" },
+      supervised: {
+        toolId: "supervised.intervention.open",
+        schemaVersion: "1.0.0",
+      },
     },
     {
       visible: (_state, role) => role === "supervisor",
@@ -620,6 +640,10 @@ export function makeSupervisionTools(
       ),
       readOnly: false,
       providerSupport: { codex: "native", claude: "unsupported" },
+      supervised: {
+        toolId: "supervised.lead.replace",
+        schemaVersion: "1.0.0",
+      },
     },
     {
       visible: (_state, role) => role === "supervisor",
@@ -735,6 +759,10 @@ export function makeSupervisionTools(
       ),
       readOnly: false,
       providerSupport: { codex: "native", claude: "unsupported" },
+      supervised: {
+        toolId: "supervised.agent.create",
+        schemaVersion: "1.0.0",
+      },
     },
     {
       visible: (_state, role) => role === "lead",
@@ -881,6 +909,10 @@ export function makeSupervisionTools(
       ),
       readOnly: false,
       providerSupport: { codex: "native", claude: "unsupported" },
+      supervised: {
+        toolId: "supervised.intervention.reconcile",
+        schemaVersion: "1.0.0",
+      },
     },
     {
       visible: (_state, role) => role === "supervisor",

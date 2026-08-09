@@ -80,6 +80,9 @@ describe("legacy Supervised reconciliation", () => {
     assert.deepStrictEqual(decoded.authorityReceipts[0]?.allowedCommands, [
       "supervised.specialist.create",
     ]);
+    assert.ok(
+      decoded.authorityReceipts[0]?.allowedTools.includes("supervised.agent.create"),
+    );
     assert.equal(decoded.rootLeases.length, 1);
     assert.equal(decoded.rootLeases[0]?.holderSeatId, "lead-seat-1");
   });

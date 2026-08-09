@@ -1,4 +1,7 @@
-import type { HostToolExecutionResult } from "../orchestration/hostTools/runtime.ts";
+import {
+  hostToolTranscriptValue,
+  type HostToolExecutionResult,
+} from "../orchestration/hostTools/runtime.ts";
 
 export interface CodexDynamicToolResponse {
   readonly success: true;
@@ -16,7 +19,7 @@ export function codexDynamicToolResponse(
     contentItems: [
       {
         type: "inputText",
-        text: JSON.stringify(result.ok ? result.value : { ok: false, error: result.error }),
+        text: JSON.stringify(hostToolTranscriptValue(result)),
       },
     ],
   };

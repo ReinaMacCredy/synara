@@ -1,0 +1,148 @@
+import { Schema } from "effect";
+
+import { IsoDateTime, TrimmedNonEmptyString } from "./baseSchemas";
+import {
+  AgentSeatId,
+  EffectiveAuthorityReceiptId,
+  SupervisedWorkspaceId,
+} from "./supervisedGovernance";
+import { RoomId } from "./supervised";
+
+const entityId = <Brand extends string>(brand: Brand) =>
+  TrimmedNonEmptyString.pipe(Schema.brand(brand));
+
+export const SupervisedIntentToolId = Schema.Literals([
+  "supervised.providers.list",
+  "supervised.models.list",
+  "supervised.models.recommend",
+  "supervised.agents.list",
+  "supervised.topology.read",
+  "supervised.tasks.list",
+  "supervised.task.get",
+  "supervised.context.inspect",
+  "supervised.notebook.search",
+  "supervised.agent.create",
+  "supervised.message.send",
+  "supervised.work.assign",
+  "supervised.task.delegate",
+  "supervised.lead.replace",
+  "supervised.role.assume",
+  "supervised.role.release",
+  "supervised.intervention.open",
+  "supervised.intervention.reconcile",
+  "supervised.run.control",
+  "supervised.rlm.start",
+  "supervised.context.requestCompaction",
+  "supervised.review.request",
+  "supervised.evidence.publish",
+  "supervised.room.complete",
+]);
+export type SupervisedIntentToolId = typeof SupervisedIntentToolId.Type;
+
+export const SupervisedInternalCommandId = Schema.Literals([
+  "workspace.activate",
+  "workspace.suspend",
+  "workspace.archive",
+  "room.activate",
+  "room.pause",
+  "room.resume",
+  "room.drain",
+  "room.archive",
+  "seat.provision",
+  "seat.waitReady",
+  "seat.pause",
+  "seat.resume",
+  "seat.drain",
+  "seat.retain",
+  "seat.retire",
+  "seat.retireLineage",
+  "seat.recover",
+  "directive.issue",
+  "directive.revoke",
+  "mandate.grant",
+  "mandate.revoke",
+  "rootLease.acquire",
+  "rootLease.transfer",
+  "rootLease.release",
+  "handoff.prepare",
+  "handoff.deliver",
+  "handoff.acknowledge",
+  "handoff.accept",
+  "handoff.reject",
+  "handoff.expire",
+  "handoff.reconcile",
+  "intervention.open",
+  "intervention.notifyLead",
+  "intervention.reconcile",
+  "intervention.close",
+  "task.claim",
+  "task.release",
+  "task.transferOwnership",
+  "task.revise",
+  "run.admit",
+  "run.start",
+  "run.pause",
+  "run.resume",
+  "run.retry",
+  "run.stop",
+  "run.recover",
+  "context.checkpoint",
+  "context.compact",
+  "context.prepareHandoff",
+  "rlm.admit",
+  "rlm.branch",
+  "rlm.synthesize",
+  "rlm.cancel",
+  "review.complete",
+  "review.reject",
+  "evidence.attach",
+  "notebook.append",
+  "notebook.supersede",
+  "notebook.compact",
+  "notebook.redact",
+  "model.selection.record",
+  "model.outcome.record",
+  "patch.propose",
+  "patch.evaluate",
+  "patch.promote",
+  "patch.rollback",
+]);
+export type SupervisedInternalCommandId = typeof SupervisedInternalCommandId.Type;
+
+export const SupervisedToolResultState = Schema.Literals([
+  "requested",
+  "accepted",
+  "committed",
+  "projected",
+  "rejected",
+  "denied",
+  "failed",
+  "timed_out",
+]);
+export type SupervisedToolResultState = typeof SupervisedToolResultState.Type;
+
+export const SupervisedToolInvocationReceiptId = entityId(
+  "SupervisedToolInvocationReceiptId",
+);
+export type SupervisedToolInvocationReceiptId =
+  typeof SupervisedToolInvocationReceiptId.Type;
+
+export const SupervisedToolInvocationReceipt = Schema.Struct({
+  id: SupervisedToolInvocationReceiptId,
+  toolId: SupervisedIntentToolId,
+  providerToolName: TrimmedNonEmptyString,
+  schemaVersion: TrimmedNonEmptyString,
+  actorSeatId: Schema.NullOr(AgentSeatId),
+  authorityReceiptId: Schema.NullOr(EffectiveAuthorityReceiptId),
+  workspaceId: Schema.NullOr(SupervisedWorkspaceId),
+  roomId: Schema.NullOr(RoomId),
+  callerThreadId: TrimmedNonEmptyString,
+  callerTurnId: Schema.NullOr(TrimmedNonEmptyString),
+  state: SupervisedToolResultState,
+  requestedAt: IsoDateTime,
+  completedAt: Schema.NullOr(IsoDateTime),
+  errorCode: Schema.NullOr(TrimmedNonEmptyString),
+  errorMessage: Schema.NullOr(Schema.String),
+});
+export type SupervisedToolInvocationReceipt =
+  typeof SupervisedToolInvocationReceipt.Type;

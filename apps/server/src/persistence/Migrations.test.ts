@@ -301,10 +301,13 @@ managedAttachmentsLegacyLayer("managed attachment migration after private migrat
         [97, "LeadSubscriptionOwnership"],
         [98, "SupervisedModelSessions"],
         [99, "RetireOrchestratorControlPlane"],
+        [100, "SupervisorFirstGovernance"],
+        [101, "SupervisorFirstLifecycle"],
+        [102, "SupervisedToolReceipts"],
       ]);
 
       const tracker = yield* trackerRows(sql);
-      assert.deepStrictEqual(tracker.slice(-46), [
+      assert.deepStrictEqual(tracker.slice(-49), [
         { migration_id: 54, name: "DurableProviderCommandDelivery" },
         { migration_id: 55, name: "ManagedAttachments" },
         { migration_id: 56, name: "CommandReceiptFingerprints" },
@@ -351,6 +354,9 @@ managedAttachmentsLegacyLayer("managed attachment migration after private migrat
         { migration_id: 97, name: "LeadSubscriptionOwnership" },
         { migration_id: 98, name: "SupervisedModelSessions" },
         { migration_id: 99, name: "RetireOrchestratorControlPlane" },
+        { migration_id: 100, name: "SupervisorFirstGovernance" },
+        { migration_id: 101, name: "SupervisorFirstLifecycle" },
+        { migration_id: 102, name: "SupervisedToolReceipts" },
       ]);
       const preserved = yield* sql<{ readonly count: number }>`
         SELECT COUNT(*) AS count FROM orchestration_consumer_state
@@ -442,7 +448,10 @@ agentGatewayRetentionLegacyLayer(
         [97, "LeadSubscriptionOwnership"],
         [98, "SupervisedModelSessions"],
         [99, "RetireOrchestratorControlPlane"],
-        ]);
+        [100, "SupervisorFirstGovernance"],
+        [101, "SupervisorFirstLifecycle"],
+        [102, "SupervisedToolReceipts"],
+      ]);
 
         const columns = yield* sql<{ readonly name: string }>`
         SELECT name FROM pragma_table_info('agent_gateway_operations')
@@ -536,11 +545,14 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [97, "LeadSubscriptionOwnership"],
         [98, "SupervisedModelSessions"],
         [99, "RetireOrchestratorControlPlane"],
+        [100, "SupervisorFirstGovernance"],
+        [101, "SupervisorFirstLifecycle"],
+        [102, "SupervisedToolReceipts"],
       ]);
 
       const tracker = yield* trackerRows(sql);
       assert.deepStrictEqual(
-        tracker.slice(-30).map((row) => [row.migration_id, row.name]),
+        tracker.slice(-33).map((row) => [row.migration_id, row.name]),
         [
           [70, "AgentGatewayOperations"],
           [71, "ProjectionThreadsGatewayProvenance"],
@@ -572,6 +584,9 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
           [97, "LeadSubscriptionOwnership"],
           [98, "SupervisedModelSessions"],
           [99, "RetireOrchestratorControlPlane"],
+          [100, "SupervisorFirstGovernance"],
+          [101, "SupervisorFirstLifecycle"],
+          [102, "SupervisedToolReceipts"],
         ],
       );
 
@@ -661,11 +676,14 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [97, "LeadSubscriptionOwnership"],
         [98, "SupervisedModelSessions"],
         [99, "RetireOrchestratorControlPlane"],
+        [100, "SupervisorFirstGovernance"],
+        [101, "SupervisorFirstLifecycle"],
+        [102, "SupervisedToolReceipts"],
       ]);
 
       const tracker = yield* trackerRows(sql);
       assert.deepStrictEqual(
-        tracker.slice(-26).map((row) => [row.migration_id, row.name]),
+        tracker.slice(-29).map((row) => [row.migration_id, row.name]),
         [
           [74, "ExternalMcpIntegrations"],
           [75, "ExternalMcpActiveCapacity"],
@@ -693,6 +711,9 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
           [97, "LeadSubscriptionOwnership"],
           [98, "SupervisedModelSessions"],
           [99, "RetireOrchestratorControlPlane"],
+          [100, "SupervisorFirstGovernance"],
+          [101, "SupervisorFirstLifecycle"],
+          [102, "SupervisedToolReceipts"],
         ],
       );
       const preservedSpaces = yield* sql<{ readonly spaceId: string }>`

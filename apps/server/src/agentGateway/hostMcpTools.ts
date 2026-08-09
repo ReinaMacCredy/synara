@@ -1,7 +1,11 @@
 import { Effect, Option } from "effect";
 
 import type { HostToolRuntimeShape } from "../orchestration/Services/HostToolRuntime.ts";
-import { HostToolError, type HostToolInvocationContext } from "../orchestration/hostTools/runtime.ts";
+import {
+  HostToolError,
+  hostToolTranscriptValue,
+  type HostToolInvocationContext,
+} from "../orchestration/hostTools/runtime.ts";
 import { mcpToolResultError, mcpToolResultJson } from "./protocol.ts";
 import {
   READ_ONLY_TOOL_ANNOTATIONS,
@@ -62,8 +66,8 @@ export function makeAgentGatewayHostTools(input: {
         .pipe(
           Effect.map((result) =>
             result.ok
-              ? mcpToolResultJson(result.value)
-              : mcpToolResultError(JSON.stringify(result.error)),
+              ? mcpToolResultJson(hostToolTranscriptValue(result))
+              : mcpToolResultError(JSON.stringify(hostToolTranscriptValue(result))),
           ),
         ),
   }));

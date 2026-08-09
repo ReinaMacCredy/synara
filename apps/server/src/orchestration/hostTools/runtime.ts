@@ -1,4 +1,8 @@
-import type { ProviderKind } from "@synara/contracts";
+import type {
+  ProviderKind,
+  SupervisedIntentToolId,
+  SupervisedToolInvocationReceipt,
+} from "@synara/contracts";
 import type { Effect } from "effect";
 
 export type HostToolProviderSupport = "native" | "unsupported";
@@ -10,6 +14,10 @@ export interface HostToolDefinition {
   readonly inputSchema: Readonly<Record<string, unknown>>;
   readonly readOnly: boolean;
   readonly providerSupport: Readonly<Record<"codex" | "claude", HostToolProviderSupport>>;
+  readonly supervised?: {
+    readonly toolId: SupervisedIntentToolId;
+    readonly schemaVersion: "1.0.0";
+  };
 }
 
 export interface HostToolInvocationContext {
@@ -31,7 +39,11 @@ export interface HostToolEntry {
 }
 
 export type HostToolExecutionResult =
-  | { readonly ok: true; readonly value: unknown }
+  | {
+      readonly ok: true;
+      readonly value: unknown;
+      readonly receipt?: SupervisedToolInvocationReceipt;
+    }
   | {
       readonly ok: false;
       readonly error: {
@@ -39,6 +51,7 @@ export type HostToolExecutionResult =
         readonly message: string;
         readonly details?: unknown;
       };
+      readonly receipt?: SupervisedToolInvocationReceipt;
     };
 
 export class HostToolError extends Error {
@@ -74,3 +87,12 @@ export const hostToolSuccess = (value: unknown): HostToolExecutionResult => ({
   ok: true,
   value,
 });
+
+export const hostToolTranscriptValue = (result: HostToolExecutionResult): unknown => {
+  const base = result.ok ? result.value : { ok: false, error: result.error };
+  if (!result.receipt) return base;
+  if (base !== null && typeof base === "object" && !Array.isArray(base)) {
+    return { ...base, _synaraReceipt: result.receipt };
+  }
+  return { value: base, _synaraReceipt: result.receipt };
+};

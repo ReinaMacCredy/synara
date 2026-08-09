@@ -5,6 +5,7 @@ import {
   EventId,
   IsoDateTime,
   MessageId,
+  NonNegativeInt,
   ProjectId,
   SpaceId,
   ThreadId,
@@ -544,5 +545,15 @@ export const ProviderSupervisionSessionContext = Schema.Struct({
   leadSeatId: Schema.optional(LeadSeatId),
   profileSnapshot: ProfileSnapshot,
   missionIds: Schema.Array(SupervisionMissionId),
+  agentSeatId: Schema.optional(TrimmedNonEmptyString),
+  workspaceId: Schema.optional(TrimmedNonEmptyString),
+  roomIds: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+  effectiveRole: Schema.optional(Schema.Union([RoomRole, Schema.Literal("acting_root")])),
+  authorityReceiptId: Schema.optional(TrimmedNonEmptyString),
+  allowedTools: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+  allowedCommands: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+  rootLeaseIds: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+  mandateIds: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+  runPolicyRevision: Schema.optional(NonNegativeInt),
 });
 export type ProviderSupervisionSessionContext = typeof ProviderSupervisionSessionContext.Type;

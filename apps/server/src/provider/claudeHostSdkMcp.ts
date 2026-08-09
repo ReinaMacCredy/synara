@@ -4,7 +4,10 @@ import { Effect, Option } from "effect";
 import { z } from "zod";
 
 import type { HostToolRuntimeShape } from "../orchestration/Services/HostToolRuntime.ts";
-import type { HostToolInvocationContext } from "../orchestration/hostTools/runtime.ts";
+import {
+  hostToolTranscriptValue,
+  type HostToolInvocationContext,
+} from "../orchestration/hostTools/runtime.ts";
 
 const SYNARA_HOST_MCP_SERVER_NAME = "synara-host";
 
@@ -47,13 +50,18 @@ export function buildClaudeHostSdkMcpServer(input: {
         );
         return result.ok
           ? {
-              content: [{ type: "text" as const, text: JSON.stringify(result.value, null, 2) }],
+              content: [
+                {
+                  type: "text" as const,
+                  text: JSON.stringify(hostToolTranscriptValue(result), null, 2),
+                },
+              ],
             }
           : {
               content: [
                 {
                   type: "text" as const,
-                  text: JSON.stringify(result.error, null, 2),
+                  text: JSON.stringify(hostToolTranscriptValue(result), null, 2),
                 },
               ],
               isError: true,
