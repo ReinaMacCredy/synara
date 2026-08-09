@@ -6,6 +6,7 @@ import { ManagedAttachmentRepositoryLive } from "../persistence/Layers/ManagedAt
 import { SupervisedRuntimeRepositoryLive } from "../persistence/Layers/SupervisedRuntimeRepository";
 import { SupervisedGovernanceRepositoryLive } from "../persistence/Layers/SupervisedGovernanceRepository";
 import { SupervisedToolReceiptRepositoryLive } from "../persistence/Layers/SupervisedToolReceipts";
+import { SupervisedToolPolicyRepositoryLive } from "../persistence/Layers/SupervisedToolPolicies";
 import { OrchestrationEngineLive } from "./Layers/OrchestrationEngine";
 import { OrchestrationProjectionPipelineLive } from "./Layers/ProjectionPipeline";
 import { OrchestrationProjectionSnapshotQueryLive } from "./Layers/ProjectionSnapshotQuery";
@@ -19,6 +20,7 @@ export const OrchestrationEventInfrastructureLayerLive = Layer.mergeAll(
   SupervisedRuntimeRepositoryLive,
   SupervisedGovernanceRepositoryLive,
   SupervisedToolReceiptRepositoryLive,
+  SupervisedToolPolicyRepositoryLive,
 );
 
 export const OrchestrationProjectionPipelineLayerLive = OrchestrationProjectionPipelineLive.pipe(

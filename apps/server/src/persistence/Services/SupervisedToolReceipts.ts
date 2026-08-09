@@ -17,6 +17,12 @@ export interface CompleteSupervisedToolReceiptInput {
 }
 
 export interface SupervisedToolReceiptRepositoryShape {
+  readonly listRecent: (
+    limit: number,
+  ) => Effect.Effect<
+    readonly SupervisedToolInvocationReceipt[],
+    PersistenceSqlError | PersistenceDecodeError
+  >;
   readonly insert: (
     receipt: SupervisedToolInvocationReceipt,
   ) => Effect.Effect<void, PersistenceSqlError>;

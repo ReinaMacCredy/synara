@@ -2,13 +2,15 @@ import { randomUUID } from "node:crypto";
 
 import {
   SupervisedToolInvocationReceiptId,
+  type SupervisedToolPolicy,
   type SupervisedToolInvocationReceipt,
 } from "@synara/contracts";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option } from "effect";
 
 import { makeHandoffDestinationTools } from "../../handoff/handoffDestinationToolRegistry.ts";
 import { SupervisedGovernanceRepository } from "../../persistence/Services/SupervisedGovernanceRepository.ts";
 import { SupervisedToolReceiptRepository } from "../../persistence/Services/SupervisedToolReceipts.ts";
+import { SupervisedToolPolicyRepository } from "../../persistence/Services/SupervisedToolPolicies.ts";
 import { authorizeSupervisedIntentTool } from "../../supervised/tools/Registry.ts";
 import { HostToolError, hostToolFailure } from "../hostTools/runtime.ts";
 import { OrchestrationLayerLive } from "../runtimeLayer.ts";
@@ -22,10 +24,29 @@ import {
 } from "../supervision/canonicalCaller.ts";
 import { makeSupervisionTools } from "../supervision/toolRegistry.ts";
 
+export type SupervisedToolPolicyDecision =
+  | { readonly enabled: true }
+  | { readonly enabled: false; readonly code: string; readonly reason: string };
+
+export const evaluateSupervisedToolPolicy = (
+  policy: SupervisedToolPolicy | null | undefined,
+): SupervisedToolPolicyDecision => {
+  if (!policy || policy.state === "enabled") return { enabled: true };
+  return {
+    enabled: false,
+    code:
+      policy.state === "revoked"
+        ? "supervised_tool_policy_revoked"
+        : "supervised_tool_policy_disabled",
+    reason: `Supervised tool '${policy.toolId}' is ${policy.state} by owner policy.`,
+  };
+};
+
 const makeHostToolRuntime = Effect.gen(function* () {
   const snapshotQuery = yield* ProjectionSnapshotQuery;
   const governanceRepository = yield* SupervisedGovernanceRepository;
   const toolReceiptRepository = yield* SupervisedToolReceiptRepository;
+  const toolPolicyRepository = yield* SupervisedToolPolicyRepository;
   const entries = [
     ...makeHandoffDestinationTools({ snapshotQuery }),
     ...makeSupervisionTools({
@@ -114,6 +135,30 @@ const makeHostToolRuntime = Effect.gen(function* () {
         ),
       );
       const executeRequestedTool = Effect.gen(function* () {
+        const policy = yield* toolPolicyRepository.getByToolId(metadata.toolId).pipe(
+          Effect.mapError(
+            (error) =>
+              new HostToolError(
+                "supervised_tool_policy_unavailable",
+                error instanceof Error ? error.message : String(error),
+              ),
+          ),
+        );
+        const policyDecision = evaluateSupervisedToolPolicy(
+          Option.isSome(policy) ? policy.value : null,
+        );
+        if (!policyDecision.enabled) {
+          const failure = new HostToolError(
+            policyDecision.code,
+            policyDecision.reason,
+          );
+          const completed = yield* completeReceipt(receipt, "denied", failure).pipe(
+            Effect.mapError(
+              (error) => new HostToolError("supervised_tool_receipt_unavailable", error.message),
+            ),
+          );
+          return { ...hostToolFailure(failure), receipt: completed };
+        }
         const decision = authorizeSupervisedIntentTool({
           toolId: metadata.toolId,
           seat,
@@ -178,6 +223,18 @@ const makeHostToolRuntime = Effect.gen(function* () {
     catalog: entries.map((entry) => entry.definition),
     list: (context) =>
       Effect.gen(function* () {
+        const policyState = yield* toolPolicyRepository.list().pipe(
+          Effect.map((policies) => ({
+            available: true as const,
+            byToolId: new Map(policies.map((policy) => [policy.toolId, policy])),
+          })),
+          Effect.catch(() =>
+            Effect.succeed({
+              available: false as const,
+              byToolId: new Map(),
+            }),
+          ),
+        );
         const canonicalCaller = yield* loadCanonicalCaller(context).pipe(
           Effect.map((value) => ({ available: true as const, value })),
           Effect.catch(() => Effect.succeed({ available: false as const })),
@@ -188,6 +245,12 @@ const makeHostToolRuntime = Effect.gen(function* () {
             entry.isVisible(context).pipe(
               Effect.map((entryVisible) => {
                 if (!entryVisible || !entry.definition.supervised) return entryVisible;
+                if (!policyState.available) return false;
+                if (
+                  !evaluateSupervisedToolPolicy(
+                    policyState.byToolId.get(entry.definition.supervised.toolId),
+                  ).enabled
+                ) return false;
                 if (!canonicalCaller.available) return false;
                 const { seat, receipt } = canonicalCaller.value;
                 return authorizeSupervisedIntentTool({

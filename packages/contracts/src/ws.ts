@@ -42,6 +42,11 @@ import {
   TestSubscriptionInput,
 } from "./supervised";
 import {
+  GetSupervisedSettingsInput,
+  PutSupervisedModelPreferencesInput,
+  UpdateSupervisedToolPolicyInput,
+} from "./supervisedSettings";
+import {
   CancelHandoffPreparationInput,
   GetHandoffPreparationInput,
   ListHandoffGrantsInput,
@@ -313,6 +318,15 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(ORCHESTRATION_WS_METHODS.importThread, OrchestrationImportThreadInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.getSnapshot, OrchestrationGetSnapshotInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.getSupervisedRuntime, GetSupervisedRuntimeInput),
+  tagRequestBody(ORCHESTRATION_WS_METHODS.getSupervisedSettings, GetSupervisedSettingsInput),
+  tagRequestBody(
+    ORCHESTRATION_WS_METHODS.putSupervisedModelPreferences,
+    PutSupervisedModelPreferencesInput,
+  ),
+  tagRequestBody(
+    ORCHESTRATION_WS_METHODS.updateSupervisedToolPolicy,
+    UpdateSupervisedToolPolicyInput,
+  ),
   tagRequestBody(ORCHESTRATION_WS_METHODS.testSupervisedSubscription, TestSubscriptionInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.inspectSupervisedPlugin, InspectSupervisedPluginInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.installSupervisedPlugin, InstallSupervisedPluginInput),

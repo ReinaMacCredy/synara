@@ -29,6 +29,7 @@ export * from "./supervision";
 export * from "./supervised";
 export * from "./supervisedGovernance";
 export * from "./supervisedTools";
+export * from "./supervisedSettings";
 export * from "./settings";
 export * from "./git";
 export * from "./handoff";

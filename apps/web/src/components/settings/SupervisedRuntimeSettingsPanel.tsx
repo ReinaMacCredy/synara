@@ -35,7 +35,12 @@ const value = (text: string) => (
   <span className="text-xs tabular-nums text-foreground/80">{text}</span>
 );
 
-export function SupervisedRuntimeSettingsPanel(props: { readonly active: boolean }) {
+export type SupervisedRuntimeSettingsSurface = "runtime" | "plugins" | "diagnostics";
+
+export function SupervisedRuntimeSettingsPanel(props: {
+  readonly active: boolean;
+  readonly surface: SupervisedRuntimeSettingsSurface;
+}) {
   const query = useQuery({ ...supervisedRuntimeQueryOptions(), enabled: props.active });
   const [pluginEditorOpen, setPluginEditorOpen] = useState(false);
   const [pluginDirectory, setPluginDirectory] = useState("");
@@ -434,36 +439,43 @@ export function SupervisedRuntimeSettingsPanel(props: { readonly active: boolean
   return (
     <div className="space-y-8">
       <div className="flex flex-wrap items-center gap-2 border-b border-border/55 pb-5">
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={busy === "open-runtime-logs"}
-          onClick={() => void openRuntimeLogs()}
-        >
-          {busy === "open-runtime-logs" ? "Opening…" : "Open runtime logs"}
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={busy === "copy-diagnostics"}
-          onClick={() => void copyRuntimeDiagnostics()}
-        >
-          {busy === "copy-diagnostics" ? "Copying…" : "Copy diagnostics"}
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={busy === "restart-runtime"}
-          onClick={() => void restartRuntime()}
-        >
-          {busy === "restart-runtime" ? "Restarting…" : "Restart daemon"}
-        </Button>
+        {props.surface === "diagnostics" ? (
+          <>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy === "open-runtime-logs"}
+              onClick={() => void openRuntimeLogs()}
+            >
+              {busy === "open-runtime-logs" ? "Opening…" : "Open runtime logs"}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy === "copy-diagnostics"}
+              onClick={() => void copyRuntimeDiagnostics()}
+            >
+              {busy === "copy-diagnostics" ? "Copying…" : "Copy diagnostics"}
+            </Button>
+          </>
+        ) : null}
+        {props.surface === "runtime" ? (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy === "restart-runtime"}
+            onClick={() => void restartRuntime()}
+          >
+            {busy === "restart-runtime" ? "Restarting…" : "Restart daemon"}
+          </Button>
+        ) : null}
         <span className="ml-auto text-[10px] tabular-nums text-muted-foreground">
           snapshot #{snapshot.snapshotSequence} · updated{" "}
           {new Date(snapshot.updatedAt).toLocaleTimeString()}
         </span>
       </div>
 
+      {props.surface === "runtime" ? (
       <SettingsSectionShell
         title="Runtime lifecycle"
         action={
@@ -507,8 +519,9 @@ export function SupervisedRuntimeSettingsPanel(props: { readonly active: boolean
           />
         </SettingsCard>
       </SettingsSectionShell>
+      ) : null}
 
-      <DisclosureRegion open={runtimeTraceOpen}>
+      <DisclosureRegion open={props.surface === "diagnostics" && runtimeTraceOpen}>
         <SettingsSectionShell
           title="Runtime trace"
           action={
@@ -597,6 +610,8 @@ export function SupervisedRuntimeSettingsPanel(props: { readonly active: boolean
         </SettingsSectionShell>
       </DisclosureRegion>
 
+      {props.surface === "runtime" ? (
+      <>
       <SettingsSectionShell
         title="RunPolicy & autonomous bounds"
         action={
@@ -706,7 +721,10 @@ export function SupervisedRuntimeSettingsPanel(props: { readonly active: boolean
           control={value("Compatible only")}
         />
       </SettingsSection>
+      </>
+      ) : null}
 
+      {props.surface === "plugins" ? (
       <SettingsSectionShell
         title="Plugin registry"
         action={
@@ -966,7 +984,10 @@ export function SupervisedRuntimeSettingsPanel(props: { readonly active: boolean
           )}
         </SettingsCard>
       </SettingsSectionShell>
+      ) : null}
 
+      {props.surface === "diagnostics" ? (
+      <>
       <SettingsSectionShell title="Runtime audit">
         <SettingsCard>
           {snapshot.audit.length === 0 ? (
@@ -1108,6 +1129,8 @@ export function SupervisedRuntimeSettingsPanel(props: { readonly active: boolean
           control={value("Locked")}
         />
       </SettingsSection>
+      </>
+      ) : null}
       <div className="min-h-5 text-[11px] text-muted-foreground" aria-live="polite">
         {feedback}
       </div>

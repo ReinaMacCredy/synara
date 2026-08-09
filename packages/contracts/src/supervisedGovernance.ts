@@ -516,6 +516,7 @@ export const UserModelPreferenceProfile = Schema.Struct({
     rlmBranch: Schema.optional(ModelCapabilityProfileId),
   }),
   fallbackChains: Schema.Record(TrimmedNonEmptyString, Schema.Array(ModelCapabilityProfileId)),
+  ownerNotes: Schema.optional(BoundedText),
   updatedAt: IsoDateTime,
 });
 export type UserModelPreferenceProfile = typeof UserModelPreferenceProfile.Type;

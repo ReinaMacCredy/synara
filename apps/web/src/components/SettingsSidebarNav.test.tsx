@@ -52,10 +52,10 @@ describe("rankSettingsSearchEntries", () => {
     const contextResults = rankSettingsSearchEntries("context pressure", 12);
     const reviewResults = rankSettingsSearchEntries("review loop", 12);
 
-    expect(contextResults.some((entry) => entry.id === "supervised-orchestration:subscriptions")).toBe(
+    expect(contextResults.some((entry) => entry.id === "supervised-subscriptions:subscriptions")).toBe(
       true,
     );
-    expect(reviewResults.some((entry) => entry.id === "supervised-orchestration:subscriptions")).toBe(
+    expect(reviewResults.some((entry) => entry.id === "supervised-subscriptions:subscriptions")).toBe(
       true,
     );
   });
@@ -108,15 +108,31 @@ describe("SettingsSidebarNav", () => {
     expect(markup).toContain("Personal");
     expect(markup).toContain("Integrations");
     expect(markup).toContain("Coding");
+    expect(markup).toContain("Supervised");
     expect(markup).toContain("System");
     expect(markup).toContain("Archived");
     expect(markup).toContain("Chat behavior");
     expect(markup).toContain("MCP connections");
     expect(markup).toContain("Agent providers");
     expect(markup).toContain("Managed worktrees");
+    expect(markup).toContain("Roles &amp; profiles");
+    expect(markup).toContain("Shared notebook");
+    expect(markup).toContain("Mandates &amp; authority");
+    expect(markup).toContain("Subscriptions");
+    expect(markup).toContain("Diagnostics");
     expect(markup).toContain("System tools");
     expect(markup).toContain("Archived chats");
     expect(markup).not.toContain(">App<");
     expect(markup).not.toContain(">Synara<");
+  });
+
+  it("keeps every Supervised page in one canonical group", () => {
+    const markup = renderToStaticMarkup(
+      <SettingsSidebarNav activeSection="supervised-general" onBack={vi.fn()} onSelectSection={vi.fn()} />,
+    );
+
+    expect((markup.match(/>Supervised</g) ?? [])).toHaveLength(1);
+    expect(markup).not.toContain("Supervised orchestration");
+    expect(markup).not.toContain("Supervised runtime");
   });
 });

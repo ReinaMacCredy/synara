@@ -52,7 +52,6 @@ import { readNativeApi } from "~/nativeApi";
 import { useStore } from "~/store";
 import { SettingsSelectControl } from "./SettingControls";
 import { SupervisedOrchestrationProfileLibrary } from "./SupervisedOrchestrationProfileLibrary";
-import { SupervisedSubscriptionsSettings } from "./SupervisedSubscriptionsSettings";
 import type { ImportedProfilePreset } from "./supervisedOrchestrationProfileImport";
 
 const SANDBOXES: readonly ProfileSandboxMode[] = [
@@ -67,19 +66,17 @@ const APPROVALS: readonly ProfileApprovalPolicy[] = [
   "never",
 ];
 const AGGREGATE_ID = SupervisionAggregateId.makeUnsafe("supervision");
-// TODO(synara): Remove this storage translation on or after 2026-11-01 once
-// ProfilePreset persists canonical Specialist role hints.
-const SPECIALIST_STORAGE_ROLE = "peer" as const;
+const PEER_STORAGE_ROLE = "peer" as const;
 
 const toSupervisedProductProfile = (profile: ProfilePreset): ProfilePreset | null => {
   // TODO(synara): Remove pre-Supervised profile compatibility on or after
   // 2026-11-01 once persisted profile snapshots use only product vocabulary.
   if (profile.roleHints.includes("supervisor")) return null;
   if (profile.id === "profile-peer-implementer") {
-    return { ...profile, name: "Specialist Implementer" };
+    return { ...profile, name: "Peer Implementer" };
   }
   if (profile.id === "profile-peer-reviewer") {
-    return { ...profile, name: "Specialist Reviewer" };
+    return { ...profile, name: "Peer Reviewer" };
   }
   return profile;
 };
@@ -117,9 +114,7 @@ function draftFromProfile(profile: ProfilePreset): ProfileDraft {
   return {
     id: profile.id,
     name: profile.name,
-    roleHints: profile.roleHints
-      .map((role) => (role === SPECIALIST_STORAGE_ROLE ? "specialist" : role))
-      .join(", "),
+    roleHints: profile.roleHints.join(", "),
     provider: profile.runtime.provider,
     model: profile.runtime.model,
     reasoningEffort: profile.runtime.reasoningEffort ?? "",
@@ -143,13 +138,16 @@ function redactedExport(value: unknown): unknown {
   );
 }
 
-function roleHintsFromDraft(value: string): Array<"lead" | typeof SPECIALIST_STORAGE_ROLE> {
+function roleHintsFromDraft(value: string): Array<"lead" | typeof PEER_STORAGE_ROLE> {
   const normalized = value
     .split(",")
     .map((entry) => entry.trim().toLowerCase())
-    .flatMap((entry): Array<"lead" | typeof SPECIALIST_STORAGE_ROLE> => {
+    .flatMap((entry): Array<"lead" | typeof PEER_STORAGE_ROLE> => {
       if (entry === "lead") return ["lead"];
-      if (entry === "specialist") return [SPECIALIST_STORAGE_ROLE];
+      if (entry === "peer") return [PEER_STORAGE_ROLE];
+      // TODO(synara): Remove the legacy Specialist import alias on or after 2026-11-01
+      // once exported profile configs have migrated to canonical Peer vocabulary.
+      if (entry === "specialist") return [PEER_STORAGE_ROLE];
       return [];
     });
   return [...new Set(normalized)];
@@ -553,7 +551,7 @@ function ProfileEditor(props: {
           <span className="text-muted-foreground">Role hints</span>
           <Input
             value={draft.roleHints}
-            placeholder="lead, specialist"
+            placeholder="lead, peer"
             onChange={(event) => update({ roleHints: event.target.value })}
           />
         </label>
@@ -1004,10 +1002,10 @@ export function SupervisedOrchestrationSettingsPanel(props: { readonly active: b
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <h1 className="text-xl font-medium tracking-tight text-foreground">
-              Supervised orchestration
+              Roles & profiles
             </h1>
             <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-              Manage reusable Lead and Specialist profiles plus governed runtime triggers.
+              Manage reusable Lead and Peer profiles while preserving every existing preset and runtime default.
             </p>
           </div>
           <Button size="sm" onClick={() => beginDraft({ ...EMPTY_DRAFT }, null)}>
@@ -1058,11 +1056,9 @@ export function SupervisedOrchestrationSettingsPanel(props: { readonly active: b
         onImportError={setError}
       />
 
-      <SupervisedSubscriptionsSettings active={props.active} />
-
       <footer className="flex items-start gap-2 border-t pt-5 text-xs text-muted-foreground">
         <InfoIcon className="mt-0.5 size-4 shrink-0" />
-        <p>Preset edits affect future launches only. Running Leads and Specialists retain their snapshots.</p>
+        <p>Preset edits affect future launches only. Running Leads and Peers retain their snapshots.</p>
       </footer>
 
       <ProfileEditorDialog

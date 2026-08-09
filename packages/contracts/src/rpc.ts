@@ -127,6 +127,14 @@ import {
   TestSubscriptionResult,
 } from "./supervised";
 import {
+  GetSupervisedSettingsInput,
+  PutSupervisedModelPreferencesInput,
+  PutSupervisedModelPreferencesResult,
+  SupervisedSettingsSnapshot,
+  UpdateSupervisedToolPolicyInput,
+  UpdateSupervisedToolPolicyResult,
+} from "./supervisedSettings";
+import {
   DispatchTaskProcessCommandInput,
   DispatchTaskProcessCommandResult,
   GetSessionProgressInput,
@@ -276,6 +284,33 @@ export const WsOrchestrationGetSupervisedRuntimeRpc = Rpc.make(
   {
     payload: GetSupervisedRuntimeInput,
     success: SupervisedRuntimeSnapshot,
+    error: WsRpcError,
+  },
+);
+
+export const WsOrchestrationGetSupervisedSettingsRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.getSupervisedSettings,
+  {
+    payload: GetSupervisedSettingsInput,
+    success: SupervisedSettingsSnapshot,
+    error: WsRpcError,
+  },
+);
+
+export const WsOrchestrationPutSupervisedModelPreferencesRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.putSupervisedModelPreferences,
+  {
+    payload: PutSupervisedModelPreferencesInput,
+    success: PutSupervisedModelPreferencesResult,
+    error: WsRpcError,
+  },
+);
+
+export const WsOrchestrationUpdateSupervisedToolPolicyRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.updateSupervisedToolPolicy,
+  {
+    payload: UpdateSupervisedToolPolicyInput,
+    success: UpdateSupervisedToolPolicyResult,
     error: WsRpcError,
   },
 );
@@ -1133,6 +1168,9 @@ export const WsBootstrapRpcGroup = RpcGroup.make(WsBootstrapNegotiateRpc);
 type WsOrchestrationFeatureRpc =
   | typeof WsOrchestrationDispatchCommandRpc
   | typeof WsOrchestrationGetSupervisedRuntimeRpc
+  | typeof WsOrchestrationGetSupervisedSettingsRpc
+  | typeof WsOrchestrationPutSupervisedModelPreferencesRpc
+  | typeof WsOrchestrationUpdateSupervisedToolPolicyRpc
   | typeof WsOrchestrationTestSupervisedSubscriptionRpc
   | typeof WsOrchestrationInspectSupervisedPluginRpc
   | typeof WsOrchestrationInstallSupervisedPluginRpc
@@ -1166,6 +1204,9 @@ type WsOrchestrationFeatureRpc =
 const WsOrchestrationFeatureRpcGroup: RpcGroup.RpcGroup<WsOrchestrationFeatureRpc> = RpcGroup.make(
   WsOrchestrationDispatchCommandRpc,
   WsOrchestrationGetSupervisedRuntimeRpc,
+  WsOrchestrationGetSupervisedSettingsRpc,
+  WsOrchestrationPutSupervisedModelPreferencesRpc,
+  WsOrchestrationUpdateSupervisedToolPolicyRpc,
   WsOrchestrationTestSupervisedSubscriptionRpc,
   WsOrchestrationInspectSupervisedPluginRpc,
   WsOrchestrationInstallSupervisedPluginRpc,

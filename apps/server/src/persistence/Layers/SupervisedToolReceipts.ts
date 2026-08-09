@@ -19,6 +19,34 @@ type EntityRow = { readonly entityJson: string };
 const makeSupervisedToolReceiptRepository = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
 
+  const decodeReceipt = (entityJson: string, operation: string) =>
+    Effect.try({
+      try: () =>
+        Schema.decodeUnknownSync(SupervisedToolInvocationReceipt)(JSON.parse(entityJson)),
+      catch: toPersistenceDecodeCauseError(operation),
+    });
+
+  const listRecent: SupervisedToolReceiptRepositoryShape["listRecent"] = (limit) =>
+    Effect.gen(function* () {
+      const rows = yield* sql<EntityRow>`
+        SELECT entity_json AS "entityJson"
+        FROM supervised_tool_invocation_receipts
+        ORDER BY requested_at DESC, receipt_id DESC
+        LIMIT ${Math.max(1, Math.min(500, Math.trunc(limit)))}
+      `;
+      return yield* Effect.all(
+        rows.map((row) =>
+          decodeReceipt(row.entityJson, "SupervisedToolReceiptRepository.listRecent:decode"),
+        ),
+      );
+    }).pipe(
+      Effect.mapError((error) =>
+        error && typeof error === "object" && "_tag" in error && error._tag === "PersistenceDecodeError"
+          ? error
+          : toPersistenceSqlError("SupervisedToolReceiptRepository.listRecent:query")(error),
+      ),
+    );
+
   const getById: SupervisedToolReceiptRepositoryShape["getById"] = (id) =>
     Effect.gen(function* () {
       const rows = yield* sql<EntityRow>`
@@ -28,11 +56,10 @@ const makeSupervisedToolReceiptRepository = Effect.gen(function* () {
       `;
       const row = rows[0];
       if (!row) return Option.none();
-      const receipt = yield* Effect.try({
-        try: () =>
-          Schema.decodeUnknownSync(SupervisedToolInvocationReceipt)(JSON.parse(row.entityJson)),
-        catch: toPersistenceDecodeCauseError("SupervisedToolReceiptRepository.getById:decode"),
-      });
+      const receipt = yield* decodeReceipt(
+        row.entityJson,
+        "SupervisedToolReceiptRepository.getById:decode",
+      );
       return Option.some(receipt);
     }).pipe(
       Effect.mapError((error) =>
@@ -86,7 +113,7 @@ const makeSupervisedToolReceiptRepository = Effect.gen(function* () {
       return receipt;
     });
 
-  return { insert, complete, getById } satisfies SupervisedToolReceiptRepositoryShape;
+  return { listRecent, insert, complete, getById } satisfies SupervisedToolReceiptRepositoryShape;
 });
 
 export const SupervisedToolReceiptRepositoryLive = Layer.effect(

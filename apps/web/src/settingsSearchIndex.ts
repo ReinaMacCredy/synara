@@ -320,24 +320,58 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
       "Extra custom guidance for every Advisor consultation response style tradeoffs recommendation",
   },
 
-  // ── Supervised orchestration ────────────────────────────────────────────────
+  // ── Supervised ──────────────────────────────────────────────────────────────
   {
-    id: "supervised-orchestration:profiles",
-    section: "supervised-orchestration",
-    title: "Supervised profiles",
-    keywords: "Supervised Lead Specialist profiles seats governance directives",
+    id: "supervised-profiles:profiles",
+    section: "supervised-profiles",
+    title: "Roles & profiles",
+    keywords: "Supervised Lead Peer Specialist compatibility profiles presets model effort",
     target: null,
   },
   {
-    id: "supervised-orchestration:subscriptions",
-    section: "supervised-orchestration",
+    id: "supervised-subscriptions:subscriptions",
+    section: "supervised-subscriptions",
     title: "Subscriptions & Triggers",
     keywords:
       "events metrics threshold window hysteresis cooldown signal wake Lead context pressure review loop rejection count",
     target: null,
   },
 
-  // ── Supervised runtime ─────────────────────────────────────────────────────
+  {
+    id: "supervised-models:routing",
+    section: "supervised-models",
+    title: "Model routing preferences",
+    keywords: "ratings relative preference preferred avoid priority defaults fallbacks owner notes selection why",
+    target: null,
+  },
+  {
+    id: "supervised-notebook:entries",
+    section: "supervised-notebook",
+    title: "Shared notebook",
+    keywords: "concern scope compaction supersession redaction evidence cursors promotion candidates",
+    target: null,
+  },
+  {
+    id: "supervised-authority:mandates",
+    section: "supervised-authority",
+    title: "Mandates & authority",
+    keywords: "Human directives standing mandates Root leases effective receipt intervention dry run audit",
+    target: null,
+  },
+  {
+    id: "supervised-lifecycle:seats",
+    section: "supervised-lifecycle",
+    title: "Agent lifecycle",
+    keywords: "Workspace Room AgentSeat provider session handoff role assumption Lead replacement recovery",
+    target: null,
+  },
+  {
+    id: "supervised-tools:registry",
+    section: "supervised-tools",
+    title: "System tools",
+    keywords: "canonical ID schema enabled disabled revoked read mutate roles scope authority RunPolicy invocation receipt",
+    target: null,
+  },
   {
     id: "supervised-runtime:daemon",
     section: "supervised-runtime",
@@ -345,8 +379,8 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     keywords: "runtime status epoch recovery scheduling heartbeat",
   },
   {
-    id: "supervised-runtime:signal-delivery",
-    section: "supervised-runtime",
+    id: "supervised-diagnostics:signal-delivery",
+    section: "supervised-diagnostics",
     title: "Signal delivery",
     keywords: "queue cursor lag DeadLetter replay cooldown re-arm diagnostics",
   },
@@ -357,22 +391,22 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     keywords: "JavaScript Python process memory output isolation",
   },
   {
-    id: "supervised-runtime:plugins",
-    section: "supervised-runtime",
+    id: "supervised-plugins:plugins",
+    section: "supervised-plugins",
     title: "Plugin registry",
     keywords: "install enable disable revoke capability grants handlers",
     target: null,
   },
   {
-    id: "supervised-runtime:schemas",
-    section: "supervised-runtime",
+    id: "supervised-diagnostics:schemas",
+    section: "supervised-diagnostics",
     title: "Event schema catalog",
     keywords: "event versions compatibility protected fields producers subscribers",
     target: null,
   },
   {
-    id: "supervised-runtime:delivery",
-    section: "supervised-runtime",
+    id: "supervised-diagnostics:delivery",
+    section: "supervised-diagnostics",
     title: "Delivery diagnostics",
     keywords: "queue lag cursor retry replay DeadLetter circuit breaker",
     target: null,

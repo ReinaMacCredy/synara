@@ -56,6 +56,7 @@ import { ManagedAttachmentCleanupLive } from "./managedAttachmentCleanup";
 import { PullRequestServiceLive } from "./pullRequests/Layers/PullRequestService";
 import { ProviderHealthLive } from "./provider/Layers/ProviderHealth";
 import { makeServerProviderLayer } from "./provider/runtimeLayer";
+import { ModelRoutingServiceLive } from "./supervised/modelRouting/ModelRoutingService";
 
 export { makeServerProviderLayer } from "./provider/runtimeLayer";
 
@@ -73,10 +74,14 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(OrchestrationLayerLive),
     Layer.provideMerge(checkpointStoreLayer),
   );
+  const modelRoutingLayer = ModelRoutingServiceLive.pipe(
+    Layer.provideMerge(OrchestrationLayerLive),
+  );
 
   const runtimeServicesLayer = Layer.mergeAll(
     OrchestrationLayerLive,
     HostToolRuntimeConfiguredLive,
+    modelRoutingLayer,
     checkpointStoreLayer,
     checkpointDiffQueryLayer,
     RuntimeReceiptBusLive,

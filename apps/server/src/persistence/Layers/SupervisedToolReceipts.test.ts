@@ -52,12 +52,15 @@ testLayer("SupervisedToolReceiptRepository", (it) => {
         errorMessage: null,
       });
       const loaded = yield* repository.getById(receipt.id);
+      const recent = yield* repository.listRecent(10);
 
       assert.equal(completed.state, "projected");
       assert.ok(Option.isSome(loaded));
       assert.equal(loaded.value.state, "projected");
       assert.equal(loaded.value.actorSeatId, "retired-seat-1");
       assert.equal(loaded.value.authorityReceiptId, "retired-authority-1");
+      assert.equal(recent.length, 1);
+      assert.equal(recent[0]?.id, receipt.id);
     }),
   );
 });

@@ -97,7 +97,7 @@ export function ComposerProfilePicker(props: {
         <MenuSeparator />
         <MenuItem
           onClick={() => {
-            void navigate({ to: "/settings", search: { section: "supervised-orchestration" } });
+            void navigate({ to: "/settings", search: { section: "supervised-profiles" } });
           }}
         >
           <SettingsIcon className="size-4" />
@@ -156,7 +156,7 @@ export function ComposerResolvedProfileSummary(props: {
         <MenuSeparator />
         <MenuItem
           onClick={() => {
-            void navigate({ to: "/settings", search: { section: "supervised-orchestration" } });
+            void navigate({ to: "/settings", search: { section: "supervised-profiles" } });
           }}
         >
           <SettingsIcon className="size-4" />

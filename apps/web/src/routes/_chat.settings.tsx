@@ -64,6 +64,8 @@ import {
 import { SkillsSettingsPanel } from "../components/settings/SkillsSettingsPanel";
 import { SupervisedOrchestrationSettingsPanel } from "../components/settings/SupervisedOrchestrationSettingsPanel";
 import { SupervisedRuntimeSettingsPanel } from "../components/settings/SupervisedRuntimeSettingsPanel";
+import { SupervisedGovernanceSettingsPanel } from "../components/settings/SupervisedGovernanceSettingsPanel";
+import { SupervisedSubscriptionsSettings } from "../components/settings/SupervisedSubscriptionsSettings";
 import { ThemePackEditor } from "../components/ThemePackEditor";
 import {
   CHAT_CONTENT_CARD_CLASS_NAME,
@@ -1048,12 +1050,12 @@ function SettingsRouteView() {
                 "mx-auto w-full py-8",
                 activeSection === "profile"
                   ? "max-w-3xl px-6"
-                  : activeSection === "supervised-orchestration"
+                  : activeSection.startsWith("supervised-")
                     ? "max-w-[1180px] px-4 sm:px-6 lg:px-8"
                     : "max-w-2xl px-6",
               )}
             >
-              {activeSection !== "profile" && activeSection !== "supervised-orchestration" ? (
+              {activeSection !== "profile" && activeSection !== "supervised-profiles" ? (
                 <div className="mb-8 flex items-start justify-between gap-4">
                   <div className="min-w-0">
                     <h1 className="text-xl font-medium tracking-tight text-foreground">
@@ -1063,16 +1065,18 @@ function SettingsRouteView() {
                       {activeSectionItem.description}
                     </p>
                   </div>
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    className="shrink-0"
-                    disabled={changedSettingLabels.length === 0}
-                    onClick={() => void restoreDefaults()}
-                  >
-                    <RotateCcwIcon className="size-3.5" />
-                    Restore defaults
-                  </Button>
+                  {!activeSection.startsWith("supervised-") ? (
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      className="shrink-0"
+                      disabled={changedSettingLabels.length === 0}
+                      onClick={() => void restoreDefaults()}
+                    >
+                      <RotateCcwIcon className="size-3.5" />
+                      Restore defaults
+                    </Button>
+                  ) : null}
                 </div>
               ) : null}
 
@@ -1102,9 +1106,47 @@ function SettingsRouteView() {
                   resetEpoch={resetEpoch}
                 />
                 <SupervisedOrchestrationSettingsPanel
-                  active={activeSection === "supervised-orchestration"}
+                  active={activeSection === "supervised-profiles"}
                 />
-                <SupervisedRuntimeSettingsPanel active={activeSection === "supervised-runtime"} />
+                <SupervisedGovernanceSettingsPanel
+                  active={activeSection === "supervised-general"}
+                  surface="general"
+                />
+                <SupervisedGovernanceSettingsPanel
+                  active={activeSection === "supervised-models"}
+                  surface="models"
+                />
+                <SupervisedGovernanceSettingsPanel
+                  active={activeSection === "supervised-notebook"}
+                  surface="notebook"
+                />
+                <SupervisedGovernanceSettingsPanel
+                  active={activeSection === "supervised-authority"}
+                  surface="authority"
+                />
+                <SupervisedGovernanceSettingsPanel
+                  active={activeSection === "supervised-lifecycle"}
+                  surface="lifecycle"
+                />
+                <SupervisedGovernanceSettingsPanel
+                  active={activeSection === "supervised-tools"}
+                  surface="tools"
+                />
+                <SupervisedSubscriptionsSettings
+                  active={activeSection === "supervised-subscriptions"}
+                />
+                <SupervisedRuntimeSettingsPanel
+                  active={activeSection === "supervised-plugins"}
+                  surface="plugins"
+                />
+                <SupervisedRuntimeSettingsPanel
+                  active={activeSection === "supervised-runtime"}
+                  surface="runtime"
+                />
+                <SupervisedRuntimeSettingsPanel
+                  active={activeSection === "supervised-diagnostics"}
+                  surface="diagnostics"
+                />
                 <HandoffAgentSettingsPanel active={activeSection === "handoff-agent"} />
                 <HandoffAccessSettingsPanel active={activeSection === "handoff-access"} />
                 <ProvidersSettingsPanel

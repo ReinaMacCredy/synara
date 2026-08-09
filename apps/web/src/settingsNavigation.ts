@@ -14,8 +14,17 @@ export const SETTINGS_SECTION_IDS = [
   "worktrees",
   "archived",
   "models",
-  "supervised-orchestration",
+  "supervised-general",
+  "supervised-profiles",
+  "supervised-models",
+  "supervised-notebook",
+  "supervised-authority",
+  "supervised-lifecycle",
+  "supervised-tools",
+  "supervised-subscriptions",
+  "supervised-plugins",
   "supervised-runtime",
+  "supervised-diagnostics",
   "handoff-agent",
   "handoff-access",
   "providers",
@@ -26,7 +35,13 @@ export const SETTINGS_SECTION_IDS = [
 ] as const;
 
 export type SettingsSectionId = (typeof SETTINGS_SECTION_IDS)[number];
-export type SettingsNavGroupId = "personal" | "integrations" | "coding" | "system" | "archived";
+export type SettingsNavGroupId =
+  | "personal"
+  | "integrations"
+  | "coding"
+  | "supervised"
+  | "system"
+  | "archived";
 
 /**
  * Deep-link scroll targets inside settings panels. Each id is shared by its DOM owner and callers
@@ -55,6 +70,7 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
   { id: "personal", label: "Personal" },
   { id: "integrations", label: "Integrations" },
   { id: "coding", label: "Coding" },
+  { id: "supervised", label: "Supervised" },
   { id: "system", label: "System" },
   { id: "archived", label: "Archived" },
 ] as const;
@@ -149,22 +165,6 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     eyebrow: "Model configuration",
   },
   {
-    id: "supervised-orchestration",
-    group: "coding",
-    label: "Supervised orchestration",
-    description: "Manage reusable Lead and Specialist profiles, subscriptions, and workflow directives.",
-    icon: "agents",
-    eyebrow: "Oversight",
-  },
-  {
-    id: "supervised-runtime",
-    group: "coding",
-    label: "Supervised runtime",
-    description: "Inspect daemon, Signal Plane, kernels, plugins, delivery, and locked governance.",
-    icon: "plugin-2",
-    eyebrow: "Runtime control plane",
-  },
-  {
     id: "handoff-agent",
     group: "coding",
     label: "Handoff Agent",
@@ -195,6 +195,94 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     description: "Review and clean up isolated workspaces created by Synara.",
     icon: "branch-simple",
     eyebrow: "Workspace management",
+  },
+  {
+    id: "supervised-general",
+    group: "supervised",
+    label: "General",
+    description: "See the owner control plane, active Rooms, attention signals, and durable health.",
+    icon: "settings-gear-4",
+    eyebrow: "Control plane",
+  },
+  {
+    id: "supervised-profiles",
+    group: "supervised",
+    label: "Roles & profiles",
+    description: "Manage existing Lead and Peer profile presets without changing their saved identity.",
+    icon: "agents",
+    eyebrow: "Roles and presets",
+  },
+  {
+    id: "supervised-models",
+    group: "supervised",
+    label: "Models",
+    description: "Inspect governed capabilities and set durable owner routing preferences and fallbacks.",
+    icon: "brain",
+    eyebrow: "Model routing",
+  },
+  {
+    id: "supervised-notebook",
+    group: "supervised",
+    label: "Shared notebook",
+    description: "Search durable shared knowledge, evidence, cursors, compaction, and supersession history.",
+    icon: "notes",
+    eyebrow: "Durable knowledge",
+  },
+  {
+    id: "supervised-authority",
+    group: "supervised",
+    label: "Mandates & authority",
+    description: "Review directives, mandates, Root leases, effective authority, and interventions.",
+    icon: "safe-simple",
+    eyebrow: "Governance",
+  },
+  {
+    id: "supervised-lifecycle",
+    group: "supervised",
+    label: "Lifecycle",
+    description: "Inspect Workspace, Room, AgentSeat, provider-session, handoff, and intervention lifecycle.",
+    icon: "progress-25",
+    eyebrow: "Runtime lifecycle",
+  },
+  {
+    id: "supervised-tools",
+    group: "supervised",
+    label: "System tools",
+    description: "Control durable tool policy and inspect schemas, authority, health, and invocation receipts.",
+    icon: "toolbox",
+    eyebrow: "Governed tools",
+  },
+  {
+    id: "supervised-subscriptions",
+    group: "supervised",
+    label: "Subscriptions",
+    description: "Reuse the existing Subscriptions & Triggers UI and its persisted configuration.",
+    icon: "bell",
+    eyebrow: "Signals and triggers",
+  },
+  {
+    id: "supervised-plugins",
+    group: "supervised",
+    label: "Plugins",
+    description: "Install and govern local plugins, grants, circuit health, and typed actions.",
+    icon: "plugin-2",
+    eyebrow: "Plugin registry",
+  },
+  {
+    id: "supervised-runtime",
+    group: "supervised",
+    label: "Runtime",
+    description: "Inspect daemon, Signal Plane, programmable kernels, RunPolicy, and recovery controls.",
+    icon: "gauge",
+    eyebrow: "Runtime control plane",
+  },
+  {
+    id: "supervised-diagnostics",
+    group: "supervised",
+    label: "Diagnostics",
+    description: "Open bounded logs, copy diagnostics, and inspect audit, schemas, delivery, and DeadLetters.",
+    icon: "ladybug",
+    eyebrow: "Evidence and recovery",
   },
   {
     id: "advanced",
@@ -232,5 +320,6 @@ export function normalizeSettingsSection(value: unknown): SettingsSectionId {
   if (typeof value !== "string") {
     return "general";
   }
+  if (value === "supervised-orchestration") return "supervised-profiles";
   return SETTINGS_SECTION_IDS.find((candidate) => candidate === value) ?? "general";
 }

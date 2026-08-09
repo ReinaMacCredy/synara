@@ -9,6 +9,7 @@ import {
   ModelSelectionReceiptId,
   SupervisedGovernanceSnapshot,
   SupervisedWorkspaceId,
+  UserModelPreferenceProfileId,
   emptySupervisedGovernanceSnapshot,
 } from "@synara/contracts";
 import { Effect, Layer, Schema } from "effect";
@@ -265,5 +266,69 @@ describe("ModelRoutingService persistence", () => {
 
     assert.ok(error instanceof ModelRoutingDomainError);
     assert.equal(error.code, "routing_authority_denied");
+  });
+
+  it("uses a newly persisted owner preference on the next recommendation", async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "synara-model-preference-"));
+    tempDirectories.push(directory);
+    const filename = path.join(directory, "state.sqlite");
+
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* runMigrations();
+        const repository = yield* SupervisedGovernanceRepository;
+        const service = yield* ModelRoutingService;
+        const alpha = {
+          ...seed.modelCapabilityProfiles[0]!,
+          id: ModelCapabilityProfileId.makeUnsafe("model-alpha"),
+          model: "alpha",
+        };
+        const beta = {
+          ...seed.modelCapabilityProfiles[0]!,
+          id: ModelCapabilityProfileId.makeUnsafe("model-beta"),
+          model: "beta",
+        };
+        yield* repository.replaceSnapshot({
+          ...seed,
+          modelCapabilityProfiles: [alpha, beta],
+          userModelPreferenceProfiles: [],
+        });
+        const recommendationRequest = {
+          ...request,
+          userId: "owner",
+          routingRevision: (yield* repository.getSnapshot()).revision,
+        };
+        const before = yield* service.recommend(recommendationRequest);
+        yield* service.putUserPreferenceProfile({
+          profile: {
+            id: UserModelPreferenceProfileId.makeUnsafe("owner-preference"),
+            userId: "owner",
+            revision: 0,
+            ratings: { [alpha.id]: 0, [beta.id]: 10 },
+            relativePreferences: [
+              {
+                preferredModelId: beta.id,
+                overModelId: alpha.id,
+                category: "implementation",
+                reason: "Owner preference",
+              },
+            ],
+            preferredFor: { implementation: [beta.id] },
+            avoidFor: {},
+            priorities: { quality: 10, speed: 5, cost: 5, contextCapacity: 5 },
+            defaultModels: { supervisor: beta.id },
+            fallbackChains: { implementation: [beta.id, alpha.id] },
+            ownerNotes: "Persisted from Settings.",
+            updatedAt: "2026-08-09T05:01:00.000Z",
+          },
+          expectedRevision: null,
+        });
+        const after = yield* service.recommend(recommendationRequest);
+        return { before, after };
+      }).pipe(Effect.provide(makeLayer(filename))),
+    );
+
+    assert.equal(result.before.selectedModelId, "model-alpha");
+    assert.equal(result.after.selectedModelId, "model-beta");
   });
 });

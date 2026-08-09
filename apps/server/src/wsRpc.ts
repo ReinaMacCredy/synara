@@ -80,6 +80,7 @@ import { Open, resolveAvailableEditors } from "./open";
 import { makeDispatchCommandNormalizer } from "./orchestration/dispatchCommandNormalization";
 import { makeImportThreadHandler } from "./orchestration/importThreadRoute";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
+import { HostToolRuntime } from "./orchestration/Services/HostToolRuntime";
 import { SupervisedRuntimeDaemon } from "./orchestration/Services/SupervisedRuntimeDaemon";
 import { ProviderCommandReactor } from "./orchestration/Services/ProviderCommandReactor";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
@@ -139,6 +140,12 @@ import { PullRequestService } from "./pullRequests/Services/PullRequestService";
 import { resolveGitHubRepository } from "./pullRequests/repositoryResolution";
 import { OrchestrationEventStore } from "./persistence/Services/OrchestrationEventStore";
 import { SupervisedRuntimeRepository } from "./persistence/Services/SupervisedRuntimeRepository";
+import { SupervisedGovernanceRepository } from "./persistence/Services/SupervisedGovernanceRepository";
+import { SupervisedToolPolicyRepository } from "./persistence/Services/SupervisedToolPolicies";
+import { SupervisedToolReceiptRepository } from "./persistence/Services/SupervisedToolReceipts";
+import { ModelRoutingService } from "./supervised/modelRouting/ModelRoutingService";
+import { projectSupervisedSystemTools } from "./supervised/settings/SupervisedSettingsProjection";
+import { supervisedIntentToolRegistry } from "./supervised/tools/Registry";
 import { evaluateSyntheticSubscriptionTest } from "./supervised/signal/SubscriptionEvaluator";
 import { inspectSupervisedPluginPackage } from "./supervised/runtime/PluginPackage";
 import { ProjectionTaskProcessRepository } from "./persistence/Services/ProjectionTaskProcess";
@@ -408,9 +415,14 @@ const makeWsRpcHandlersLayer = () =>
       const keybindings = yield* Keybindings;
       const open = yield* Open;
       const orchestrationEngine = yield* OrchestrationEngineService;
+      const hostToolRuntime = yield* HostToolRuntime;
       const orchestrationEventStore = yield* OrchestrationEventStore;
+      const supervisedGovernanceRepository = yield* SupervisedGovernanceRepository;
       const supervisedRuntimeRepository = yield* SupervisedRuntimeRepository;
+      const supervisedToolPolicyRepository = yield* SupervisedToolPolicyRepository;
+      const supervisedToolReceiptRepository = yield* SupervisedToolReceiptRepository;
       const supervisedRuntimeDaemon = yield* SupervisedRuntimeDaemon;
+      const modelRoutingService = yield* ModelRoutingService;
       const handoffPreparation = yield* HandoffPreparationService;
       const taskProcessProjections = yield* ProjectionTaskProcessRepository;
       const taskProcessQuery = yield* TaskProcessQuery;
@@ -1064,6 +1076,81 @@ const makeWsRpcHandlersLayer = () =>
               Effect.andThen(supervisedRuntimeRepository.getSnapshot(input)),
             ),
             "Failed to load Supervised runtime",
+          ),
+        [ORCHESTRATION_WS_METHODS.getSupervisedSettings]: () =>
+          rpcEffect(
+            Effect.gen(function* () {
+              yield* requireOwnerSession;
+              const [governance, runtime, policies, receipts] = yield* Effect.all([
+                supervisedGovernanceRepository.getSnapshot(),
+                supervisedRuntimeRepository.getSnapshot({ includeDisabled: true, limit: 500 }),
+                supervisedToolPolicyRepository.list(),
+                supervisedToolReceiptRepository.listRecent(500),
+              ]);
+              const now = new Date().toISOString();
+              const tools = projectSupervisedSystemTools({
+                definitions: hostToolRuntime.catalog,
+                policies,
+                receipts,
+                authorityReceipts: governance.authorityReceipts,
+                defaultUpdatedAt: governance.updatedAt,
+                at: now,
+              });
+              return { governance, runtime, tools, updatedAt: now };
+            }),
+            "Failed to load Supervised settings",
+          ),
+        [ORCHESTRATION_WS_METHODS.putSupervisedModelPreferences]: (input) =>
+          rpcEffect(
+            Effect.gen(function* () {
+              yield* requireOwnerSession;
+              if (input.profile.userId !== "owner") {
+                return yield* Effect.fail(
+                  new Error("Supervised Settings can only update the owner's preference profile."),
+                );
+              }
+              const profile = yield* modelRoutingService.putUserPreferenceProfile(input);
+              const state = yield* modelRoutingService.getState(profile.userId);
+              return { profile, routingRevision: state.routingRevision };
+            }),
+            "Failed to save Supervised model preferences",
+          ),
+        [ORCHESTRATION_WS_METHODS.updateSupervisedToolPolicy]: (input) =>
+          rpcEffect(
+            Effect.gen(function* () {
+              yield* requireOwnerSession;
+              if (!supervisedIntentToolRegistry.some((descriptor) => descriptor.id === input.toolId)) {
+                return yield* Effect.fail(new Error(`Unknown Supervised tool '${input.toolId}'.`));
+              }
+              const now = new Date().toISOString();
+              const policy: SupervisedToolPolicy = {
+                toolId: input.toolId,
+                state: input.state,
+                revision: input.expectedRevision + 1,
+                reason: input.reason,
+                updatedAt: now,
+                revokedAt: input.state === "revoked" ? now : null,
+              };
+              const saved = yield* supervisedToolPolicyRepository.put({
+                policy,
+                expectedRevision: input.expectedRevision,
+              });
+              yield* supervisedRuntimeRepository.appendAudit({
+                action: "tool.policy.update",
+                actor: { kind: "user", actorId: "owner" },
+                targetKind: "supervised-tool",
+                targetId: input.toolId,
+                outcome: "succeeded",
+                detail: {
+                  state: input.state,
+                  revision: saved.revision,
+                  reason: input.reason,
+                },
+                occurredAt: now,
+              });
+              return { policy: saved };
+            }),
+            "Failed to update Supervised tool policy",
           ),
         [ORCHESTRATION_WS_METHODS.testSupervisedSubscription]: (input) =>
           rpcEffect(

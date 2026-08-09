@@ -201,6 +201,14 @@ import type {
   TestSubscriptionResult,
 } from "./supervised";
 import type {
+  GetSupervisedSettingsInput,
+  PutSupervisedModelPreferencesInput,
+  PutSupervisedModelPreferencesResult,
+  SupervisedSettingsSnapshot,
+  UpdateSupervisedToolPolicyInput,
+  UpdateSupervisedToolPolicyResult,
+} from "./supervisedSettings";
+import type {
   DispatchTaskProcessCommandInput,
   DispatchTaskProcessCommandResult,
   GetSessionProgressInput,
@@ -774,6 +782,15 @@ export interface NativeApi {
     getSupervisedRuntime: (
       input?: GetSupervisedRuntimeInput,
     ) => Promise<SupervisedRuntimeSnapshot>;
+    getSupervisedSettings: (
+      input?: GetSupervisedSettingsInput,
+    ) => Promise<SupervisedSettingsSnapshot>;
+    putSupervisedModelPreferences: (
+      input: PutSupervisedModelPreferencesInput,
+    ) => Promise<PutSupervisedModelPreferencesResult>;
+    updateSupervisedToolPolicy: (
+      input: UpdateSupervisedToolPolicyInput,
+    ) => Promise<UpdateSupervisedToolPolicyResult>;
     testSupervisedSubscription: (
       input: TestSubscriptionInput,
     ) => Promise<TestSubscriptionResult>;
