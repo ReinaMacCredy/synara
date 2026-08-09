@@ -120,6 +120,61 @@ async function projectThreadWithRunningTurn(input: { createdAt: string; startedA
 }
 
 describe("orchestration projector", () => {
+  it("routes Stage 5 supervised runtime events into the command read model", async () => {
+    const now = new Date().toISOString();
+    let model = createEmptyReadModel(now);
+    const events = [
+      makeEvent({
+        sequence: 1,
+        type: "supervised.context-workspace-upserted",
+        aggregateKind: "context_workspace",
+        aggregateId: "context-workspace-1",
+        occurredAt: now,
+        commandId: "cmd-context-workspace",
+        payload: { contextWorkspace: { id: "context-workspace-1" } },
+      }),
+      makeEvent({
+        sequence: 2,
+        type: "supervised.evidence-published",
+        aggregateKind: "evidence",
+        aggregateId: "evidence-1",
+        occurredAt: now,
+        commandId: "cmd-evidence",
+        payload: { evidence: { id: "evidence-1" } },
+      }),
+      makeEvent({
+        sequence: 3,
+        type: "supervised.rlm-upserted",
+        aggregateKind: "rlm_episode",
+        aggregateId: "rlm-episode-1",
+        occurredAt: now,
+        commandId: "cmd-rlm",
+        payload: { rlmEpisode: { id: "rlm-episode-1" } },
+      }),
+      makeEvent({
+        sequence: 4,
+        type: "supervised.model-session-upserted",
+        aggregateKind: "model_session",
+        aggregateId: "model-session-1",
+        occurredAt: now,
+        commandId: "cmd-model-session",
+        payload: { modelSession: { id: "model-session-1" } },
+      }),
+    ];
+
+    for (const event of events) {
+      model = await Effect.runPromise(projectEvent(model, event));
+    }
+
+    expect(model.supervised.contextWorkspaces.map(({ id }) => id)).toEqual([
+      "context-workspace-1",
+    ]);
+    expect(model.supervised.evidence.map(({ id }) => id)).toEqual(["evidence-1"]);
+    expect(model.supervised.rlmEpisodes.map(({ id }) => id)).toEqual(["rlm-episode-1"]);
+    expect(model.supervised.modelSessions.map(({ id }) => id)).toEqual(["model-session-1"]);
+    expect(model.snapshotSequence).toBe(4);
+  });
+
   it("applies thread.created events", async () => {
     const now = new Date().toISOString();
     const model = createEmptyReadModel(now);

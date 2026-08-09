@@ -49,15 +49,16 @@ const receipt: EffectiveAuthorityReceipt = {
 };
 
 describe("Supervised intent tool registry", () => {
-  it("registers the complete canonical Stage 3 intent surface", () => {
-    assert.equal(supervisedIntentToolRegistry.length, 24);
-    assert.equal(new Set(supervisedIntentToolRegistry.map((entry) => entry.id)).size, 24);
+  it("registers the complete canonical intent surface through Stage 5", () => {
+    assert.equal(supervisedIntentToolRegistry.length, 26);
+    assert.equal(new Set(supervisedIntentToolRegistry.map((entry) => entry.id)).size, 26);
   });
 
   it("injects no more than twelve role-appropriate granted tools", () => {
     const selected = selectSupervisedIntentTools({ seat, receipt, at: now });
     assert.equal(selected.length, 12);
     assert.ok(selected.every((entry) => entry.roles.includes("supervisor")));
+    assert.ok(selected.some((entry) => entry.id === "supervised.notebook.compact"));
   });
 
   it("fails closed when a receipt is revoked or lacks the tool grant", () => {

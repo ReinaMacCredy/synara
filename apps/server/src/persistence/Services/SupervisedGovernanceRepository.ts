@@ -2,6 +2,9 @@ import type {
   ModelCapabilityProfile,
   ModelSelectionReceipt,
   ModelTelemetryAggregate,
+  SupervisorNotebookCompactionReceipt,
+  SupervisorNotebookCursor,
+  SupervisorNotebookEntry,
   SupervisedGovernanceSnapshot,
   UserModelPreferenceProfile,
 } from "@synara/contracts";
@@ -17,6 +20,12 @@ export interface PersistedModelRoutingState {
   readonly modelTelemetryAggregates: readonly ModelTelemetryAggregate[];
 }
 
+export interface PersistedSupervisorNotebookState {
+  readonly entries: readonly SupervisorNotebookEntry[];
+  readonly compactionReceipts: readonly SupervisorNotebookCompactionReceipt[];
+  readonly cursor: SupervisorNotebookCursor | null;
+}
+
 export interface SupervisedGovernanceRepositoryShape {
   readonly getSnapshot: () => Effect.Effect<
     SupervisedGovernanceSnapshot,
@@ -28,6 +37,21 @@ export interface SupervisedGovernanceRepositoryShape {
   >;
   readonly replaceSnapshot: (
     snapshot: SupervisedGovernanceSnapshot,
+  ) => Effect.Effect<void, ProjectionRepositoryError>;
+  readonly getNotebookState: (input: {
+    readonly workspaceId: string;
+    readonly seatId: string;
+    readonly limit: number;
+  }) => Effect.Effect<PersistedSupervisorNotebookState, ProjectionRepositoryError>;
+  readonly appendNotebookEntry: (
+    entry: SupervisorNotebookEntry,
+  ) => Effect.Effect<boolean, ProjectionRepositoryError>;
+  readonly appendNotebookCompaction: (input: {
+    readonly summaryEntry: SupervisorNotebookEntry;
+    readonly receipt: SupervisorNotebookCompactionReceipt;
+  }) => Effect.Effect<boolean, ProjectionRepositoryError>;
+  readonly putNotebookCursor: (
+    cursor: SupervisorNotebookCursor,
   ) => Effect.Effect<void, ProjectionRepositoryError>;
   readonly putModelCapabilityProfile: (input: {
     readonly profile: ModelCapabilityProfile;

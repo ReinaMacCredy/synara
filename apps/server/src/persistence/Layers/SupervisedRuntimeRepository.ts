@@ -1,5 +1,6 @@
 import {
   CapabilityLease,
+  ContextCompactionReceipt,
   ContextRecord,
   ControlPlaneEvent,
   ContextWorkspace,
@@ -7,6 +8,7 @@ import {
   DeliveryCursor,
   DerivedSignal,
   EventSchema,
+  Evidence,
   HarnessPatch,
   Intervention,
   KernelExecution,
@@ -186,6 +188,18 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
           ORDER BY updated_at DESC, record_id
           LIMIT ${limit}
         `;
+        const contextCompactionRows = yield* sql<EntityRow>`
+          SELECT entity_json AS "entityJson"
+          FROM projection_context_compaction_receipts
+          ORDER BY created_at DESC, receipt_id
+          LIMIT ${limit}
+        `;
+        const evidenceRows = yield* sql<EntityRow>`
+          SELECT entity_json AS "entityJson"
+          FROM projection_supervised_evidence
+          ORDER BY created_at DESC, evidence_id
+          LIMIT ${limit}
+        `;
         const rlmEpisodeRows = yield* sql<EntityRow>`
           SELECT entity_json AS "entityJson"
           FROM projection_supervised_rlm_episodes
@@ -354,6 +368,16 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
           "SupervisedRuntime.getSnapshot:contextRecords",
           contextRecordRows,
         );
+        const contextCompactionReceipts = yield* decodeRows(
+          ContextCompactionReceipt,
+          "SupervisedRuntime.getSnapshot:contextCompactionReceipts",
+          contextCompactionRows,
+        );
+        const evidence = yield* decodeRows(
+          Evidence,
+          "SupervisedRuntime.getSnapshot:evidence",
+          evidenceRows,
+        );
         const rlmEpisodes = yield* decodeRows(
           RlmEpisode,
           "SupervisedRuntime.getSnapshot:rlmEpisodes",
@@ -519,6 +543,30 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
             (!roomId || workspace.roomId === roomId),
         );
         const workspaceIds = new Set(visibleContextWorkspaces.map((workspace) => workspace.id));
+        const filteredByScope = projectId !== undefined || roomId !== undefined;
+        const visibleProjectIds = new Set([
+          ...(projectId === undefined ? [] : [projectId]),
+          ...visibleRooms.map((room) => room.projectId),
+          ...visibleContextWorkspaces.map((workspace) => workspace.projectId),
+        ]);
+        const visibleEvidence = filteredByScope
+          ? evidence.filter((item) => {
+              switch (item.scope.kind) {
+                case "global":
+                  return true;
+                case "project":
+                  return visibleProjectIds.has(item.scope.projectId);
+                case "room":
+                  return roomIds.has(item.scope.roomId);
+                case "task":
+                  return taskIds.has(item.scope.taskId);
+                case "task_node":
+                  return taskNodeIds.has(item.scope.taskNodeId);
+                case "seat":
+                  return false;
+              }
+            })
+          : evidence;
       const visibleSubscriptions = subscriptionsWithCursors.filter(
         (subscription) => input.includeDisabled || subscription.state === "enabled",
       );
@@ -535,6 +583,10 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
           capabilityLeases: capabilityLeases.filter((lease) => runIds.has(lease.runId)),
           contextWorkspaces: visibleContextWorkspaces,
           contextRecords: contextRecords.filter((record) => workspaceIds.has(record.workspaceId)),
+          contextCompactionReceipts: contextCompactionReceipts.filter((receipt) =>
+            workspaceIds.has(receipt.workspaceId),
+          ),
+          evidence: visibleEvidence,
           rlmEpisodes: rlmEpisodes.filter((episode) => runIds.has(episode.runId)),
           modelSessions: modelSessions.filter((session) => runIds.has(session.runId)),
           harnessPatches,
@@ -1214,46 +1266,74 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
               updated_at = excluded.updated_at,
               entity_json = excluded.entity_json
           `;
-            break;
-          }
-          case "supervised.rlm-upserted": {
-            if (!payload.rlmEpisode) return;
-            const episode = payload.rlmEpisode;
+          if (payload.contextCompactionReceipt) {
+            const receipt = payload.contextCompactionReceipt;
             yield* sql`
-              INSERT INTO projection_supervised_rlm_episodes (
-                episode_id, run_id, status, completed_branch_count, updated_at, entity_json
+              INSERT INTO projection_context_compaction_receipts (
+                receipt_id, workspace_id, summary_record_id, created_at, entity_json
               ) VALUES (
-                ${episode.id}, ${episode.runId}, ${episode.status}, ${episode.completedBranchCount},
-                ${episode.updatedAt}, ${JSON.stringify(episode)}
+                ${receipt.id}, ${receipt.workspaceId}, ${receipt.summaryRecordId},
+                ${receipt.createdAt}, ${JSON.stringify(receipt)}
               )
-              ON CONFLICT (episode_id) DO UPDATE SET
-                status = excluded.status,
-                completed_branch_count = excluded.completed_branch_count,
-                updated_at = excluded.updated_at,
-                entity_json = excluded.entity_json
+              ON CONFLICT (receipt_id) DO NOTHING
             `;
-            break;
           }
-          case "supervised.model-session-upserted": {
-            if (!payload.modelSession) return;
-            const session = payload.modelSession;
-            yield* sql`
-              INSERT INTO projection_supervised_model_sessions (
-                model_session_id, room_id, run_id, task_node_id, rlm_episode_id,
-                parent_session_id, role, status, revision, updated_at, entity_json
-              ) VALUES (
-                ${session.id}, ${session.roomId}, ${session.runId}, ${session.taskNodeId},
-                ${session.rlmEpisodeId}, ${session.parentSessionId}, ${session.role},
-                ${session.status}, ${session.revision}, ${session.updatedAt}, ${JSON.stringify(session)}
-              )
-              ON CONFLICT (model_session_id) DO UPDATE SET
-                status = excluded.status,
-                revision = excluded.revision,
-                updated_at = excluded.updated_at,
-                entity_json = excluded.entity_json
-            `;
-            break;
-          }
+          break;
+        }
+        case "supervised.evidence-published": {
+          if (!payload.evidence) return;
+          const evidence = payload.evidence;
+          yield* sql`
+            INSERT INTO projection_supervised_evidence (
+              evidence_id, model_session_id, created_at, entity_json
+            ) VALUES (
+              ${evidence.id}, ${evidence.modelSessionId}, ${evidence.createdAt},
+              ${JSON.stringify(evidence)}
+            )
+            ON CONFLICT (evidence_id) DO NOTHING
+          `;
+          break;
+        }
+        case "supervised.rlm-upserted": {
+          if (!payload.rlmEpisode) return;
+          const episode = payload.rlmEpisode;
+          yield* sql`
+            INSERT INTO projection_supervised_rlm_episodes (
+              episode_id, run_id, status, completed_branch_count, revision, updated_at, entity_json
+            ) VALUES (
+              ${episode.id}, ${episode.runId}, ${episode.status}, ${episode.completedBranchCount},
+              ${episode.revision}, ${episode.updatedAt}, ${JSON.stringify(episode)}
+            )
+            ON CONFLICT (episode_id) DO UPDATE SET
+              status = excluded.status,
+              completed_branch_count = excluded.completed_branch_count,
+              revision = excluded.revision,
+              updated_at = excluded.updated_at,
+              entity_json = excluded.entity_json
+          `;
+          break;
+        }
+        case "supervised.model-session-upserted": {
+          if (!payload.modelSession) return;
+          const session = payload.modelSession;
+          yield* sql`
+            INSERT INTO projection_supervised_model_sessions (
+              model_session_id, room_id, run_id, task_node_id, rlm_episode_id,
+              parent_session_id, thread_id, role, status, revision, updated_at, entity_json
+            ) VALUES (
+              ${session.id}, ${session.roomId}, ${session.runId}, ${session.taskNodeId},
+              ${session.rlmEpisodeId}, ${session.parentSessionId}, ${session.threadId}, ${session.role},
+              ${session.status}, ${session.revision}, ${session.updatedAt}, ${JSON.stringify(session)}
+            )
+            ON CONFLICT (model_session_id) DO UPDATE SET
+              thread_id = excluded.thread_id,
+              status = excluded.status,
+              revision = excluded.revision,
+              updated_at = excluded.updated_at,
+              entity_json = excluded.entity_json
+          `;
+          break;
+        }
         case "supervised.patch-upserted": {
           if (!payload.patch) return;
           const patch = payload.patch;
@@ -1459,6 +1539,8 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
           yield* sql`DELETE FROM projection_harness_patches`;
           yield* sql`DELETE FROM projection_supervised_model_sessions`;
           yield* sql`DELETE FROM projection_supervised_rlm_episodes`;
+          yield* sql`DELETE FROM projection_supervised_evidence`;
+          yield* sql`DELETE FROM projection_context_compaction_receipts`;
           yield* sql`DELETE FROM projection_context_records`;
           yield* sql`DELETE FROM projection_context_workspaces`;
           yield* sql`DELETE FROM projection_supervised_capability_leases`;
@@ -1593,13 +1675,37 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
             { concurrency: 1, discard: true },
           );
           yield* Effect.forEach(
+            snapshot.contextCompactionReceipts,
+            (receipt) => sql`
+              INSERT INTO projection_context_compaction_receipts (
+                receipt_id, workspace_id, summary_record_id, created_at, entity_json
+              ) VALUES (
+                ${receipt.id}, ${receipt.workspaceId}, ${receipt.summaryRecordId},
+                ${receipt.createdAt}, ${JSON.stringify(receipt)}
+              )
+            `,
+            { concurrency: 1, discard: true },
+          );
+          yield* Effect.forEach(
+            snapshot.evidence,
+            (evidence) => sql`
+              INSERT INTO projection_supervised_evidence (
+                evidence_id, model_session_id, created_at, entity_json
+              ) VALUES (
+                ${evidence.id}, ${evidence.modelSessionId}, ${evidence.createdAt},
+                ${JSON.stringify(evidence)}
+              )
+            `,
+            { concurrency: 1, discard: true },
+          );
+          yield* Effect.forEach(
             snapshot.rlmEpisodes,
             (episode) => sql`
               INSERT INTO projection_supervised_rlm_episodes (
-                episode_id, run_id, status, completed_branch_count, updated_at, entity_json
+                episode_id, run_id, status, completed_branch_count, revision, updated_at, entity_json
               ) VALUES (
                 ${episode.id}, ${episode.runId}, ${episode.status}, ${episode.completedBranchCount},
-                ${episode.updatedAt}, ${JSON.stringify(episode)}
+                ${episode.revision}, ${episode.updatedAt}, ${JSON.stringify(episode)}
               )
             `,
             { concurrency: 1, discard: true },
@@ -1609,10 +1715,10 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
             (session) => sql`
               INSERT INTO projection_supervised_model_sessions (
                 model_session_id, room_id, run_id, task_node_id, rlm_episode_id,
-                parent_session_id, role, status, revision, updated_at, entity_json
+                parent_session_id, thread_id, role, status, revision, updated_at, entity_json
               ) VALUES (
                 ${session.id}, ${session.roomId}, ${session.runId}, ${session.taskNodeId},
-                ${session.rlmEpisodeId}, ${session.parentSessionId}, ${session.role},
+                ${session.rlmEpisodeId}, ${session.parentSessionId}, ${session.threadId}, ${session.role},
                 ${session.status}, ${session.revision}, ${session.updatedAt}, ${JSON.stringify(session)}
               )
             `,

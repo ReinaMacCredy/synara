@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 
-import type { OrchestrationCommand } from "@synara/contracts";
+import type { OrchestrationCommand, OrchestrationThread } from "@synara/contracts";
 import { ControlPlaneEvent, emptySupervisedGovernanceSnapshot } from "@synara/contracts";
 import { it } from "@effect/vitest";
-import { Effect, Layer, Schema } from "effect";
+import { Effect, Layer, Option, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
@@ -16,19 +16,28 @@ import { decideSupervisedCommand } from "../supervised/decider.ts";
 import { SupervisedRuntimeDaemon } from "../Services/SupervisedRuntimeDaemon.ts";
 import { SupervisedSignalDelivery } from "../Services/SupervisedSignalDelivery.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
-import { SupervisedRuntimeDaemonLive } from "./SupervisedRuntimeDaemon.ts";
+import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
+import {
+  shouldDeferRlmProvisioningReconciliation,
+  SupervisedRuntimeDaemonLive,
+} from "./SupervisedRuntimeDaemon.ts";
 
 const delivered: string[] = [];
 const deliveryLayer = Layer.succeed(SupervisedSignalDelivery, {
   deliver: ({ signal }) => Effect.sync(() => delivered.push(signal.id)),
 });
 const dispatched: OrchestrationCommand[] = [];
+const threadDetails = new Map<string, OrchestrationThread>();
 const engineLayer = Layer.succeed(OrchestrationEngineService, {
   dispatch: (command: OrchestrationCommand) =>
     Effect.sync(() => {
       dispatched.push(command);
       return { sequence: dispatched.length };
     }),
+} as never);
+const snapshotQueryLayer = Layer.succeed(ProjectionSnapshotQuery, {
+  getThreadDetailById: (threadId: string) =>
+    Effect.succeed(Option.fromNullishOr(threadDetails.get(threadId))),
 } as never);
 const repositoryLayer = SupervisedRuntimeRepositoryLive.pipe(
   Layer.provideMerge(SqlitePersistenceMemory),
@@ -41,6 +50,7 @@ const daemonLayer = SupervisedRuntimeDaemonLive.pipe(
   Layer.provideMerge(governanceRepositoryLayer),
   Layer.provideMerge(deliveryLayer),
   Layer.provideMerge(engineLayer),
+  Layer.provideMerge(snapshotQueryLayer),
 );
 const testLayer = it.layer(
   Layer.mergeAll(
@@ -48,6 +58,7 @@ const testLayer = it.layer(
     repositoryLayer,
     governanceRepositoryLayer,
     engineLayer,
+    snapshotQueryLayer,
     daemonLayer,
   ),
 );
@@ -84,6 +95,31 @@ const review = (index: number, graphRevision = 1) =>
   });
 
 testLayer("SupervisedRuntimeDaemon", (it) => {
+  it("does not reconcile a freshly provisioning RLM episode as failed recovery", () => {
+    const now = Date.parse("2026-08-09T01:00:20.000Z");
+    assert.equal(
+      shouldDeferRlmProvisioningReconciliation(
+        { status: "requested", updatedAt: "2026-08-09T01:00:00.000Z" },
+        now,
+      ),
+      true,
+    );
+    assert.equal(
+      shouldDeferRlmProvisioningReconciliation(
+        { status: "requested", updatedAt: "2026-08-09T00:59:49.000Z" },
+        now,
+      ),
+      false,
+    );
+    assert.equal(
+      shouldDeferRlmProvisioningReconciliation(
+        { status: "branches_running", updatedAt: "2026-08-09T01:00:19.000Z" },
+        now,
+      ),
+      false,
+    );
+  });
+
   it.effect("restarts the background loop and advances the durable daemon epoch", () =>
     Effect.gen(function* () {
       const daemon = yield* SupervisedRuntimeDaemon;
@@ -461,6 +497,390 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
       assert.equal(after.deliveries.find((candidate) => candidate.id === delivery.id)?.status, "delivered");
       assert.equal(after.deadLetters.find((candidate) => candidate.id === letter.id)?.status, "resolved");
       assert.equal(delivered.length, 1);
+    }),
+  );
+
+  it.effect("starts root synthesis only after real branch transcripts are retained", () =>
+    Effect.gen(function* () {
+      dispatched.length = 0;
+      threadDetails.clear();
+      const daemon = yield* SupervisedRuntimeDaemon;
+      const repository = yield* SupervisedRuntimeRepository;
+      const sql = yield* SqlClient.SqlClient;
+      const createdAt = "2026-08-09T01:00:00.000Z";
+      const policy = builtInSubscriptions(createdAt).length > 0
+        ? (yield* repository.getSnapshot({ includeDisabled: true })).runPolicies[0]
+        : undefined;
+      const runPolicy = policy ?? {
+        id: "policy-rlm-daemon",
+        name: "RLM daemon",
+        maxWallTimeMs: 60_000,
+        maxRecursiveCalls: 4,
+        maxFanOut: 4,
+        maxRetries: 2,
+        maxKernelMemoryMiB: 256,
+        maxKernelOutputBytes: 1_000_000,
+        maxPluginHandlerMs: 30_000,
+        maxPluginQueueDepth: 100,
+        maxSubscriptions: 100,
+        maxPlugins: 20,
+        maxEventRatePerMinute: 1_000,
+        maxAggregationWindowMs: 60_000,
+        maxAggregationSamples: 1_000,
+        maxCostUsd: null,
+        replayBehavior: "observe_only" as const,
+        allowedCapabilities: [],
+        allowedPluginActions: [],
+        circuitBreakerFailureCount: 3,
+        circuitBreakerResetMs: 1_000,
+        revision: 0,
+        createdAt,
+        updatedAt: createdAt,
+      };
+      yield* repository.upsertRunPolicy(runPolicy as never);
+      yield* sql`
+        INSERT OR IGNORE INTO projection_projects (
+          project_id, kind, title, workspace_root, scripts_json, created_at, updated_at
+        ) VALUES (
+          'project-rlm-daemon', 'project', 'RLM daemon', '/tmp/rlm-daemon', '[]',
+          ${createdAt}, ${createdAt}
+        )
+      `;
+      const apply = (event: Record<string, unknown>) =>
+        repository.applyDomainEvent({
+          occurredAt: createdAt,
+          commandId: null,
+          causationEventId: null,
+          correlationId: null,
+          metadata: { schemaVersion: "1.0.0" },
+          ...event,
+        } as never);
+      yield* apply({
+        sequence: 101,
+        eventId: "event-rlm-room",
+        aggregateKind: "supervised_room",
+        aggregateId: "room-rlm-daemon",
+        type: "supervised.room-created",
+        payload: {
+          acceptedRevision: 0,
+          actor: { kind: "daemon", actorId: "test" },
+          room: {
+            id: "room-rlm-daemon",
+            projectId: "project-rlm-daemon",
+            title: "RLM Room",
+            leadSeatId: "lead-rlm-daemon",
+            status: "active",
+            graphRevision: 1,
+            revision: 0,
+            createdAt,
+            updatedAt: createdAt,
+          },
+        },
+      });
+      yield* apply({
+        sequence: 102,
+        eventId: "event-rlm-task",
+        aggregateKind: "supervised_task",
+        aggregateId: "task-rlm-daemon",
+        type: "supervised.task-created",
+        payload: {
+          acceptedRevision: 0,
+          actor: { kind: "daemon", actorId: "test" },
+          task: {
+            id: "task-rlm-daemon",
+            roomId: "room-rlm-daemon",
+            title: "RLM Task",
+            intent: "Synthesize branch evidence.",
+            acceptanceCriteria: [],
+            lifecycle: "active",
+            activeGraphRevision: 1,
+            revision: 0,
+            createdAt,
+            updatedAt: createdAt,
+          },
+        },
+      });
+      yield* apply({
+        sequence: 103,
+        eventId: "event-rlm-run",
+        aggregateKind: "supervised_run",
+        aggregateId: "run-rlm-daemon",
+        type: "supervised.run-requested",
+        payload: {
+          acceptedRevision: 3,
+          actor: { kind: "daemon", actorId: "test" },
+          run: {
+            id: "run-rlm-daemon",
+            roomId: "room-rlm-daemon",
+            taskId: "task-rlm-daemon",
+            taskNodeId: null,
+            taskNodeRevisionId: null,
+            ownerSeatId: "lead-rlm-daemon",
+            policyId: runPolicy.id,
+            status: "running",
+            attempt: 1,
+            daemonEpoch: 1,
+            startedAt: createdAt,
+            lastProgressAt: createdAt,
+            finishedAt: null,
+            revision: 3,
+            createdAt,
+            updatedAt: createdAt,
+          },
+        },
+      });
+      const episode = {
+        id: "episode-rlm-daemon",
+        runId: "run-rlm-daemon",
+        admission: {
+          episodeId: "episode-rlm-daemon",
+          requestedMode: "recursive",
+          selectedMode: "recursive",
+          estimatedContextPercent: 10,
+          estimatedInputTokens: 100,
+          independentEvidenceBranches: 2,
+          reasons: ["test"],
+          admittedByPolicyId: runPolicy.id,
+          createdAt,
+        },
+        status: "branches_running",
+        rootModelSessionId: "session-rlm-root",
+        branchModelSessionIds: ["session-rlm-a", "session-rlm-b"],
+        branchCount: 2,
+        completedBranchCount: 0,
+        staleBranchCount: 0,
+        coveragePercent: 0,
+        contradictionCount: 0,
+        evidenceRefs: [],
+        failureSummaries: [],
+        revision: 3,
+        createdAt,
+        updatedAt: createdAt,
+      };
+      yield* apply({
+        sequence: 104,
+        eventId: "event-rlm-episode",
+        aggregateKind: "rlm_episode",
+        aggregateId: episode.id,
+        type: "supervised.rlm-upserted",
+        payload: {
+          acceptedRevision: 3,
+          actor: { kind: "daemon", actorId: "test" },
+          rlmEpisode: episode,
+        },
+      });
+      const trace = (id: string, threadId: string, role: "rlm_root" | "rlm_branch", title: string) => ({
+        id,
+        roomId: "room-rlm-daemon",
+        runId: "run-rlm-daemon",
+        taskId: "task-rlm-daemon",
+        taskNodeId: null,
+        rlmEpisodeId: episode.id,
+        parentSessionId: role === "rlm_branch" ? "session-rlm-root" : null,
+        specialistId: null,
+        threadId,
+        role,
+        title,
+        provider: "codex",
+        model: "gpt-5.6-sol",
+        reasoningEffort: "high",
+        providerSessionId: null,
+        providerCallId: null,
+        contextViewRefs: [],
+        contextView: null,
+        promptHash: null,
+        inputSummary: role === "rlm_root" ? "Synthesize branch evidence." : `Investigate ${title}.`,
+        items: [],
+        usage: {
+          inputTokens: 0,
+          outputTokens: 0,
+          contextTokens: 0,
+          providerLimitTokens: 128_000,
+          contextUsagePercent: 0,
+        },
+        status: "queued",
+        retryCount: 0,
+        durationMs: null,
+        costUsd: null,
+        synthesisDestination: role === "rlm_branch" ? "session-rlm-root" : null,
+        createdAt,
+        updatedAt: createdAt,
+        revision: 0,
+      });
+      for (const [index, session] of [
+        trace("session-rlm-root", "thread-rlm-root", "rlm_root", "Root"),
+        trace("session-rlm-a", "thread-rlm-a", "rlm_branch", "Branch A"),
+        trace("session-rlm-b", "thread-rlm-b", "rlm_branch", "Branch B"),
+      ].entries()) {
+        yield* apply({
+          sequence: 105 + index,
+          eventId: `event-rlm-session-${index}`,
+          aggregateKind: "model_session",
+          aggregateId: session.id,
+          type: "supervised.model-session-upserted",
+          payload: {
+            acceptedRevision: 0,
+            actor: { kind: "daemon", actorId: "test" },
+            modelSession: session,
+          },
+        });
+      }
+      const branchThread = (id: string, answer: string) => ({
+        id,
+        modelSelection: { provider: "codex", model: "gpt-5.6-sol", options: { reasoningEffort: "high" } },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        latestTurn: {
+          turnId: `${id}:turn`,
+          state: "completed",
+          requestedAt: createdAt,
+          startedAt: createdAt,
+          completedAt: "2026-08-09T01:00:02.000Z",
+          assistantMessageId: `${id}:assistant`,
+        },
+        messages: [
+          {
+            id: `${id}:assistant`,
+            role: "assistant",
+            text: answer,
+            turnId: `${id}:turn`,
+            streaming: false,
+            createdAt: "2026-08-09T01:00:02.000Z",
+            updatedAt: "2026-08-09T01:00:02.000Z",
+          },
+        ],
+        activities: [],
+        session: {
+          status: "ready",
+          lastError: null,
+        },
+      }) as OrchestrationThread;
+      threadDetails.set("thread-rlm-a", branchThread("thread-rlm-a", "Visible evidence A."));
+      threadDetails.set("thread-rlm-b", branchThread("thread-rlm-b", "Visible evidence B."));
+
+      yield* daemon.reconcile;
+
+      const evidenceCommands = dispatched.filter(
+        (command) => command.type === "supervised.evidence.publish",
+      );
+      const sessionCommands = dispatched.filter(
+        (command) => command.type === "supervised.model-session.upsert",
+      );
+      const rootTurn = dispatched.find(
+        (command) => command.type === "thread.turn.start" && command.threadId === "thread-rlm-root",
+      );
+      assert.equal(evidenceCommands.length, 2);
+      assert.equal(
+        sessionCommands.filter(
+          (command) =>
+            command.type === "supervised.model-session.upsert" &&
+            command.modelSession.role === "rlm_branch" &&
+            command.modelSession.status === "completed",
+        ).length,
+        2,
+      );
+      assert.ok(
+        dispatched.some(
+          (command) =>
+            command.type === "supervised.rlm.upsert" && command.episode.status === "synthesizing",
+        ),
+      );
+      assert.equal(rootTurn, undefined);
+      assert.ok(
+        dispatched.some(
+          (command) =>
+            command.type === "supervised.rlm.upsert" && command.episode.status === "stalled",
+        ),
+      );
+
+      let nextSequence = 110;
+      const applySupervisedDispatches = (commands: ReadonlyArray<OrchestrationCommand>) =>
+        Effect.gen(function* () {
+          for (const command of commands) {
+            if (!command.type.startsWith("supervised.")) continue;
+            const state = yield* repository.getSnapshot({ includeDisabled: true });
+            const event = yield* decideSupervisedCommand({
+              command: command as never,
+              state,
+            });
+            yield* repository.applyDomainEvent({ ...event, sequence: nextSequence++ });
+          }
+        });
+      yield* applySupervisedDispatches(dispatched);
+
+      threadDetails.set("thread-rlm-root", {
+        id: "thread-rlm-root",
+        modelSelection: { provider: "codex", model: "gpt-5.6-sol", options: { reasoningEffort: "high" } },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        latestTurn: null,
+        messages: [],
+        activities: [],
+        session: null,
+      } as OrchestrationThread);
+      dispatched.length = 0;
+      yield* daemon.reconcile;
+
+      const resumedRootTurn = dispatched.find(
+        (command) => command.type === "thread.turn.start" && command.threadId === "thread-rlm-root",
+      );
+      assert.equal(resumedRootTurn?.type, "thread.turn.start");
+      if (resumedRootTurn?.type === "thread.turn.start") {
+        assert.match(resumedRootTurn.message.text, /Visible evidence A/);
+        assert.match(resumedRootTurn.message.text, /evidence:rlm-session/);
+        assert.equal(resumedRootTurn.message.role, "user");
+        assert.equal(resumedRootTurn.dispatchOrigin, "automation");
+      }
+      yield* applySupervisedDispatches(dispatched);
+
+      const completedRoot = branchThread("thread-rlm-root", "Root synthesis with evidence citations.");
+      threadDetails.set("thread-rlm-root", completedRoot);
+      dispatched.length = 0;
+      yield* daemon.reconcile;
+
+      assert.ok(
+        dispatched.some(
+          (command) =>
+            command.type === "supervised.model-session.upsert" &&
+            command.modelSession.role === "rlm_root" &&
+            command.modelSession.status === "completed",
+        ),
+      );
+      assert.ok(
+        dispatched.some(
+          (command) =>
+            command.type === "supervised.rlm.upsert" && command.episode.status === "completed",
+        ),
+      );
+      assert.deepEqual(
+        dispatched
+          .filter((command) => command.type === "supervised.run.transition")
+          .map((command) =>
+            command.type === "supervised.run.transition" ? command.status : null,
+          ),
+        ["reviewing", "succeeded"],
+      );
+      yield* applySupervisedDispatches(dispatched);
+
+      const retained = yield* repository.getSnapshot({ includeDisabled: true });
+      assert.equal(
+        retained.rlmEpisodes.find((candidate) => candidate.id === episode.id)?.status,
+        "completed",
+      );
+      assert.equal(
+        retained.modelSessions.find((candidate) => candidate.id === "session-rlm-root")?.status,
+        "completed",
+      );
+      assert.equal(
+        retained.runs.find((candidate) => candidate.id === "run-rlm-daemon")?.status,
+        "succeeded",
+      );
+      assert.equal(
+        retained.evidence.filter((candidate) => candidate.modelSessionId !== null).length,
+        3,
+      );
+      threadDetails.clear();
+      yield* sql`DELETE FROM projection_projects WHERE project_id = 'project-rlm-daemon'`;
     }),
   );
 });

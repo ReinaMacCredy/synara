@@ -152,13 +152,17 @@ function commandToAggregateRef(command: OrchestrationCommand): {
         case "supervised.context.workspace-upsert":
         case "supervised.context.append":
           return "context_workspace" as const;
+        case "supervised.evidence.publish":
+          return "evidence" as const;
         case "supervised.rlm.upsert":
           return "rlm_episode" as const;
-          case "supervised.patch.upsert":
-            return "harness_patch" as const;
-          case "supervised.specialist.create":
-          case "supervised.specialist.upsert":
-            return "specialist" as const;
+        case "supervised.model-session.upsert":
+          return "model_session" as const;
+        case "supervised.patch.upsert":
+          return "harness_patch" as const;
+        case "supervised.specialist.create":
+        case "supervised.specialist.upsert":
+          return "specialist" as const;
         case "supervised.kernel.session-upsert":
         case "supervised.kernel.execution-upsert":
           return "kernel_session" as const;

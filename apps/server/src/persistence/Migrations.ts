@@ -119,6 +119,7 @@ import Migration0100 from "./Migrations/100_SupervisorFirstGovernance.ts";
 import Migration0101 from "./Migrations/101_SupervisorFirstLifecycle.ts";
 import Migration0102 from "./Migrations/102_SupervisedToolReceipts.ts";
 import Migration0103 from "./Migrations/103_SupervisedModelRouting.ts";
+import Migration0104 from "./Migrations/104_SupervisedContextNotebookRlm.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -237,6 +238,7 @@ export const migrationEntries = [
   [101, "SupervisorFirstLifecycle", Migration0101],
   [102, "SupervisedToolReceipts", Migration0102],
   [103, "SupervisedModelRouting", Migration0103],
+  [104, "SupervisedContextNotebookRlm", Migration0104],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

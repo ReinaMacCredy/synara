@@ -47,6 +47,10 @@ export const ContextWorkspaceId = id("ContextWorkspaceId");
 export type ContextWorkspaceId = typeof ContextWorkspaceId.Type;
 export const ContextRecordId = id("ContextRecordId");
 export type ContextRecordId = typeof ContextRecordId.Type;
+export const ContextViewId = id("ContextViewId");
+export type ContextViewId = typeof ContextViewId.Type;
+export const ContextCompactionReceiptId = id("ContextCompactionReceiptId");
+export type ContextCompactionReceiptId = typeof ContextCompactionReceiptId.Type;
 export const EvidenceId = id("EvidenceId");
 export type EvidenceId = typeof EvidenceId.Type;
 export const HarnessPatchId = id("HarnessPatchId");
@@ -324,6 +328,7 @@ export const ContextRecordKind = Schema.Literals([
   "obligation",
   "summary",
   "checkpoint",
+  "handoff",
   "conflict",
 ]);
 export const ContextRecord = Schema.Struct({
@@ -336,6 +341,14 @@ export const ContextRecord = Schema.Struct({
   blob: Schema.NullOr(BlobReference),
   sourceEventIds: Schema.Array(EventId).check(Schema.isMaxLength(512)),
   evidenceRefs: Schema.Array(EvidenceId).check(Schema.isMaxLength(256)),
+  sourceRecordIds: Schema.optional(Schema.Array(ContextRecordId).check(Schema.isMaxLength(512))).pipe(
+    Schema.withDecodingDefault(() => []),
+  ),
+  provenance: Schema.optional(BoundedJsonRecord).pipe(Schema.withDecodingDefault(() => ({}))),
+  protectionClass: Schema.optional(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(() => "workspace"),
+  ),
+  estimatedTokens: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   status: Schema.Literals(["current", "superseded", "stale", "conflicted", "expired"]),
   contentRevision: PositiveInt,
   createdBy: SupervisedActor,
@@ -360,6 +373,36 @@ export const ContextWorkspace = Schema.Struct({
 });
 export type ContextWorkspace = typeof ContextWorkspace.Type;
 
+export const ContextView = Schema.Struct({
+  id: ContextViewId,
+  workspaceId: ContextWorkspaceId,
+  workspaceRevision: NonNegativeInt,
+  actorSeatId: TrimmedNonEmptyString,
+  recordIds: Schema.Array(ContextRecordId).check(Schema.isMaxLength(512)),
+  evidenceRefs: Schema.Array(EvidenceId).check(Schema.isMaxLength(512)),
+  activeObligationRecordIds: Schema.Array(ContextRecordId).check(Schema.isMaxLength(256)),
+  provider: TrimmedNonEmptyString,
+  model: TrimmedNonEmptyString,
+  estimatedTokens: NonNegativeInt,
+  providerLimitTokens: Schema.NullOr(PositiveInt),
+  confidence: Confidence,
+  createdAt: IsoDateTime,
+});
+export type ContextView = typeof ContextView.Type;
+
+export const ContextCompactionReceipt = Schema.Struct({
+  id: ContextCompactionReceiptId,
+  workspaceId: ContextWorkspaceId,
+  summaryRecordId: ContextRecordId,
+  sourceRecordIds: Schema.Array(ContextRecordId).check(Schema.isMinLength(1)).check(
+    Schema.isMaxLength(512),
+  ),
+  evidenceRefs: Schema.Array(EvidenceId).check(Schema.isMaxLength(512)),
+  createdBy: SupervisedActor,
+  createdAt: IsoDateTime,
+});
+export type ContextCompactionReceipt = typeof ContextCompactionReceipt.Type;
+
 export const Evidence = Schema.Struct({
   id: EvidenceId,
   scope: AuthorityScope,
@@ -367,6 +410,9 @@ export const Evidence = Schema.Struct({
   summary: BoundedText,
   blob: Schema.NullOr(BlobReference),
   sourceEventIds: Schema.Array(EventId).check(Schema.isMaxLength(512)),
+  modelSessionId: Schema.optional(Schema.NullOr(ModelSessionId)).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
   createdBy: SupervisedActor,
   createdAt: IsoDateTime,
 });
@@ -390,7 +436,28 @@ export const RlmEpisode = Schema.Struct({
   id: RlmEpisodeId,
   runId: RunId,
   admission: RlmAdmissionReceipt,
-  status: Schema.Literals(["planned", "running", "synthesizing", "completed", "failed"]),
+  status: Schema.Literals([
+    "requested",
+    "admitted",
+    "branching",
+    "branches_running",
+    "synthesizing",
+    "completed",
+    "partially_completed",
+    "stalled",
+    "failed",
+    "cancelled",
+    // TODO(supervised-runtime): Remove legacy aliases after 2026-11-09 when all
+    // retained event journals have been upcast by a versioned replay migration.
+    "planned",
+    "running",
+  ]),
+  rootModelSessionId: Schema.optional(Schema.NullOr(ModelSessionId)).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
+  branchModelSessionIds: Schema.optional(
+    Schema.Array(ModelSessionId).check(Schema.isMaxLength(64)),
+  ).pipe(Schema.withDecodingDefault(() => [])),
   branchCount: NonNegativeInt,
   completedBranchCount: NonNegativeInt,
   staleBranchCount: NonNegativeInt,
@@ -398,6 +465,7 @@ export const RlmEpisode = Schema.Struct({
   contradictionCount: NonNegativeInt,
   evidenceRefs: Schema.Array(EvidenceId).check(Schema.isMaxLength(512)),
   failureSummaries: Schema.Array(ShortText).check(Schema.isMaxLength(64)),
+  revision: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -483,6 +551,7 @@ export const ModelSessionTrace = Schema.Struct({
   rlmEpisodeId: Schema.NullOr(RlmEpisodeId),
   parentSessionId: Schema.NullOr(ModelSessionId),
   specialistId: Schema.NullOr(SpecialistId),
+  threadId: Schema.optional(Schema.NullOr(ThreadId)).pipe(Schema.withDecodingDefault(() => null)),
   role: ModelSessionRole,
   title: ShortText,
   provider: TrimmedNonEmptyString,
@@ -491,6 +560,10 @@ export const ModelSessionTrace = Schema.Struct({
   providerSessionId: Schema.NullOr(TrimmedNonEmptyString),
   providerCallId: Schema.NullOr(TrimmedNonEmptyString),
   contextViewRefs: Schema.Array(ContextRecordId).check(Schema.isMaxLength(256)),
+  contextView: Schema.optional(Schema.NullOr(ContextView)).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
+  promptHash: Schema.optional(Schema.NullOr(Sha256)).pipe(Schema.withDecodingDefault(() => null)),
   inputSummary: BoundedText,
   items: Schema.Array(ModelTranscriptItem).check(Schema.isMaxLength(10_000)),
   usage: Schema.Struct({
@@ -1082,6 +1155,12 @@ export const SupervisedCommand = Schema.Union([
     ...CommandBase,
     type: Schema.Literal("supervised.context.append"),
     record: ContextRecord,
+    compactionReceipt: Schema.optional(ContextCompactionReceipt),
+  }),
+  Schema.Struct({
+    ...CommandBase,
+    type: Schema.Literal("supervised.evidence.publish"),
+    evidence: Evidence,
   }),
   Schema.Struct({ ...CommandBase, type: Schema.Literal("supervised.rlm.upsert"), episode: RlmEpisode }),
   Schema.Struct({
@@ -1213,6 +1292,7 @@ export const SupervisedEventType = Schema.Literals([
   "supervised.lease-state-changed",
   "supervised.context-workspace-upserted",
   "supervised.context-appended",
+  "supervised.evidence-published",
   "supervised.rlm-upserted",
   "supervised.model-session-upserted",
   "supervised.patch-upserted",
@@ -1246,6 +1326,7 @@ export const SupervisedAggregateKind = Schema.Literals([
   "capability_lease",
   "run_policy",
   "context_workspace",
+  "evidence",
   "rlm_episode",
   "model_session",
   "harness_patch",
@@ -1270,6 +1351,8 @@ export const SupervisedEventPayload = Schema.Struct({
   capabilityLease: Schema.optional(CapabilityLease),
   contextWorkspace: Schema.optional(ContextWorkspace),
   contextRecord: Schema.optional(ContextRecord),
+  contextCompactionReceipt: Schema.optional(ContextCompactionReceipt),
+  evidence: Schema.optional(Evidence),
   rlmEpisode: Schema.optional(RlmEpisode),
   modelSession: Schema.optional(ModelSessionTrace),
   patch: Schema.optional(HarnessPatch),
@@ -1338,6 +1421,10 @@ export const SupervisedRuntimeSnapshot = Schema.Struct({
   contextRecords: Schema.optional(Schema.Array(ContextRecord)).pipe(
     Schema.withDecodingDefault(() => []),
   ),
+  contextCompactionReceipts: Schema.optional(Schema.Array(ContextCompactionReceipt)).pipe(
+    Schema.withDecodingDefault(() => []),
+  ),
+  evidence: Schema.optional(Schema.Array(Evidence)).pipe(Schema.withDecodingDefault(() => [])),
   rlmEpisodes: Schema.optional(Schema.Array(RlmEpisode)).pipe(
     Schema.withDecodingDefault(() => []),
   ),
@@ -1397,6 +1484,8 @@ export const emptySupervisedRuntimeSnapshot = (at: string): SupervisedRuntimeSna
   capabilityLeases: [],
   contextWorkspaces: [],
   contextRecords: [],
+  contextCompactionReceipts: [],
+  evidence: [],
   rlmEpisodes: [],
   modelSessions: [],
   harnessPatches: [],

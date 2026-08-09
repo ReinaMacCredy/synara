@@ -120,7 +120,27 @@ const makeReceipt = (input: {
       ? input.roomIds.map((roomId) => rootLeaseIdFor(input.snapshot, roomId, input.seatId))
       : [];
   const allowedCommands = [
-    ...(input.role === "lead" ? ["supervised.specialist.create"] : []),
+    ...(input.role === "lead"
+      ? [
+          "supervised.specialist.create",
+          "supervised.task.create",
+          "supervised.run.request",
+          "supervised.run.transition",
+          "supervised.context.workspace-upsert",
+          "supervised.context.append",
+          "supervised.rlm.upsert",
+          "supervised.model-session.upsert",
+          "supervised.evidence.publish",
+        ]
+      : input.role === "supervisor"
+        ? [
+            "supervised.context.workspace-upsert",
+            "supervised.context.append",
+            "supervised.rlm.upsert",
+            "supervised.model-session.upsert",
+            "supervised.evidence.publish",
+          ]
+        : []),
     ...defaultSupervisedCommandsForRole(input.role),
   ];
   const allowedTools = defaultSupervisedToolsForRole(input.role);

@@ -7,6 +7,8 @@ import {
   EffectiveAuthorityReceipt,
   ModelCapabilityProfile,
   RootAuthorityLease,
+  SupervisorNotebookCompactionReceipt,
+  SupervisorNotebookCursor,
   SupervisorNotebookEntry,
 } from "./supervisedGovernance";
 
@@ -99,6 +101,29 @@ describe("Supervisor-first governance contracts", () => {
 
     assert.equal(entry.kind, "decision");
     assert.deepEqual(entry.evidenceRefs, ["evidence-1"]);
+  });
+
+  it("keeps notebook cursors and compaction lineage durable", () => {
+    const cursor = Schema.decodeUnknownSync(SupervisorNotebookCursor)({
+      id: "notebook-cursor-stage-5",
+      workspaceId: "workspace-default",
+      seatId: "seat-supervisor",
+      lastCreatedAt: now,
+      lastEntryId: "notebook-summary-stage-5",
+      updatedAt: now,
+    });
+    const receipt = Schema.decodeUnknownSync(SupervisorNotebookCompactionReceipt)({
+      id: "notebook-compaction-stage-5",
+      workspaceId: "workspace-default",
+      summaryEntryId: "notebook-summary-stage-5",
+      sourceEntryIds: ["notebook-source-a", "notebook-source-b"],
+      evidenceRefs: ["evidence-a"],
+      createdBySeatId: "seat-supervisor",
+      createdAt: now,
+    });
+
+    assert.equal(cursor.lastEntryId, receipt.summaryEntryId);
+    assert.deepEqual(receipt.sourceEntryIds, ["notebook-source-a", "notebook-source-b"]);
   });
 
   it("rejects capability scores outside the calibrated range", () => {

@@ -4,10 +4,12 @@ import { Schema } from "effect";
 
 import {
   ControlPlaneEvent,
+  ContextView,
   DEFAULT_SUPERVISED_RUN_POLICY,
   DispatchSupervisedCommandInput,
   EventSchema,
   PluginManifest,
+  RlmEpisode,
   SubscriptionDefinition,
   TestSubscriptionResult,
 } from "./supervised";
@@ -178,5 +180,55 @@ describe("Supervised contracts", () => {
     assert.equal(DEFAULT_SUPERVISED_RUN_POLICY.maxRecursiveCalls, 8);
     assert.equal(DEFAULT_SUPERVISED_RUN_POLICY.maxFanOut, 4);
     assert.equal(DEFAULT_SUPERVISED_RUN_POLICY.replayBehavior, "observe_only");
+  });
+
+  it("records scoped ContextView receipts and canonical RLM lineage", () => {
+    const view = Schema.decodeUnknownSync(ContextView)({
+      id: "context-view-stage-5",
+      workspaceId: "context-workspace-stage-5",
+      workspaceRevision: 3,
+      actorSeatId: "model-session-branch-a",
+      recordIds: ["context-record-a"],
+      evidenceRefs: ["evidence-a"],
+      activeObligationRecordIds: [],
+      provider: "codex",
+      model: "gpt-5.6-sol",
+      estimatedTokens: 120,
+      providerLimitTokens: 128_000,
+      confidence: 0.9,
+      createdAt: now,
+    });
+    const episode = Schema.decodeUnknownSync(RlmEpisode)({
+      id: "rlm-episode-stage-5",
+      runId: "run-stage-5",
+      admission: {
+        episodeId: "rlm-episode-stage-5",
+        requestedMode: "recursive",
+        selectedMode: "recursive",
+        estimatedContextPercent: 10,
+        estimatedInputTokens: 1_000,
+        independentEvidenceBranches: 2,
+        reasons: ["Execution mode was explicitly forced to recursive."],
+        admittedByPolicyId: "policy-stage-5",
+        createdAt: now,
+      },
+      status: "branches_running",
+      rootModelSessionId: "model-session-root",
+      branchModelSessionIds: ["model-session-a", "model-session-b"],
+      branchCount: 2,
+      completedBranchCount: 0,
+      staleBranchCount: 0,
+      coveragePercent: 0,
+      contradictionCount: 0,
+      evidenceRefs: [],
+      failureSummaries: [],
+      revision: 3,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    assert.equal(view.actorSeatId, "model-session-branch-a");
+    assert.equal(episode.rootModelSessionId, "model-session-root");
+    assert.deepEqual(episode.branchModelSessionIds, ["model-session-a", "model-session-b"]);
   });
 });

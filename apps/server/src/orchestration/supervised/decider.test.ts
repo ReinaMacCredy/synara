@@ -482,4 +482,150 @@ describe("Supervised command authority", () => {
     assert.equal(accepted.payload.leadNotification?.leadSeatId, room.leadSeatId);
     assert.equal(accepted.payload.reconciliation?.status, "open");
   });
+
+  it("limits daemon Run transitions to RLM-owned Runs and advances the episode revision", async () => {
+    const task = {
+      id: "task-rlm",
+      roomId: room.id,
+      title: "RLM task",
+      intent: "Synthesize evidence",
+      acceptanceCriteria: [],
+      lifecycle: "active",
+      activeGraphRevision: room.graphRevision,
+      revision: 0,
+      createdAt: now,
+      updatedAt: now,
+    } as const;
+    const run = {
+      id: "run-rlm",
+      roomId: room.id,
+      taskId: task.id,
+      taskNodeId: null,
+      taskNodeRevisionId: null,
+      ownerSeatId: room.leadSeatId,
+      policyId: "policy-rlm",
+      status: "running",
+      attempt: 1,
+      daemonEpoch: 1,
+      startedAt: now,
+      lastProgressAt: now,
+      finishedAt: null,
+      revision: 3,
+      createdAt: now,
+      updatedAt: now,
+    } as const;
+    const episode = {
+      id: "episode-rlm",
+      runId: run.id,
+      admission: {
+        episodeId: "episode-rlm",
+        requestedMode: "recursive",
+        selectedMode: "recursive",
+        estimatedContextPercent: 10,
+        estimatedInputTokens: 100,
+        independentEvidenceBranches: 2,
+        reasons: ["test"],
+        admittedByPolicyId: run.policyId,
+        createdAt: now,
+      },
+      status: "branches_running",
+      rootModelSessionId: "session-rlm-root",
+      branchModelSessionIds: ["session-rlm-a", "session-rlm-b"],
+      branchCount: 2,
+      completedBranchCount: 0,
+      staleBranchCount: 0,
+      coveragePercent: 0,
+      contradictionCount: 0,
+      evidenceRefs: [],
+      failureSummaries: [],
+      revision: 4,
+      createdAt: now,
+      updatedAt: now,
+    } as never;
+    const state = {
+      ...emptySupervisedRuntimeSnapshot(now),
+      rooms: [room],
+      tasks: [task],
+      runs: [run],
+      runPolicies: [{ id: run.policyId, maxFanOut: 4 } as never],
+      rlmEpisodes: [episode],
+    };
+    const transition = {
+      ...baseCommand,
+      type: "supervised.run.transition",
+      actor: { kind: "daemon", actorId: "daemon-stage-5" },
+      aggregateId: run.id,
+      expectedRevision: run.revision,
+      runId: run.id,
+      status: "reviewing",
+      reason: "RLM synthesis completed.",
+    } as SupervisedCommand;
+
+    const accepted = await Effect.runPromise(decideSupervisedCommand({ command: transition, state }));
+    assert.equal(accepted.type, "supervised.run-transitioned");
+
+    const unrelated = await Effect.runPromiseExit(
+      decideSupervisedCommand({
+        command: transition,
+        state: { ...state, rlmEpisodes: [] },
+      }),
+    );
+    assert.equal(unrelated._tag, "Failure");
+
+    const episodeEvent = await Effect.runPromise(
+      decideSupervisedCommand({
+        command: {
+          ...baseCommand,
+          type: "supervised.rlm.upsert",
+          actor: { kind: "daemon", actorId: "daemon-stage-5" },
+          aggregateId: episode.id,
+          expectedRevision: 4,
+          episode: { ...episode, status: "synthesizing" },
+        } as SupervisedCommand,
+        state,
+      }),
+    );
+    assert.equal(episodeEvent.payload.acceptedRevision, 5);
+    assert.equal(episodeEvent.payload.rlmEpisode?.revision, 5);
+  });
+
+  it("publishes evidence only for an existing durable model session", async () => {
+    const evidence = {
+      id: "evidence-rlm",
+      scope: { kind: "room", roomId: room.id },
+      kind: "provider_receipt",
+      summary: "Visible provider response.",
+      blob: null,
+      sourceEventIds: [],
+      modelSessionId: "session-rlm",
+      createdBy: { kind: "daemon", actorId: "daemon-stage-5" },
+      createdAt: now,
+    } as never;
+    const command = {
+      ...baseCommand,
+      type: "supervised.evidence.publish",
+      actor: { kind: "daemon", actorId: "daemon-stage-5" },
+      aggregateId: evidence.id,
+      expectedRevision: 0,
+      evidence,
+    } as SupervisedCommand;
+    const emptyState = { ...emptySupervisedRuntimeSnapshot(now), rooms: [room] };
+
+    const missing = await Effect.runPromiseExit(
+      decideSupervisedCommand({ command, state: emptyState }),
+    );
+    assert.equal(missing._tag, "Failure");
+
+    const accepted = await Effect.runPromise(
+      decideSupervisedCommand({
+        command,
+        state: {
+          ...emptyState,
+          modelSessions: [{ id: evidence.modelSessionId, roomId: room.id } as never],
+        },
+      }),
+    );
+    assert.equal(accepted.type, "supervised.evidence-published");
+    assert.equal(accepted.payload.evidence?.id, evidence.id);
+  });
 });

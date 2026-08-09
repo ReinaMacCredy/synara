@@ -15,6 +15,7 @@ import { OrchestrationLayerLive } from "../runtimeLayer.ts";
 import { HostToolRuntime } from "../Services/HostToolRuntime.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
+import { SupervisedRuntimeDaemon } from "../Services/SupervisedRuntimeDaemon.ts";
 import {
   resolveEffectiveCanonicalAuthority,
   resolveProjectedSupervisionCaller,
@@ -31,6 +32,7 @@ const makeHostToolRuntime = Effect.gen(function* () {
       orchestrationEngine: yield* OrchestrationEngineService,
       snapshotQuery,
       governanceRepository,
+      runtimeDaemon: yield* SupervisedRuntimeDaemon,
     }),
   ];
   const byName = new Map(entries.map((entry) => [entry.definition.name, entry]));

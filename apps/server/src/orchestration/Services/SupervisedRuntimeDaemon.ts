@@ -9,6 +9,7 @@ export interface SupervisedRuntimeDaemonShape {
     event: ControlPlaneEvent,
   ) => Effect.Effect<number, ProjectionRepositoryError>;
   readonly reconcile: Effect.Effect<void, ProjectionRepositoryError>;
+  readonly wake: Effect.Effect<void>;
   readonly restart: Effect.Effect<SupervisedRuntimeHealth, ProjectionRepositoryError>;
   readonly start: Effect.Effect<void, never, Scope.Scope>;
 }

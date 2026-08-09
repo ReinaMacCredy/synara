@@ -14,6 +14,8 @@ import {
   StandingMandate,
   SupervisedWorkspace,
   SupervisorNotebookEntry,
+  SupervisorNotebookCompactionReceipt,
+  SupervisorNotebookCursor,
   UserModelPreferenceProfile,
 } from "@synara/contracts";
 import { Effect, Layer, Schema } from "effect";
@@ -155,6 +157,16 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
         FROM projection_supervised_notebook_entries
         ORDER BY created_at DESC, entry_id
       `;
+      const notebookCursorRows = yield* sql<EntityRow>`
+        SELECT entity_json AS "entityJson"
+        FROM projection_supervised_notebook_cursors
+        ORDER BY updated_at DESC, cursor_id
+      `;
+      const notebookCompactionRows = yield* sql<EntityRow>`
+        SELECT entity_json AS "entityJson"
+        FROM projection_supervised_notebook_compactions
+        ORDER BY created_at DESC, receipt_id
+      `;
       const capabilityProfileRows = yield* sql<EntityRow>`
         SELECT entity_json AS "entityJson"
         FROM supervised_model_capability_profiles
@@ -238,6 +250,16 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
           "SupervisedGovernance.getSnapshot.notebookEntries",
           notebookRows,
         ),
+        notebookCursors: yield* decodeRows(
+          SupervisorNotebookCursor,
+          "SupervisedGovernance.getSnapshot.notebookCursors",
+          notebookCursorRows,
+        ),
+        notebookCompactionReceipts: yield* decodeRows(
+          SupervisorNotebookCompactionReceipt,
+          "SupervisedGovernance.getSnapshot.notebookCompactionReceipts",
+          notebookCompactionRows,
+        ),
         modelCapabilityProfiles: yield* decodeRows(
           ModelCapabilityProfile,
           "SupervisedGovernance.getSnapshot.modelCapabilityProfiles",
@@ -304,6 +326,200 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
       };
     }).pipe(Effect.mapError(persistenceError("SupervisedGovernance.getModelRoutingState")));
 
+  const getNotebookState: SupervisedGovernanceRepositoryShape["getNotebookState"] = (input) =>
+    Effect.gen(function* () {
+      const limit = Math.max(1, Math.min(input.limit, 500));
+      const entryRows = yield* sql<EntityRow>`
+        SELECT entity_json AS "entityJson"
+        FROM projection_supervised_notebook_entries
+        WHERE workspace_id = ${input.workspaceId}
+        ORDER BY created_at DESC, entry_id DESC
+        LIMIT ${limit}
+      `;
+      const compactionRows = yield* sql<EntityRow>`
+        SELECT entity_json AS "entityJson"
+        FROM projection_supervised_notebook_compactions
+        WHERE workspace_id = ${input.workspaceId}
+        ORDER BY created_at DESC, receipt_id DESC
+        LIMIT ${limit}
+      `;
+      const cursorRows = yield* sql<EntityRow>`
+        SELECT entity_json AS "entityJson"
+        FROM projection_supervised_notebook_cursors
+        WHERE workspace_id = ${input.workspaceId} AND seat_id = ${input.seatId}
+        LIMIT 1
+      `;
+      const cursors = yield* decodeRows(
+        SupervisorNotebookCursor,
+        "SupervisedGovernance.getNotebookState.cursor",
+        cursorRows,
+      );
+      return {
+        entries: yield* decodeRows(
+          SupervisorNotebookEntry,
+          "SupervisedGovernance.getNotebookState.entries",
+          entryRows,
+        ),
+        compactionReceipts: yield* decodeRows(
+          SupervisorNotebookCompactionReceipt,
+          "SupervisedGovernance.getNotebookState.compactions",
+          compactionRows,
+        ),
+        cursor: cursors[0] ?? null,
+      };
+    }).pipe(Effect.mapError(persistenceError("SupervisedGovernance.getNotebookState")));
+
+  const appendNotebookEntry: SupervisedGovernanceRepositoryShape["appendNotebookEntry"] =
+    (entry) =>
+      sql
+        .withTransaction(
+          Effect.gen(function* () {
+            if (entry.supersedesEntryId === entry.id) {
+              return yield* Effect.fail(new Error("Notebook entry cannot supersede itself."));
+            }
+            if (entry.supersedesEntryId !== null) {
+              const supersededRows = yield* sql<{ readonly count: number }>`
+                SELECT COUNT(*) AS count
+                FROM projection_supervised_notebook_entries
+                WHERE entry_id = ${entry.supersedesEntryId}
+                  AND workspace_id = ${entry.workspaceId}
+              `;
+              if ((supersededRows[0]?.count ?? 0) === 0) {
+                return yield* Effect.fail(
+                  new Error("Superseded notebook entry is unavailable in this workspace."),
+                );
+              }
+            }
+            yield* sql`
+              INSERT OR IGNORE INTO projection_supervised_notebook_entries (
+                entry_id, workspace_id, room_id, task_node_id, concern, kind,
+                author_seat_id, supersedes_entry_id, created_at, entity_json
+              ) VALUES (
+                ${entry.id}, ${entry.workspaceId}, ${entry.roomId}, ${entry.taskNodeId},
+                ${entry.concern}, ${entry.kind}, ${entry.authorSeatId}, ${entry.supersedesEntryId},
+                ${entry.createdAt}, ${JSON.stringify(entry)}
+              )
+            `;
+            const changedRows = yield* sql<{ readonly changed: number }>`SELECT changes() AS changed`;
+            if ((changedRows[0]?.changed ?? 0) === 0) return false;
+            yield* sql`
+              UPDATE supervised_governance_state
+              SET revision = revision + 1, updated_at = ${entry.createdAt}
+              WHERE singleton_id = 1
+            `;
+            return true;
+          }),
+        )
+        .pipe(Effect.mapError(persistenceError("SupervisedGovernance.appendNotebookEntry")));
+
+  const appendNotebookCompaction: SupervisedGovernanceRepositoryShape["appendNotebookCompaction"] =
+    (input) =>
+      sql
+        .withTransaction(
+          Effect.gen(function* () {
+            const entry = input.summaryEntry;
+            const receipt = input.receipt;
+            if (
+              receipt.workspaceId !== entry.workspaceId ||
+              receipt.summaryEntryId !== entry.id ||
+              receipt.createdBySeatId !== entry.authorSeatId
+            ) {
+              return yield* Effect.fail(
+                new Error("Notebook compaction receipt does not match its summary entry."),
+              );
+            }
+            const existingRows = yield* sql<{ readonly count: number }>`
+              SELECT COUNT(*) AS count
+              FROM projection_supervised_notebook_compactions
+              WHERE receipt_id = ${receipt.id}
+            `;
+            if ((existingRows[0]?.count ?? 0) > 0) return false;
+
+            const sourceIds = new Set(receipt.sourceEntryIds);
+            const sourceRows = yield* sql<{ readonly entryId: string }>`
+              SELECT entry_id AS "entryId"
+              FROM projection_supervised_notebook_entries
+              WHERE workspace_id = ${entry.workspaceId}
+            `;
+            const availableSourceIds = new Set(sourceRows.map((row) => row.entryId));
+            if (
+              sourceIds.size !== receipt.sourceEntryIds.length ||
+              sourceIds.has(entry.id) ||
+              receipt.sourceEntryIds.some((entryId) => !availableSourceIds.has(entryId)) ||
+              JSON.stringify([...new Set(entry.evidenceRefs)].toSorted()) !==
+                JSON.stringify([...new Set(receipt.evidenceRefs)].toSorted())
+            ) {
+              return yield* Effect.fail(
+                new Error("Notebook compaction sources or evidence lineage are invalid."),
+              );
+            }
+
+            const encodedEntry = JSON.stringify(entry);
+            const existingEntryRows = yield* sql<EntityRow>`
+              SELECT entity_json AS "entityJson"
+              FROM projection_supervised_notebook_entries
+              WHERE entry_id = ${entry.id}
+              LIMIT 1
+            `;
+            if (existingEntryRows[0] && existingEntryRows[0].entityJson !== encodedEntry) {
+              return yield* Effect.fail(
+                new Error("Notebook compaction summary identity conflicts with an existing entry."),
+              );
+            }
+            if (!existingEntryRows[0]) {
+              yield* sql`
+                INSERT INTO projection_supervised_notebook_entries (
+                  entry_id, workspace_id, room_id, task_node_id, concern, kind,
+                  author_seat_id, supersedes_entry_id, created_at, entity_json
+                ) VALUES (
+                  ${entry.id}, ${entry.workspaceId}, ${entry.roomId}, ${entry.taskNodeId},
+                  ${entry.concern}, ${entry.kind}, ${entry.authorSeatId}, ${entry.supersedesEntryId},
+                  ${entry.createdAt}, ${encodedEntry}
+                )
+              `;
+            }
+            yield* sql`
+              INSERT INTO projection_supervised_notebook_compactions (
+                receipt_id, workspace_id, summary_entry_id, created_by_seat_id,
+                created_at, entity_json
+              ) VALUES (
+                ${receipt.id}, ${receipt.workspaceId}, ${receipt.summaryEntryId},
+                ${receipt.createdBySeatId}, ${receipt.createdAt}, ${JSON.stringify(receipt)}
+              )
+            `;
+            yield* sql`
+              UPDATE supervised_governance_state
+              SET revision = revision + 1, updated_at = ${receipt.createdAt}
+              WHERE singleton_id = 1
+            `;
+            return true;
+          }),
+        )
+        .pipe(Effect.mapError(persistenceError("SupervisedGovernance.appendNotebookCompaction")));
+
+  const putNotebookCursor: SupervisedGovernanceRepositoryShape["putNotebookCursor"] = (cursor) =>
+    sql`
+      INSERT INTO projection_supervised_notebook_cursors (
+        cursor_id, workspace_id, seat_id, last_created_at, last_entry_id, updated_at, entity_json
+      ) VALUES (
+        ${cursor.id}, ${cursor.workspaceId}, ${cursor.seatId}, ${cursor.lastCreatedAt},
+        ${cursor.lastEntryId}, ${cursor.updatedAt}, ${JSON.stringify(cursor)}
+      )
+      ON CONFLICT (workspace_id, seat_id) DO UPDATE SET
+        cursor_id = excluded.cursor_id,
+        last_created_at = excluded.last_created_at,
+        last_entry_id = excluded.last_entry_id,
+        updated_at = excluded.updated_at,
+        entity_json = excluded.entity_json
+      WHERE
+        projection_supervised_notebook_cursors.last_created_at IS NULL OR
+        excluded.last_created_at > projection_supervised_notebook_cursors.last_created_at OR
+        (
+          excluded.last_created_at = projection_supervised_notebook_cursors.last_created_at AND
+          excluded.last_entry_id > projection_supervised_notebook_cursors.last_entry_id
+        )
+    `.pipe(Effect.asVoid, Effect.mapError(persistenceError("SupervisedGovernance.putNotebookCursor")));
+
   const replaceSnapshot: SupervisedGovernanceRepositoryShape["replaceSnapshot"] = (snapshot) =>
     sql.withTransaction(
       Effect.gen(function* () {
@@ -312,6 +528,8 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
         yield* sql`DELETE FROM supervised_model_telemetry_aggregates`;
         yield* sql`DELETE FROM supervised_user_model_preference_profiles`;
         yield* sql`DELETE FROM supervised_model_capability_profiles`;
+        yield* sql`DELETE FROM projection_supervised_notebook_compactions`;
+        yield* sql`DELETE FROM projection_supervised_notebook_cursors`;
         yield* sql`DELETE FROM projection_supervised_notebook_entries`;
         yield* sql`DELETE FROM projection_supervised_direct_interventions`;
         yield* sql`DELETE FROM projection_supervised_lead_replacements`;
@@ -489,6 +707,31 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
           { concurrency: 1, discard: true },
         );
         yield* Effect.forEach(
+          snapshot.notebookCursors,
+          (cursor) => sql`
+            INSERT INTO projection_supervised_notebook_cursors (
+              cursor_id, workspace_id, seat_id, last_created_at, last_entry_id, updated_at, entity_json
+            ) VALUES (
+              ${cursor.id}, ${cursor.workspaceId}, ${cursor.seatId}, ${cursor.lastCreatedAt},
+              ${cursor.lastEntryId}, ${cursor.updatedAt}, ${JSON.stringify(cursor)}
+            )
+          `,
+          { concurrency: 1, discard: true },
+        );
+        yield* Effect.forEach(
+          snapshot.notebookCompactionReceipts,
+          (receipt) => sql`
+            INSERT INTO projection_supervised_notebook_compactions (
+              receipt_id, workspace_id, summary_entry_id, created_by_seat_id,
+              created_at, entity_json
+            ) VALUES (
+              ${receipt.id}, ${receipt.workspaceId}, ${receipt.summaryEntryId},
+              ${receipt.createdBySeatId}, ${receipt.createdAt}, ${JSON.stringify(receipt)}
+            )
+          `,
+          { concurrency: 1, discard: true },
+        );
+        yield* Effect.forEach(
           snapshot.modelCapabilityProfiles,
           (profile) => sql`
             INSERT INTO supervised_model_capability_profiles (
@@ -652,7 +895,11 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
   return SupervisedGovernanceRepository.of({
     getSnapshot,
     getModelRoutingState,
+    getNotebookState,
     replaceSnapshot,
+    appendNotebookEntry,
+    appendNotebookCompaction,
+    putNotebookCursor,
     putModelCapabilityProfile,
     putUserModelPreferenceProfile,
     appendModelSelectionReceipt,

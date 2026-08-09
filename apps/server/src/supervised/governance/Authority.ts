@@ -28,6 +28,19 @@ function commandRoomId(
       return command.run.roomId;
     case "supervised.run.transition":
       return runtime.runs.find((run) => run.id === command.runId)?.roomId ?? null;
+    case "supervised.context.workspace-upsert":
+      return command.workspace.roomId;
+    case "supervised.context.append":
+      return (
+        runtime.contextWorkspaces.find((workspace) => workspace.id === command.record.workspaceId)
+          ?.roomId ?? null
+      );
+    case "supervised.evidence.publish":
+      return command.evidence.scope.kind === "room" ? command.evidence.scope.roomId : null;
+    case "supervised.rlm.upsert":
+      return runtime.runs.find((run) => run.id === command.episode.runId)?.roomId ?? null;
+    case "supervised.model-session.upsert":
+      return command.modelSession.roomId;
     case "supervised.claim.acquire":
       return runtime.runs.find((run) => run.id === command.claim.runId)?.roomId ?? null;
     case "supervised.claim.release":

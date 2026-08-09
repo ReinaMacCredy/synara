@@ -277,4 +277,118 @@ testLayer("SupervisedGovernanceRepository", (it) => {
       );
     }),
   );
+
+  it.effect("appends notebook facts idempotently without overwriting concurrent entries", () =>
+    Effect.gen(function* () {
+      const repository = yield* SupervisedGovernanceRepository;
+      const current = yield* repository.getSnapshot();
+      if (!current.workspaces.some((workspace) => workspace.id === snapshot.workspaces[0]!.id)) {
+        yield* repository.replaceSnapshot({ ...snapshot, revision: current.revision });
+      }
+      const first = {
+        ...snapshot.notebookEntries[0]!,
+        id: "notebook-concurrent-1" as (typeof snapshot.notebookEntries)[number]["id"],
+      };
+      const second = {
+        ...first,
+        id: "notebook-concurrent-2" as typeof first.id,
+        content: "A separately appended observation.",
+        createdAt: "2026-08-09T00:01:00.000Z",
+      };
+
+      const inserted = yield* Effect.all(
+        [repository.appendNotebookEntry(first), repository.appendNotebookEntry(second)],
+        { concurrency: "unbounded" },
+      );
+      assert.deepEqual(inserted, [true, true]);
+      assert.equal(yield* repository.appendNotebookEntry({ ...first, content: "must not replace" }), false);
+      const invalidSupersession = yield* Effect.exit(
+        repository.appendNotebookEntry({
+          ...first,
+          id: "notebook-invalid-supersession" as typeof first.id,
+          supersedesEntryId: "notebook-missing" as typeof first.id,
+        }),
+      );
+      assert.equal(invalidSupersession._tag, "Failure");
+
+      const state = yield* repository.getNotebookState({
+        workspaceId: first.workspaceId,
+        seatId: first.authorSeatId,
+        limit: 20,
+      });
+      assert.equal(state.entries.some((entry) => entry.id === first.id), true);
+      assert.equal(state.entries.some((entry) => entry.id === second.id), true);
+      assert.equal(state.entries.find((entry) => entry.id === first.id)?.content, first.content);
+    }),
+  );
+
+  it.effect("persists compaction receipts and never regresses a seat cursor", () =>
+    Effect.gen(function* () {
+      const repository = yield* SupervisedGovernanceRepository;
+      const current = yield* repository.getSnapshot();
+      if (!current.workspaces.some((workspace) => workspace.id === snapshot.workspaces[0]!.id)) {
+        yield* repository.replaceSnapshot({ ...snapshot, revision: current.revision });
+      }
+      const source = {
+        ...snapshot.notebookEntries[0]!,
+        id: "notebook-compaction-source" as (typeof snapshot.notebookEntries)[number]["id"],
+      };
+      const summary = {
+        ...source,
+        id: "notebook-summary" as typeof source.id,
+        kind: "lesson" as const,
+        content: "Compacted lesson.",
+        evidenceRefs: ["evidence:source"],
+        createdAt: "2026-08-09T00:02:00.000Z",
+      };
+      const receipt = {
+        id: "notebook-compaction-1" as const,
+        workspaceId: source.workspaceId,
+        summaryEntryId: summary.id,
+        sourceEntryIds: [source.id],
+        evidenceRefs: ["evidence:source"],
+        createdBySeatId: source.authorSeatId,
+        createdAt: summary.createdAt,
+      };
+      assert.equal(yield* repository.appendNotebookEntry(source), true);
+      const invalid = yield* Effect.exit(
+        repository.appendNotebookCompaction({
+          summaryEntry: { ...summary, id: "notebook-summary-invalid" as typeof summary.id },
+          receipt: {
+            ...receipt,
+            id: "notebook-compaction-invalid" as typeof receipt.id,
+            summaryEntryId: "notebook-summary-invalid" as typeof summary.id,
+            sourceEntryIds: ["notebook-source-missing" as typeof source.id],
+          },
+        }),
+      );
+      assert.equal(invalid._tag, "Failure");
+      assert.equal(yield* repository.appendNotebookCompaction({ summaryEntry: summary, receipt }), true);
+      assert.equal(yield* repository.appendNotebookCompaction({ summaryEntry: summary, receipt }), false);
+
+      const newestCursor = {
+        id: "cursor-newest" as const,
+        workspaceId: source.workspaceId,
+        seatId: source.authorSeatId,
+        lastCreatedAt: summary.createdAt,
+        lastEntryId: summary.id,
+        updatedAt: summary.createdAt,
+      };
+      yield* repository.putNotebookCursor(newestCursor);
+      yield* repository.putNotebookCursor({
+        ...newestCursor,
+        id: "cursor-stale" as typeof newestCursor.id,
+        lastCreatedAt: source.createdAt,
+        lastEntryId: source.id,
+      });
+
+      const state = yield* repository.getNotebookState({
+        workspaceId: source.workspaceId,
+        seatId: source.authorSeatId,
+        limit: 20,
+      });
+      assert.deepEqual(state.compactionReceipts, [receipt]);
+      assert.equal(state.cursor?.lastEntryId, summary.id);
+    }),
+  );
 });

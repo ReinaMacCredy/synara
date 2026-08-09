@@ -35,6 +35,13 @@ export const DirectInterventionId = entityId("DirectInterventionId");
 export type DirectInterventionId = typeof DirectInterventionId.Type;
 export const SupervisorNotebookEntryId = entityId("SupervisorNotebookEntryId");
 export type SupervisorNotebookEntryId = typeof SupervisorNotebookEntryId.Type;
+export const SupervisorNotebookCursorId = entityId("SupervisorNotebookCursorId");
+export type SupervisorNotebookCursorId = typeof SupervisorNotebookCursorId.Type;
+export const SupervisorNotebookCompactionReceiptId = entityId(
+  "SupervisorNotebookCompactionReceiptId",
+);
+export type SupervisorNotebookCompactionReceiptId =
+  typeof SupervisorNotebookCompactionReceiptId.Type;
 export const ModelCapabilityProfileId = entityId("ModelCapabilityProfileId");
 export type ModelCapabilityProfileId = typeof ModelCapabilityProfileId.Type;
 export const UserModelPreferenceProfileId = entityId("UserModelPreferenceProfileId");
@@ -391,6 +398,42 @@ export const SupervisorNotebookEntry = Schema.Struct({
 });
 export type SupervisorNotebookEntry = typeof SupervisorNotebookEntry.Type;
 
+export const SupervisorNotebookCursor = Schema.Struct({
+  id: SupervisorNotebookCursorId,
+  workspaceId: SupervisedWorkspaceId,
+  seatId: AgentSeatId,
+  lastCreatedAt: Schema.NullOr(IsoDateTime),
+  lastEntryId: Schema.NullOr(SupervisorNotebookEntryId),
+  updatedAt: IsoDateTime,
+});
+export type SupervisorNotebookCursor = typeof SupervisorNotebookCursor.Type;
+
+export const SupervisorNotebookCompactionReceipt = Schema.Struct({
+  id: SupervisorNotebookCompactionReceiptId,
+  workspaceId: SupervisedWorkspaceId,
+  summaryEntryId: SupervisorNotebookEntryId,
+  sourceEntryIds: Schema.Array(SupervisorNotebookEntryId).check(Schema.isMinLength(1)).check(
+    Schema.isMaxLength(512),
+  ),
+  evidenceRefs: Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(512)),
+  createdBySeatId: AgentSeatId,
+  createdAt: IsoDateTime,
+});
+export type SupervisorNotebookCompactionReceipt =
+  typeof SupervisorNotebookCompactionReceipt.Type;
+
+export const SupervisorNotebookView = Schema.Struct({
+  workspaceId: SupervisedWorkspaceId,
+  viewerSeatId: AgentSeatId,
+  entries: Schema.Array(SupervisorNotebookEntry).check(Schema.isMaxLength(512)),
+  compactionReceipts: Schema.Array(SupervisorNotebookCompactionReceipt).check(
+    Schema.isMaxLength(512),
+  ),
+  nextCursor: SupervisorNotebookCursor,
+  createdAt: IsoDateTime,
+});
+export type SupervisorNotebookView = typeof SupervisorNotebookView.Type;
+
 export const ModelCapabilityDimension = Schema.Literals([
   "coding",
   "architecture",
@@ -562,6 +605,12 @@ export const SupervisedGovernanceSnapshot = Schema.Struct({
   standingMandates: Schema.Array(StandingMandate),
   directInterventions: Schema.Array(DirectIntervention),
   notebookEntries: Schema.Array(SupervisorNotebookEntry),
+  notebookCursors: Schema.optional(Schema.Array(SupervisorNotebookCursor)).pipe(
+    Schema.withDecodingDefault(() => []),
+  ),
+  notebookCompactionReceipts: Schema.optional(
+    Schema.Array(SupervisorNotebookCompactionReceipt),
+  ).pipe(Schema.withDecodingDefault(() => [])),
   modelCapabilityProfiles: Schema.Array(ModelCapabilityProfile),
   userModelPreferenceProfiles: Schema.Array(UserModelPreferenceProfile),
   modelTelemetryAggregates: Schema.optional(Schema.Array(ModelTelemetryAggregate)).pipe(
@@ -586,6 +635,8 @@ export const emptySupervisedGovernanceSnapshot = (updatedAt: string): Supervised
   standingMandates: [],
   directInterventions: [],
   notebookEntries: [],
+  notebookCursors: [],
+  notebookCompactionReceipts: [],
   modelCapabilityProfiles: [],
   userModelPreferenceProfiles: [],
   modelTelemetryAggregates: [],

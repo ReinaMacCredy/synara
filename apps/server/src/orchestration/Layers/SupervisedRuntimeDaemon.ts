@@ -4,12 +4,15 @@ import type {
   DeadLetter,
   DeliveryCursor,
   DerivedSignal,
+  ModelSessionTrace,
+  OrchestrationThread,
+  RlmEpisode,
   SubscriptionDefinition,
   SubscriptionDelivery,
   SupervisedCommand,
 } from "@synara/contracts";
-import { CommandId } from "@synara/contracts";
-import { Effect, Exit, Fiber, Layer, Queue, Ref, Scope, Semaphore } from "effect";
+import { CommandId, EvidenceId, MessageId } from "@synara/contracts";
+import { Effect, Exit, Fiber, Layer, Option, Queue, Ref, Scope, Semaphore } from "effect";
 
 import { SupervisedRuntimeRepository } from "../../persistence/Services/SupervisedRuntimeRepository.ts";
 import { SupervisedGovernanceRepository } from "../../persistence/Services/SupervisedGovernanceRepository.ts";
@@ -24,16 +27,42 @@ import {
 } from "../../supervised/signal/BuiltInSubscriptions.ts";
 import { evaluateSubscriptionEvent } from "../../supervised/signal/SubscriptionEvaluator.ts";
 import {
+  buildRlmSynthesisPrompt,
+  extractRlmThreadResult,
+  promptReceiptHash,
+  type RlmThreadResult,
+} from "../../supervised/runtime/RlmExecution.ts";
+import {
   SupervisedRuntimeDaemon,
   type SupervisedRuntimeDaemonShape,
 } from "../Services/SupervisedRuntimeDaemon.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { SupervisedSignalDelivery } from "../Services/SupervisedSignalDelivery.ts";
 
 const hash = (value: unknown) =>
   `sha256:${createHash("sha256").update(JSON.stringify(value)).digest("hex")}`;
 const stableId = (prefix: string, value: unknown) =>
   `${prefix}:${createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 32)}`;
+const RLM_PROVISIONING_GRACE_MS = 30_000;
+const PROVISIONING_RLM_STATUSES = new Set<RlmEpisode["status"]>([
+  "requested",
+  "admitted",
+  "branching",
+  "planned",
+]);
+
+export const shouldDeferRlmProvisioningReconciliation = (
+  episode: Pick<RlmEpisode, "status" | "updatedAt">,
+  nowMs: number,
+) => {
+  const updatedAtMs = Date.parse(episode.updatedAt);
+  return (
+    PROVISIONING_RLM_STATUSES.has(episode.status) &&
+    Number.isFinite(updatedAtMs) &&
+    nowMs - updatedAtMs < RLM_PROVISIONING_GRACE_MS
+  );
+};
 
 const makeDelivery = (
   subscription: SubscriptionDefinition,
@@ -60,6 +89,7 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
   const governanceRepository = yield* SupervisedGovernanceRepository;
   const signalDelivery = yield* SupervisedSignalDelivery;
   const engine = yield* OrchestrationEngineService;
+  const snapshotQuery = yield* ProjectionSnapshotQuery;
   const workerId = `supervised-daemon:${process.pid}`;
   const lifecycleLock = yield* Semaphore.make(1);
   const workerScope = yield* Effect.acquireRelease(Scope.make("sequential"), (scope) =>
@@ -67,6 +97,526 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
   );
   const workerFiber = yield* Ref.make<Fiber.Fiber<void, never> | null>(null);
   const reconcileWake = yield* Queue.sliding<void>(1);
+
+  const activeRlmStatuses = new Set<RlmEpisode["status"]>([
+    "requested",
+    "admitted",
+    "branching",
+    "branches_running",
+    "synthesizing",
+    "stalled",
+    "planned",
+    "running",
+  ]);
+
+  const daemonCommandBase = (aggregateId: string, expectedRevision: number, suffix: string, at: string) => ({
+    commandId: CommandId.makeUnsafe(
+      stableId("command:rlm-daemon", { aggregateId, expectedRevision, suffix }),
+    ),
+    actor: { kind: "daemon" as const, actorId: workerId },
+    aggregateId,
+    expectedRevision,
+    idempotencyKey: `rlm-daemon:${aggregateId}:${expectedRevision}:${suffix}`,
+    createdAt: at,
+  });
+
+  const upsertModelSession = (session: ModelSessionTrace, at: string, suffix: string) =>
+    engine.dispatch({
+      type: "supervised.model-session.upsert",
+      ...daemonCommandBase(session.id, session.revision - 1, suffix, at),
+      modelSession: session,
+    });
+
+  const upsertEpisode = (episode: RlmEpisode, at: string, suffix: string) =>
+    engine.dispatch({
+      type: "supervised.rlm.upsert",
+      ...daemonCommandBase(episode.id, episode.revision - 1, suffix, at),
+      episode,
+    });
+
+  const stallEpisode = (episode: RlmEpisode, reason: string) => {
+    const failureSummaries = [...new Set([...episode.failureSummaries, reason])].slice(-64);
+    if (
+      episode.status === "stalled" &&
+      JSON.stringify(episode.failureSummaries) === JSON.stringify(failureSummaries)
+    ) {
+      return Effect.void;
+    }
+    const at = new Date().toISOString();
+    return upsertEpisode(
+      {
+        ...episode,
+        status: "stalled",
+        failureSummaries,
+        updatedAt: at,
+        revision: episode.revision + 1,
+      },
+      at,
+      "episode-stalled",
+    ).pipe(Effect.asVoid);
+  };
+
+  const evidenceIdFor = (sessionId: string) =>
+    EvidenceId.makeUnsafe(stableId("evidence:rlm-session", sessionId));
+
+  const responseFromTrace = (trace: ModelSessionTrace): string | null =>
+    trace.items
+      .filter((item) => item.type === "message" && item.role === "assistant")
+      .at(-1)?.content ?? null;
+
+  const mergeSessionUsage = (
+    trace: ModelSessionTrace,
+    observed: ModelSessionTrace["usage"],
+  ): ModelSessionTrace["usage"] => ({
+    inputTokens: observed.inputTokens,
+    outputTokens: observed.outputTokens,
+    contextTokens:
+      observed.contextTokens > 0 ? observed.contextTokens : trace.usage.contextTokens,
+    providerLimitTokens: observed.providerLimitTokens ?? trace.usage.providerLimitTokens,
+    contextUsagePercent:
+      observed.contextUsagePercent ?? trace.usage.contextUsagePercent,
+  });
+
+  const appendEvidenceItem = (
+    items: ReadonlyArray<ModelSessionTrace["items"][number]>,
+    evidenceId: EvidenceId,
+    summary: string,
+    at: string,
+  ) =>
+    [
+      ...items.filter(
+        (item) => !(item.type === "evidence" && item.evidenceId === evidenceId),
+      ),
+      {
+        id: `${evidenceId}:transcript`,
+        type: "evidence" as const,
+        evidenceId,
+        summary,
+        createdAt: at,
+      },
+    ].slice(-10_000);
+
+  const publishRlmEvidence = (input: {
+    readonly runtimeEvidenceIds: ReadonlySet<string>;
+    readonly trace: ModelSessionTrace;
+    readonly response: string;
+    readonly at: string;
+  }) => {
+    const evidenceId = evidenceIdFor(input.trace.id);
+    if (input.runtimeEvidenceIds.has(evidenceId)) return Effect.succeed(evidenceId);
+    return engine
+      .dispatch({
+        type: "supervised.evidence.publish",
+        ...daemonCommandBase(evidenceId, 0, "evidence-publish", input.at),
+        evidence: {
+          id: evidenceId,
+          scope: { kind: "room", roomId: input.trace.roomId },
+          kind: "provider_receipt",
+          summary: input.response,
+          blob: null,
+          sourceEventIds: [],
+          modelSessionId: input.trace.id,
+          createdBy: { kind: "daemon", actorId: workerId },
+          createdAt: input.at,
+        },
+      })
+      .pipe(Effect.as(evidenceId));
+  };
+
+  const startSessionTurn = (input: {
+    readonly thread: OrchestrationThread;
+    readonly trace: ModelSessionTrace;
+    readonly prompt: string;
+    readonly at: string;
+    readonly suffix: string;
+  }) =>
+    engine.dispatch({
+      type: "thread.turn.start",
+      commandId: CommandId.makeUnsafe(
+        stableId("command:rlm-turn", {
+          sessionId: input.trace.id,
+          retryCount: input.trace.retryCount,
+          suffix: input.suffix,
+        }),
+      ),
+      threadId: input.thread.id,
+      message: {
+        messageId: MessageId.makeUnsafe(
+          stableId("message:rlm-turn", {
+            sessionId: input.trace.id,
+            retryCount: input.trace.retryCount,
+            suffix: input.suffix,
+          }),
+        ),
+        role: "user",
+        text: input.prompt,
+        attachments: [],
+      },
+      modelSelection: input.thread.modelSelection,
+      dispatchMode: "queue",
+      dispatchOrigin: "automation",
+      runtimeMode: input.thread.runtimeMode,
+      interactionMode: input.thread.interactionMode,
+      createdAt: input.at,
+    });
+
+  const terminalSession = (status: ModelSessionTrace["status"]) =>
+    status === "completed" || status === "failed" || status === "cancelled";
+
+  const reconcileRlmEpisodes = Effect.gen(function* () {
+    const runtime = yield* repository.getSnapshot({ includeDisabled: true });
+    const activeEpisodes = runtime.rlmEpisodes.filter((episode) =>
+      activeRlmStatuses.has(episode.status),
+    );
+    for (const initialEpisode of activeEpisodes) {
+      if (shouldDeferRlmProvisioningReconciliation(initialEpisode, Date.now())) {
+        continue;
+      }
+      const run = runtime.runs.find((candidate) => candidate.id === initialEpisode.runId);
+      const policy = run
+        ? runtime.runPolicies.find((candidate) => candidate.id === run.policyId)
+        : undefined;
+      const root = runtime.modelSessions.find(
+        (session) => session.id === initialEpisode.rootModelSessionId,
+      );
+      const branches = initialEpisode.branchModelSessionIds.flatMap((sessionId) => {
+        const trace = runtime.modelSessions.find((session) => session.id === sessionId);
+        return trace ? [trace] : [];
+      });
+      if (!run || !policy) continue;
+      if (
+        !root ||
+        initialEpisode.branchCount < 2 ||
+        branches.length !== initialEpisode.branchCount
+      ) {
+        yield* stallEpisode(
+          initialEpisode,
+          "RLM model-session lineage is incomplete after recovery.",
+        );
+        continue;
+      }
+
+      const runtimeEvidenceIds = new Set(runtime.evidence.map((evidence) => evidence.id));
+      const currentBranches: ModelSessionTrace[] = [];
+      const branchResults = new Map<string, RlmThreadResult>();
+      let missingBranchThreadCount = 0;
+      for (const branch of branches) {
+        if (terminalSession(branch.status)) {
+          currentBranches.push(branch);
+          continue;
+        }
+        if (branch.threadId === null) {
+          missingBranchThreadCount += 1;
+          currentBranches.push(branch);
+          continue;
+        }
+        const detail = yield* snapshotQuery.getThreadDetailById(branch.threadId);
+        if (Option.isNone(detail)) {
+          missingBranchThreadCount += 1;
+          currentBranches.push(branch);
+          continue;
+        }
+        const result = extractRlmThreadResult(detail.value);
+        branchResults.set(branch.id, result);
+        const completedWithResponse = result.status === "completed" && result.response !== null;
+        if (completedWithResponse) {
+          const at = detail.value.latestTurn?.completedAt ?? new Date().toISOString();
+          const evidenceId = yield* publishRlmEvidence({
+            runtimeEvidenceIds,
+            trace: branch,
+            response: result.response!,
+            at,
+          });
+          runtimeEvidenceIds.add(evidenceId);
+          const updated: ModelSessionTrace = {
+            ...branch,
+            providerCallId: result.providerCallId,
+            items: appendEvidenceItem(result.items, evidenceId, result.response!, at),
+            usage: mergeSessionUsage(branch, result.usage),
+            status: "completed",
+            durationMs: result.durationMs,
+            costUsd: result.costUsd,
+            updatedAt: at,
+            revision: branch.revision + 1,
+          };
+          yield* upsertModelSession(updated, at, "branch-completed");
+          currentBranches.push(updated);
+          continue;
+        }
+        if (result.status === "failed" || result.status === "cancelled" || result.status === "completed") {
+          const at = new Date().toISOString();
+          if (branch.retryCount < policy.maxRetries) {
+            const retry: ModelSessionTrace = {
+              ...branch,
+              status: "running",
+              retryCount: branch.retryCount + 1,
+              providerCallId: result.providerCallId,
+              items: result.items,
+              usage: mergeSessionUsage(branch, result.usage),
+              durationMs: result.durationMs,
+              costUsd: result.costUsd,
+              updatedAt: at,
+              revision: branch.revision + 1,
+            };
+            yield* upsertModelSession(retry, at, "branch-retry");
+            yield* startSessionTurn({
+              thread: detail.value,
+              trace: retry,
+              prompt: branch.inputSummary,
+              at,
+              suffix: "branch-retry",
+            });
+            currentBranches.push(retry);
+          } else {
+            const failed: ModelSessionTrace = {
+              ...branch,
+              status: result.status === "cancelled" ? "cancelled" : "failed",
+              providerCallId: result.providerCallId,
+              items: result.items,
+              usage: mergeSessionUsage(branch, result.usage),
+              durationMs: result.durationMs,
+              costUsd: result.costUsd,
+              updatedAt: at,
+              revision: branch.revision + 1,
+            };
+            yield* upsertModelSession(failed, at, "branch-failed");
+            currentBranches.push(failed);
+          }
+          continue;
+        }
+        if (result.status === "running" && branch.status !== "running") {
+          const at = new Date().toISOString();
+          const running: ModelSessionTrace = {
+            ...branch,
+            status: "running",
+            updatedAt: at,
+            revision: branch.revision + 1,
+          };
+          yield* upsertModelSession(running, at, "branch-running");
+          currentBranches.push(running);
+          continue;
+        }
+        currentBranches.push(branch);
+      }
+
+      if (missingBranchThreadCount > 0) {
+        yield* stallEpisode(
+          initialEpisode,
+          `${missingBranchThreadCount} RLM branch thread(s) are unavailable after recovery.`,
+        );
+        continue;
+      }
+
+      const completedBranches = currentBranches.filter((branch) => branch.status === "completed");
+      const failedBranches = currentBranches.filter(
+        (branch) => branch.status === "failed" || branch.status === "cancelled",
+      );
+      const allBranchesTerminal = currentBranches.every((branch) => terminalSession(branch.status));
+      const evidenceRefs = completedBranches.map((branch) => evidenceIdFor(branch.id));
+      const failureSummaries = failedBranches.map((branch) =>
+        `${branch.title}: branch exhausted ${branch.retryCount} retries.`.slice(0, 512),
+      );
+      let episode = initialEpisode;
+      const nextBranchStatus: RlmEpisode["status"] =
+        allBranchesTerminal
+          ? completedBranches.length > 0
+            ? "synthesizing"
+            : "failed"
+          : "branches_running";
+      const branchProjectionChanged =
+        episode.status !== nextBranchStatus ||
+        episode.completedBranchCount !== completedBranches.length ||
+        episode.staleBranchCount !== failedBranches.length ||
+        JSON.stringify(episode.evidenceRefs) !== JSON.stringify(evidenceRefs) ||
+        JSON.stringify(episode.failureSummaries) !== JSON.stringify(failureSummaries);
+      if (branchProjectionChanged) {
+        const at = new Date().toISOString();
+        episode = {
+          ...episode,
+          status: nextBranchStatus,
+          completedBranchCount: completedBranches.length,
+          staleBranchCount: failedBranches.length,
+          coveragePercent: (completedBranches.length / episode.branchCount) * 100,
+          evidenceRefs,
+          failureSummaries,
+          updatedAt: at,
+          revision: episode.revision + 1,
+        };
+        yield* upsertEpisode(episode, at, "branch-projection");
+      }
+
+      if (!allBranchesTerminal) continue;
+      if (completedBranches.length === 0) {
+        if (run.status !== "failed" && run.status !== "cancelled" && run.status !== "succeeded") {
+          yield* engine.dispatch({
+            type: "supervised.run.transition",
+            ...daemonCommandBase(run.id, run.revision, "run-failed", new Date().toISOString()),
+            runId: run.id,
+            status: "failed",
+            reason: "All RLM branches failed after policy-bounded retries.",
+          });
+        }
+        continue;
+      }
+
+      if (root.threadId === null) {
+        yield* stallEpisode(episode, "RLM root synthesis thread is unavailable after recovery.");
+        continue;
+      }
+      const rootDetail = yield* snapshotQuery.getThreadDetailById(root.threadId);
+      if (Option.isNone(rootDetail)) {
+        yield* stallEpisode(episode, "RLM root synthesis thread is unavailable after recovery.");
+        continue;
+      }
+      if (root.status === "queued" || root.status === "waiting") {
+        const synthesisBranches = completedBranches.flatMap((branch) => {
+          const response = branchResults.get(branch.id)?.response ?? responseFromTrace(branch);
+          return response
+            ? [{ title: branch.title, modelSessionId: branch.id, response, evidenceId: evidenceIdFor(branch.id) }]
+            : [];
+        });
+        if (synthesisBranches.length !== completedBranches.length) continue;
+        const at = new Date().toISOString();
+        const prompt = buildRlmSynthesisPrompt({
+          objective: root.inputSummary,
+          branches: synthesisBranches,
+        });
+        const runningRoot: ModelSessionTrace = {
+          ...root,
+          status: "running",
+          promptHash: promptReceiptHash(prompt),
+          inputSummary: prompt,
+          updatedAt: at,
+          revision: root.revision + 1,
+        };
+        yield* upsertModelSession(runningRoot, at, "root-running");
+        yield* startSessionTurn({
+          thread: rootDetail.value,
+          trace: runningRoot,
+          prompt,
+          at,
+          suffix: "root-synthesis",
+        });
+        continue;
+      }
+      if (root.status === "completed" && episode.status !== "synthesizing") continue;
+
+      const rootResult = extractRlmThreadResult(rootDetail.value);
+      const rootCompleted = rootResult.status === "completed" && rootResult.response !== null;
+      if (rootCompleted) {
+        const at = rootDetail.value.latestTurn?.completedAt ?? new Date().toISOString();
+        const evidenceId = yield* publishRlmEvidence({
+          runtimeEvidenceIds,
+          trace: root,
+          response: rootResult.response!,
+          at,
+        });
+        const completedRoot: ModelSessionTrace = {
+          ...root,
+          providerCallId: rootResult.providerCallId,
+          items: appendEvidenceItem(rootResult.items, evidenceId, rootResult.response!, at),
+          usage: mergeSessionUsage(root, rootResult.usage),
+          status: "completed",
+          durationMs: rootResult.durationMs,
+          costUsd: rootResult.costUsd,
+          updatedAt: at,
+          revision: root.revision + 1,
+        };
+        yield* upsertModelSession(completedRoot, at, "root-completed");
+        episode = {
+          ...episode,
+          status:
+            failedBranches.length > 0 ? "partially_completed" : "completed",
+          evidenceRefs: [...new Set([...episode.evidenceRefs, evidenceId])],
+          updatedAt: at,
+          revision: episode.revision + 1,
+        };
+        yield* upsertEpisode(episode, at, "episode-completed");
+        let runRevision = run.revision;
+        if (run.status === "running" || run.status === "waiting") {
+          yield* engine.dispatch({
+            type: "supervised.run.transition",
+            ...daemonCommandBase(run.id, runRevision, "run-reviewing", at),
+            runId: run.id,
+            status: "reviewing",
+            reason: "RLM root synthesis completed with retained evidence.",
+          });
+          runRevision += 1;
+        }
+        if (run.status === "reviewing" || runRevision > run.revision) {
+          yield* engine.dispatch({
+            type: "supervised.run.transition",
+            ...daemonCommandBase(run.id, runRevision, "run-succeeded", at),
+            runId: run.id,
+            status: "succeeded",
+            reason: "RLM episode completed.",
+          });
+        }
+        continue;
+      }
+      if (
+        rootResult.status === "failed" ||
+        rootResult.status === "cancelled" ||
+        rootResult.status === "completed"
+      ) {
+        const at = new Date().toISOString();
+        if (root.retryCount < policy.maxRetries) {
+          const retryRoot: ModelSessionTrace = {
+            ...root,
+            status: "running",
+            retryCount: root.retryCount + 1,
+            providerCallId: rootResult.providerCallId,
+            items: rootResult.items,
+            usage: mergeSessionUsage(root, rootResult.usage),
+            durationMs: rootResult.durationMs,
+            costUsd: rootResult.costUsd,
+            updatedAt: at,
+            revision: root.revision + 1,
+          };
+          yield* upsertModelSession(retryRoot, at, "root-retry");
+          yield* startSessionTurn({
+            thread: rootDetail.value,
+            trace: retryRoot,
+            prompt: root.inputSummary,
+            at,
+            suffix: "root-retry",
+          });
+        } else {
+          const failedRoot: ModelSessionTrace = {
+            ...root,
+            status: rootResult.status === "cancelled" ? "cancelled" : "failed",
+            providerCallId: rootResult.providerCallId,
+            items: rootResult.items,
+            usage: mergeSessionUsage(root, rootResult.usage),
+            durationMs: rootResult.durationMs,
+            costUsd: rootResult.costUsd,
+            updatedAt: at,
+            revision: root.revision + 1,
+          };
+          yield* upsertModelSession(failedRoot, at, "root-failed");
+          episode = {
+            ...episode,
+            status: "failed",
+            failureSummaries: [
+              ...new Set([...episode.failureSummaries, "Root synthesis exhausted retries."]),
+            ].slice(-64),
+            updatedAt: at,
+            revision: episode.revision + 1,
+          };
+          yield* upsertEpisode(episode, at, "root-failed");
+          if (run.status !== "failed" && run.status !== "cancelled" && run.status !== "succeeded") {
+            yield* engine.dispatch({
+              type: "supervised.run.transition",
+              ...daemonCommandBase(run.id, run.revision, "run-root-failed", at),
+              runId: run.id,
+              status: "failed",
+              reason: "RLM root synthesis failed after policy-bounded retries.",
+            });
+          }
+        }
+      }
+    }
+  });
 
   const ensureBuiltIns = Effect.gen(function* () {
     const snapshot = yield* repository.getSnapshot({ includeDisabled: true });
@@ -312,12 +862,14 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
       concurrency: 1,
       discard: true,
     });
+    yield* reconcileRlmEpisodes;
+    const recovering = yield* repository.getSnapshot({ includeDisabled: true });
     yield* repository.setHealth(
-      { ...before.health, status: "recovering", updatedAt: now },
-      before.snapshotSequence,
+      { ...recovering.health, status: "recovering", updatedAt: now },
+      recovering.snapshotSequence,
     );
     yield* Effect.forEach(
-      before.subscriptions.filter((subscription) => subscription.state === "enabled"),
+      recovering.subscriptions.filter((subscription) => subscription.state === "enabled"),
       evaluateSubscription,
       { concurrency: 1, discard: true },
     );
@@ -370,8 +922,22 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
       Effect.asVoid,
     );
 
+  const wake: SupervisedRuntimeDaemonShape["wake"] = Queue.offer(reconcileWake, undefined).pipe(
+    Effect.asVoid,
+  );
+
+  const nextReconcileDelay = repository.getSnapshot({ includeDisabled: true }).pipe(
+    Effect.map((snapshot) =>
+      snapshot.rlmEpisodes.some((episode) => activeRlmStatuses.has(episode.status))
+        ? ("1 second" as const)
+        : ("30 seconds" as const),
+    ),
+    Effect.orElseSucceed(() => "30 seconds" as const),
+  );
+
   const backgroundLoop = Effect.forever(
-    Effect.race(Queue.take(reconcileWake), Effect.sleep("30 seconds")).pipe(
+    nextReconcileDelay.pipe(
+      Effect.flatMap((delay) => Effect.race(Queue.take(reconcileWake), Effect.sleep(delay))),
       Effect.andThen(reconcile),
       Effect.catch((error) =>
         Effect.logError("Supervised runtime reconciliation failed", { error }),
@@ -418,6 +984,7 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
         },
         before.snapshotSequence,
       );
+
       yield* recoverDurableWork;
       yield* reconcile;
       yield* launchBackgroundLoop;
@@ -425,7 +992,7 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
     }),
   );
 
-  return { ingest, reconcile, restart, start } satisfies SupervisedRuntimeDaemonShape;
+  return { ingest, reconcile, restart, start, wake } satisfies SupervisedRuntimeDaemonShape;
 });
 
 export const SupervisedRuntimeDaemonLive = Layer.effect(

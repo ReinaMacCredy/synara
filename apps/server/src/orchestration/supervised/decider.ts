@@ -345,6 +345,26 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
       if (!state.runPolicies.some((policy) => policy.id === command.run.policyId)) {
         return yield* reject(command, "RunPolicy does not exist.");
       }
+      const task = state.tasks.find((candidate) => candidate.id === command.run.taskId);
+      if (!task || task.roomId !== command.run.roomId) {
+        return yield* reject(command, "Run Task does not belong to its Room.");
+      }
+      if (command.run.taskNodeId !== null) {
+        const taskNode = state.taskNodes.find(
+          (candidate) => candidate.id === command.run.taskNodeId,
+        );
+        if (!taskNode || taskNode.taskId !== task.id || taskNode.roomId !== command.run.roomId) {
+          return yield* reject(command, "Run TaskNode does not belong to its Task and Room.");
+        }
+        if (command.run.taskNodeRevisionId !== taskNode.activeRevisionId) {
+          return yield* reject(command, "Run TaskNode revision is not the active revision.");
+        }
+      } else if (command.run.taskNodeRevisionId !== null) {
+        return yield* reject(
+          command,
+          "Run cannot reference a TaskNode revision without a TaskNode.",
+        );
+      }
       if (command.run.status !== "queued") {
         return yield* reject(command, "A requested Run must begin queued.");
       }
@@ -356,12 +376,16 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
     case "supervised.run.transition": {
       const current = state.runs.find((run) => run.id === command.runId);
       if (!current) return yield* reject(command, "Run does not exist.");
+      const daemonOwnsRlmLifecycle =
+        command.actor.kind === "daemon" &&
+        state.rlmEpisodes.some((episode) => episode.runId === current.id);
       if (
         !(
           command.actor.kind === "daemon" &&
           current.status === "interrupted" &&
           command.status === "recovering"
-        )
+        ) &&
+        !daemonOwnsRlmLifecycle
       ) {
         yield* requireHumanOrMatchingSeat(
           command,
@@ -718,96 +742,228 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
         metadata: { deadLetterId: letter.id, replayBehavior: command.replayBehavior },
       });
     }
-      case "supervised.context.append": {
-        yield* requireHumanOrMatchingSeat(
+    case "supervised.context.append": {
+      yield* requireHumanOrMatchingSeat(
         command,
         [command.record.createdBy.seatId],
-          "Only the Human or record author may append this context.",
+        "Only the Human or record author may append this context.",
+      );
+      const workspace = state.contextWorkspaces.find(
+        (candidate) => candidate.id === command.record.workspaceId,
+      );
+      if (!workspace) return yield* reject(command, "Context Workspace does not exist.");
+      yield* requireRevision(command, workspace.revision);
+      if (
+        state.contextRecords.some(
+          (record) =>
+            record.id === command.record.id &&
+            record.contentRevision >= command.record.contentRevision,
+        )
+      ) {
+        return yield* reject(
+          command,
+          "ContextRecord revision is not newer than the durable record.",
         );
-        const workspace = state.contextWorkspaces.find(
-          (candidate) => candidate.id === command.record.workspaceId,
-        );
-        if (!workspace) return yield* reject(command, "Context Workspace does not exist.");
-        yield* requireRevision(command, workspace.revision);
+      }
+      const contextWorkspace = {
+        ...workspace,
+        revision: workspace.revision + 1,
+        updatedAt: command.createdAt,
+      };
+      if (command.compactionReceipt) {
         if (
-          state.contextRecords.some(
-            (record) =>
-              record.id === command.record.id &&
-              record.contentRevision >= command.record.contentRevision,
-          )
+          command.compactionReceipt.workspaceId !== workspace.id ||
+          command.compactionReceipt.summaryRecordId !== command.record.id
         ) {
-          return yield* reject(command, "ContextRecord revision is not newer than the durable record.");
+          return yield* reject(
+            command,
+            "Context compaction receipt does not match its summary record.",
+          );
         }
-        const contextWorkspace = {
-          ...workspace,
-          revision: workspace.revision + 1,
-          updatedAt: command.createdAt,
-        };
-        return event(command, "supervised.context-appended", "context_workspace", contextWorkspace.revision, {
+        const sourceIds = new Set(command.compactionReceipt.sourceRecordIds);
+        const sources = state.contextRecords.filter((candidate) =>
+          sourceIds.has(candidate.id),
+        );
+        const sourceEvidenceRefs = [...new Set(sources.flatMap((source) => source.evidenceRefs))]
+          .toSorted();
+        if (
+          command.record.kind !== "summary" ||
+          sourceIds.size !== command.compactionReceipt.sourceRecordIds.length ||
+          sourceIds.has(command.record.id) ||
+          sources.length !== sourceIds.size ||
+          sources.some(
+            (source) =>
+              source.workspaceId !== workspace.id ||
+              source.status !== "current" ||
+              JSON.stringify(source.scope) !== JSON.stringify(command.record.scope) ||
+              source.protectionClass !== command.record.protectionClass,
+          ) ||
+          new Set(command.record.sourceRecordIds).size !== sourceIds.size ||
+          command.record.sourceRecordIds.some((recordId) => !sourceIds.has(recordId)) ||
+          JSON.stringify([...new Set(command.record.evidenceRefs)].toSorted()) !==
+            JSON.stringify(sourceEvidenceRefs) ||
+          JSON.stringify([...new Set(command.record.evidenceRefs)].toSorted()) !==
+            JSON.stringify([...new Set(command.compactionReceipt.evidenceRefs)].toSorted())
+        ) {
+          return yield* reject(
+            command,
+            "Context compaction lineage must preserve source scope, protection, and evidence.",
+          );
+        }
+      }
+      return event(
+        command,
+        "supervised.context-appended",
+        "context_workspace",
+        contextWorkspace.revision,
+        {
           contextWorkspace,
           contextRecord: command.record,
-        });
+          ...(command.compactionReceipt
+            ? { contextCompactionReceipt: command.compactionReceipt }
+            : {}),
+        },
+      );
+    }
+    case "supervised.evidence.publish": {
+      if (command.actor.kind !== "daemon") {
+        yield* requireHumanOrMatchingSeat(
+          command,
+          [command.evidence.createdBy.seatId],
+          "Only the Human, daemon, or evidence author may publish evidence.",
+        );
       }
-      case "supervised.rlm.upsert": {
-        const run = state.runs.find((candidate) => candidate.id === command.episode.runId);
-        if (command.actor.kind !== "daemon") {
-          yield* requireHumanOrMatchingSeat(
+      if (state.evidence.some((candidate) => candidate.id === command.evidence.id)) {
+        return yield* reject(command, "Evidence already exists.");
+      }
+      if (command.evidence.modelSessionId !== null) {
+        const modelSession = state.modelSessions.find(
+          (session) => session.id === command.evidence.modelSessionId,
+        );
+        if (!modelSession) {
+          return yield* reject(command, "Evidence model session does not exist.");
+        }
+        if (
+          command.evidence.kind === "provider_receipt" &&
+          (command.evidence.scope.kind !== "room" ||
+            command.evidence.scope.roomId !== modelSession.roomId)
+        ) {
+          return yield* reject(
             command,
-            [run?.ownerSeatId],
-            "Only the Human, daemon, or Run owner may update an RLM episode.",
+            "Provider receipt evidence must retain its model session Room scope.",
           );
         }
-        if (!run) return yield* reject(command, "RLM episode Run does not exist.");
-        const current = state.rlmEpisodes.find((episode) => episode.id === command.episode.id);
-        yield* requireRevision(command, current ? current.completedBranchCount : null);
-        return event(command, "supervised.rlm-upserted", "rlm_episode", command.episode.completedBranchCount, {
-          rlmEpisode: command.episode,
-        });
       }
-      case "supervised.model-session.upsert": {
-          const trace = command.modelSession;
-          const run = state.runs.find((candidate) => candidate.id === trace.runId);
-          if (command.actor.kind !== "daemon") {
-            yield* requireHumanOrMatchingSeat(
-              command,
-              [run?.ownerSeatId],
-              "Only the Human, daemon, or Run owner may record a model session.",
-            );
-          }
-          if (!run) return yield* reject(command, "Model session Run does not exist.");
-          if (run.roomId !== trace.roomId || run.taskId !== trace.taskId) {
-            return yield* reject(command, "Model session scope does not match its Run.");
-          }
-          if (trace.taskNodeId !== run.taskNodeId) {
-            return yield* reject(command, "Model session TaskNode does not match its Run.");
-          }
-          if (
-            trace.rlmEpisodeId &&
-            !state.rlmEpisodes.some(
-              (episode) => episode.id === trace.rlmEpisodeId && episode.runId === trace.runId,
-            )
-          ) {
-            return yield* reject(command, "Model session RLM episode does not belong to its Run.");
-          }
-          if (
-            trace.parentSessionId &&
-            !state.modelSessions.some(
-              (session) => session.id === trace.parentSessionId && session.roomId === trace.roomId,
-            )
-          ) {
-            return yield* reject(command, "Model session parent does not belong to this Room.");
-          }
-          const current = state.modelSessions.find((session) => session.id === trace.id);
-          yield* requireRevision(command, current?.revision ?? null);
-          const revision = current ? current.revision + 1 : trace.revision;
-          return event(
+      yield* requireRevision(command, null);
+      return event(command, "supervised.evidence-published", "evidence", 0, {
+        evidence: command.evidence,
+      });
+    }
+    case "supervised.rlm.upsert": {
+      const run = state.runs.find((candidate) => candidate.id === command.episode.runId);
+      if (command.actor.kind !== "daemon") {
+        yield* requireHumanOrMatchingSeat(
+          command,
+          [run?.ownerSeatId],
+          "Only the Human, daemon, or Run owner may update an RLM episode.",
+        );
+      }
+      if (!run) return yield* reject(command, "RLM episode Run does not exist.");
+      const current = state.rlmEpisodes.find((episode) => episode.id === command.episode.id);
+      const policy = state.runPolicies.find((candidate) => candidate.id === run.policyId);
+      const branchIds = new Set(command.episode.branchModelSessionIds);
+      const canonicalLineage =
+        command.episode.rootModelSessionId !== null &&
+        command.episode.admission.episodeId === command.episode.id &&
+        command.episode.admission.selectedMode === "recursive" &&
+        command.episode.branchCount >= 2 &&
+        policy !== undefined &&
+        command.episode.branchCount <= policy.maxFanOut &&
+        branchIds.size === command.episode.branchModelSessionIds.length &&
+        branchIds.size === command.episode.branchCount &&
+        !branchIds.has(command.episode.rootModelSessionId);
+      if (!current && !canonicalLineage) {
+        return yield* reject(command, "A new RLM episode requires complete immutable session lineage.");
+      }
+      if (
+        current &&
+        current.rootModelSessionId !== null &&
+        (current.rootModelSessionId !== command.episode.rootModelSessionId ||
+          current.branchCount !== command.episode.branchCount ||
+          JSON.stringify(current.branchModelSessionIds) !==
+            JSON.stringify(command.episode.branchModelSessionIds))
+      ) {
+        return yield* reject(command, "RLM session lineage cannot change after admission.");
+      }
+      yield* requireRevision(command, current?.revision ?? null);
+      const revision = current ? current.revision + 1 : command.episode.revision;
+      return event(command, "supervised.rlm-upserted", "rlm_episode", revision, {
+        rlmEpisode: { ...command.episode, revision, updatedAt: command.createdAt },
+      });
+    }
+    case "supervised.model-session.upsert": {
+      const trace = command.modelSession;
+      const run = state.runs.find((candidate) => candidate.id === trace.runId);
+      if (command.actor.kind !== "daemon") {
+        yield* requireHumanOrMatchingSeat(
+          command,
+          [run?.ownerSeatId],
+          "Only the Human, daemon, or Run owner may record a model session.",
+        );
+      }
+      if (!run) return yield* reject(command, "Model session Run does not exist.");
+      if (run.roomId !== trace.roomId || run.taskId !== trace.taskId) {
+        return yield* reject(command, "Model session scope does not match its Run.");
+      }
+      if (trace.taskNodeId !== run.taskNodeId) {
+        return yield* reject(command, "Model session TaskNode does not match its Run.");
+      }
+      const rlmEpisode = trace.rlmEpisodeId
+        ? state.rlmEpisodes.find(
+            (episode) => episode.id === trace.rlmEpisodeId && episode.runId === trace.runId,
+          )
+        : undefined;
+      if (trace.rlmEpisodeId && !rlmEpisode) {
+        return yield* reject(command, "Model session RLM episode does not belong to its Run.");
+      }
+      if (trace.role === "rlm_root" || trace.role === "rlm_branch") {
+        if (!rlmEpisode || trace.threadId === null) {
+          return yield* reject(
             command,
-            "supervised.model-session-upserted",
-            "model_session",
-            revision,
-            { modelSession: { ...trace, revision, updatedAt: command.createdAt } },
+            "RLM model sessions require a durable Episode and provider thread.",
           );
+        }
+        if (
+          (trace.role === "rlm_root" &&
+            (rlmEpisode.rootModelSessionId !== trace.id || trace.parentSessionId !== null)) ||
+          (trace.role === "rlm_branch" &&
+            (!rlmEpisode.branchModelSessionIds.includes(trace.id) ||
+              trace.parentSessionId !== rlmEpisode.rootModelSessionId))
+        ) {
+          return yield* reject(command, "RLM model session lineage does not match its Episode.");
+        }
+      } else if (trace.rlmEpisodeId !== null) {
+        return yield* reject(command, "Non-RLM model sessions cannot reference an RLM Episode.");
       }
+      if (
+        trace.parentSessionId &&
+        !state.modelSessions.some(
+          (session) => session.id === trace.parentSessionId && session.roomId === trace.roomId,
+        )
+      ) {
+        return yield* reject(command, "Model session parent does not belong to this Room.");
+      }
+      const current = state.modelSessions.find((session) => session.id === trace.id);
+      yield* requireRevision(command, current?.revision ?? null);
+      const revision = current ? current.revision + 1 : trace.revision;
+      return event(
+        command,
+        "supervised.model-session-upserted",
+        "model_session",
+        revision,
+        { modelSession: { ...trace, revision, updatedAt: command.createdAt } },
+      );
+    }
       case "supervised.patch.upsert": {
         yield* requireHuman(command, "Only the Human may activate or replace Harness Patches.");
         const current = state.harnessPatches.find((patch) => patch.id === command.patch.id);

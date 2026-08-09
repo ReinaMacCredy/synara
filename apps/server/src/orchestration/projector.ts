@@ -328,7 +328,11 @@ export function projectEvent(
     case "supervised.run-requested":
     case "supervised.run-transitioned":
     case "supervised.run-policy-upserted":
+    case "supervised.context-workspace-upserted":
     case "supervised.context-appended":
+    case "supervised.evidence-published":
+    case "supervised.rlm-upserted":
+    case "supervised.model-session-upserted":
     case "supervised.patch-upserted":
     case "supervised.specialist-upserted":
     case "supervised.subscription-upserted":

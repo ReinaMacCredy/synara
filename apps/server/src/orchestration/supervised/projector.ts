@@ -67,7 +67,14 @@ export function projectSupervisedEvent(
           contextRecords: payload.contextRecord
             ? upsert(next.contextRecords, payload.contextRecord)
             : next.contextRecords,
+          contextCompactionReceipts: payload.contextCompactionReceipt
+            ? upsert(next.contextCompactionReceipts, payload.contextCompactionReceipt)
+            : next.contextCompactionReceipts,
         };
+      case "supervised.evidence-published":
+        return payload.evidence
+          ? { ...next, evidence: upsert(next.evidence, payload.evidence) }
+          : next;
       case "supervised.rlm-upserted":
         return payload.rlmEpisode
           ? { ...next, rlmEpisodes: upsert(next.rlmEpisodes, payload.rlmEpisode) }

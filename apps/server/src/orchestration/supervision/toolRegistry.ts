@@ -10,6 +10,8 @@ import {
   MissionScopeList,
   ProfileSnapshotId,
   SpecialistId,
+  SupervisorNotebookEntryId,
+  SupervisorNotebookEntryKind,
   SupervisionAdviceId,
   SupervisionAggregateId,
   SupervisionMissionId,
@@ -33,6 +35,16 @@ import type { ProjectionSnapshotQueryShape } from "../Services/ProjectionSnapsho
 import { missionScopeContainsLead } from "./missionScope.ts";
 import { profileLaunchIssue, resolveProfilePreset } from "./profileResolver.ts";
 import { currentTurnHasHumanOrigin, resolveSupervisionCallerAuthority } from "./toolPolicy.ts";
+import type { SupervisedRuntimeDaemonShape } from "../Services/SupervisedRuntimeDaemon.ts";
+import { RlmStartError, startRlm, type RlmBranchRequest } from "../../supervised/runtime/RlmStart.ts";
+import {
+  buildContextView,
+  planContextCompaction,
+} from "../../supervised/runtime/ContextViews.ts";
+import {
+  buildSupervisorNotebookView,
+  planSupervisorNotebookCompaction,
+} from "../../supervised/governance/SharedSupervisorNotebook.ts";
 
 const AGGREGATE_ID = SupervisionAggregateId.makeUnsafe("supervision");
 const objectSchema = (
@@ -59,6 +71,23 @@ const intArg = (args: Record<string, unknown>, key: string): number => {
   return value as number;
 };
 
+const optionalStringArg = (args: Record<string, unknown>, key: string): string | null => {
+  const value = args[key];
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new HostToolError("supervision_tool_input_invalid", `${key} must be a non-empty string.`);
+  }
+  return value.trim();
+};
+
+const stringArrayArg = (args: Record<string, unknown>, key: string): ReadonlyArray<string> => {
+  const value = args[key];
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string" || entry.trim().length === 0)) {
+    throw new HostToolError("supervision_tool_input_invalid", `${key} must be an array of non-empty strings.`);
+  }
+  return value.map((entry) => (entry as string).trim());
+};
+
 const decode = <S extends Schema.Top>(schema: S, value: unknown, label: string): S["Type"] => {
   try {
     return Schema.decodeUnknownSync(schema)(value);
@@ -75,6 +104,7 @@ export interface SupervisionToolsInput {
   readonly orchestrationEngine: OrchestrationEngineShape;
   readonly snapshotQuery: ProjectionSnapshotQueryShape;
   readonly governanceRepository: SupervisedGovernanceRepositoryShape;
+  readonly runtimeDaemon: SupervisedRuntimeDaemonShape;
 }
 
 export function makeSupervisionTools(
@@ -203,7 +233,7 @@ export function makeSupervisionTools(
       description:
         "Read only the caller's bounded Supervisor missions or Lead-facing supervision state. Peer transcripts are never included.",
       inputSchema: objectSchema({}),
-      readOnly: true,
+      readOnly: false,
       providerSupport: { codex: "native", claude: "unsupported" },
       supervised: {
         toolId: "supervised.topology.read",
@@ -894,6 +924,673 @@ export function makeSupervisionTools(
     },
   );
 
+  const startRlmExecution = entry(
+    {
+      name: "start_rlm",
+      displayName: "Start RLM",
+      description:
+        "Start a durable recursive language-model episode with real independent provider threads and a retained root synthesis session.",
+      inputSchema: objectSchema(
+        {
+          objective: { type: "string", maxLength: 32_768 },
+          roomId: { type: "string" },
+          runId: { type: "string" },
+          branches: {
+            type: "array",
+            minItems: 2,
+            maxItems: 16,
+            items: {
+              type: "object",
+              properties: {
+                title: { type: "string", maxLength: 512 },
+                prompt: { type: "string", maxLength: 32_768 },
+              },
+              required: ["title", "prompt"],
+              additionalProperties: false,
+            },
+          },
+        },
+        ["objective", "branches"],
+      ),
+      readOnly: false,
+      providerSupport: { codex: "native", claude: "unsupported" },
+      supervised: {
+        toolId: "supervised.rlm.start",
+        schemaVersion: "1.0.0",
+      },
+    },
+    {
+      visible: (_state, role) => role === "lead" || role === "supervisor",
+      execute: (args, context) =>
+        Effect.gen(function* () {
+          yield* context.assertCallerTurnActive();
+          const { state, authority } = yield* loadAuthority(context.callerThreadId);
+          const governance = yield* input.governanceRepository.getSnapshot().pipe(
+            Effect.mapError(
+              (error) =>
+                new HostToolError(
+                  "supervision_state_unavailable",
+                  error instanceof Error ? error.message : String(error),
+                ),
+            ),
+          );
+          const seatId =
+            authority.role === "lead" ? authority.leadSeatId : authority.supervisorSeatId;
+          const seat = governance.agentSeats.find((candidate) => candidate.id === seatId);
+          const authorityReceipt = governance.authorityReceipts.find(
+            (candidate) => candidate.id === seat?.authorityReceiptId,
+          );
+          if (!seat || !authorityReceipt) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervision_authority_unavailable",
+                "The caller has no current durable AgentSeat authority receipt.",
+              ),
+            );
+          }
+          const requestedRoomId =
+            typeof args.roomId === "string" && args.roomId.trim().length > 0
+              ? args.roomId.trim()
+              : null;
+          const room = state.supervised.rooms.find(
+            (candidate) =>
+              candidate.status !== "archived" &&
+              (requestedRoomId !== null
+                ? candidate.id === requestedRoomId
+                : authority.role === "lead" && candidate.leadSeatId === authority.leadSeatId),
+          );
+          const project = room
+            ? state.projects.find(
+                (candidate) => candidate.id === room.projectId && candidate.deletedAt === null,
+              )
+            : undefined;
+          const callerThread = yield* input.snapshotQuery
+            .getThreadDetailById(ThreadId.makeUnsafe(context.callerThreadId))
+            .pipe(
+              Effect.map(Option.getOrUndefined),
+              Effect.mapError(
+                (error) =>
+                  new HostToolError(
+                    "supervision_state_unavailable",
+                    error instanceof Error ? error.message : String(error),
+                  ),
+              ),
+            );
+          if (!room || !project || !callerThread) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_room_unavailable",
+                "An active scoped Room, Project, and caller thread are required to start RLM.",
+              ),
+            );
+          }
+          if (!Array.isArray(args.branches)) {
+            return yield* Effect.fail(
+              new HostToolError("supervision_tool_input_invalid", "branches must be an array."),
+            );
+          }
+          const branches: RlmBranchRequest[] = args.branches.map((value, index) => {
+            if (value === null || typeof value !== "object" || Array.isArray(value)) {
+              throw new HostToolError(
+                "supervision_tool_input_invalid",
+                `branches[${index}] must be an object.`,
+              );
+            }
+            const branch = value as Record<string, unknown>;
+            return {
+              title: stringArg(branch, "title"),
+              prompt: stringArg(branch, "prompt"),
+            };
+          });
+          const modelProfile = governance.modelCapabilityProfiles.find(
+            (candidate) =>
+              candidate.available &&
+              candidate.provider === callerThread.modelSelection.provider &&
+              candidate.model === callerThread.modelSelection.model,
+          );
+          const result = yield* startRlm({
+            engine: input.orchestrationEngine,
+            daemon: input.runtimeDaemon,
+            runtime: state.supervised,
+            callerThread,
+            project,
+            room,
+            seat,
+            authorityReceipt,
+            objective: stringArg(args, "objective"),
+            branches,
+            existingRunId:
+              typeof args.runId === "string" && args.runId.trim().length > 0
+                ? args.runId.trim()
+                : null,
+            providerLimitTokens: modelProfile?.contextCapacity ?? null,
+            createdAt: new Date().toISOString(),
+          }).pipe(
+            Effect.mapError((error) =>
+              error instanceof RlmStartError
+                ? new HostToolError(error.code, error.message)
+                : new HostToolError("supervised_rlm_failed", String(error)),
+            ),
+          );
+          return hostToolSuccess(result);
+        }),
+    },
+  );
+
+  const searchSupervisorNotebook = entry(
+    {
+      name: "search_supervisor_notebook",
+      displayName: "Search supervisor notebook",
+      description:
+        "Read a bounded, protection-filtered view of the shared workspace Supervisor notebook and advance the caller's durable cursor.",
+      inputSchema: objectSchema({
+        concern: { type: "string", maxLength: 512 },
+        roomId: { type: "string" },
+        query: { type: "string", maxLength: 4_000 },
+        incremental: { type: "boolean" },
+        limit: { type: "integer", minimum: 1, maximum: 200 },
+      }),
+      readOnly: true,
+      providerSupport: { codex: "native", claude: "unsupported" },
+      supervised: {
+        toolId: "supervised.notebook.search",
+        schemaVersion: "1.0.0",
+      },
+    },
+    {
+      visible: (_state, role) => role === "supervisor" || role === "lead",
+      execute: (args, context) =>
+        Effect.gen(function* () {
+          const { authority } = yield* loadAuthority(context.callerThreadId);
+          const governance = yield* input.governanceRepository.getSnapshot();
+          const seatId =
+            authority.role === "lead" ? authority.leadSeatId : authority.supervisorSeatId;
+          const seat = governance.agentSeats.find((candidate) => candidate.id === seatId);
+          const receipt = governance.authorityReceipts.find(
+            (candidate) => candidate.id === seat?.authorityReceiptId,
+          );
+          if (!seat || !receipt) {
+            return yield* Effect.fail(
+              new HostToolError("supervision_authority_unavailable", "The caller AgentSeat is unavailable."),
+            );
+          }
+          const requestedRoomId = optionalStringArg(args, "roomId");
+          const allowedRoomIds = new Set(
+            seat.roomIds.filter((roomId) => receipt.roomScopes.includes(roomId)),
+          );
+          if (requestedRoomId !== null && !allowedRoomIds.has(requestedRoomId)) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_notebook_scope_denied",
+                "The caller authority does not cover the requested notebook Room.",
+              ),
+            );
+          }
+          const limit =
+            args.limit === undefined
+              ? 50
+              : Math.max(1, Math.min(200, intArg(args, "limit")));
+          const notebookState = yield* input.governanceRepository.getNotebookState({
+            workspaceId: seat.workspaceId,
+            seatId: seat.id,
+            limit: 500,
+          });
+          const incremental = args.incremental === true;
+          if (args.incremental !== undefined && typeof args.incremental !== "boolean") {
+            return yield* Effect.fail(
+              new HostToolError("supervision_tool_input_invalid", "incremental must be a boolean."),
+            );
+          }
+          const concern = optionalStringArg(args, "concern");
+          const query = optionalStringArg(args, "query")?.toLocaleLowerCase() ?? null;
+          const view = buildSupervisorNotebookView({
+            workspaceId: seat.workspaceId,
+            viewerSeatId: seat.id,
+            entries: notebookState.entries.filter(
+              (entry) => entry.roomId === null || allowedRoomIds.has(entry.roomId),
+            ),
+            compactionReceipts: notebookState.compactionReceipts,
+            cursor: incremental && query === null ? notebookState.cursor : null,
+            ...(requestedRoomId === null ? {} : { roomId: requestedRoomId }),
+            ...(concern === null ? {} : { concern }),
+            allowedProtectionClasses: ["workspace", "internal"],
+            limit,
+            createdAt: new Date().toISOString(),
+          });
+          if (query === null) {
+            yield* input.governanceRepository.putNotebookCursor(view.nextCursor);
+          }
+          const entries =
+            query === null
+              ? view.entries
+              : view.entries.filter((candidate) =>
+                  `${candidate.concern}\n${candidate.content}`.toLocaleLowerCase().includes(query),
+                );
+          return hostToolSuccess({
+            workspaceId: view.workspaceId,
+            entries,
+            compactionReceipts: view.compactionReceipts,
+            nextCursor: view.nextCursor,
+          });
+        }).pipe(
+          Effect.mapError(
+            (error) =>
+              error instanceof HostToolError
+                ? error
+                : new HostToolError(
+                    "supervision_state_unavailable",
+                    error instanceof Error ? error.message : String(error),
+                  ),
+          ),
+        ),
+    },
+  );
+
+  const appendSupervisorNotebook = entry(
+    {
+      name: "append_supervisor_notebook_entry",
+      displayName: "Append supervisor notebook entry",
+      description:
+        "Append one evidence-linked fact to the shared workspace Supervisor notebook without overwriting existing entries.",
+      inputSchema: objectSchema(
+        {
+          concern: { type: "string", maxLength: 512 },
+          kind: {
+            type: "string",
+            enum: ["observation", "decision", "lesson", "hypothesis", "warning"],
+          },
+          content: { type: "string", maxLength: 32_768 },
+          evidenceRefs: { type: "array", items: { type: "string" }, maxItems: 512 },
+          confidence: { type: "number", minimum: 0, maximum: 1 },
+          roomId: { type: "string" },
+          taskNodeId: { type: "string" },
+          supersedesEntryId: { type: "string" },
+        },
+        ["concern", "kind", "content", "confidence"],
+      ),
+      readOnly: false,
+      providerSupport: { codex: "native", claude: "unsupported" },
+      supervised: {
+        toolId: "supervised.notebook.append",
+        schemaVersion: "1.0.0",
+      },
+    },
+    {
+      visible: (_state, role) => role === "supervisor",
+      execute: (args, context) =>
+        Effect.gen(function* () {
+          yield* context.assertCallerTurnActive();
+          const { state, authority } = yield* loadAuthority(context.callerThreadId);
+          if (authority.role !== "supervisor") {
+            return yield* Effect.fail(
+              new HostToolError("supervision_role_required", "Supervisor role required."),
+            );
+          }
+          const governance = yield* input.governanceRepository.getSnapshot();
+          const seat = governance.agentSeats.find(
+            (candidate) => candidate.id === authority.supervisorSeatId,
+          );
+          const receipt = governance.authorityReceipts.find(
+            (candidate) => candidate.id === seat?.authorityReceiptId,
+          );
+          if (!seat || !receipt) {
+            return yield* Effect.fail(
+              new HostToolError("supervision_authority_unavailable", "The Supervisor AgentSeat is unavailable."),
+            );
+          }
+          const current = yield* input.governanceRepository.getNotebookState({
+            workspaceId: seat.workspaceId,
+            seatId: seat.id,
+            limit: 500,
+          });
+          const supersedesEntryId = optionalStringArg(args, "supersedesEntryId");
+          if (
+            supersedesEntryId !== null &&
+            !current.entries.some((candidate) => candidate.id === supersedesEntryId)
+          ) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_notebook_supersession_missing",
+                "The superseded entry is unavailable in this workspace.",
+              ),
+            );
+          }
+          const roomId = optionalStringArg(args, "roomId");
+          const taskNodeId = optionalStringArg(args, "taskNodeId");
+          if (
+            roomId !== null &&
+            (!seat.roomIds.includes(roomId) ||
+              !receipt.roomScopes.includes(roomId) ||
+              !state.supervised.rooms.some(
+                (candidate) => candidate.id === roomId && candidate.status !== "archived",
+              ))
+          ) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_notebook_scope_denied",
+                "Notebook Room is unavailable or outside the caller authority.",
+              ),
+            );
+          }
+          if (
+            taskNodeId !== null &&
+            !state.supervised.taskNodes.some(
+              (candidate) =>
+                candidate.id === taskNodeId &&
+                (roomId === null || candidate.roomId === roomId),
+            )
+          ) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_task_node_unavailable",
+                "Notebook TaskNode is unavailable or outside the selected Room.",
+              ),
+            );
+          }
+          const confidence = args.confidence;
+          if (typeof confidence !== "number" || !Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
+            return yield* Effect.fail(
+              new HostToolError("supervision_tool_input_invalid", "confidence must be between 0 and 1."),
+            );
+          }
+          const entry = {
+            id: SupervisorNotebookEntryId.makeUnsafe(`notebook:${randomUUID()}`),
+            workspaceId: seat.workspaceId,
+            roomId: roomId as never,
+            taskNodeId: taskNodeId as never,
+            concern: stringArg(args, "concern"),
+            authorSeatId: seat.id,
+            kind: decode(SupervisorNotebookEntryKind, args.kind, "kind"),
+            content: stringArg(args, "content"),
+            evidenceRefs: args.evidenceRefs === undefined ? [] : stringArrayArg(args, "evidenceRefs"),
+            confidence,
+            supersedesEntryId: supersedesEntryId as never,
+            protectionClass: "internal",
+            redactedAt: null,
+            createdAt: new Date().toISOString(),
+          } as const;
+          const inserted = yield* input.governanceRepository.appendNotebookEntry(entry);
+          if (!inserted) {
+            return yield* Effect.fail(
+              new HostToolError("supervised_notebook_duplicate", "Notebook entry already exists."),
+            );
+          }
+          return hostToolSuccess({ entry });
+        }).pipe(
+          Effect.mapError(
+            (error) =>
+              error instanceof HostToolError
+                ? error
+                : new HostToolError(
+                    "supervision_state_unavailable",
+                    error instanceof Error ? error.message : String(error),
+                  ),
+          ),
+        ),
+    },
+  );
+
+  const compactSupervisorNotebook = entry(
+    {
+      name: "compact_supervisor_notebook",
+      displayName: "Compact supervisor notebook",
+      description:
+        "Append a rebuildable notebook summary plus an immutable source/evidence receipt without deleting source entries.",
+      inputSchema: objectSchema(
+        {
+          sourceEntryIds: {
+            type: "array",
+            items: { type: "string" },
+            minItems: 1,
+            maxItems: 512,
+          },
+          roomId: { type: "string" },
+          content: { type: "string", maxLength: 32_768 },
+        },
+        ["sourceEntryIds", "content"],
+      ),
+      readOnly: false,
+      providerSupport: { codex: "native", claude: "unsupported" },
+      supervised: {
+        toolId: "supervised.notebook.compact",
+        schemaVersion: "1.0.0",
+      },
+    },
+    {
+      visible: (_state, role) => role === "supervisor",
+      execute: (args, context) =>
+        Effect.gen(function* () {
+          yield* context.assertCallerTurnActive();
+          const { authority } = yield* loadAuthority(context.callerThreadId);
+          if (authority.role !== "supervisor") {
+            return yield* Effect.fail(
+              new HostToolError("supervision_role_required", "Supervisor role required."),
+            );
+          }
+          const governance = yield* input.governanceRepository.getSnapshot();
+          const seat = governance.agentSeats.find(
+            (candidate) => candidate.id === authority.supervisorSeatId,
+          );
+          const receipt = governance.authorityReceipts.find(
+            (candidate) => candidate.id === seat?.authorityReceiptId,
+          );
+          if (!seat || !receipt) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervision_authority_unavailable",
+                "The Supervisor AgentSeat or authority receipt is unavailable.",
+              ),
+            );
+          }
+          const current = yield* input.governanceRepository.getNotebookState({
+            workspaceId: seat.workspaceId,
+            seatId: seat.id,
+            limit: 500,
+          });
+          const sourceEntryIds = stringArrayArg(args, "sourceEntryIds");
+          const requestedRoomId = optionalStringArg(args, "roomId");
+          const allowedRoomIds = new Set(
+            seat.roomIds.filter((roomId) => receipt.roomScopes.includes(roomId)),
+          );
+          const visibleEntries = current.entries.filter(
+            (candidate) =>
+              (candidate.roomId === null || allowedRoomIds.has(candidate.roomId)) &&
+              ["workspace", "internal"].includes(candidate.protectionClass) &&
+              candidate.redactedAt === null,
+          );
+          if (
+            sourceEntryIds.length === 0 ||
+            sourceEntryIds.some(
+              (entryId) => !visibleEntries.some((candidate) => candidate.id === entryId),
+            ) ||
+            sourceEntryIds.some(
+              (entryId) =>
+                visibleEntries.find((candidate) => candidate.id === entryId)?.roomId !==
+                requestedRoomId,
+            )
+          ) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_notebook_source_denied",
+                "Every compaction source must be visible in the selected notebook Room scope.",
+              ),
+            );
+          }
+          const createdAt = new Date().toISOString();
+          const planned = planSupervisorNotebookCompaction({
+            entries: visibleEntries,
+            sourceEntryIds: sourceEntryIds as never,
+            authorSeatId: seat.id,
+            content: stringArg(args, "content"),
+            createdAt,
+          });
+          const inserted = yield* input.governanceRepository.appendNotebookCompaction(planned);
+          if (!inserted) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_notebook_duplicate",
+                "Notebook compaction already exists.",
+              ),
+            );
+          }
+          return hostToolSuccess(planned);
+        }).pipe(
+          Effect.mapError(
+            (error) =>
+              error instanceof HostToolError
+                ? error
+                : new HostToolError(
+                    "supervised_notebook_compaction_failed",
+                    error instanceof Error ? error.message : String(error),
+                  ),
+          ),
+        ),
+    },
+  );
+
+  const requestContextCompaction = entry(
+    {
+      name: "request_context_compaction",
+      displayName: "Request context compaction",
+      description:
+        "Append a rebuildable summary and immutable compaction receipt for visible ContextRecords; source evidence is never deleted.",
+      inputSchema: objectSchema(
+        {
+          workspaceId: { type: "string" },
+          sourceRecordIds: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 512 },
+          title: { type: "string", maxLength: 512 },
+          summary: { type: "string", maxLength: 32_768 },
+        },
+        ["workspaceId", "sourceRecordIds", "title", "summary"],
+      ),
+      readOnly: false,
+      providerSupport: { codex: "native", claude: "unsupported" },
+      supervised: {
+        toolId: "supervised.context.requestCompaction",
+        schemaVersion: "1.0.0",
+      },
+    },
+    {
+      visible: (_state, role) => role === "supervisor" || role === "lead",
+      execute: (args, context) =>
+        Effect.gen(function* () {
+          yield* context.assertCallerTurnActive();
+          const { state, authority } = yield* loadAuthority(context.callerThreadId);
+          const governance = yield* input.governanceRepository.getSnapshot();
+          const seatId =
+            authority.role === "lead" ? authority.leadSeatId : authority.supervisorSeatId;
+          const seat = governance.agentSeats.find((candidate) => candidate.id === seatId);
+          const receipt = governance.authorityReceipts.find(
+            (candidate) => candidate.id === seat?.authorityReceiptId,
+          );
+          const workspace = state.supervised.contextWorkspaces.find(
+            (candidate) => candidate.id === stringArg(args, "workspaceId"),
+          );
+          const thread = state.threads.find((candidate) => candidate.id === context.callerThreadId);
+          if (
+            !seat ||
+            !receipt ||
+            !workspace ||
+            !thread ||
+            thread.projectId !== workspace.projectId
+          ) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_context_unavailable",
+                "The scoped Context Workspace or caller authority is unavailable.",
+              ),
+            );
+          }
+          if (
+            workspace.roomId !== null &&
+            (!seat.roomIds.includes(workspace.roomId) || !receipt.roomScopes.includes(workspace.roomId))
+          ) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_context_scope_denied",
+                "The caller authority does not cover this Context Workspace Room.",
+              ),
+            );
+          }
+          const visible = buildContextView({
+            workspace,
+            records: state.supervised.contextRecords,
+            compactionReceipts: state.supervised.contextCompactionReceipts,
+            actorSeatId: seat.id,
+            allowedScopes: [
+              { kind: "project", projectId: workspace.projectId },
+              ...(workspace.roomId === null ? [] : [{ kind: "room" as const, roomId: workspace.roomId }]),
+            ],
+            allowedProtectionClasses: ["workspace", "internal"],
+            provider: thread.modelSelection.provider,
+            model: thread.modelSelection.model,
+            providerLimitTokens: null,
+            maxRecords: 512,
+            maxEstimatedTokens: Number.MAX_SAFE_INTEGER,
+            createdAt: new Date().toISOString(),
+          });
+          const sourceRecordIds = stringArrayArg(args, "sourceRecordIds");
+          if (
+            sourceRecordIds.length === 0 ||
+            sourceRecordIds.some((recordId) => !visible.view.recordIds.includes(recordId as never))
+          ) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_context_source_denied",
+                "Every compaction source must be visible in the caller's current ContextView.",
+              ),
+            );
+          }
+          const sourceRecords = sourceRecordIds.map(
+            (recordId) => state.supervised.contextRecords.find((candidate) => candidate.id === recordId)!,
+          );
+          const protectionClass = sourceRecords.some(
+            (record) => record.protectionClass === "internal",
+          )
+            ? "internal"
+            : "workspace";
+          const createdAt = new Date().toISOString();
+          const planned = planContextCompaction({
+            workspace,
+            records: state.supervised.contextRecords,
+            sourceRecordIds: sourceRecordIds as never,
+            title: stringArg(args, "title"),
+            summary: stringArg(args, "summary"),
+            createdBy: { kind: "seat", actorId: context.callerThreadId, seatId: seat.id },
+            protectionClass,
+            createdAt,
+          });
+          const commandReceipt = yield* dispatch({
+            type: "supervised.context.append",
+            commandId: CommandId.makeUnsafe(randomUUID()),
+            actor: { kind: "seat", actorId: context.callerThreadId, seatId: seat.id },
+            authorityReceiptId: receipt.id,
+            aggregateId: workspace.id,
+            expectedRevision: workspace.revision,
+            idempotencyKey: `context-compaction:${planned.receipt.id}`,
+            createdAt,
+            record: planned.summaryRecord,
+            compactionReceipt: planned.receipt,
+          });
+          return hostToolSuccess({
+            sequence: commandReceipt.sequence,
+            summaryRecord: planned.summaryRecord,
+            compactionReceipt: planned.receipt,
+          });
+        }).pipe(
+          Effect.mapError(
+            (error) =>
+              error instanceof HostToolError
+                ? error
+                : new HostToolError(
+                    "supervised_context_compaction_failed",
+                    error instanceof Error ? error.message : String(error),
+                  ),
+          ),
+        ),
+    },
+  );
+
   const revokeWorkflow = entry(
     {
       name: "revoke_supervision_workflow",
@@ -985,5 +1682,10 @@ export function makeSupervisionTools(
     revokeWorkflow,
     requestReplacement,
     createSpecialist,
+    startRlmExecution,
+    searchSupervisorNotebook,
+    appendSupervisorNotebook,
+    compactSupervisorNotebook,
+    requestContextCompaction,
   ];
 }
