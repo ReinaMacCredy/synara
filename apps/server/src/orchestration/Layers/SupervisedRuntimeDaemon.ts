@@ -12,6 +12,8 @@ import { CommandId } from "@synara/contracts";
 import { Effect, Exit, Fiber, Layer, Ref, Scope, Semaphore } from "effect";
 
 import { SupervisedRuntimeRepository } from "../../persistence/Services/SupervisedRuntimeRepository.ts";
+import { SupervisedGovernanceRepository } from "../../persistence/Services/SupervisedGovernanceRepository.ts";
+import { recoverGovernanceSnapshot } from "../../supervised/governance/Lifecycle.ts";
 import {
   builtInEventSchemas,
   builtInRunPolicy,
@@ -54,6 +56,7 @@ const makeDelivery = (
 
 const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
   const repository = yield* SupervisedRuntimeRepository;
+  const governanceRepository = yield* SupervisedGovernanceRepository;
   const signalDelivery = yield* SupervisedSignalDelivery;
   const engine = yield* OrchestrationEngineService;
   const workerId = `supervised-daemon:${process.pid}`;
@@ -211,6 +214,14 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
     );
 
   const reconcile: SupervisedRuntimeDaemonShape["reconcile"] = Effect.gen(function* () {
+    const governanceBefore = yield* governanceRepository.getSnapshot();
+    const governanceRecovery = recoverGovernanceSnapshot(
+      governanceBefore,
+      new Date().toISOString(),
+    );
+    if (governanceRecovery.snapshot !== governanceBefore) {
+      yield* governanceRepository.replaceSnapshot(governanceRecovery.snapshot);
+    }
     yield* ensureBuiltIns;
     const before = yield* repository.getSnapshot({ includeDisabled: true });
     const now = new Date().toISOString();

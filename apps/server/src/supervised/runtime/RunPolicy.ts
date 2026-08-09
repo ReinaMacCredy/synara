@@ -116,14 +116,19 @@ export function evaluateRunPolicy(
 }
 
 const RUN_TRANSITIONS: Readonly<Record<Run["status"], ReadonlySet<Run["status"]>>> = {
-  admitted: new Set(["queued", "cancelled"]),
-  queued: new Set(["running", "paused", "cancelled", "failed"]),
-  running: new Set(["waiting", "paused", "stalled", "succeeded", "failed", "cancelled"]),
-  waiting: new Set(["running", "paused", "stalled", "failed", "cancelled"]),
-  paused: new Set(["queued", "running", "cancelled"]),
-  stalled: new Set(["running", "paused", "failed", "cancelled"]),
+  queued: new Set(["admitted", "cancelled"]),
+  admitted: new Set(["starting", "cancelled", "failed"]),
+  starting: new Set(["running", "interrupted", "failed", "cancelled"]),
+  running: new Set(["waiting", "reviewing", "paused", "retrying", "interrupted", "stalled", "succeeded", "failed", "cancelled"]),
+  waiting: new Set(["running", "reviewing", "paused", "interrupted", "stalled", "failed", "cancelled"]),
+  reviewing: new Set(["running", "succeeded", "retrying", "failed", "cancelled"]),
+  paused: new Set(["queued", "starting", "running", "cancelled"]),
+  retrying: new Set(["starting", "running", "failed", "cancelled"]),
+  interrupted: new Set(["recovering", "failed", "cancelled"]),
+  recovering: new Set(["running", "waiting", "failed", "cancelled"]),
+  stalled: new Set(["retrying", "running", "paused", "failed", "cancelled"]),
   succeeded: new Set(),
-  failed: new Set(["queued"]),
+  failed: new Set(["queued", "retrying"]),
   cancelled: new Set(),
 };
 
@@ -139,7 +144,7 @@ export function transitionRun(run: Run, to: Run["status"], at: string): Run {
   return {
     ...run,
     status: to,
-    startedAt: run.startedAt ?? (to === "running" ? at : null),
+    startedAt: run.startedAt ?? (to === "starting" || to === "running" ? at : null),
     lastProgressAt: to === "running" ? at : run.lastProgressAt,
     finishedAt: terminal ? at : null,
     revision: run.revision + 1,

@@ -120,21 +120,39 @@ describe("ensureSupervisedDraft", () => {
         }),
         dispatchCommand,
       },
-    });
+      });
 
-    await expect(activateSupervisedRoom({ threadId, projectId, leadSeatId })).resolves.toBe(threadId);
-    expect(dispatchCommand).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: "supervised.room.update",
-        aggregateId: threadId,
-        expectedRevision: 2,
-        idempotencyKey: "room-activate:room-thread:lead-seat:2",
-        room: expect.objectContaining({
-          leadSeatId,
-          status: "active",
+      await expect(activateSupervisedRoom({ threadId, projectId, leadSeatId })).resolves.toBe(threadId);
+      expect(dispatchCommand).toHaveBeenCalledTimes(3);
+      expect(dispatchCommand).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          type: "supervised.room.update",
+          aggregateId: threadId,
+          expectedRevision: 2,
+          idempotencyKey: "room-lifecycle:room-thread:provisioning:2",
+          room: expect.objectContaining({
+            leadSeatId,
+            status: "provisioning",
+          }),
         }),
-      }),
-    );
+      );
+      expect(dispatchCommand).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          expectedRevision: 3,
+          idempotencyKey: "room-lifecycle:room-thread:ready:3",
+          room: expect.objectContaining({ status: "ready" }),
+        }),
+      );
+      expect(dispatchCommand).toHaveBeenNthCalledWith(
+        3,
+        expect.objectContaining({
+          expectedRevision: 4,
+          idempotencyKey: "room-lifecycle:room-thread:active:4",
+          room: expect.objectContaining({ status: "active" }),
+        }),
+      );
   });
 
   it("rebinds a draft Room when the owner selects a different Project before sending", async () => {
@@ -163,13 +181,15 @@ describe("ensureSupervisedDraft", () => {
         }),
         dispatchCommand,
       },
-    });
+      });
 
-    await expect(activateSupervisedRoom({ threadId, projectId, leadSeatId })).resolves.toBe(threadId);
-    expect(dispatchCommand).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: "supervised.room.update",
-        room: expect.objectContaining({
+      await expect(activateSupervisedRoom({ threadId, projectId, leadSeatId })).resolves.toBe(threadId);
+      expect(dispatchCommand).toHaveBeenCalledTimes(3);
+      expect(dispatchCommand).toHaveBeenNthCalledWith(
+        3,
+        expect.objectContaining({
+          type: "supervised.room.update",
+          room: expect.objectContaining({
           projectId,
           leadSeatId,
           status: "active",
@@ -207,12 +227,13 @@ describe("ensureSupervisedDraft", () => {
     });
 
     await expect(activateSupervisedRoom({ threadId, projectId, leadSeatId })).resolves.toBe(threadId);
-    expect(dispatchCommand).toHaveBeenCalledWith(
-      expect.objectContaining({
-        expectedRevision: 3,
-        room: expect.objectContaining({ leadSeatId, status: "active" }),
-      }),
-    );
+      expect(dispatchCommand).toHaveBeenCalledWith(
+        expect.objectContaining({
+          expectedRevision: 3,
+          idempotencyKey: "room-rebind:room-thread:lead-current:3",
+          room: expect.objectContaining({ leadSeatId, status: "active" }),
+        }),
+      );
   });
 
   it("recovers the durable Lead seat after the local draft was reloaded", async () => {
@@ -248,12 +269,12 @@ describe("ensureSupervisedDraft", () => {
       },
     });
 
-    await expect(activateSupervisedRoom({ threadId, projectId })).resolves.toBe(threadId);
-    expect(dispatchCommand).toHaveBeenCalledWith(
-      expect.objectContaining({
-        idempotencyKey: "room-activate:room-thread:lead-durable:4",
-        room: expect.objectContaining({ leadSeatId }),
-      }),
-    );
+      await expect(activateSupervisedRoom({ threadId, projectId })).resolves.toBe(threadId);
+      expect(dispatchCommand).toHaveBeenCalledWith(
+        expect.objectContaining({
+          idempotencyKey: "room-rebind:room-thread:lead-durable:4",
+          room: expect.objectContaining({ leadSeatId }),
+        }),
+      );
   });
 });

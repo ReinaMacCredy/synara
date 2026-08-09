@@ -12,6 +12,7 @@ import {
   transitionRun,
   type RunResourceUsage,
 } from "../../supervised/runtime/RunPolicy.ts";
+import { transitionRoom } from "../../supervised/governance/Lifecycle.ts";
 
 type UnsequencedEvent = Omit<SupervisedDomainEvent, "sequence">;
 
@@ -248,8 +249,24 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
       );
       if (!current) return yield* reject(command, "Room does not exist.");
       yield* requireRevision(command, current.revision);
+      let room;
+      try {
+        room =
+          current.status === command.room.status
+            ? { ...command.room, revision: current.revision + 1, updatedAt: command.createdAt }
+            : {
+                ...command.room,
+                ...transitionRoom(current, command.room.status, command.createdAt),
+                projectId: command.room.projectId,
+                title: command.room.title,
+                leadSeatId: command.room.leadSeatId,
+                graphRevision: command.room.graphRevision,
+              };
+      } catch (cause) {
+        return yield* reject(command, cause instanceof Error ? cause.message : String(cause));
+      }
       return event(command, "supervised.room-updated", "supervised_room", current.revision + 1, {
-        room: { ...command.room, revision: current.revision + 1 },
+        room,
       });
     }
     case "supervised.task.create": {
@@ -295,9 +312,12 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
       if (state.runs.some((run) => run.id === command.run.id)) {
         return yield* reject(command, "Run already exists.");
       }
-      if (!state.runPolicies.some((policy) => policy.id === command.run.runPolicyId)) {
-        return yield* reject(command, "RunPolicy does not exist.");
-      }
+        if (!state.runPolicies.some((policy) => policy.id === command.run.policyId)) {
+          return yield* reject(command, "RunPolicy does not exist.");
+        }
+        if (command.run.status !== "queued") {
+          return yield* reject(command, "A requested Run must begin queued.");
+        }
       yield* requireRevision(command, null);
       return event(command, "supervised.run-requested", "supervised_run", command.run.revision, {
         run: command.run,

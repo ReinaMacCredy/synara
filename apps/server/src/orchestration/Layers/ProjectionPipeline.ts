@@ -37,7 +37,9 @@ import {
 import { ProjectionProjectRepository } from "../../persistence/Services/ProjectionProjects.ts";
 import { ProjectionTaskProcessRepository } from "../../persistence/Services/ProjectionTaskProcess.ts";
 import { ProjectionSupervisionRepository } from "../../persistence/Services/ProjectionSupervision.ts";
+import { SupervisedGovernanceRepository } from "../../persistence/Services/SupervisedGovernanceRepository.ts";
 import { SupervisedRuntimeRepository } from "../../persistence/Services/SupervisedRuntimeRepository.ts";
+import { reconcileLegacyGovernance } from "../../supervised/governance/LegacyReconciliation.ts";
 import { ProjectionSpaceRepository } from "../../persistence/Services/ProjectionSpaces.ts";
 import { ProjectionStateRepository } from "../../persistence/Services/ProjectionState.ts";
 import { ProjectionThreadActivityRepository } from "../../persistence/Services/ProjectionThreadActivities.ts";
@@ -63,6 +65,7 @@ import { ProjectionPendingInteractionRepositoryLive } from "../../persistence/La
 import { ProjectionProjectRepositoryLive } from "../../persistence/Layers/ProjectionProjects.ts";
 import { ProjectionTaskProcessRepositoryLive } from "../../persistence/Layers/ProjectionTaskProcess.ts";
 import { ProjectionSupervisionRepositoryLive } from "../../persistence/Layers/ProjectionSupervision.ts";
+import { SupervisedGovernanceRepositoryLive } from "../../persistence/Layers/SupervisedGovernanceRepository.ts";
 import { SupervisedRuntimeRepositoryLive } from "../../persistence/Layers/SupervisedRuntimeRepository.ts";
 import { ProjectionSpaceRepositoryLive } from "../../persistence/Layers/ProjectionSpaces.ts";
 import { ProjectionStateRepositoryLive } from "../../persistence/Layers/ProjectionState.ts";
@@ -490,6 +493,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
   const projectionProjectRepository = yield* ProjectionProjectRepository;
   const projectionTaskProcessRepository = yield* ProjectionTaskProcessRepository;
   const projectionSupervisionRepository = yield* ProjectionSupervisionRepository;
+  const supervisedGovernanceRepository = yield* SupervisedGovernanceRepository;
   const supervisedRuntimeRepository = yield* SupervisedRuntimeRepository;
   const projectionSpaceRepository = yield* ProjectionSpaceRepository;
   const projectionThreadRepository = yield* ProjectionThreadRepository;
@@ -577,18 +581,31 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
     });
   };
 
+  const reconcileGovernance = (at: string) =>
+    Effect.gen(function* () {
+      const supervision = yield* projectionSupervisionRepository.getSnapshot();
+      const runtime = yield* supervisedRuntimeRepository.getSnapshot({ includeDisabled: true });
+      const governance = yield* supervisedGovernanceRepository.getSnapshot();
+      const reconciled = reconcileLegacyGovernance({ governance, supervision, runtime, at });
+      yield* supervisedGovernanceRepository.replaceSnapshot(reconciled);
+    });
+
   const applySupervisionProjection: ProjectorDefinition["apply"] = (event) => {
     if (!Schema.is(SupervisionDomainEvent)(event)) return Effect.void;
     return Effect.gen(function* () {
       const current = yield* projectionSupervisionRepository.getSnapshot();
       const next = projectSupervisionEvent(current, event);
       yield* projectionSupervisionRepository.replaceSnapshot(next);
+      yield* reconcileGovernance(event.occurredAt);
     });
   };
 
   const applySupervisedProjection: ProjectorDefinition["apply"] = (event) => {
     if (!Schema.is(SupervisedDomainEvent)(event)) return Effect.void;
-    return supervisedRuntimeRepository.applyDomainEvent(event);
+    return Effect.gen(function* () {
+      yield* supervisedRuntimeRepository.applyDomainEvent(event);
+      yield* reconcileGovernance(event.occurredAt);
+    });
   };
 
   const applyProjectsProjection: ProjectorDefinition["apply"] = (event, _attachmentSideEffects) => {
@@ -2345,6 +2362,7 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   Layer.provideMerge(ProjectionProjectRepositoryLive),
   Layer.provideMerge(ProjectionTaskProcessRepositoryLive),
   Layer.provideMerge(ProjectionSupervisionRepositoryLive),
+  Layer.provideMerge(SupervisedGovernanceRepositoryLive),
   Layer.provideMerge(SupervisedRuntimeRepositoryLive),
   Layer.provideMerge(ProjectionSpaceRepositoryLive),
   Layer.provideMerge(ProjectionThreadRepositoryLive),

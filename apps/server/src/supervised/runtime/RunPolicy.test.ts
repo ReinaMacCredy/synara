@@ -92,9 +92,12 @@ describe("RunPolicy", () => {
       createdAt: now,
       updatedAt: now,
     } as Run;
-    const running = transitionRun(run, "running", "2026-08-07T00:00:01.000Z");
+    const admitted = transitionRun(run, "admitted", "2026-08-07T00:00:01.000Z");
+    const starting = transitionRun(admitted, "starting", "2026-08-07T00:00:02.000Z");
+    const running = transitionRun(starting, "running", "2026-08-07T00:00:03.000Z");
     assert.equal(running.status, "running");
-    assert.equal(running.revision, 1);
+    assert.equal(running.revision, 3);
+    assert.equal(starting.startedAt, "2026-08-07T00:00:02.000Z");
     assert.throws(() => transitionRun(running, "admitted", now));
   });
 });

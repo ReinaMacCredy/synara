@@ -2,10 +2,14 @@ import {
   AgentSeat,
   DirectIntervention,
   EffectiveAuthorityReceipt,
+  GovernedProviderSession,
+  GovernanceHandoff,
   HumanDirective,
+  LeadReplacement,
   ModelCapabilityProfile,
   ModelSelectionReceipt,
   RootAuthorityLease,
+  RoleAssumption,
   StandingMandate,
   SupervisedWorkspace,
   SupervisorNotebookEntry,
@@ -25,7 +29,7 @@ import {
 } from "../Services/SupervisedGovernanceRepository.ts";
 
 type EntityRow = { readonly entityJson: string };
-type StateRow = { readonly updatedAt: string };
+type StateRow = { readonly revision: number; readonly updatedAt: string };
 
 const decodeRows = <A, I>(
   schema: Schema.Schema<A, I>,
@@ -51,7 +55,7 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
   const getSnapshot: SupervisedGovernanceRepositoryShape["getSnapshot"] = () =>
     Effect.gen(function* () {
       const stateRows = yield* sql<StateRow>`
-        SELECT updated_at AS "updatedAt"
+        SELECT revision, updated_at AS "updatedAt"
         FROM supervised_governance_state
         WHERE singleton_id = 1
       `;
@@ -65,6 +69,11 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
         FROM projection_supervised_agent_seats
         ORDER BY updated_at DESC, seat_id
       `;
+      const providerSessionRows = yield* sql<EntityRow>`
+        SELECT entity_json AS "entityJson"
+        FROM projection_supervised_provider_sessions
+        ORDER BY updated_at DESC, provider_session_id
+      `;
       const authorityReceiptRows = yield* sql<EntityRow>`
         SELECT entity_json AS "entityJson"
         FROM projection_supervised_authority_receipts
@@ -74,6 +83,21 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
         SELECT entity_json AS "entityJson"
         FROM projection_supervised_root_authority_leases
         ORDER BY updated_at DESC, lease_id
+      `;
+      const handoffRows = yield* sql<EntityRow>`
+        SELECT entity_json AS "entityJson"
+        FROM projection_supervised_handoffs
+        ORDER BY updated_at DESC, handoff_id
+      `;
+      const roleAssumptionRows = yield* sql<EntityRow>`
+        SELECT entity_json AS "entityJson"
+        FROM projection_supervised_role_assumptions
+        ORDER BY updated_at DESC, role_assumption_id
+      `;
+      const leadReplacementRows = yield* sql<EntityRow>`
+        SELECT entity_json AS "entityJson"
+        FROM projection_supervised_lead_replacements
+        ORDER BY updated_at DESC, replacement_id
       `;
       const humanDirectiveRows = yield* sql<EntityRow>`
         SELECT entity_json AS "entityJson"
@@ -112,6 +136,7 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
       `;
 
       return {
+        revision: stateRows[0]?.revision ?? 0,
         workspaces: yield* decodeRows(
           SupervisedWorkspace,
           "SupervisedGovernance.getSnapshot.workspaces",
@@ -122,6 +147,11 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
           "SupervisedGovernance.getSnapshot.agentSeats",
           seatRows,
         ),
+        providerSessions: yield* decodeRows(
+          GovernedProviderSession,
+          "SupervisedGovernance.getSnapshot.providerSessions",
+          providerSessionRows,
+        ),
         authorityReceipts: yield* decodeRows(
           EffectiveAuthorityReceipt,
           "SupervisedGovernance.getSnapshot.authorityReceipts",
@@ -131,6 +161,21 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
           RootAuthorityLease,
           "SupervisedGovernance.getSnapshot.rootLeases",
           rootLeaseRows,
+        ),
+        handoffs: yield* decodeRows(
+          GovernanceHandoff,
+          "SupervisedGovernance.getSnapshot.handoffs",
+          handoffRows,
+        ),
+        roleAssumptions: yield* decodeRows(
+          RoleAssumption,
+          "SupervisedGovernance.getSnapshot.roleAssumptions",
+          roleAssumptionRows,
+        ),
+        leadReplacements: yield* decodeRows(
+          LeadReplacement,
+          "SupervisedGovernance.getSnapshot.leadReplacements",
+          leadReplacementRows,
         ),
         humanDirectives: yield* decodeRows(
           HumanDirective,
@@ -174,11 +219,26 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
   const replaceSnapshot: SupervisedGovernanceRepositoryShape["replaceSnapshot"] = (snapshot) =>
     sql.withTransaction(
       Effect.gen(function* () {
+        yield* sql`
+          UPDATE supervised_governance_state
+          SET revision = revision + 1, updated_at = ${snapshot.updatedAt}
+          WHERE singleton_id = 1 AND revision = ${snapshot.revision}
+        `;
+        const changedRows = yield* sql<{ readonly changed: number }>`SELECT changes() AS changed`;
+        if ((changedRows[0]?.changed ?? 0) !== 1) {
+          return yield* Effect.fail(
+            new Error(`Governance snapshot revision conflict: expected ${snapshot.revision}.`),
+          );
+        }
         yield* sql`DELETE FROM supervised_model_selection_receipts`;
         yield* sql`DELETE FROM supervised_user_model_preference_profiles`;
         yield* sql`DELETE FROM supervised_model_capability_profiles`;
         yield* sql`DELETE FROM projection_supervised_notebook_entries`;
         yield* sql`DELETE FROM projection_supervised_direct_interventions`;
+        yield* sql`DELETE FROM projection_supervised_lead_replacements`;
+        yield* sql`DELETE FROM projection_supervised_role_assumptions`;
+        yield* sql`DELETE FROM projection_supervised_handoffs`;
+        yield* sql`DELETE FROM projection_supervised_provider_sessions`;
         yield* sql`DELETE FROM projection_supervised_standing_mandates`;
         yield* sql`DELETE FROM projection_supervised_human_directives`;
         yield* sql`DELETE FROM projection_supervised_root_authority_leases`;
@@ -226,6 +286,19 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
           { concurrency: 1, discard: true },
         );
         yield* Effect.forEach(
+          snapshot.providerSessions,
+          (session) => sql`
+            INSERT INTO projection_supervised_provider_sessions (
+              provider_session_id, workspace_id, seat_id, lifecycle_state,
+              revision, updated_at, entity_json
+            ) VALUES (
+              ${session.id}, ${session.workspaceId}, ${session.seatId}, ${session.lifecycleState},
+              ${session.revision}, ${session.updatedAt}, ${JSON.stringify(session)}
+            )
+          `,
+          { concurrency: 1, discard: true },
+        );
+        yield* Effect.forEach(
           snapshot.rootLeases,
           (lease) => sql`
             INSERT INTO projection_supervised_root_authority_leases (
@@ -234,6 +307,49 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
             ) VALUES (
               ${lease.id}, ${lease.workspaceId}, ${lease.roomId}, ${lease.holderSeatId}, ${lease.status},
               ${lease.acquiredUnderReceiptId}, ${lease.revision}, ${lease.updatedAt}, ${JSON.stringify(lease)}
+            )
+          `,
+          { concurrency: 1, discard: true },
+        );
+        yield* Effect.forEach(
+          snapshot.handoffs,
+          (handoff) => sql`
+            INSERT INTO projection_supervised_handoffs (
+              handoff_id, workspace_id, room_id, from_seat_id, to_seat_id,
+              lifecycle_state, revision, updated_at, entity_json
+            ) VALUES (
+              ${handoff.id}, ${handoff.workspaceId}, ${handoff.roomId}, ${handoff.fromSeatId},
+              ${handoff.toSeatId}, ${handoff.lifecycleState}, ${handoff.revision},
+              ${handoff.updatedAt}, ${JSON.stringify(handoff)}
+            )
+          `,
+          { concurrency: 1, discard: true },
+        );
+        yield* Effect.forEach(
+          snapshot.roleAssumptions,
+          (assumption) => sql`
+            INSERT INTO projection_supervised_role_assumptions (
+              role_assumption_id, workspace_id, room_id, actor_seat_id,
+              lifecycle_state, revision, updated_at, entity_json
+            ) VALUES (
+              ${assumption.id}, ${assumption.workspaceId}, ${assumption.roomId},
+              ${assumption.actorSeatId}, ${assumption.lifecycleState}, ${assumption.revision},
+              ${assumption.updatedAt}, ${JSON.stringify(assumption)}
+            )
+          `,
+          { concurrency: 1, discard: true },
+        );
+        yield* Effect.forEach(
+          snapshot.leadReplacements,
+          (replacement) => sql`
+            INSERT INTO projection_supervised_lead_replacements (
+              replacement_id, workspace_id, room_id, previous_lead_seat_id,
+              replacement_lead_seat_id, lifecycle_state, revision, updated_at, entity_json
+            ) VALUES (
+              ${replacement.id}, ${replacement.workspaceId}, ${replacement.roomId},
+              ${replacement.previousLeadSeatId}, ${replacement.replacementLeadSeatId},
+              ${replacement.lifecycleState}, ${replacement.revision}, ${replacement.updatedAt},
+              ${JSON.stringify(replacement)}
             )
           `,
           { concurrency: 1, discard: true },
@@ -331,11 +447,6 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
           `,
           { concurrency: 1, discard: true },
         );
-        yield* sql`
-          UPDATE supervised_governance_state
-          SET updated_at = ${snapshot.updatedAt}
-          WHERE singleton_id = 1
-        `;
       }),
     ).pipe(Effect.mapError(persistenceError("SupervisedGovernance.replaceSnapshot")));
 

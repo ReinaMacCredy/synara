@@ -109,11 +109,16 @@ export type AuthorityScope = typeof AuthorityScope.Type;
 
 export const RoomStatus = Schema.Literals([
   "draft",
+  "provisioning",
+  "ready",
   "active",
   "paused",
+  "draining",
+  "degraded",
   "recovering",
   "completed",
   "archived",
+  "failed",
 ]);
 export const Room = Schema.Struct({
   id: RoomId,
@@ -192,11 +197,16 @@ export const TaskNodeRevision = Schema.Struct({
 export type TaskNodeRevision = typeof TaskNodeRevision.Type;
 
 export const RunStatus = Schema.Literals([
-  "admitted",
   "queued",
+  "admitted",
+  "starting",
   "running",
   "waiting",
+  "reviewing",
   "paused",
+  "retrying",
+  "interrupted",
+  "recovering",
   "stalled",
   "succeeded",
   "failed",

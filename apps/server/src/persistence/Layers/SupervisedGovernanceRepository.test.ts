@@ -18,6 +18,7 @@ const testLayer = it.layer(
 const now = "2026-08-09T00:00:00.000Z";
 
 const snapshot = Schema.decodeUnknownSync(SupervisedGovernanceSnapshot)({
+  revision: 0,
   workspaces: [
     {
       id: "workspace-1",
@@ -57,7 +58,7 @@ const snapshot = Schema.decodeUnknownSync(SupervisedGovernanceSnapshot)({
       effectiveRole: "supervisor",
       profileId: "profile-supervisor",
       concern: "primary",
-      providerSessionId: null,
+      providerSessionId: "provider-supervisor",
       lifecycleState: "active",
       workState: "idle",
       authorityReceiptId: "receipt-supervisor",
@@ -68,7 +69,25 @@ const snapshot = Schema.decodeUnknownSync(SupervisedGovernanceSnapshot)({
       updatedAt: now,
     },
   ],
+  providerSessions: [
+    {
+      id: "provider-supervisor",
+      workspaceId: "workspace-1",
+      seatId: "seat-supervisor",
+      provider: "codex",
+      nativeSessionId: "native-supervisor",
+      lifecycleState: "active",
+      createdAt: now,
+      retainedAt: null,
+      closedAt: null,
+      revision: 1,
+      updatedAt: now,
+    },
+  ],
   rootLeases: [],
+  handoffs: [],
+  roleAssumptions: [],
+  leadReplacements: [],
   humanDirectives: [
     {
       id: "directive-1",
@@ -197,7 +216,22 @@ testLayer("SupervisedGovernanceRepository", (it) => {
 
       const reloaded = yield* repository.getSnapshot();
 
-      assert.deepStrictEqual(reloaded, snapshot);
+      assert.deepStrictEqual(reloaded, { ...snapshot, revision: 1 });
+    }),
+  );
+
+  it.effect("rejects a stale competing snapshot writer", () =>
+    Effect.gen(function* () {
+      const repository = yield* SupervisedGovernanceRepository;
+      const before = yield* repository.getSnapshot();
+      const competingSnapshot = { ...snapshot, revision: before.revision };
+      yield* repository.replaceSnapshot(competingSnapshot);
+
+      const competingWrite = yield* Effect.exit(repository.replaceSnapshot(competingSnapshot));
+      const reloaded = yield* repository.getSnapshot();
+
+      assert.equal(competingWrite._tag, "Failure");
+      assert.equal(reloaded.revision, before.revision + 1);
     }),
   );
 });

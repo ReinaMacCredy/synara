@@ -40,6 +40,14 @@ export const UserModelPreferenceProfileId = entityId("UserModelPreferenceProfile
 export type UserModelPreferenceProfileId = typeof UserModelPreferenceProfileId.Type;
 export const ModelSelectionReceiptId = entityId("ModelSelectionReceiptId");
 export type ModelSelectionReceiptId = typeof ModelSelectionReceiptId.Type;
+export const GovernedProviderSessionId = entityId("GovernedProviderSessionId");
+export type GovernedProviderSessionId = typeof GovernedProviderSessionId.Type;
+export const GovernanceHandoffId = entityId("GovernanceHandoffId");
+export type GovernanceHandoffId = typeof GovernanceHandoffId.Type;
+export const RoleAssumptionId = entityId("RoleAssumptionId");
+export type RoleAssumptionId = typeof RoleAssumptionId.Type;
+export const LeadReplacementId = entityId("LeadReplacementId");
+export type LeadReplacementId = typeof LeadReplacementId.Type;
 
 export const AgentRole = Schema.Literals(["supervisor", "lead", "peer"]);
 export type AgentRole = typeof AgentRole.Type;
@@ -97,7 +105,7 @@ export const AgentSeat = Schema.Struct({
   effectiveRole: EffectiveAgentRole,
   profileId: AgentProfileId,
   concern: Schema.optional(ShortText),
-  providerSessionId: Schema.NullOr(TrimmedNonEmptyString),
+  providerSessionId: Schema.NullOr(GovernedProviderSessionId),
   lifecycleState: AgentSeatLifecycle,
   workState: AgentWorkState,
   authorityReceiptId: EffectiveAuthorityReceiptId,
@@ -108,6 +116,33 @@ export const AgentSeat = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 export type AgentSeat = typeof AgentSeat.Type;
+
+export const GovernedProviderSessionLifecycle = Schema.Literals([
+  "creating",
+  "active",
+  "retained",
+  "resuming",
+  "closing",
+  "closed",
+  "interrupted",
+  "lost",
+  "recovering",
+  "failed",
+]);
+export const GovernedProviderSession = Schema.Struct({
+  id: GovernedProviderSessionId,
+  workspaceId: SupervisedWorkspaceId,
+  seatId: AgentSeatId,
+  provider: TrimmedNonEmptyString,
+  nativeSessionId: Schema.NullOr(TrimmedNonEmptyString),
+  lifecycleState: GovernedProviderSessionLifecycle,
+  createdAt: IsoDateTime,
+  retainedAt: Schema.NullOr(IsoDateTime),
+  closedAt: Schema.NullOr(IsoDateTime),
+  revision: NonNegativeInt,
+  updatedAt: IsoDateTime,
+});
+export type GovernedProviderSession = typeof GovernedProviderSession.Type;
 
 export const CanonicalAuthorityScope = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("workspace"), workspaceId: SupervisedWorkspaceId }),
@@ -162,6 +197,103 @@ export const RootAuthorityLease = Schema.Struct({
 });
 export type RootAuthorityLease = typeof RootAuthorityLease.Type;
 
+export const GovernanceHandoffLifecycle = Schema.Literals([
+  "draft",
+  "prepared",
+  "delivered",
+  "acknowledged",
+  "accepted",
+  "ownership_transferred",
+  "reconciled",
+  "rejected",
+  "expired",
+  "cancelled",
+  "failed",
+]);
+export const GovernanceHandoff = Schema.Struct({
+  id: GovernanceHandoffId,
+  workspaceId: SupervisedWorkspaceId,
+  roomId: RoomId,
+  fromSeatId: AgentSeatId,
+  toSeatId: AgentSeatId,
+  lifecycleState: GovernanceHandoffLifecycle,
+  scope: Schema.Array(CanonicalAuthorityScope).check(Schema.isMinLength(1)).check(Schema.isMaxLength(256)),
+  summary: Schema.NullOr(BoundedText),
+  evidenceRefs: Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(512)),
+  preparedAt: Schema.NullOr(IsoDateTime),
+  acceptedAt: Schema.NullOr(IsoDateTime),
+  transferredAt: Schema.NullOr(IsoDateTime),
+  reconciledAt: Schema.NullOr(IsoDateTime),
+  revision: NonNegativeInt,
+  updatedAt: IsoDateTime,
+});
+export type GovernanceHandoff = typeof GovernanceHandoff.Type;
+
+export const RoleAssumptionLifecycle = Schema.Literals([
+  "requested",
+  "authority_validated",
+  "destination_ready",
+  "previous_root_notified",
+  "lease_transferred",
+  "topology_reconciled",
+  "active",
+  "release_requested",
+  "successor_ready",
+  "handoff_accepted",
+  "released",
+  "failed",
+]);
+export const RoleAssumption = Schema.Struct({
+  id: RoleAssumptionId,
+  workspaceId: SupervisedWorkspaceId,
+  roomId: RoomId,
+  actorSeatId: AgentSeatId,
+  previousRootSeatId: AgentSeatId,
+  handoffId: GovernanceHandoffId,
+  previousLeaseId: RootAuthorityLeaseId,
+  nextLeaseId: RootAuthorityLeaseId,
+  operation: Schema.Literals(["assume", "release"]),
+  lifecycleState: RoleAssumptionLifecycle,
+  requestedUnderReceiptId: EffectiveAuthorityReceiptId,
+  failureReason: Schema.NullOr(BoundedText),
+  createdAt: IsoDateTime,
+  completedAt: Schema.NullOr(IsoDateTime),
+  revision: NonNegativeInt,
+  updatedAt: IsoDateTime,
+});
+export type RoleAssumption = typeof RoleAssumption.Type;
+
+export const LeadReplacementLifecycle = Schema.Literals([
+  "requested",
+  "provisioning_replacement",
+  "replacement_ready",
+  "handoff_prepared",
+  "handoff_accepted",
+  "lease_transferred",
+  "topology_reconciled",
+  "draining_previous",
+  "completed",
+  "failed",
+]);
+export const LeadReplacement = Schema.Struct({
+  id: LeadReplacementId,
+  workspaceId: SupervisedWorkspaceId,
+  roomId: RoomId,
+  previousLeadSeatId: AgentSeatId,
+  replacementLeadSeatId: AgentSeatId,
+  handoffId: GovernanceHandoffId,
+  previousLeaseId: RootAuthorityLeaseId,
+  replacementLeaseId: RootAuthorityLeaseId,
+  lifecycleState: LeadReplacementLifecycle,
+  retirePreviousLineage: Schema.Boolean,
+  failureReason: Schema.NullOr(BoundedText),
+  createdAt: IsoDateTime,
+  completedAt: Schema.NullOr(IsoDateTime),
+  revision: NonNegativeInt,
+  updatedAt: IsoDateTime,
+});
+export type LeadReplacement = typeof LeadReplacement.Type;
+
 export const HumanDirectiveStatus = Schema.Literals(["active", "fulfilled", "revoked", "expired"]);
 export const HumanDirective = Schema.Struct({
   id: HumanDirectiveId,
@@ -205,6 +337,7 @@ export const DirectInterventionLifecycle = Schema.Literals([
   "completed",
   "lead_notified",
   "reconciled",
+  "not_required",
   "closed",
   "failed",
 ]);
@@ -339,10 +472,23 @@ export const ModelSelectionReceipt = Schema.Struct({
 export type ModelSelectionReceipt = typeof ModelSelectionReceipt.Type;
 
 export const SupervisedGovernanceSnapshot = Schema.Struct({
+  revision: NonNegativeInt,
   workspaces: Schema.Array(SupervisedWorkspace),
   agentSeats: Schema.Array(AgentSeat),
+  providerSessions: Schema.optional(Schema.Array(GovernedProviderSession)).pipe(
+    Schema.withDecodingDefault(() => []),
+  ),
   authorityReceipts: Schema.Array(EffectiveAuthorityReceipt),
   rootLeases: Schema.Array(RootAuthorityLease),
+  handoffs: Schema.optional(Schema.Array(GovernanceHandoff)).pipe(
+    Schema.withDecodingDefault(() => []),
+  ),
+  roleAssumptions: Schema.optional(Schema.Array(RoleAssumption)).pipe(
+    Schema.withDecodingDefault(() => []),
+  ),
+  leadReplacements: Schema.optional(Schema.Array(LeadReplacement)).pipe(
+    Schema.withDecodingDefault(() => []),
+  ),
   humanDirectives: Schema.Array(HumanDirective),
   standingMandates: Schema.Array(StandingMandate),
   directInterventions: Schema.Array(DirectIntervention),
@@ -355,10 +501,15 @@ export const SupervisedGovernanceSnapshot = Schema.Struct({
 export type SupervisedGovernanceSnapshot = typeof SupervisedGovernanceSnapshot.Type;
 
 export const emptySupervisedGovernanceSnapshot = (updatedAt: string): SupervisedGovernanceSnapshot => ({
+  revision: 0,
   workspaces: [],
   agentSeats: [],
+  providerSessions: [],
   authorityReceipts: [],
   rootLeases: [],
+  handoffs: [],
+  roleAssumptions: [],
+  leadReplacements: [],
   humanDirectives: [],
   standingMandates: [],
   directInterventions: [],

@@ -4,6 +4,7 @@ import { OrchestrationCommandReceiptRepositoryLive } from "../persistence/Layers
 import { OrchestrationEventStoreLive } from "../persistence/Layers/OrchestrationEventStore";
 import { ManagedAttachmentRepositoryLive } from "../persistence/Layers/ManagedAttachments";
 import { SupervisedRuntimeRepositoryLive } from "../persistence/Layers/SupervisedRuntimeRepository";
+import { SupervisedGovernanceRepositoryLive } from "../persistence/Layers/SupervisedGovernanceRepository";
 import { OrchestrationEngineLive } from "./Layers/OrchestrationEngine";
 import { OrchestrationProjectionPipelineLive } from "./Layers/ProjectionPipeline";
 import { OrchestrationProjectionSnapshotQueryLive } from "./Layers/ProjectionSnapshotQuery";
@@ -15,6 +16,7 @@ export const OrchestrationEventInfrastructureLayerLive = Layer.mergeAll(
   OrchestrationCommandReceiptRepositoryLive,
   ManagedAttachmentRepositoryLive,
   SupervisedRuntimeRepositoryLive,
+  SupervisedGovernanceRepositoryLive,
 );
 
 export const OrchestrationProjectionPipelineLayerLive = OrchestrationProjectionPipelineLive.pipe(
@@ -44,6 +46,7 @@ const SupervisedSignalDeliveryLayerLive = SupervisedSignalDeliveryLive.pipe(
 const SupervisedRuntimeDaemonLayerLive = SupervisedRuntimeDaemonLive.pipe(
   Layer.provideMerge(OrchestrationCoreLayerLive),
   Layer.provideMerge(SupervisedRuntimeRepositoryLive),
+  Layer.provideMerge(SupervisedGovernanceRepositoryLive),
   Layer.provideMerge(SupervisedSignalDeliveryLayerLive),
 );
 

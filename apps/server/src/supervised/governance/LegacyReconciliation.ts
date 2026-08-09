@@ -1,0 +1,263 @@
+import {
+  AgentProfileId,
+  AgentSeatId,
+  EffectiveAuthorityReceiptId,
+  RootAuthorityLeaseId,
+  SupervisedWorkspaceId,
+  type AgentSeat,
+  type EffectiveAuthorityReceipt,
+  type RootAuthorityLease,
+  type SupervisedGovernanceSnapshot,
+  type SupervisedRuntimeSnapshot,
+  type SupervisionSnapshot,
+} from "@synara/contracts";
+
+const workspaceId = SupervisedWorkspaceId.makeUnsafe("workspace:default");
+const liveRootStatuses = new Set(["active", "transferring", "releasing"]);
+
+const upsert = <T extends { readonly id: string }>(items: ReadonlyArray<T>, value: T) => {
+  const index = items.findIndex((item) => item.id === value.id);
+  if (index < 0) return [...items, value];
+  const next = items.slice();
+  next[index] = value;
+  return next;
+};
+
+const legacyReceiptId = (seatId: string) =>
+  EffectiveAuthorityReceiptId.makeUnsafe(`legacy-receipt:${seatId}`);
+
+const seatLifecycle = (status: string): AgentSeat["lifecycleState"] => {
+  if (status === "active") return "active";
+  if (status === "queued" || status === "vacant") return "requested";
+  if (status === "rotating") return "draining";
+  return "retired";
+};
+
+const roomIdsForLead = (runtime: SupervisedRuntimeSnapshot, leadSeatId: string) =>
+  runtime.rooms.filter((room) => room.leadSeatId === leadSeatId).map((room) => room.id);
+
+const activeLegacyLeaseFor = (
+  snapshot: SupervisedGovernanceSnapshot,
+  roomId: string,
+  holderSeatId: string,
+) =>
+  snapshot.rootLeases.find(
+    (lease) =>
+      lease.roomId === roomId &&
+      lease.holderSeatId === holderSeatId &&
+      liveRootStatuses.has(lease.status) &&
+      lease.id.startsWith("legacy-root-lease:"),
+  );
+
+const rootLeaseIdFor = (
+  snapshot: SupervisedGovernanceSnapshot,
+  roomId: string,
+  holderSeatId: string,
+) =>
+  activeLegacyLeaseFor(snapshot, roomId, holderSeatId)?.id ??
+  RootAuthorityLeaseId.makeUnsafe(`legacy-root-lease:${roomId}:${holderSeatId}`);
+
+const makeReceipt = (input: {
+  readonly snapshot: SupervisedGovernanceSnapshot;
+  readonly seatId: string;
+  readonly role: "supervisor" | "lead" | "peer";
+  readonly roomIds: ReadonlyArray<string>;
+  readonly issuedAt: string;
+}): EffectiveAuthorityReceipt => ({
+  id: legacyReceiptId(input.seatId),
+  actorSeatId: AgentSeatId.makeUnsafe(input.seatId),
+  identityRole: input.role,
+  effectiveRole: input.role,
+  workspaceScopes: [workspaceId],
+  roomScopes: input.roomIds as EffectiveAuthorityReceipt["roomScopes"],
+  taskNodeScopes: [],
+  allowedCommands: [],
+  allowedTools: [],
+  rootLeaseIds:
+    input.role === "lead"
+      ? input.roomIds.map((roomId) => rootLeaseIdFor(input.snapshot, roomId, input.seatId))
+      : [],
+  mandateIds: [],
+  runPolicyRevision: 0,
+  issuedAt: input.issuedAt,
+  expiresAt: null,
+  revokedAt: null,
+});
+
+const shouldPreserveCanonicalSeat = (
+  snapshot: SupervisedGovernanceSnapshot,
+  seatId: string,
+) => {
+  const current = snapshot.agentSeats.find((seat) => seat.id === seatId);
+  return current !== undefined && !current.authorityReceiptId.startsWith("legacy-receipt:");
+};
+
+export function reconcileLegacyGovernance(input: {
+  readonly governance: SupervisedGovernanceSnapshot;
+  readonly supervision: SupervisionSnapshot;
+  readonly runtime: SupervisedRuntimeSnapshot;
+  readonly at: string;
+}): SupervisedGovernanceSnapshot {
+  let authorityReceipts = input.governance.authorityReceipts.slice();
+  let agentSeats = input.governance.agentSeats.slice();
+  let rootLeases = input.governance.rootLeases.slice();
+
+  for (const supervisor of input.supervision.supervisors) {
+    if (shouldPreserveCanonicalSeat(input.governance, supervisor.id)) continue;
+    const receipt = makeReceipt({
+      snapshot: input.governance,
+      seatId: supervisor.id,
+      role: "supervisor",
+      roomIds: [],
+      issuedAt: supervisor.createdAt,
+    });
+    authorityReceipts = upsert(authorityReceipts, receipt);
+    agentSeats = upsert(agentSeats, {
+      id: AgentSeatId.makeUnsafe(supervisor.id),
+      workspaceId,
+      roomIds: [],
+      identityRole: "supervisor",
+      effectiveRole: "supervisor",
+      profileId: AgentProfileId.makeUnsafe(supervisor.profileSnapshotId),
+      providerSessionId: null,
+      lifecycleState: seatLifecycle(supervisor.status),
+      workState: "idle",
+      authorityReceiptId: receipt.id,
+      createdAt: supervisor.createdAt,
+      retainedAt: null,
+      retiredAt: supervisor.archivedAt,
+      revision: supervisor.revision,
+      updatedAt: supervisor.updatedAt,
+    });
+  }
+
+  for (const lead of input.supervision.leads) {
+    if (shouldPreserveCanonicalSeat(input.governance, lead.id)) continue;
+    const roomIds = roomIdsForLead(input.runtime, lead.id);
+    const receipt = makeReceipt({
+      snapshot: input.governance,
+      seatId: lead.id,
+      role: "lead",
+      roomIds,
+      issuedAt: lead.createdAt,
+    });
+    authorityReceipts = upsert(authorityReceipts, receipt);
+    agentSeats = upsert(agentSeats, {
+      id: AgentSeatId.makeUnsafe(lead.id),
+      workspaceId,
+      roomIds,
+      identityRole: "lead",
+      effectiveRole: "lead",
+      profileId: AgentProfileId.makeUnsafe(lead.profileSnapshotId),
+      providerSessionId: null,
+      lifecycleState: seatLifecycle(lead.status),
+      workState: "idle",
+      authorityReceiptId: receipt.id,
+      createdAt: lead.createdAt,
+      retainedAt: null,
+      retiredAt: lead.archivedAt,
+      revision: lead.revision,
+      updatedAt: lead.updatedAt,
+    });
+  }
+
+  for (const peer of input.supervision.peers) {
+    if (shouldPreserveCanonicalSeat(input.governance, peer.threadId)) continue;
+    const roomIds = roomIdsForLead(input.runtime, peer.leadSeatId);
+    const receipt = makeReceipt({
+      snapshot: input.governance,
+      seatId: peer.threadId,
+      role: "peer",
+      roomIds,
+      issuedAt: peer.createdAt,
+    });
+    authorityReceipts = upsert(authorityReceipts, receipt);
+    agentSeats = upsert(agentSeats, {
+      id: AgentSeatId.makeUnsafe(peer.threadId),
+      workspaceId,
+      roomIds,
+      identityRole: "peer",
+      effectiveRole: "peer",
+      profileId: AgentProfileId.makeUnsafe(peer.profileSnapshotId),
+      providerSessionId: null,
+      lifecycleState: seatLifecycle(peer.status),
+      workState: "idle",
+      authorityReceiptId: receipt.id,
+      createdAt: peer.createdAt,
+      retainedAt: null,
+      retiredAt: peer.archivedAt,
+      revision: peer.revision,
+      updatedAt: peer.updatedAt,
+    });
+  }
+
+  for (const room of input.runtime.rooms) {
+    if (room.leadSeatId === null) continue;
+    const canonicalLiveLease = rootLeases.find(
+      (lease) =>
+        lease.roomId === room.id &&
+        liveRootStatuses.has(lease.status) &&
+        !lease.id.startsWith("legacy-root-lease:"),
+    );
+    if (canonicalLiveLease) continue;
+    const current = activeLegacyLeaseFor(
+      { ...input.governance, rootLeases },
+      room.id,
+      room.leadSeatId,
+    );
+    rootLeases = rootLeases.map((lease) =>
+      lease.roomId === room.id &&
+      lease.holderSeatId !== room.leadSeatId &&
+      liveRootStatuses.has(lease.status) &&
+      lease.id.startsWith("legacy-root-lease:")
+        ? {
+            ...lease,
+            status: "released" as const,
+            releasedAt: input.at,
+            revision: lease.revision + 1,
+            updatedAt: input.at,
+          }
+        : lease,
+    );
+    const terminal = room.status === "completed" || room.status === "archived";
+    const lease: RootAuthorityLease = {
+      id: current?.id ?? rootLeaseIdFor(input.governance, room.id, room.leadSeatId),
+      workspaceId,
+      roomId: room.id,
+      holderSeatId: AgentSeatId.makeUnsafe(room.leadSeatId),
+      status: terminal ? "released" : "active",
+      acquiredUnderReceiptId: legacyReceiptId(room.leadSeatId),
+      predecessorLeaseId: null,
+      acquiredAt: room.createdAt,
+      releasedAt: terminal ? room.updatedAt : null,
+      expiresAt: null,
+      revision: room.revision,
+      updatedAt: room.updatedAt,
+    };
+    rootLeases = upsert(rootLeases, lease);
+  }
+
+  const workspaces = input.governance.workspaces.some((workspace) => workspace.id === workspaceId)
+    ? input.governance.workspaces
+    : [
+        ...input.governance.workspaces,
+        {
+          id: workspaceId,
+          ownerNamespace: "local",
+          title: "Local Supervised Workspace",
+          lifecycleState: "active" as const,
+          revision: 0,
+          createdAt: input.at,
+          updatedAt: input.at,
+        },
+      ];
+
+  return {
+    ...input.governance,
+    workspaces,
+    authorityReceipts,
+    agentSeats,
+    rootLeases,
+    updatedAt: input.at,
+  };
+}

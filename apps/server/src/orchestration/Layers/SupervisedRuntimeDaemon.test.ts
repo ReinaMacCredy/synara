@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 
 import type { OrchestrationCommand } from "@synara/contracts";
-import { ControlPlaneEvent } from "@synara/contracts";
+import { ControlPlaneEvent, emptySupervisedGovernanceSnapshot } from "@synara/contracts";
 import { it } from "@effect/vitest";
 import { Effect, Layer, Schema } from "effect";
 
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
+import { SupervisedGovernanceRepositoryLive } from "../../persistence/Layers/SupervisedGovernanceRepository.ts";
 import { SupervisedRuntimeRepositoryLive } from "../../persistence/Layers/SupervisedRuntimeRepository.ts";
+import { SupervisedGovernanceRepository } from "../../persistence/Services/SupervisedGovernanceRepository.ts";
 import { SupervisedRuntimeRepository } from "../../persistence/Services/SupervisedRuntimeRepository.ts";
 import { builtInSubscriptions } from "../../supervised/signal/BuiltInSubscriptions.ts";
 import { decideSupervisedCommand } from "../supervised/decider.ts";
@@ -30,13 +32,23 @@ const engineLayer = Layer.succeed(OrchestrationEngineService, {
 const repositoryLayer = SupervisedRuntimeRepositoryLive.pipe(
   Layer.provideMerge(SqlitePersistenceMemory),
 );
+const governanceRepositoryLayer = SupervisedGovernanceRepositoryLive.pipe(
+  Layer.provideMerge(SqlitePersistenceMemory),
+);
 const daemonLayer = SupervisedRuntimeDaemonLive.pipe(
   Layer.provideMerge(repositoryLayer),
+  Layer.provideMerge(governanceRepositoryLayer),
   Layer.provideMerge(deliveryLayer),
   Layer.provideMerge(engineLayer),
 );
 const testLayer = it.layer(
-  Layer.mergeAll(SqlitePersistenceMemory, repositoryLayer, engineLayer, daemonLayer),
+  Layer.mergeAll(
+    SqlitePersistenceMemory,
+    repositoryLayer,
+    governanceRepositoryLayer,
+    engineLayer,
+    daemonLayer,
+  ),
 );
 
 const at = (minutes: number) => new Date(Date.UTC(2026, 7, 6, 12, minutes)).toISOString();
@@ -84,6 +96,88 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
       assert.equal(after.health.daemonEpoch, restarted.daemonEpoch);
       assert.equal(after.health.status, "healthy");
       assert.ok(after.health.lastRecoveryAt);
+    }),
+  );
+
+  it.effect("recovers an interrupted governed provider session after restart", () =>
+    Effect.gen(function* () {
+      const daemon = yield* SupervisedRuntimeDaemon;
+      const governance = yield* SupervisedGovernanceRepository;
+      const now = at(0);
+      yield* governance.replaceSnapshot({
+        ...emptySupervisedGovernanceSnapshot(now),
+        workspaces: [
+          {
+            id: "workspace-1" as never,
+            ownerNamespace: "owner",
+            title: "Workspace",
+            lifecycleState: "active",
+            revision: 0,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+        authorityReceipts: [
+          {
+            id: "receipt-lead" as never,
+            actorSeatId: "lead-1" as never,
+            identityRole: "lead",
+            effectiveRole: "lead",
+            workspaceScopes: ["workspace-1" as never],
+            roomScopes: [],
+            taskNodeScopes: [],
+            allowedCommands: [],
+            allowedTools: [],
+            rootLeaseIds: [],
+            mandateIds: [],
+            runPolicyRevision: 0,
+            issuedAt: now,
+            expiresAt: null,
+            revokedAt: null,
+          },
+        ],
+        agentSeats: [
+          {
+            id: "lead-1" as never,
+            workspaceId: "workspace-1" as never,
+            roomIds: [],
+            identityRole: "lead",
+            effectiveRole: "lead",
+            profileId: "profile-lead" as never,
+            providerSessionId: "provider-lead",
+            lifecycleState: "active",
+            workState: "idle",
+            authorityReceiptId: "receipt-lead" as never,
+            createdAt: now,
+            retainedAt: null,
+            retiredAt: null,
+            revision: 0,
+            updatedAt: now,
+          },
+        ],
+        providerSessions: [
+          {
+            id: "provider-lead" as never,
+            workspaceId: "workspace-1" as never,
+            seatId: "lead-1" as never,
+            provider: "codex",
+            nativeSessionId: "native-lead",
+            lifecycleState: "interrupted",
+            createdAt: now,
+            retainedAt: null,
+            closedAt: null,
+            revision: 0,
+            updatedAt: now,
+          },
+        ],
+      });
+
+      yield* daemon.restart;
+      const recovered = yield* governance.getSnapshot();
+
+      assert.equal(recovered.providerSessions[0]?.lifecycleState, "recovering");
+      assert.equal(recovered.agentSeats[0]?.lifecycleState, "recovering");
+      assert.equal(recovered.revision, 2);
     }),
   );
 

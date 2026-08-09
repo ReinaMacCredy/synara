@@ -166,24 +166,43 @@ export async function activateSupervisedRoom(input: {
   if (leadSeatId === undefined) {
     throw new Error("The Lead Room has no active Lead seat.");
   }
-  if (room.status !== "draft" && room.leadSeatId === leadSeatId) return roomId;
+  if (room.status === "active") {
+    if (room.leadSeatId === leadSeatId) return roomId;
+    const updatedAt = new Date().toISOString();
+    await api.orchestration.dispatchCommand({
+      type: "supervised.room.update",
+      commandId: CommandId.makeUnsafe(crypto.randomUUID()),
+      actor: { kind: "user", actorId: "owner" },
+      aggregateId: roomId,
+      expectedRevision: room.revision,
+      idempotencyKey: `room-rebind:${roomId}:${leadSeatId}:${room.revision}`,
+      createdAt: updatedAt,
+      room: { ...room, leadSeatId, updatedAt },
+    });
+    return roomId;
+  }
+  if (!["draft", "provisioning", "ready"].includes(room.status)) {
+    throw new Error(`The Lead Room cannot activate from '${room.status}'.`);
+  }
 
-  const updatedAt = new Date().toISOString();
-  await api.orchestration.dispatchCommand({
-    type: "supervised.room.update",
-    commandId: CommandId.makeUnsafe(crypto.randomUUID()),
-    actor: { kind: "user", actorId: "owner" },
-    aggregateId: roomId,
-    expectedRevision: room.revision,
-    idempotencyKey: `room-activate:${roomId}:${leadSeatId}:${room.revision}`,
-    createdAt: updatedAt,
-    room: {
-      ...room,
-      projectId: input.projectId,
-      leadSeatId,
-      status: "active",
-      updatedAt,
-    },
-  });
+  let current = { ...room, projectId: input.projectId, leadSeatId };
+  const lifecycleStates = ["draft", "provisioning", "ready", "active"] as const;
+  const currentIndex = lifecycleStates.indexOf(
+    current.status as (typeof lifecycleStates)[number],
+  );
+  for (const status of lifecycleStates.slice(currentIndex + 1)) {
+    const updatedAt = new Date().toISOString();
+    await api.orchestration.dispatchCommand({
+      type: "supervised.room.update",
+      commandId: CommandId.makeUnsafe(crypto.randomUUID()),
+      actor: { kind: "user", actorId: "owner" },
+      aggregateId: roomId,
+      expectedRevision: current.revision,
+      idempotencyKey: `room-lifecycle:${roomId}:${status}:${current.revision}`,
+      createdAt: updatedAt,
+      room: { ...current, status, updatedAt },
+    });
+    current = { ...current, status, revision: current.revision + 1, updatedAt };
+  }
   return roomId;
 }

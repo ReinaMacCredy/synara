@@ -93,6 +93,27 @@ describe("Supervised command authority", () => {
     assert.equal(exit._tag, "Failure");
   });
 
+  it("rejects a Room activation that skips durable lifecycle boundaries", async () => {
+    const draft = { ...room, status: "draft" as const, revision: 0 };
+    const command: SupervisedCommand = {
+      ...baseCommand,
+      type: "supervised.room.update",
+      actor: { kind: "user", actorId: "owner" },
+      aggregateId: draft.id,
+      expectedRevision: draft.revision,
+      room: { ...draft, status: "active" },
+    };
+
+    const exit = await Effect.runPromiseExit(
+      decideSupervisedCommand({
+        command,
+        state: { ...emptySupervisedRuntimeSnapshot(now), rooms: [draft] },
+      }),
+    );
+
+    assert.equal(exit._tag, "Failure");
+  });
+
   it("admits a scoped plugin request only through its grant and RunPolicy", async () => {
     const plugin = installation({
       manifest: {
