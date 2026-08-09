@@ -304,10 +304,11 @@ managedAttachmentsLegacyLayer("managed attachment migration after private migrat
         [100, "SupervisorFirstGovernance"],
         [101, "SupervisorFirstLifecycle"],
         [102, "SupervisedToolReceipts"],
+        [103, "SupervisedModelRouting"],
       ]);
 
       const tracker = yield* trackerRows(sql);
-      assert.deepStrictEqual(tracker.slice(-49), [
+      assert.deepStrictEqual(tracker.slice(-50), [
         { migration_id: 54, name: "DurableProviderCommandDelivery" },
         { migration_id: 55, name: "ManagedAttachments" },
         { migration_id: 56, name: "CommandReceiptFingerprints" },
@@ -357,6 +358,7 @@ managedAttachmentsLegacyLayer("managed attachment migration after private migrat
         { migration_id: 100, name: "SupervisorFirstGovernance" },
         { migration_id: 101, name: "SupervisorFirstLifecycle" },
         { migration_id: 102, name: "SupervisedToolReceipts" },
+        { migration_id: 103, name: "SupervisedModelRouting" },
       ]);
       const preserved = yield* sql<{ readonly count: number }>`
         SELECT COUNT(*) AS count FROM orchestration_consumer_state
@@ -451,6 +453,7 @@ agentGatewayRetentionLegacyLayer(
         [100, "SupervisorFirstGovernance"],
         [101, "SupervisorFirstLifecycle"],
         [102, "SupervisedToolReceipts"],
+        [103, "SupervisedModelRouting"],
       ]);
 
         const columns = yield* sql<{ readonly name: string }>`
@@ -548,11 +551,12 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [100, "SupervisorFirstGovernance"],
         [101, "SupervisorFirstLifecycle"],
         [102, "SupervisedToolReceipts"],
+        [103, "SupervisedModelRouting"],
       ]);
 
       const tracker = yield* trackerRows(sql);
       assert.deepStrictEqual(
-        tracker.slice(-33).map((row) => [row.migration_id, row.name]),
+        tracker.slice(-34).map((row) => [row.migration_id, row.name]),
         [
           [70, "AgentGatewayOperations"],
           [71, "ProjectionThreadsGatewayProvenance"],
@@ -587,6 +591,7 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
           [100, "SupervisorFirstGovernance"],
           [101, "SupervisorFirstLifecycle"],
           [102, "SupervisedToolReceipts"],
+          [103, "SupervisedModelRouting"],
         ],
       );
 
@@ -679,11 +684,12 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [100, "SupervisorFirstGovernance"],
         [101, "SupervisorFirstLifecycle"],
         [102, "SupervisedToolReceipts"],
+        [103, "SupervisedModelRouting"],
       ]);
 
       const tracker = yield* trackerRows(sql);
       assert.deepStrictEqual(
-        tracker.slice(-29).map((row) => [row.migration_id, row.name]),
+        tracker.slice(-30).map((row) => [row.migration_id, row.name]),
         [
           [74, "ExternalMcpIntegrations"],
           [75, "ExternalMcpActiveCapacity"],
@@ -714,6 +720,7 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
           [100, "SupervisorFirstGovernance"],
           [101, "SupervisorFirstLifecycle"],
           [102, "SupervisedToolReceipts"],
+          [103, "SupervisedModelRouting"],
         ],
       );
       const preservedSpaces = yield* sql<{ readonly spaceId: string }>`

@@ -186,6 +186,22 @@ const snapshot = Schema.decodeUnknownSync(SupervisedGovernanceSnapshot)({
       updatedAt: now,
     },
   ],
+  modelTelemetryAggregates: [
+    {
+      id: "telemetry-model-sol-implementation",
+      modelProfileId: "model-sol",
+      category: "implementation",
+      sampleCount: 20,
+      successCount: 18,
+      failureCount: 2,
+      retryCount: 1,
+      totalLatencyMs: 20_000,
+      totalCostUsd: 0.2,
+      confidence: 0.8,
+      revision: 20,
+      updatedAt: now,
+    },
+  ],
   modelSelectionReceipts: [
     {
       id: "selection-1",

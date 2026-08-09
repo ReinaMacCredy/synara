@@ -8,6 +8,7 @@ import {
   LeadReplacement,
   ModelCapabilityProfile,
   ModelSelectionReceipt,
+  ModelTelemetryAggregate,
   RootAuthorityLease,
   RoleAssumption,
   StandingMandate,
@@ -149,6 +150,11 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
         FROM supervised_user_model_preference_profiles
         ORDER BY updated_at DESC, preference_profile_id
       `;
+      const telemetryRows = yield* sql<EntityRow>`
+        SELECT entity_json AS "entityJson"
+        FROM supervised_model_telemetry_aggregates
+        ORDER BY updated_at DESC, aggregate_id
+      `;
       const modelSelectionRows = yield* sql<EntityRow>`
         SELECT entity_json AS "entityJson"
         FROM supervised_model_selection_receipts
@@ -227,6 +233,11 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
           "SupervisedGovernance.getSnapshot.userModelPreferenceProfiles",
           preferenceProfileRows,
         ),
+        modelTelemetryAggregates: yield* decodeRows(
+          ModelTelemetryAggregate,
+          "SupervisedGovernance.getSnapshot.modelTelemetryAggregates",
+          telemetryRows,
+        ),
         modelSelectionReceipts: yield* decodeRows(
           ModelSelectionReceipt,
           "SupervisedGovernance.getSnapshot.modelSelectionReceipts",
@@ -251,6 +262,7 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
           );
         }
         yield* sql`DELETE FROM supervised_model_selection_receipts`;
+        yield* sql`DELETE FROM supervised_model_telemetry_aggregates`;
         yield* sql`DELETE FROM supervised_user_model_preference_profiles`;
         yield* sql`DELETE FROM supervised_model_capability_profiles`;
         yield* sql`DELETE FROM projection_supervised_notebook_entries`;
@@ -449,6 +461,20 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
             ) VALUES (
               ${profile.id}, ${profile.userId}, ${profile.revision},
               ${profile.updatedAt}, ${JSON.stringify(profile)}
+            )
+          `,
+          { concurrency: 1, discard: true },
+        );
+        yield* Effect.forEach(
+          snapshot.modelTelemetryAggregates,
+          (aggregate) => sql`
+            INSERT INTO supervised_model_telemetry_aggregates (
+              aggregate_id, model_profile_id, category, sample_count,
+              confidence, revision, updated_at, entity_json
+            ) VALUES (
+              ${aggregate.id}, ${aggregate.modelProfileId}, ${aggregate.category},
+              ${aggregate.sampleCount}, ${aggregate.confidence}, ${aggregate.revision},
+              ${aggregate.updatedAt}, ${JSON.stringify(aggregate)}
             )
           `,
           { concurrency: 1, discard: true },

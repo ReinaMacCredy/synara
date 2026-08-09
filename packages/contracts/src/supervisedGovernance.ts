@@ -15,6 +15,7 @@ const ShortText = TrimmedNonEmptyString.check(Schema.isMaxLength(512));
 const BoundedText = Schema.String.check(Schema.isMaxLength(32_768));
 const Confidence = Schema.Finite.check(Schema.isBetween({ minimum: 0, maximum: 1 }));
 const CapabilityScore = Schema.Finite.check(Schema.isBetween({ minimum: 0, maximum: 10 }));
+const NonNegativeFinite = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0));
 
 export const SupervisedWorkspaceId = entityId("SupervisedWorkspaceId");
 export type SupervisedWorkspaceId = typeof SupervisedWorkspaceId.Type;
@@ -40,6 +41,8 @@ export const UserModelPreferenceProfileId = entityId("UserModelPreferenceProfile
 export type UserModelPreferenceProfileId = typeof UserModelPreferenceProfileId.Type;
 export const ModelSelectionReceiptId = entityId("ModelSelectionReceiptId");
 export type ModelSelectionReceiptId = typeof ModelSelectionReceiptId.Type;
+export const ModelTelemetryAggregateId = entityId("ModelTelemetryAggregateId");
+export type ModelTelemetryAggregateId = typeof ModelTelemetryAggregateId.Type;
 export const GovernedProviderSessionId = entityId("GovernedProviderSessionId");
 export type GovernedProviderSessionId = typeof GovernedProviderSessionId.Type;
 export const GovernanceHandoffId = entityId("GovernanceHandoffId");
@@ -388,6 +391,20 @@ export const SupervisorNotebookEntry = Schema.Struct({
 });
 export type SupervisorNotebookEntry = typeof SupervisorNotebookEntry.Type;
 
+export const ModelCapabilityDimension = Schema.Literals([
+  "coding",
+  "architecture",
+  "debugging",
+  "review",
+  "uiUx",
+  "visualUnderstanding",
+  "longContext",
+  "structuredOutput",
+  "agenticEndurance",
+  "multilingual",
+]);
+export type ModelCapabilityDimension = typeof ModelCapabilityDimension.Type;
+
 export const ModelCapabilityScores = Schema.Struct({
   coding: CapabilityScore,
   architecture: CapabilityScore,
@@ -412,6 +429,14 @@ export const ModelCapabilityProfile = Schema.Struct({
   supportsReasoning: Schema.Boolean,
   latencyScore: CapabilityScore,
   costScore: CapabilityScore,
+  inputCostUsdPerMillionTokens: Schema.optional(Schema.NullOr(NonNegativeFinite)).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
+  outputCostUsdPerMillionTokens: Schema.optional(Schema.NullOr(NonNegativeFinite)).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
+  failureRate: Schema.optional(Confidence).pipe(Schema.withDecodingDefault(() => 0)),
+  retryRate: Schema.optional(Confidence).pipe(Schema.withDecodingDefault(() => 0)),
   scores: ModelCapabilityScores,
   provenance: Schema.Array(TrimmedNonEmptyString).check(Schema.isMinLength(1)).check(Schema.isMaxLength(32)),
   confidence: Confidence,
@@ -452,6 +477,40 @@ export const UserModelPreferenceProfile = Schema.Struct({
 });
 export type UserModelPreferenceProfile = typeof UserModelPreferenceProfile.Type;
 
+export const ModelTelemetryAggregate = Schema.Struct({
+  id: ModelTelemetryAggregateId,
+  modelProfileId: ModelCapabilityProfileId,
+  category: TrimmedNonEmptyString,
+  sampleCount: NonNegativeInt,
+  successCount: NonNegativeInt,
+  failureCount: NonNegativeInt,
+  retryCount: NonNegativeInt,
+  totalLatencyMs: NonNegativeFinite,
+  totalCostUsd: NonNegativeFinite,
+  confidence: Confidence,
+  revision: NonNegativeInt,
+  updatedAt: IsoDateTime,
+});
+export type ModelTelemetryAggregate = typeof ModelTelemetryAggregate.Type;
+
+export const ModelSelectionRankingEntry = Schema.Struct({
+  modelId: ModelCapabilityProfileId,
+  rank: PositiveInt,
+  totalScore: Schema.Finite,
+  objectiveScore: Schema.Finite,
+  qualityScore: Schema.Finite,
+  speedScore: Schema.Finite,
+  costScore: Schema.Finite,
+  contextScore: Schema.Finite,
+  preferenceScore: Schema.Finite,
+  telemetryScore: Schema.Finite,
+  estimatedCostUsd: Schema.NullOr(NonNegativeFinite),
+  capabilityMatches: Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(128)),
+  preferenceEffects: Schema.Array(BoundedText).check(Schema.isMaxLength(128)),
+  telemetryApplied: Schema.Boolean,
+});
+export type ModelSelectionRankingEntry = typeof ModelSelectionRankingEntry.Type;
+
 export const ModelSelectionReceipt = Schema.Struct({
   id: ModelSelectionReceiptId,
   workspaceId: SupervisedWorkspaceId,
@@ -466,6 +525,16 @@ export const ModelSelectionReceipt = Schema.Struct({
   capabilityProfileRevision: NonNegativeInt,
   preferenceProfileRevision: NonNegativeInt,
   runPolicyRevision: NonNegativeInt,
+  routingRevision: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
+  rankedCandidates: Schema.optional(
+    Schema.Array(ModelSelectionRankingEntry).check(Schema.isMaxLength(128)),
+  ).pipe(Schema.withDecodingDefault(() => [])),
+  fallbackFromReceiptId: Schema.optional(Schema.NullOr(ModelSelectionReceiptId)).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
+  fallbackReason: Schema.optional(Schema.NullOr(BoundedText)).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
   overrideReason: Schema.NullOr(BoundedText),
   createdAt: IsoDateTime,
 });
@@ -495,6 +564,9 @@ export const SupervisedGovernanceSnapshot = Schema.Struct({
   notebookEntries: Schema.Array(SupervisorNotebookEntry),
   modelCapabilityProfiles: Schema.Array(ModelCapabilityProfile),
   userModelPreferenceProfiles: Schema.Array(UserModelPreferenceProfile),
+  modelTelemetryAggregates: Schema.optional(Schema.Array(ModelTelemetryAggregate)).pipe(
+    Schema.withDecodingDefault(() => []),
+  ),
   modelSelectionReceipts: Schema.Array(ModelSelectionReceipt),
   updatedAt: IsoDateTime,
 });
@@ -516,6 +588,7 @@ export const emptySupervisedGovernanceSnapshot = (updatedAt: string): Supervised
   notebookEntries: [],
   modelCapabilityProfiles: [],
   userModelPreferenceProfiles: [],
+  modelTelemetryAggregates: [],
   modelSelectionReceipts: [],
   updatedAt,
 });

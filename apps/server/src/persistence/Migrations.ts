@@ -118,6 +118,7 @@ import Migration0099 from "./Migrations/099_RetireOrchestratorControlPlane.ts";
 import Migration0100 from "./Migrations/100_SupervisorFirstGovernance.ts";
 import Migration0101 from "./Migrations/101_SupervisorFirstLifecycle.ts";
 import Migration0102 from "./Migrations/102_SupervisedToolReceipts.ts";
+import Migration0103 from "./Migrations/103_SupervisedModelRouting.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -235,6 +236,7 @@ export const migrationEntries = [
   [100, "SupervisorFirstGovernance", Migration0100],
   [101, "SupervisorFirstLifecycle", Migration0101],
   [102, "SupervisedToolReceipts", Migration0102],
+  [103, "SupervisedModelRouting", Migration0103],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>
