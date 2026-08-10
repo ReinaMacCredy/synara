@@ -80,6 +80,7 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   type AutomationDefinition,
   type AutomationListResult,
+  type AgentSeat,
   MAX_PINNED_PROJECTS,
   type DesktopUpdateState,
   type OrchestrationShellSnapshot,
@@ -107,6 +108,11 @@ import {
 import { isElectron } from "../env";
 import { formatRelativeTime } from "../lib/relativeTime";
 import { supervisedRuntimeQueryOptions } from "../lib/supervisedRuntime";
+import {
+  compareSupervisedAgentSeats,
+  supervisedAgentRoleLabel,
+  supervisedAgentStatus,
+} from "../lib/supervisedAgentPresentation";
 import { isMacPlatform, newCommandId, newProjectId, newThreadId, randomUUID } from "../lib/utils";
 import { isOrdinarySpaceProject } from "../lib/spaces";
 import { expandProjectHomePath, joinProjectPath } from "../lib/projectPaths";
@@ -133,6 +139,7 @@ import {
 } from "../storeSelectors";
 import { derivePendingApprovals, derivePendingUserInputs } from "../session-logic";
 import { useThreadPullRequests, type ThreadPullRequest } from "../hooks/useThreadPullRequests";
+import { ensureSupervisedDraft } from "../hooks/useHandleNewSupervised";
 import {
   providerComposerCapabilitiesQueryOptions,
   supportsThreadImport,
@@ -1760,6 +1767,7 @@ export default function Sidebar() {
   const selectSidebarTreeThreads = useMemo(() => createSidebarTreeThreadsSelector(), []);
   const sidebarThreads = useStore(selectSidebarThreads);
   const sidebarTreeThreads = useStore(selectSidebarTreeThreads);
+  const supervisedAgentSeats = useStore((state) => state.supervisedOrchestration.agentSeats);
   const supervisedRuntimeQuery = useQuery(supervisedRuntimeQueryOptions());
   const supervisedRooms = useMemo(
     () => supervisedRuntimeQuery.data?.rooms ?? [],
@@ -3926,6 +3934,36 @@ export default function Sidebar() {
     }
     return byProjectId;
   }, [supervisedRooms]);
+  const supervisedAgentSeatsByRoomId = useMemo(() => {
+    const byRoomId = new Map<string, AgentSeat[]>();
+    for (const seat of supervisedAgentSeats) {
+      if (seat.threadId === null || seat.lifecycleState === "retired") continue;
+      for (const roomId of seat.roomIds) {
+        const bucket = byRoomId.get(roomId);
+        if (bucket) bucket.push(seat);
+        else byRoomId.set(roomId, [seat]);
+      }
+    }
+    for (const seats of byRoomId.values()) seats.sort(compareSupervisedAgentSeats);
+    return byRoomId;
+  }, [supervisedAgentSeats]);
+  const supervisedProjectSupervisorSeatsByProjectId = useMemo(() => {
+    const byProjectId = new Map<ProjectId, AgentSeat[]>();
+    for (const [projectId, rooms] of supervisedRoomsByProjectId) {
+      const roomIds = new Set(rooms.map((room) => room.id));
+      const seats = supervisedAgentSeats
+        .filter(
+          (seat) =>
+            seat.identityRole === "supervisor" &&
+            seat.threadId !== null &&
+            seat.lifecycleState !== "retired" &&
+            (seat.projectId === projectId || seat.roomIds.some((roomId) => roomIds.has(roomId))),
+        )
+        .sort(compareSupervisedAgentSeats);
+      if (seats.length > 0) byProjectId.set(projectId, seats);
+    }
+    return byProjectId;
+  }, [supervisedAgentSeats, supervisedRoomsByProjectId]);
   const noProjectSupervisedRooms = useMemo(
     () => supervisedRooms.filter((room) => projectById.get(room.projectId)?.kind !== "project"),
     [projectById, supervisedRooms],
@@ -3940,10 +3978,17 @@ export default function Sidebar() {
       })),
     [supervisedRoomThreads],
   );
-  const selectedSupervisedRoomId =
-    activeSidebarThreadId && supervisedThreadIds.has(activeSidebarThreadId)
-      ? activeSidebarThreadId
-      : null;
+  const selectedSupervisedRoomId = useMemo(() => {
+    if (!activeSidebarThreadId) return null;
+    if (supervisedThreadIds.has(activeSidebarThreadId)) return activeSidebarThreadId;
+    const activeSeat = supervisedAgentSeats.find(
+      (seat) => seat.threadId === activeSidebarThreadId,
+    );
+    const roomId = activeSeat?.roomIds.find((candidate) =>
+      supervisedThreadIds.has(ThreadId.makeUnsafe(candidate)),
+    );
+    return roomId ? ThreadId.makeUnsafe(roomId) : null;
+  }, [activeSidebarThreadId, supervisedAgentSeats, supervisedThreadIds]);
   useEffect(() => {
     if (!selectedSupervisedRoomId) return;
     setSupervisedExpandedRoomIds((current) => {
@@ -4887,11 +4932,84 @@ export default function Sidebar() {
     return "idle";
   }
 
+  function renderSupervisedAgentHistoryRow(
+    seat: AgentSeat,
+    projectId: ProjectId,
+    indentation: "project" | "room",
+  ) {
+    if (seat.threadId === null) return null;
+    const thread = sidebarTreeThreads.find((candidate) => candidate.id === seat.threadId);
+    const roleLabel = supervisedAgentRoleLabel(seat);
+    const status = supervisedAgentStatus(seat);
+    const title = seat.displayName?.trim() || thread?.title?.trim() || roleLabel;
+    const provider = thread?.session?.provider ?? thread?.modelSelection.provider ?? null;
+    const isActive =
+      activeSidebarThreadId === seat.threadId && settingsSectionSearch.view === "chat";
+    return (
+      <div
+        key={seat.id}
+        className="group/thread-row relative flex items-center"
+        data-supervised-agent-role={seat.identityRole}
+      >
+        <button
+          type="button"
+          data-thread-item
+          className={cn(
+            "flex min-h-9 w-full items-center gap-2 rounded-lg py-1 pr-9 text-left transition-colors",
+            indentation === "project" ? "pl-8" : "pl-12",
+            isActive
+              ? SIDEBAR_ROW_ACTIVE_CLASS_NAME
+              : cn(SIDEBAR_ROW_IDLE_TEXT_CLASS_NAME, SIDEBAR_ROW_HOVER_CLASS_NAME),
+          )}
+          onClick={() =>
+            void navigate({
+              to: "/supervised/$roomId",
+              params: { roomId: seat.threadId! },
+              search: { projectId, view: "chat" },
+            })
+          }
+        >
+          {provider ? (
+            <ProviderIcon provider={provider} className="size-3.5 shrink-0" />
+          ) : (
+            <ChatBubbleIcon className="size-3.5 shrink-0 text-muted-foreground/65" />
+          )}
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[length:var(--app-font-size-ui,12px)]">
+              {title}
+            </span>
+            <span className="block truncate text-[length:var(--app-font-size-ui-meta,10px)] text-muted-foreground/48">
+              {roleLabel} · {status.label}
+            </span>
+          </span>
+        </button>
+        <span
+          aria-label={`${title} status: ${status.label}`}
+          className={cn(
+            "absolute right-3 top-1/2 size-1.5 -translate-y-1/2 rounded-full",
+            status.kind === "failed"
+              ? "bg-destructive"
+              : status.kind === "running"
+                ? "bg-emerald-500"
+                : status.kind === "queued"
+                  ? "bg-amber-500"
+                  : "bg-muted-foreground/35",
+          )}
+        />
+      </div>
+    );
+  }
+
   function renderSupervisedRoomHistoryRow(room: Room) {
-    const isActive = pathname === `/supervised/${room.id}`;
+    const isActive =
+      pathname === `/supervised/${room.id}` && settingsSectionSearch.view !== "chat";
     const roomThreadId = ThreadId.makeUnsafe(room.id);
     const thread = sidebarTreeThreads.find((candidate) => candidate.id === roomThreadId);
     const provider = thread?.session?.provider ?? thread?.modelSelection.provider ?? null;
+    const roomAgentSeats = (supervisedAgentSeatsByRoomId.get(room.id) ?? []).filter(
+      (seat) => seat.identityRole !== "supervisor",
+    );
+    const expanded = supervisedExpandedRoomIds.has(roomThreadId);
     const taskCount =
       supervisedRuntimeQuery.data?.tasks.filter((task) => task.roomId === room.id).length ?? 0;
     const activeRunCount =
@@ -4901,50 +5019,79 @@ export default function Sidebar() {
           ["admitted", "queued", "running", "waiting"].includes(run.status),
       ).length ?? 0;
     return (
-      <div key={room.id} className="group/thread-row relative flex items-center">
-        <button
-          type="button"
-          data-thread-item
-          className={cn(
-            "flex min-h-11 w-full items-center gap-2 rounded-lg py-1.5 pl-8 pr-9 text-left transition-colors",
-            isActive
-              ? SIDEBAR_ROW_ACTIVE_CLASS_NAME
-              : cn(SIDEBAR_ROW_IDLE_TEXT_CLASS_NAME, SIDEBAR_ROW_HOVER_CLASS_NAME),
-          )}
-          onClick={() =>
-            void navigate({
-              to: "/supervised/$roomId",
-              params: { roomId: room.id },
-              search: { projectId: room.projectId },
-            })
-          }
-        >
-          {provider ? (
-            <ProviderIcon provider={provider} className="size-3.5 shrink-0" />
-          ) : (
-            <EyeIcon className="size-3.5 shrink-0 text-muted-foreground/65" />
-          )}
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-[length:var(--app-font-size-ui,12px)]">
-              {room.title}
+      <div key={room.id}>
+        <div className="group/thread-row relative flex items-center">
+          {roomAgentSeats.length > 0 ? (
+            <button
+              type="button"
+              aria-label={`${expanded ? "Collapse" : "Expand"} agents in ${room.title}`}
+              aria-expanded={expanded}
+              className="absolute left-3 z-10 flex size-5 items-center justify-center rounded-sm text-muted-foreground/55 hover:text-foreground"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setSupervisedExpandedRoomIds((current) => {
+                  const next = new Set(current);
+                  if (next.has(roomThreadId)) next.delete(roomThreadId);
+                  else next.add(roomThreadId);
+                  return next;
+                });
+              }}
+            >
+              <DisclosureChevron open={expanded} />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            data-thread-item
+            className={cn(
+              "flex min-h-11 w-full items-center gap-2 rounded-lg py-1.5 pl-8 pr-9 text-left transition-colors",
+              isActive
+                ? SIDEBAR_ROW_ACTIVE_CLASS_NAME
+                : cn(SIDEBAR_ROW_IDLE_TEXT_CLASS_NAME, SIDEBAR_ROW_HOVER_CLASS_NAME),
+            )}
+            onClick={() =>
+              void navigate({
+                to: "/supervised/$roomId",
+                params: { roomId: room.id },
+                search: { projectId: room.projectId },
+              })
+            }
+          >
+            {provider ? (
+              <ProviderIcon provider={provider} className="size-3.5 shrink-0" />
+            ) : (
+              <EyeIcon className="size-3.5 shrink-0 text-muted-foreground/65" />
+            )}
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[length:var(--app-font-size-ui,12px)]">
+                {room.title}
+              </span>
+              <span className="block truncate text-[length:var(--app-font-size-ui-meta,10px)] text-muted-foreground/48">
+                {room.status} · {taskCount} task{taskCount === 1 ? "" : "s"} · {activeRunCount}{" "}
+                active run{activeRunCount === 1 ? "" : "s"}
+              </span>
             </span>
-            <span className="block truncate text-[length:var(--app-font-size-ui-meta,10px)] text-muted-foreground/48">
-              {room.status} · {taskCount} task{taskCount === 1 ? "" : "s"} · {activeRunCount} active
-              run{activeRunCount === 1 ? "" : "s"}
-            </span>
-          </span>
-        </button>
-        <span
-          className={cn(
-            "absolute right-3 top-1/2 size-1.5 -translate-y-1/2 rounded-full",
-            room.status === "recovering"
-              ? "bg-amber-500"
-              : room.status === "active"
-                ? "bg-emerald-500"
-                : "bg-muted-foreground/35",
-          )}
-          aria-label={`Room status: ${room.status}`}
-        />
+          </button>
+          <span
+            className={cn(
+              "absolute right-3 top-1/2 size-1.5 -translate-y-1/2 rounded-full",
+              room.status === "recovering"
+                ? "bg-amber-500"
+                : room.status === "active"
+                  ? "bg-emerald-500"
+                  : "bg-muted-foreground/35",
+            )}
+            aria-label={`Room status: ${room.status}`}
+          />
+        </div>
+        <DisclosureRegion open={expanded}>
+          <div className="flex flex-col gap-0.5">
+            {roomAgentSeats.map((seat) =>
+              renderSupervisedAgentHistoryRow(seat, room.projectId, "room"),
+            )}
+          </div>
+        </DisclosureRegion>
       </div>
     );
   }
@@ -4956,6 +5103,8 @@ export default function Sidebar() {
   ) {
     const isSupervisedProject = surface === "supervised";
     const supervisedRoomEntries = supervisedRoomsByProjectId.get(project.id) ?? [];
+    const supervisedProjectSupervisorSeats =
+      supervisedProjectSupervisorSeatsByProjectId.get(project.id) ?? [];
     const isProjectPinned = pinnedProjectIdSet.has(project.id);
     const projectSidebarData = surfaceProjectSidebarDataById.get(project.id);
     if (!projectSidebarData) {
@@ -5123,7 +5272,15 @@ export default function Sidebar() {
                   onClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
-                    void navigate({ to: "/supervised", search: { projectId: project.id } });
+                    const threadId = ensureSupervisedDraft({
+                      project,
+                      supervisionMode: "supervise",
+                    });
+                    void navigate({
+                      to: "/supervised/$roomId",
+                      params: { roomId: threadId },
+                      search: { projectId: project.id, view: "chat" },
+                    });
                   }}
                 />
               ) : (
@@ -5217,13 +5374,18 @@ export default function Sidebar() {
               )}
             >
               {isSupervisedProject ? (
-                supervisedRoomEntries.length > 0 ? (
-                  supervisedRoomEntries.map(renderSupervisedRoomHistoryRow)
-                ) : (
-                  <SidebarMenuSubItem className="w-full px-8 py-1 text-[10px] text-muted-foreground/52">
-                    No Lead Rooms yet
-                  </SidebarMenuSubItem>
-                )
+                <>
+                  {supervisedProjectSupervisorSeats.map((seat) =>
+                    renderSupervisedAgentHistoryRow(seat, project.id, "project"),
+                  )}
+                  {supervisedRoomEntries.length > 0 ? (
+                    supervisedRoomEntries.map(renderSupervisedRoomHistoryRow)
+                  ) : (
+                    <SidebarMenuSubItem className="w-full px-8 py-1 text-[10px] text-muted-foreground/52">
+                      No Lead Rooms yet
+                    </SidebarMenuSubItem>
+                  )}
+                </>
               ) : (
                 visibleEntries.map((entry) =>
                   renderThreadRow(entry.thread, orderedProjectThreadIds, entry.depth, false),

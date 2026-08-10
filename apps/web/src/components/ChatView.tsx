@@ -561,6 +561,7 @@ import {
   collectForegroundRunningSubagentStripItems,
   collectRunningSubagentStripItems,
   deriveComposerSubagentStripItems,
+  deriveSupervisedComposerHierarchyItems,
   type ComposerSubagentStripItem,
 } from "./chat/ComposerSubagentStrip.logic";
 import { WorkflowRunCard } from "./chat/WorkflowRunCard";
@@ -623,7 +624,6 @@ import {
   LOCAL_DISPATCH_ACK_TIMEOUT_MS,
   LOCAL_DISPATCH_TURN_TAKEOVER_TIMEOUT_MS,
   resolveNextLocalDispatchSnapshot,
-  resolveWorkingLabel,
   resolveThreadArtifactWorkspaceRoot,
   WORKTREE_SETUP_ERROR_HOLD_MS,
   worktreeSetupHasError,
@@ -1971,7 +1971,7 @@ export default function ChatView({
     );
   }, [draftThread?.profilePresetId, supervisionProfilesForDraft]);
   const durableSupervisionRole = useMemo(() => {
-    if (!isServerThread || !supervisedMode) return null;
+    if (!isServerThread) return null;
     if (supervisorSeats.some((seat) => seat.threadId === threadId)) {
       return "Supervisor" as const;
     }
@@ -1982,9 +1982,9 @@ export default function ChatView({
       return "Peer" as const;
     }
     return null;
-  }, [isServerThread, supervisedMode, supervisorSeats, leadSeats, peerSeats, threadId]);
+  }, [isServerThread, supervisorSeats, leadSeats, peerSeats, threadId]);
   const durableSupervisionProfileSnapshot = useMemo(() => {
-    if (!isServerThread || !supervisedMode) return null;
+    if (!isServerThread) return null;
     const seat =
       supervisorSeats.find((candidate) => candidate.threadId === threadId) ??
       leadSeats.find((candidate) => candidate.threadId === threadId) ??
@@ -1997,7 +1997,6 @@ export default function ChatView({
       : null;
   }, [
     isServerThread,
-    supervisedMode,
     supervisorSeats,
     leadSeats,
     peerSeats,
@@ -3078,7 +3077,7 @@ export default function ChatView({
     return toolUseIds;
   }, [stripSourceActivities]);
   const composerSubagentStripItems = useMemo(() => {
-    const rows = deriveComposerSubagentStripItems({
+    const providerRows = deriveComposerSubagentStripItems({
       workEntries: stripWorkLogEntries,
       liveTurnId: stripLiveTurnId,
       backgroundedProviderThreadIds: backgroundedSubagentToolUseIds,
@@ -3087,18 +3086,37 @@ export default function ChatView({
         ? { threadId: stripParentThread.id, label: stripParentThread.title ?? null }
         : null,
     });
-    const withoutAdvisor = rows.filter(
+    const withoutAdvisor = providerRows.filter(
       (row) =>
         row.kind === "parent" ||
         !isAdvisorIdentity({ nickname: row.primaryLabel, role: row.role, title: row.fullLabel }),
     );
-    return withoutAdvisor.some((row) => row.kind === "subagent") ? withoutAdvisor : [];
+    const supervisedRows = deriveSupervisedComposerHierarchyItems({
+      seats: supervisedSeats,
+      currentThreadId: threadId,
+      projectId: activeProjectId,
+      threadTitlesById: new Map(
+        composerThreadSummaries.map((summary) => [summary.id, summary.title] as const),
+      ),
+    });
+    const providerThreadIds = new Set(
+      withoutAdvisor.flatMap((row) => (row.kind === "subagent" ? [row.threadId] : [])),
+    );
+    const rows = [
+      ...withoutAdvisor,
+      ...supervisedRows.filter((row) => !providerThreadIds.has(row.threadId)),
+    ];
+    return rows.some((row) => row.kind === "subagent") ? rows : [];
   }, [
     activeThread?.id,
+    activeProjectId,
     backgroundedSubagentToolUseIds,
+    composerThreadSummaries,
     stripLiveTurnId,
     stripParentThread,
     stripWorkLogEntries,
+    supervisedSeats,
+    threadId,
   ]);
 
   // Links workflow agent rows to their subagent child threads (and models) when the
@@ -3193,7 +3211,6 @@ export default function ChatView({
     ],
   );
   const isSendBusy = localDispatch !== null && !serverAcknowledgedLocalDispatch;
-  const isAwaitingTurnStart = localDispatch !== null && !turnTakenOver;
   const activeWorktreeSetup = localDispatch?.worktreeSetup ?? null;
   const isPreparingWorktree = activeWorktreeSetup !== null;
   const hasLiveTurn = phase === "running";
@@ -3292,13 +3309,9 @@ export default function ChatView({
   });
   const activeTurnInProgress = turnWorkStatus.activeTurnInProgress;
   const activeWorkStartedAt = turnWorkStatus.activeWorkStartedAt;
-  const activeWorkStartedAtForTranscript =
-    localDispatch !== null && !turnTakenOver ? null : activeWorkStartedAt;
   // Composer/busy chrome: morning semantics (session running), not only the
   // transcript work-status gate. Transcript uses activeTurnInProgress separately.
-  // Keep the pending status visible through the post-ack gap before the provider is live.
-  const isWorking =
-    hasLiveTurn || isSendBusy || isConnecting || isRevertingCheckpoint || isAwaitingTurnStart;
+  const isWorking = hasLiveTurn || isSendBusy || isConnecting || isRevertingCheckpoint;
 
   const isComposerApprovalState = activePendingApproval !== null;
   const isComposerEditorDisabled = isConnecting || isComposerApprovalState;
@@ -7939,18 +7952,6 @@ export default function ChatView({
         setPendingAutomationConversation(null);
       }
     }
-    if (isSupervisedRoomDraft && supervisionDraftMode === "supervise") {
-      const activeLead = leadSeats.find(
-        (lead) => lead.projectId === draftThread?.projectId && lead.lifecycleState !== "retired",
-      );
-      if (activeLead?.threadId) {
-        await navigate({
-          to: "/supervised/$roomId",
-          params: { roomId: activeLead.threadId },
-        });
-        return true;
-      }
-    }
     const promoteToLead = isSupervisedRoomDraft && supervisionDraftMode === "supervise";
     const promoteToSupervisor = isSupervisedRoomDraft && supervisionDraftMode === "orchestrate";
     const promoteToSupervisedSeat = promoteToLead || promoteToSupervisor;
@@ -8961,7 +8962,8 @@ export default function ChatView({
         await navigate({
           to: "/supervised/$roomId",
           params: { roomId: threadIdForSend },
-          search: { projectId: targetProjectIdForSend },
+          search: { projectId: targetProjectIdForSend, view: "chat" },
+          replace: true,
         });
       }
       armLocalDispatchAckFallback(threadIdForSend);
@@ -11428,6 +11430,20 @@ export default function ChatView({
   }, [activeTurnLiveDiffState.turnId, onOpenTurnDiff]);
   const onNavigateToThread = useCallback(
     (nextThreadId: ThreadId) => {
+      const supervisedTarget = supervisedSeats.find((seat) => seat.threadId === nextThreadId);
+      if (supervisedTarget) {
+        void navigate({
+          to: "/supervised/$roomId",
+          params: { roomId: nextThreadId },
+          search: {
+            ...(supervisedTarget.projectId ?? activeProjectId
+              ? { projectId: (supervisedTarget.projectId ?? activeProjectId)! }
+              : {}),
+            ...(isEditorRail ? {} : { view: "chat" as const }),
+          },
+        });
+        return;
+      }
       void navigate({
         to: "/$threadId",
         params: { threadId: nextThreadId },
@@ -11440,7 +11456,7 @@ export default function ChatView({
               },
       });
     },
-    [isEditorRail, navigate],
+    [activeProjectId, isEditorRail, navigate, supervisedSeats],
   );
   const onOpenAutomation = useCallback(
     (automationId: string) => {
@@ -12277,7 +12293,9 @@ export default function ChatView({
                           ? "Resolve this approval request to continue"
                           : showPlanFollowUpPrompt && activeProposedPlan
                             ? "Add feedback to refine the plan, or leave this blank to implement it"
-                            : activeThread?.parentThreadId
+                            : durableSupervisionRole !== null
+                              ? `Message this ${durableSupervisionRole}`
+                              : activeThread?.parentThreadId
                               ? "Message this subagent while it works"
                               : hasLiveTurn
                                 ? "Ask for follow-up changes"
@@ -12864,13 +12882,12 @@ export default function ChatView({
                     activeTurnId={activeTurnIdForTranscript}
                     agentActivityDetail={openAgentActivityDetail}
                     hasMessages={timelineEntries.length > 0}
-                    isWorking={isWorking}
-                    workingLabel={resolveWorkingLabel({ isSendBusy, turnTakenOver })}
+                    isWorking={activeTurnInProgress}
                     worktreeSetup={activeWorktreeSetup}
                     worktreeSetupPendingAction={worktreeSetupPendingAction}
                     onResolveWorktreeSetup={onResolveWorktreeSetup}
                     activeTurnInProgress={activeTurnInProgress}
-                    activeTurnStartedAt={activeWorkStartedAtForTranscript}
+                    activeTurnStartedAt={activeWorkStartedAt}
                     listRef={legendListRef}
                     timelineControllerRef={timelineControllerRef}
                     pinnedMessageIds={pinnedMessageIds}

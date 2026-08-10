@@ -3,6 +3,7 @@ import "../index.css";
 
 import {
   AutomationId,
+  type AgentSeat,
   type AutomationCreateInput,
   type AutomationDefinition,
   CheckpointRef,
@@ -2309,8 +2310,30 @@ describe("ChatView timeline estimator parity (full app)", () => {
     document.body.innerHTML = "";
   });
 
-  it("promotes an Supervised draft without ever showing the conversation loader", async () => {
+  it("promotes a new direct-Lead draft even when the Project already has an active Lead", async () => {
     const supervisedOrchestration = emptySupervisedOrchestrationSnapshot(NOW_ISO);
+    const existingLeadSeat = {
+      id: "existing-lead-seat" as AgentSeat["id"],
+      workspaceId: "existing-supervised-workspace" as AgentSeat["workspaceId"],
+      roomIds: [],
+      identityRole: "lead",
+      effectiveRole: "root",
+      profileId: "existing-lead-profile" as AgentSeat["profileId"],
+      providerSessionId: null,
+      lifecycleState: "ready",
+      workState: "idle",
+      authorityReceiptId: "existing-lead-authority" as AgentSeat["authorityReceiptId"],
+      threadId: OTHER_THREAD_ID,
+      projectId: PROJECT_ID,
+      profileSnapshotId: null,
+      predecessorThreadIds: [],
+      displayName: "Existing Lead",
+      createdAt: NOW_ISO,
+      retainedAt: null,
+      retiredAt: null,
+      revision: 0,
+      updatedAt: NOW_ISO,
+    } satisfies AgentSeat;
     const snapshot = createSnapshotForTargetUser({
       targetMessageId: "msg-user-supervised-promotion-source" as MessageId,
       targetText: "supervised promotion source",
@@ -2319,11 +2342,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
       ...snapshot,
       supervisedOrchestration: {
         ...supervisedOrchestration,
+        agentSeats: [existingLeadSeat],
         profiles: [
           {
-            id: ProfilePresetId.makeUnsafe("profile-primary-supervisor"),
-            name: "Primary Supervisor",
-            roleHints: ["supervisor"],
+            id: ProfilePresetId.makeUnsafe("profile-lead-default"),
+            name: "Lead Default",
+            roleHints: ["lead"],
             runtime: {
               provider: "codex",
               model: "gpt-5",
@@ -2371,6 +2395,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
         expect(draftThreadId).not.toBeNull();
       });
       const promotedThreadId = draftThreadId!;
+      useComposerDraftStore.getState().setDraftThreadContext(promotedThreadId, {
+        supervisionMode: "supervise",
+      });
       await vi.waitFor(() => {
         expect(
           wsRequests.some(
@@ -2392,6 +2419,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
         (pathname) => pathname === `/supervised/${promotedThreadId}`,
         "Supervised draft did not promote to its Root route.",
       );
+      expect(mounted.router.state.location.search).toEqual({
+        projectId: PROJECT_ID,
+        view: "chat",
+      });
       expect(
         wsRequests.some(
           (request) =>
@@ -2416,7 +2447,14 @@ describe("ChatView timeline estimator parity (full app)", () => {
       );
       expect(preShellSubscribeIndex).toBeGreaterThanOrEqual(0);
       expect(turnStartIndex).toBeGreaterThan(preShellSubscribeIndex);
+      expect(promotedThreadId).not.toBe(existingLeadSeat.threadId);
       expect(sawConversationLoader).toBe(false);
+
+      mounted.router.history.back();
+      await new Promise<void>((resolve) => {
+        window.setTimeout(resolve, 50);
+      });
+      expect(mounted.router.state.location.pathname).toBe(`/supervised/${promotedThreadId}`);
     } finally {
       loaderObserver.disconnect();
       await mounted.cleanup();
@@ -3390,7 +3428,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("shows Loading until ack, then keeps Thinking through the post-ack gap", async () => {
+  it("keeps Thinking visible before and after ack until the original Working lifecycle takes over", async () => {
     const restoreNativeApi = installDeterministicSendNativeApi();
     let currentSnapshot = createSnapshotForTargetUser({
       targetMessageId: "msg-user-thinking-bridge" as MessageId,
@@ -3428,8 +3466,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await vi.waitFor(
         () => {
           expect(document.body.textContent).toContain(prompt);
-          expect(document.body.textContent).toContain("Loading");
-          expect(document.body.textContent).not.toContain("Thinking");
+          expect(document.body.textContent).toContain("Thinking");
+          expect(document.body.textContent).not.toContain("Loading");
         },
         { timeout: 8_000, interval: 16 },
       );

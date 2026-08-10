@@ -67,6 +67,12 @@ export const ComposerSubagentStrip = function ComposerSubagentStrip({
     (item): item is ComposerSubagentStripItem => item.kind === "subagent",
   );
   const runningCount = subagentItems.filter((item) => item.isActive).length;
+  const controllableRunningCount = subagentItems.filter(
+    (item) => item.isActive && item.isControllable !== false,
+  ).length;
+  const itemNoun = subagentItems.some((item) => item.source === "supervised")
+    ? "agent"
+    : "subagent";
 
   return (
     <ComposerStackedPanel
@@ -83,11 +89,11 @@ export const ComposerSubagentStrip = function ComposerSubagentStrip({
           )}
           <ComposerStackedPanelRowLabel tone="meta">
             {runningCount > 0
-              ? `${runningCount} of ${subagentItems.length} ${pluralize(subagentItems.length, "subagent")} running`
-              : `${subagentItems.length} ${pluralize(subagentItems.length, "subagent")}`}
+              ? `${runningCount} of ${subagentItems.length} ${pluralize(subagentItems.length, itemNoun)} running`
+              : `${subagentItems.length} ${pluralize(subagentItems.length, itemNoun)}`}
           </ComposerStackedPanelRowLabel>
         </ComposerStackedPanelRowMain>
-        {onStopAll && runningCount > 1 ? (
+        {onStopAll && controllableRunningCount > 1 ? (
           <Button
             type="button"
             variant="ghost"
@@ -195,7 +201,10 @@ export const ComposerSubagentStrip = function ComposerSubagentStrip({
                     </span>
                   ) : null}
                 </button>
-                {item.isActive && !item.isBackground && onBackgroundItem ? (
+                {item.isControllable !== false &&
+                item.isActive &&
+                !item.isBackground &&
+                onBackgroundItem ? (
                   <Button
                     type="button"
                     variant="ghost"
@@ -211,7 +220,7 @@ export const ComposerSubagentStrip = function ComposerSubagentStrip({
                     <BackgroundTrayIcon className="size-3" />
                   </Button>
                 ) : null}
-                {item.isActive && onStopItem ? (
+                {item.isControllable !== false && item.isActive && onStopItem ? (
                   <Button
                     type="button"
                     variant="ghost"

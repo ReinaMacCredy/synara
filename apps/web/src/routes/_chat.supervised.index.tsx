@@ -64,13 +64,15 @@ function SupervisedIndexRouteView() {
       isHomeChatContainerProject(project, { homeDir, chatWorkspaceRoot }),
     ) ?? null;
   const selectedProject = sourceProject ?? explicitProject ?? homeProject;
-  const primarySupervisorThreadId =
-    supervisedSeats.find(
-      (seat) =>
-        seat.identityRole === "supervisor" &&
-        (seat.lifecycleState === "ready" || seat.lifecycleState === "active") &&
-        seat.threadId !== null,
-    )?.threadId ?? null;
+  const primarySupervisorThreadId = selectedProject
+    ? (supervisedSeats.find(
+        (seat) =>
+          seat.projectId === selectedProject.id &&
+          seat.identityRole === "supervisor" &&
+          (seat.lifecycleState === "ready" || seat.lifecycleState === "active") &&
+          seat.threadId !== null,
+      )?.threadId ?? null)
+    : null;
   const activeRoom = selectedProject
     ? (runtime.data?.rooms.find(
         (room) => room.projectId === selectedProject.id && room.status !== "archived",

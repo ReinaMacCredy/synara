@@ -5,7 +5,7 @@
 // Layer: Chat composer logic
 // Exports: deriveComposerSubagentStripItems and the strip row types
 
-import { ThreadId, type TurnId } from "@synara/contracts";
+import { ThreadId, type AgentSeat, type ProjectId, type TurnId } from "@synara/contracts";
 
 import type { WorkLogEntry, WorkLogSubagent } from "../../session-logic";
 import {
@@ -15,6 +15,11 @@ import {
   resolveSubagentPresentation,
   type SubagentStatusKind,
 } from "../../lib/subagentPresentation";
+import {
+  compareSupervisedAgentSeats,
+  supervisedAgentRoleLabel,
+  supervisedAgentStatus,
+} from "../../lib/supervisedAgentPresentation";
 
 export interface ComposerSubagentStripItem {
   kind: "subagent";
@@ -34,6 +39,10 @@ export interface ComposerSubagentStripItem {
   isViewed: boolean;
   isBackground: boolean;
   accentColor: string;
+  // Durable Supervised seats share this visual surface but are governed through
+  // the control plane, not provider-native task background/stop commands.
+  isControllable?: boolean;
+  source?: "provider" | "supervised";
 }
 
 // Leading "back to the main thread" row shown while a subagent thread is open.
@@ -143,7 +152,8 @@ export function collectRunningSubagentStripItems(
   rows: ReadonlyArray<ComposerSubagentStripRow>,
 ): ComposerSubagentStripItem[] {
   return rows.filter(
-    (row): row is ComposerSubagentStripItem => row.kind === "subagent" && row.isActive,
+    (row): row is ComposerSubagentStripItem =>
+      row.kind === "subagent" && row.isActive && row.isControllable !== false,
   );
 }
 
@@ -222,4 +232,75 @@ export function deriveComposerSubagentStripItems(input: {
   return items.some((item) => item.statusKind === "running" || item.statusKind === "queued")
     ? withParentRow(items, input.parentRow)
     : [];
+}
+
+function sharesRoom(left: AgentSeat, right: AgentSeat): boolean {
+  const rightRoomIds = new Set(right.roomIds);
+  return left.roomIds.some((roomId) => rightRoomIds.has(roomId));
+}
+
+/**
+ * Restores the existing composer agent strip for canonical Supervised threads.
+ * The Primary Supervisor sees its project seats; a Lead or Peer sees the
+ * project Supervisor plus seats in the same Room.
+ */
+export function deriveSupervisedComposerHierarchyItems(input: {
+  seats: ReadonlyArray<AgentSeat>;
+  currentThreadId: ThreadId;
+  projectId: ProjectId | null;
+  threadTitlesById?: ReadonlyMap<ThreadId, string>;
+}): ComposerSubagentStripItem[] {
+  const currentSeat = input.seats.find((seat) => seat.threadId === input.currentThreadId);
+  if (!currentSeat) return [];
+
+  const projectId = currentSeat.projectId ?? input.projectId;
+  const relatedSeats = input.seats
+    .filter((seat) => {
+      if (
+        seat.id === currentSeat.id ||
+        seat.threadId === null ||
+        seat.lifecycleState === "retired"
+      ) {
+        return false;
+      }
+      if (
+        projectId !== null &&
+        seat.projectId !== projectId &&
+        !(seat.projectId === null && sharesRoom(currentSeat, seat))
+      ) {
+        return false;
+      }
+      if (projectId === null && seat.workspaceId !== currentSeat.workspaceId) return false;
+      return (
+        currentSeat.identityRole === "supervisor" ||
+        seat.identityRole === "supervisor" ||
+        sharesRoom(currentSeat, seat)
+      );
+    })
+    .toSorted(compareSupervisedAgentSeats);
+
+  return relatedSeats.map((seat) => {
+    const role = supervisedAgentRoleLabel(seat);
+    const primaryLabel =
+      seat.displayName?.trim() || input.threadTitlesById?.get(seat.threadId!)?.trim() || role;
+    const status = supervisedAgentStatus(seat);
+    return {
+      kind: "subagent",
+      key: `supervised:${seat.id}`,
+      threadId: seat.threadId!,
+      providerThreadId: seat.id,
+      primaryLabel,
+      fullLabel: `${primaryLabel} [${role}]`,
+      role,
+      modelLabel: undefined,
+      statusLabel: status.label,
+      statusKind: status.kind,
+      isActive: status.active,
+      isViewed: false,
+      isBackground: false,
+      accentColor: "currentColor",
+      isControllable: false,
+      source: "supervised",
+    };
+  });
 }

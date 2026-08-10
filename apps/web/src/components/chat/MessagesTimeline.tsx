@@ -406,7 +406,6 @@ function WorktreeSetupCard({
 interface MessagesTimelineProps {
   hasMessages: boolean;
   isWorking: boolean;
-  workingLabel?: "Loading" | "Thinking" | undefined;
   activeTurnInProgress: boolean;
   activeTurnStartedAt: string | null;
   /** Transient "New worktree" setup progress; rendered as an ephemeral step card at the tail. */
@@ -522,7 +521,6 @@ interface MessagesTimelineProps {
 export const MessagesTimeline = memo(function MessagesTimeline({
   hasMessages,
   isWorking,
-  workingLabel: workingLabelProp,
   activeTurnInProgress,
   activeTurnStartedAt,
   worktreeSetup: worktreeSetupProp,
@@ -588,7 +586,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   // an `AssignmentPattern` in the parameter list makes React Compiler bail out on the
   // entire component (silently, since `panicThreshold` is unset), which would drop
   // memoization for the whole transcript. See MessagesTimeline.compiler.test.ts.
-  const workingLabel = workingLabelProp ?? "Thinking";
   const worktreeSetup = worktreeSetupProp ?? null;
   const worktreeSetupPendingAction = worktreeSetupPendingActionProp ?? null;
   const followLiveOutput = followLiveOutputProp ?? false;
@@ -786,7 +783,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         activeTurnInProgress,
         activeTurnId,
         activeTurnStartedAt,
-        showReasoningStatus: workingLabel !== "Loading",
         turnDiffSummaryByAssistantMessageId,
         revertTurnCountByUserMessageId,
       }),
@@ -797,7 +793,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       activeTurnInProgress,
       activeTurnId,
       activeTurnStartedAt,
-      workingLabel,
       turnDiffSummaryByAssistantMessageId,
       revertTurnCountByUserMessageId,
     ],
@@ -2425,7 +2420,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               settleTransitionActive={settleTransitionOpen !== undefined}
               hasDetails={detailItems.length > 0}
               fontSize={chatTypographyStyle.fontSize}
-              {...(workingLabel === "Loading" ? { pendingLabel: "Loading" as const } : {})}
               onToggle={(open) => setCollapsedWorkExpanded(row.id, open)}
               renderChildren={() => (
                 <div className="mb-2.5 space-y-1.5">
@@ -2754,7 +2748,6 @@ function TurnActivityRegion(props: {
   settleTransitionActive?: boolean;
   hasDetails: boolean;
   fontSize: CSSProperties["fontSize"];
-  pendingLabel?: "Loading";
   onToggle: (open: boolean) => void;
   renderChildren: () => ReactNode;
 }) {
@@ -2830,7 +2823,6 @@ function TurnActivityRegion(props: {
             state={props.state}
             startedAt={props.startedAt}
             settledElapsed={props.settledElapsed}
-            {...(props.pendingLabel !== undefined ? { pendingLabel: props.pendingLabel } : {})}
             {...(props.nowIso !== undefined ? { nowIso: props.nowIso } : {})}
           />
           {!live && props.hasDetails ? (
@@ -2890,7 +2882,6 @@ function TurnWorkRegionLabel(props: {
   startedAt: string | null;
   settledElapsed: string | null;
   nowIso?: string;
-  pendingLabel?: "Loading";
 }) {
   const live = props.state === "working";
   const [liveElapsedSnapshot, setLiveElapsedSnapshot] = useState<WorkingElapsedSnapshot>({
@@ -2947,7 +2938,7 @@ function TurnWorkRegionLabel(props: {
         )}
         aria-hidden={!live}
       >
-        {props.startedAt ? <>Working for {workingElapsed}</> : (props.pendingLabel ?? "Working...")}
+        {props.startedAt ? <>Working for {workingElapsed}</> : "Working..."}
       </span>
       <span
         data-work-status-text="settled"

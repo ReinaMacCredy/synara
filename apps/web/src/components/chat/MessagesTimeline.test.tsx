@@ -1903,14 +1903,13 @@ describe("MessagesTimeline", () => {
     },
   );
 
-  it("shows Loading when a new local send has no server turn id yet", async () => {
+  it("keeps the original Working lifecycle when a local send has no server turn id yet", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const previousTurnId = TurnId.makeUnsafe("turn-previous");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
         isWorking
-        workingLabel="Loading"
         activeTurnInProgress
         activeTurnId={null}
         activeTurnStartedAt={null}
@@ -1983,7 +1982,8 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain(">Loading<");
+    expect(markup).toContain("Working...");
+    expect(markup).not.toContain(">Loading<");
   });
 
   it("does not reuse the previous summary while a new local send still has the old turn id", async () => {

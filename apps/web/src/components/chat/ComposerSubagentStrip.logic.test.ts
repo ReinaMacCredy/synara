@@ -4,7 +4,13 @@
 // Layer: Web chat composer tests
 // Depends on: deriveComposerSubagentStripItems
 
-import { EventId, ThreadId, TurnId, type OrchestrationThreadActivity } from "@synara/contracts";
+import {
+  EventId,
+  ThreadId,
+  TurnId,
+  type AgentSeat,
+  type OrchestrationThreadActivity,
+} from "@synara/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -20,6 +26,7 @@ import {
   collectForegroundRunningSubagentStripItems,
   collectRunningSubagentStripItems,
   deriveComposerSubagentStripItems,
+  deriveSupervisedComposerHierarchyItems,
   type ComposerSubagentStripItem,
   type ComposerSubagentStripRow,
 } from "./ComposerSubagentStrip.logic";
@@ -43,6 +50,30 @@ function subagent(overrides: Partial<WorkLogSubagent> & { threadId: string }): W
 
 function subagentRows(rows: ComposerSubagentStripRow[]): ComposerSubagentStripItem[] {
   return rows.filter((row): row is ComposerSubagentStripItem => row.kind === "subagent");
+}
+
+function governedSeat(
+  overrides: Partial<AgentSeat> &
+    Pick<AgentSeat, "id" | "identityRole" | "threadId" | "projectId" | "roomIds">,
+): AgentSeat {
+  return {
+    workspaceId: "workspace-1",
+    effectiveRole: overrides.identityRole,
+    profileId: `profile-${overrides.identityRole}`,
+    providerSessionId: null,
+    lifecycleState: "active",
+    workState: "idle",
+    authorityReceiptId: `receipt-${overrides.id}`,
+    profileSnapshotId: null,
+    predecessorThreadIds: [],
+    displayName: null,
+    createdAt: "2026-08-10T00:00:00.000Z",
+    retainedAt: null,
+    retiredAt: null,
+    revision: 0,
+    updatedAt: "2026-08-10T00:00:00.000Z",
+    ...overrides,
+  } as AgentSeat;
 }
 
 describe("deriveComposerSubagentStripItems", () => {
@@ -745,5 +776,88 @@ describe("collectForegroundRunningSubagentStripItems", () => {
 
     const foreground = collectForegroundRunningSubagentStripItems(rows);
     expect(foreground.map((item) => item.primaryLabel)).toEqual(["Ada"]);
+  });
+});
+
+describe("deriveSupervisedComposerHierarchyItems", () => {
+  const supervisor = governedSeat({
+    id: "seat-supervisor",
+    identityRole: "supervisor",
+    threadId: ThreadId.makeUnsafe("supervisor-thread"),
+    projectId: null,
+    roomIds: ["room-1"],
+    displayName: "Primary Supervisor",
+  });
+  const lead = governedSeat({
+    id: "seat-lead",
+    identityRole: "lead",
+    threadId: ThreadId.makeUnsafe("lead-thread"),
+    projectId: "project-1",
+    roomIds: ["room-1"],
+    displayName: "Project Lead",
+  });
+  const peer = governedSeat({
+    id: "seat-peer",
+    identityRole: "peer",
+    threadId: ThreadId.makeUnsafe("peer-thread"),
+    projectId: "project-1",
+    roomIds: ["room-1"],
+    displayName: "Review Peer",
+    workState: "running",
+  });
+  const otherRoomPeer = governedSeat({
+    id: "seat-other-peer",
+    identityRole: "peer",
+    threadId: ThreadId.makeUnsafe("other-peer-thread"),
+    projectId: "project-1",
+    roomIds: ["room-2"],
+  });
+  const otherProjectLead = governedSeat({
+    id: "seat-other-lead",
+    identityRole: "lead",
+    threadId: ThreadId.makeUnsafe("other-lead-thread"),
+    projectId: "project-2",
+    roomIds: ["room-3"],
+  });
+
+  it("shows every governed project seat from the Primary Supervisor thread", () => {
+    const rows = deriveSupervisedComposerHierarchyItems({
+      seats: [supervisor, lead, peer, otherRoomPeer, otherProjectLead],
+      currentThreadId: supervisor.threadId!,
+      projectId: "project-1",
+      threadTitlesById: new Map([[otherRoomPeer.threadId!, "Test peer"]]),
+    });
+
+    expect(rows.map((row) => [row.primaryLabel, row.role])).toEqual([
+      ["Project Lead", "Lead"],
+      ["Review Peer", "Peer"],
+      ["Test peer", "Peer"],
+    ]);
+    expect(rows.every((row) => row.source === "supervised" && !row.isControllable)).toBe(true);
+  });
+
+  it("shows the project Supervisor and same-Room peers from a Lead thread", () => {
+    const rows = deriveSupervisedComposerHierarchyItems({
+      seats: [otherRoomPeer, peer, lead, supervisor],
+      currentThreadId: lead.threadId!,
+      projectId: "project-1",
+    });
+
+    expect(rows.map((row) => row.threadId)).toEqual([
+      supervisor.threadId,
+      peer.threadId,
+    ]);
+    expect(rows[1]).toMatchObject({ statusLabel: "Running", statusKind: "running" });
+  });
+
+  it("never routes provider-native stop/background controls to governed seats", () => {
+    const rows = deriveSupervisedComposerHierarchyItems({
+      seats: [supervisor, lead, peer],
+      currentThreadId: lead.threadId!,
+      projectId: "project-1",
+    });
+
+    expect(collectRunningSubagentStripItems(rows)).toEqual([]);
+    expect(collectForegroundRunningSubagentStripItems(rows)).toEqual([]);
   });
 });
