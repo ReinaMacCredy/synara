@@ -2,6 +2,7 @@ import {
   UserModelPreferenceProfile,
   UserModelPreferenceProfileId,
   type ModelCapabilityProfileId,
+  type SupervisorNotebookEntry,
   type SupervisedSettingsSnapshot,
   type SupervisedSystemTool,
   type SupervisedToolPolicyState,
@@ -42,6 +43,9 @@ const statusValue = (text: string) => (
 
 const formatTime = (value: string | null | undefined) =>
   value ? new Date(value).toLocaleString() : "Not recorded";
+
+export const supervisorNotebookEntryByline = (entry: SupervisorNotebookEntry) =>
+  `${entry.roomId ? `Room ${entry.roomId}` : `Workspace ${entry.workspaceId}`} · author ${entry.authorSeatId} · confidence ${Math.round(entry.confidence * 100)}%`;
 
 const summarizeScopeIds = (label: string, values: ReadonlyArray<string>) =>
   values.length === 0
@@ -712,7 +716,7 @@ function NotebookPanel({ snapshot }: { readonly snapshot: SupervisedSettingsSnap
                   <span>
                     {entry.redactedAt ? "[Redacted]" : entry.content}
                     <br />
-                    {entry.roomId ? `Room ${entry.roomId}` : `Workspace ${entry.workspaceId}`} · confidence {Math.round(entry.confidence * 100)}%
+                    {supervisorNotebookEntryByline(entry)}
                     <br />
                     evidence: {entry.evidenceRefs.slice(0, 5).join(", ") || "none"}
                     {entry.evidenceRefs.length > 5 ? ` · +${entry.evidenceRefs.length - 5} more` : ""}

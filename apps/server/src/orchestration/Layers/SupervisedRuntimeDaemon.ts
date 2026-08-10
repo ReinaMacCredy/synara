@@ -7,6 +7,7 @@ import type {
   HarnessPatch,
   ModelSessionTrace,
   OrchestrationEvent,
+  OrchestrationReadModel,
   OrchestrationThread,
   RlmEpisode,
   Run,
@@ -137,6 +138,19 @@ export function terminalRunRecoveryPath(
   return shortestRunRecoveryPath(from, episodeStatus === "cancelled" ? "cancelled" : "failed");
 }
 
+export function restartRunRecoveryPath(
+  run: Pick<Run, "status" | "daemonEpoch">,
+  daemonEpoch: number,
+): ReadonlyArray<Run["status"]> {
+  if (run.daemonEpoch > daemonEpoch) return [];
+  if (run.status === "running" && run.daemonEpoch < daemonEpoch) {
+    return ["interrupted", "recovering", "running"];
+  }
+  if (run.status === "interrupted") return ["recovering", "running"];
+  if (run.status === "recovering") return ["running"];
+  return [];
+}
+
 export function orchestrationContextEvent(
   event: OrchestrationEvent,
   runtime: SupervisedRuntimeSnapshot,
@@ -214,6 +228,96 @@ export function orchestrationContextEvent(
               .filter((item) => item.type === "evidence")
               .map((item) => item.evidenceId)
           : [],
+    },
+    provenance: {
+      actor: { kind: "daemon", actorId: "supervised-runtime" },
+      source: "orchestration-event-log",
+      confidence: 1,
+    },
+  });
+}
+
+export function orchestrationReviewEvent(
+  event: OrchestrationEvent,
+  readModel: OrchestrationReadModel,
+): ControlPlaneEvent | null {
+  if (event.type !== "supervised.intervention-reconciled") return null;
+  const eventIntervention = event.payload.intervention;
+  const eventReconciliation = event.payload.reconciliation;
+  if (
+    !eventIntervention ||
+    !eventReconciliation ||
+    (eventReconciliation.status !== "accepted" &&
+      eventReconciliation.status !== "rejected") ||
+    eventReconciliation.taskNodeRevisionId === null
+  ) {
+    return null;
+  }
+
+  const intervention = readModel.supervised.interventions.find(
+    (candidate) => candidate.id === eventIntervention.id,
+  );
+  const reconciliation = readModel.supervised.reconciliations.find(
+    (candidate) => candidate.id === eventReconciliation.id,
+  );
+  const taskNodeRevision = readModel.supervised.taskNodeRevisions.find(
+    (candidate) => candidate.id === eventReconciliation.taskNodeRevisionId,
+  );
+  const taskNode = taskNodeRevision
+    ? readModel.supervised.taskNodes.find(
+        (candidate) => candidate.id === taskNodeRevision.taskNodeId,
+      )
+    : undefined;
+  const task = taskNode
+    ? readModel.supervised.tasks.find((candidate) => candidate.id === taskNode.taskId)
+    : undefined;
+  const room = taskNode
+    ? readModel.supervised.rooms.find((candidate) => candidate.id === taskNode.roomId)
+    : undefined;
+  const actorSeatId = event.payload.actor.seatId;
+  if (
+    !intervention ||
+    !reconciliation ||
+    !taskNodeRevision ||
+    !taskNode ||
+    !task ||
+    !room?.leadSeatId ||
+    intervention.roomId !== room.id ||
+    reconciliation.interventionId !== intervention.id ||
+    reconciliation.roomId !== room.id ||
+    reconciliation.leadSeatId !== room.leadSeatId ||
+    reconciliation.status !== eventReconciliation.status ||
+    (event.payload.actor.kind === "seat" && actorSeatId !== reconciliation.leadSeatId)
+  ) {
+    return null;
+  }
+
+  const type = reconciliation.status === "accepted" ? "ReviewCompleted" : "ReviewRejected";
+  return Schema.decodeUnknownSync(ControlPlaneEvent)({
+    sequence: 0,
+    eventId: event.eventId,
+    schemaId:
+      type === "ReviewCompleted"
+        ? "schema-review-completed-v1"
+        : "schema-review-rejected-v1",
+    schemaVersion: "1.0.0",
+    type,
+    scope: { kind: "task_node", taskNodeId: taskNode.id },
+    subjectId: taskNode.id,
+    eventTime: reconciliation.resolvedAt ?? event.occurredAt,
+    recordedAt: event.occurredAt,
+    revision: taskNodeRevision.graphRevision,
+    causationEventId: event.causationEventId,
+    correlationId: event.correlationId,
+    payload: {
+      taskId: task.id,
+      taskNodeId: taskNode.id,
+      graphRevision: taskNodeRevision.graphRevision,
+      roomId: room.id,
+      leadSeatId: room.leadSeatId,
+      reviewerSeatId: reconciliation.leadSeatId,
+      rejectionReason: reconciliation.status === "rejected" ? reconciliation.reason : null,
+      evidenceRefs: intervention.evidenceRefs,
     },
     provenance: {
       actor: { kind: "daemon", actorId: "supervised-runtime" },
@@ -420,15 +524,40 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
 
   const mergeSessionUsage = (
     trace: ModelSessionTrace,
-    observed: ModelSessionTrace["usage"],
-  ): ModelSessionTrace["usage"] => ({
-    inputTokens: observed.inputTokens,
-    outputTokens: observed.outputTokens,
-    contextTokens:
-      observed.contextTokens > 0 ? observed.contextTokens : trace.usage.contextTokens,
-    providerLimitTokens: observed.providerLimitTokens ?? trace.usage.providerLimitTokens,
-    contextUsagePercent:
-      observed.contextUsagePercent ?? trace.usage.contextUsagePercent,
+    observed: Pick<RlmThreadResult, "usage" | "usageProvenance">,
+  ): Pick<ModelSessionTrace, "usage" | "usageProvenance"> => ({
+    usage: {
+      inputTokens:
+        observed.usageProvenance.inputOutputTokens === "provider_observed"
+          ? observed.usage.inputTokens
+          : trace.usage.inputTokens,
+      outputTokens:
+        observed.usageProvenance.inputOutputTokens === "provider_observed"
+          ? observed.usage.outputTokens
+          : trace.usage.outputTokens,
+      contextTokens:
+        observed.usageProvenance.contextWindow === "provider_observed"
+          ? observed.usage.contextTokens
+          : trace.usage.contextTokens,
+      providerLimitTokens:
+        observed.usageProvenance.contextWindow === "provider_observed"
+          ? observed.usage.providerLimitTokens
+          : trace.usage.providerLimitTokens,
+      contextUsagePercent:
+        observed.usageProvenance.contextWindow === "provider_observed"
+          ? observed.usage.contextUsagePercent
+          : trace.usage.contextUsagePercent,
+    },
+    usageProvenance: {
+      inputOutputTokens:
+        observed.usageProvenance.inputOutputTokens === "provider_observed"
+          ? "provider_observed"
+          : trace.usageProvenance.inputOutputTokens,
+      contextWindow:
+        observed.usageProvenance.contextWindow === "provider_observed"
+          ? "provider_observed"
+          : trace.usageProvenance.contextWindow,
+    },
   });
 
   const appendEvidenceItem = (
@@ -454,9 +583,18 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
     readonly runtimeEvidenceIds: ReadonlySet<string>;
     readonly trace: ModelSessionTrace;
     readonly response: string;
+    readonly terminalSourceEventId: RlmThreadResult["terminalSourceEventId"];
     readonly sourceEventIds: RlmThreadResult["sourceEventIds"];
     readonly at: string;
   }) => {
+    if (
+      input.terminalSourceEventId === null ||
+      !input.sourceEventIds.includes(input.terminalSourceEventId)
+    ) {
+      return Effect.fail(
+        new Error("RLM provider receipt requires at least one terminal source event."),
+      );
+    }
     const evidenceId = evidenceIdFor(input.trace.id);
     if (input.runtimeEvidenceIds.has(evidenceId)) return Effect.succeed(evidenceId);
     return engine
@@ -554,11 +692,9 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
     yield* engine.readEventsThrough(cursor, highWater).pipe(
       Stream.runForEach((event) =>
         Effect.gen(function* () {
-          const projected = orchestrationContextEvent(
-            event,
-            runtime,
-            governance,
-          );
+          const projected =
+            orchestrationContextEvent(event, runtime, governance) ??
+            orchestrationReviewEvent(event, projection);
           if (projected) yield* repository.appendControlPlaneEvent(projected);
           yield* repository.putIngestionCursor({
             key: ORCHESTRATION_INGESTION_CURSOR,
@@ -701,9 +837,19 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
           const at = new Date().toISOString();
           const running =
             branch.status === "running"
-              ? branch
+              ? result.providerSessionId === null ||
+                result.providerSessionId === branch.providerSessionId
+                ? branch
+                : {
+                    ...branch,
+                    providerSessionId: result.providerSessionId,
+                    updatedAt: at,
+                    revision: branch.revision + 1,
+                  }
               : {
                   ...branch,
+                  providerSessionId:
+                    result.providerSessionId ?? branch.providerSessionId,
                   status: "running" as const,
                   updatedAt: at,
                   revision: branch.revision + 1,
@@ -721,22 +867,27 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
           currentBranches.push(running);
           continue;
         }
-        const completedWithResponse = result.status === "completed" && result.response !== null;
+        const completedWithResponse =
+          result.status === "completed" &&
+          result.response !== null &&
+          result.terminalSourceEventId !== null;
         if (completedWithResponse) {
           const at = detail.value.latestTurn?.completedAt ?? new Date().toISOString();
           const evidenceId = yield* publishRlmEvidence({
             runtimeEvidenceIds,
             trace: branch,
             response: result.response!,
+            terminalSourceEventId: result.terminalSourceEventId,
             sourceEventIds: result.sourceEventIds,
             at,
           });
           runtimeEvidenceIds.add(evidenceId);
           const updated: ModelSessionTrace = {
             ...branch,
+            providerSessionId: result.providerSessionId ?? branch.providerSessionId,
             providerCallId: result.providerCallId,
             items: appendEvidenceItem(result.items, evidenceId, result.response!, at),
-            usage: mergeSessionUsage(branch, result.usage),
+            ...mergeSessionUsage(branch, result),
             status: "completed",
             durationMs: result.durationMs,
             costUsd: result.costUsd,
@@ -758,11 +909,12 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
             }
             const retry: ModelSessionTrace = {
               ...branch,
+              providerSessionId: result.providerSessionId ?? branch.providerSessionId,
               status: "running",
               retryCount: branch.retryCount + 1,
               providerCallId: result.providerCallId,
               items: result.items,
-              usage: mergeSessionUsage(branch, result.usage),
+              ...mergeSessionUsage(branch, result),
               durationMs: result.durationMs,
               costUsd: result.costUsd,
               updatedAt: at,
@@ -780,10 +932,11 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
           } else {
             const failed: ModelSessionTrace = {
               ...branch,
+              providerSessionId: result.providerSessionId ?? branch.providerSessionId,
               status: result.status === "cancelled" ? "cancelled" : "failed",
               providerCallId: result.providerCallId,
               items: result.items,
-              usage: mergeSessionUsage(branch, result.usage),
+              ...mergeSessionUsage(branch, result),
               durationMs: result.durationMs,
               costUsd: result.costUsd,
               updatedAt: at,
@@ -798,6 +951,7 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
           const at = new Date().toISOString();
           const running: ModelSessionTrace = {
             ...branch,
+            providerSessionId: result.providerSessionId ?? branch.providerSessionId,
             status: "running",
             updatedAt: at,
             revision: branch.revision + 1,
@@ -918,6 +1072,8 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
         });
         const runningRoot: ModelSessionTrace = {
           ...root,
+          providerSessionId:
+            rootDetail.value.session?.providerSessionId ?? root.providerSessionId,
           status: "running",
           promptHash: promptReceiptHash(prompt),
           inputSummary: prompt,
@@ -937,21 +1093,26 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
       if (root.status === "completed" && episode.status !== "synthesizing") continue;
 
       const rootResult = extractRlmThreadResult(rootDetail.value);
-      const rootCompleted = rootResult.status === "completed" && rootResult.response !== null;
+      const rootCompleted =
+        rootResult.status === "completed" &&
+        rootResult.response !== null &&
+        rootResult.terminalSourceEventId !== null;
       if (rootCompleted) {
         const at = rootDetail.value.latestTurn?.completedAt ?? new Date().toISOString();
         const evidenceId = yield* publishRlmEvidence({
           runtimeEvidenceIds,
           trace: root,
           response: rootResult.response!,
+          terminalSourceEventId: rootResult.terminalSourceEventId,
           sourceEventIds: rootResult.sourceEventIds,
           at,
         });
         const completedRoot: ModelSessionTrace = {
           ...root,
+          providerSessionId: rootResult.providerSessionId ?? root.providerSessionId,
           providerCallId: rootResult.providerCallId,
           items: appendEvidenceItem(rootResult.items, evidenceId, rootResult.response!, at),
-          usage: mergeSessionUsage(root, rootResult.usage),
+          ...mergeSessionUsage(root, rootResult),
           status: "completed",
           durationMs: rootResult.durationMs,
           costUsd: rootResult.costUsd,
@@ -1007,11 +1168,12 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
           }
           const retryRoot: ModelSessionTrace = {
             ...root,
+            providerSessionId: rootResult.providerSessionId ?? root.providerSessionId,
             status: "running",
             retryCount: root.retryCount + 1,
             providerCallId: rootResult.providerCallId,
             items: rootResult.items,
-            usage: mergeSessionUsage(root, rootResult.usage),
+            ...mergeSessionUsage(root, rootResult),
             durationMs: rootResult.durationMs,
             costUsd: rootResult.costUsd,
             updatedAt: at,
@@ -1028,10 +1190,11 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
         } else {
           const failedRoot: ModelSessionTrace = {
             ...root,
+            providerSessionId: rootResult.providerSessionId ?? root.providerSessionId,
             status: rootResult.status === "cancelled" ? "cancelled" : "failed",
             providerCallId: rootResult.providerCallId,
             items: rootResult.items,
-            usage: mergeSessionUsage(root, rootResult.usage),
+            ...mergeSessionUsage(root, rootResult),
             durationMs: rootResult.durationMs,
             costUsd: rootResult.costUsd,
             updatedAt: at,
@@ -1361,66 +1524,176 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
       }),
     );
 
+  const beginRecoveryEpoch = (incrementEpoch: boolean) =>
+    Effect.gen(function* () {
+      const before = yield* repository.getDaemonSnapshot();
+      const now = new Date().toISOString();
+      yield* repository.setHealth(
+        {
+          ...before.health,
+          daemonEpoch: before.health.daemonEpoch + (incrementEpoch ? 1 : 0),
+          status: "degraded",
+          updatedAt: now,
+        },
+        before.snapshotSequence,
+      );
+    });
+
+  const markRecoveryDegraded = Effect.gen(function* () {
+    const before = yield* repository.getDaemonSnapshot();
+    yield* repository.setHealth(
+      {
+        ...before.health,
+        status: "degraded",
+        updatedAt: new Date().toISOString(),
+      },
+      before.snapshotSequence,
+    );
+  });
+
+  const dispatchRestartRunTransition = (input: {
+    readonly run: Run;
+    readonly status: Run["status"];
+    readonly daemonEpoch: number;
+    readonly at: string;
+  }) =>
+    engine.dispatch({
+      type: "supervised.run.transition",
+      commandId: CommandId.makeUnsafe(
+        stableId("command:run-restart-recovery", {
+          runId: input.run.id,
+          expectedRevision: input.run.revision,
+          daemonEpoch: input.daemonEpoch,
+          status: input.status,
+        }),
+      ),
+      actor: { kind: "daemon", actorId: workerId },
+      aggregateId: input.run.id,
+      expectedRevision: input.run.revision,
+      idempotencyKey: `run-restart-recovery:${input.run.id}:${input.run.revision}:${input.daemonEpoch}:${input.status}`,
+      runId: input.run.id,
+      status: input.status,
+      reason:
+        input.status === "failed"
+          ? "Daemon restart recovery could not resume this Run."
+          : `Daemon restart recovery: ${input.run.status} -> ${input.status}.`,
+      daemonEpoch: input.daemonEpoch,
+      createdAt: input.at,
+    });
+
+  const recoverRestartRun = (runId: Run["id"], daemonEpoch: number, at: string) =>
+    Effect.gen(function* () {
+      const initial = yield* repository.getDaemonSnapshot();
+      let run = initial.runs.find((candidate) => candidate.id === runId);
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        if (!run) return;
+        const nextStatus = restartRunRecoveryPath(run, daemonEpoch)[0];
+        if (!nextStatus) return;
+        const transitionExit = yield* Effect.exit(
+          dispatchRestartRunTransition({ run, status: nextStatus, daemonEpoch, at }),
+        );
+        if (Exit.isSuccess(transitionExit)) {
+          run = {
+            ...run,
+            status: nextStatus,
+            daemonEpoch,
+            revision: run.revision + 1,
+          };
+          continue;
+        }
+
+        const observed = yield* repository.getDaemonSnapshot();
+        const observedRun = observed.runs.find((candidate) => candidate.id === runId);
+        if (
+          observedRun &&
+          (observedRun.revision !== run.revision ||
+            observedRun.status !== run.status ||
+            observedRun.daemonEpoch !== run.daemonEpoch)
+        ) {
+          run = observedRun;
+          continue;
+        }
+        if (
+          !observedRun ||
+          observedRun.status === "succeeded" ||
+          observedRun.status === "failed" ||
+          observedRun.status === "cancelled"
+        ) {
+          return;
+        }
+        const failureExit = yield* Effect.exit(
+          dispatchRestartRunTransition({
+            run: observedRun,
+            status: "failed",
+            daemonEpoch,
+            at,
+          }),
+        );
+        if (Exit.isSuccess(failureExit)) return;
+        const failedSnapshot = yield* repository.getDaemonSnapshot();
+        if (failedSnapshot.runs.find((candidate) => candidate.id === runId)?.status === "failed") {
+          return;
+        }
+        return yield* Effect.failCause(failureExit.cause);
+      }
+
+      if (!run || restartRunRecoveryPath(run, daemonEpoch).length === 0) return;
+      yield* dispatchRestartRunTransition({ run, status: "failed", daemonEpoch, at });
+    });
+
   const recoverDurableWork = Effect.gen(function* () {
     const now = new Date().toISOString();
+    const recoveringRuntime = yield* repository.getDaemonSnapshot();
+    yield* repository.setHealth(
+      {
+        ...recoveringRuntime.health,
+        status: "recovering",
+        lastRecoveryAt: now,
+        updatedAt: now,
+      },
+      recoveringRuntime.snapshotSequence,
+    );
+
     const governanceBefore = yield* governanceRepository.getSnapshot();
     const governanceRecovery = recoverGovernanceSnapshot(governanceBefore, now);
-    const recoveredGovernance = settleGovernanceRecoveryActions(
-      governanceRecovery.snapshot,
+    let recoveringGovernance = governanceRecovery.snapshot;
+    if (recoveringGovernance !== governanceBefore) {
+      yield* governanceRepository.replaceSnapshot(recoveringGovernance);
+      recoveringGovernance = yield* governanceRepository.getSnapshot();
+    }
+    const settledGovernance = settleGovernanceRecoveryActions(
+      recoveringGovernance,
       governanceRecovery.actions,
       now,
     );
-    if (recoveredGovernance !== governanceBefore) {
-      yield* governanceRepository.replaceSnapshot(recoveredGovernance);
+    if (settledGovernance !== recoveringGovernance) {
+      yield* governanceRepository.replaceSnapshot(settledGovernance);
     }
     if (governanceRecovery.actions.length > 0) {
       yield* Effect.logWarning("Supervised governance restart actions settled", {
-        resumedOrFailedProviders: governanceRecovery.actions.filter(
+        failedProviders: governanceRecovery.actions.filter(
           (action) => action.kind === "resume_provider",
         ).length,
         failedInterventions: governanceRecovery.actions.filter(
           (action) => action.kind === "resume_intervention",
         ).length,
-        reconciledRootTransfers: governanceRecovery.actions.filter(
-          (action) => action.kind === "reconcile_root_transfer",
+        reconciledRoleAssumptions: governanceRecovery.actions.filter(
+          (action) => action.kind === "reconcile_role_assumption",
+        ).length,
+        reconciledLeadReplacements: governanceRecovery.actions.filter(
+          (action) => action.kind === "reconcile_lead_replacement",
         ).length,
       });
     }
 
     const runtimeBefore = yield* repository.getDaemonSnapshot();
-    const interruptedRuns = runtimeBefore.runs.filter((run) => run.status === "interrupted");
+    const recoverableRunIds = runtimeBefore.runs
+      .filter((run) => restartRunRecoveryPath(run, runtimeBefore.health.daemonEpoch).length > 0)
+      .map((run) => run.id);
     yield* Effect.forEach(
-      interruptedRuns,
-      (run) =>
-        engine.dispatch({
-          type: "supervised.run.transition",
-          commandId: CommandId.makeUnsafe(
-            stableId("command:run-recover", {
-              runId: run.id,
-              revision: run.revision,
-              daemonEpoch: runtimeBefore.health.daemonEpoch,
-            }),
-          ),
-          actor: { kind: "daemon", actorId: workerId },
-          aggregateId: run.id,
-          expectedRevision: run.revision,
-          idempotencyKey: `run-recover:${run.id}:${run.revision}:${runtimeBefore.health.daemonEpoch}`,
-          runId: run.id,
-          status: "recovering",
-          reason: "Daemon restart recovery.",
-          createdAt: now,
-        }),
+      recoverableRunIds,
+      (runId) => recoverRestartRun(runId, runtimeBefore.health.daemonEpoch, now),
       { concurrency: 1, discard: true },
-    );
-    const runtimeAfter = yield* repository.getDaemonSnapshot();
-    yield* repository.setHealth(
-      {
-        ...runtimeAfter.health,
-        status: "recovering",
-        lastRecoveryAt: now,
-        updatedAt: now,
-      },
-      runtimeAfter.snapshotSequence,
     );
   });
 
@@ -1638,37 +1911,43 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
   });
 
   const start: SupervisedRuntimeDaemonShape["start"] = Effect.gen(function* () {
-    yield* recoverDurableWork.pipe(
-      Effect.catch((error) =>
-        Effect.logError("Supervised durable work recovery failed", { error }),
-      ),
-    );
-    yield* reconcile.pipe(
-      Effect.catch((error) =>
-        Effect.logError("Supervised runtime startup reconciliation failed", { error }),
-      ),
-    );
+    const before = yield* repository.getDaemonSnapshot();
+    yield* beginRecoveryEpoch(before.health.status !== "starting");
+    const startupExit = yield* Effect.exit(recoverDurableWork.pipe(Effect.andThen(reconcile)));
+    if (Exit.isFailure(startupExit)) {
+      yield* markRecoveryDegraded;
+      yield* Effect.logError("Supervised runtime startup recovery failed", {
+        cause: startupExit.cause,
+      });
+    }
     yield* launchEventWakeLoop;
     yield* launchBackgroundLoop;
-  });
+  }).pipe(
+    Effect.catch((error) =>
+      Effect.logError("Supervised runtime startup could not initialize recovery", { error }),
+    ),
+  );
 
   const restart: SupervisedRuntimeDaemonShape["restart"] = lifecycleLock.withPermits(1)(
     Effect.gen(function* () {
       yield* stopBackgroundLoop;
-      const before = yield* repository.getDaemonSnapshot();
-      const now = new Date().toISOString();
-      yield* repository.setHealth(
-        {
-          ...before.health,
-          daemonEpoch: before.health.daemonEpoch + 1,
-          status: "starting",
-          updatedAt: now,
-        },
-        before.snapshotSequence,
+      const restartExit = yield* Effect.exit(
+        beginRecoveryEpoch(true).pipe(
+          Effect.andThen(recoverDurableWork),
+          Effect.andThen(reconcile),
+        ),
       );
-
-      yield* recoverDurableWork;
-      yield* reconcile;
+      if (Exit.isFailure(restartExit)) {
+        yield* markRecoveryDegraded.pipe(
+          Effect.catch((error) =>
+            Effect.logError("Supervised runtime could not persist degraded recovery health", {
+              error,
+            }),
+          ),
+        );
+        yield* launchBackgroundLoop;
+        return yield* Effect.failCause(restartExit.cause);
+      }
       yield* launchBackgroundLoop;
       return (yield* repository.getDaemonSnapshot()).health;
     }),

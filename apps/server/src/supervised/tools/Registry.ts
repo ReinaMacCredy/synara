@@ -44,15 +44,15 @@ const rootRoles: ReadonlyArray<EffectiveAgentRole> = ["lead", "acting_root"];
 export const supervisedIntentToolRegistry: ReadonlyArray<SupervisedIntentToolDescriptor> = [
   descriptor("supervised.providers.list", ["supervisor", "lead", "acting_root"], true),
   descriptor("supervised.models.list", ["supervisor", "lead", "acting_root"], true),
-  descriptor("supervised.models.recommend", ["supervisor", "lead", "acting_root"], true),
+  descriptor("supervised.models.recommend", ["supervisor", "lead", "acting_root"], false, [
+    "model.selection.record",
+  ]),
   descriptor("supervised.agents.list", observerRoles, true),
   descriptor("supervised.topology.read", observerRoles, true),
   descriptor("supervised.tasks.list", observerRoles, true),
   descriptor("supervised.task.get", observerRoles, true),
   descriptor("supervised.context.inspect", observerRoles, true),
-  descriptor("supervised.notebook.search", ["supervisor", "lead", "acting_root"], false, [
-    "notebook.cursor.advance",
-  ]),
+  descriptor("supervised.notebook.search", ["supervisor", "lead", "acting_root"], true),
   descriptor("supervised.notebook.append", ["supervisor"], false, ["notebook.append"]),
   descriptor("supervised.notebook.compact", ["supervisor"], false, ["notebook.compact"]),
   descriptor("supervised.agent.create", coordinatorRoles, false, ["seat.provision", "seat.waitReady"]),
@@ -132,6 +132,8 @@ const defaultRoleTools: Readonly<Record<AgentRole, ReadonlyArray<SupervisedInten
     "supervised.agent.create",
     "supervised.message.send",
     "supervised.work.assign",
+    "supervised.lead.replace",
+    "supervised.role.assume",
     "supervised.intervention.open",
     "supervised.intervention.reconcile",
   ],
@@ -284,7 +286,13 @@ export function selectSupervisedIntentTools(input: {
   readonly maximum?: number;
 }): ReadonlyArray<SupervisedIntentToolDescriptor> {
   const limit = Math.min(12, Math.max(0, input.maximum ?? 12));
-  return defaultSupervisedToolsForRole(input.seat.identityRole)
+  const defaultTools = [
+    ...defaultSupervisedToolsForRole(input.seat.identityRole),
+    ...(input.receipt.effectiveRole === "acting_root"
+      ? defaultSupervisedToolsForRole("lead")
+      : []),
+  ];
+  return [...new Set(defaultTools)]
     .flatMap((toolId) => {
       const decision = authorizeSupervisedIntentTool({
         toolId,

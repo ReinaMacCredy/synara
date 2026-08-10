@@ -40,23 +40,7 @@ export function resolveProjectedSupervisedCaller(input: {
     };
   }
 
-  const rotation = input.governance.orchestration.rotations.find(
-    (candidate) =>
-      candidate.replacementThreadId === input.threadId &&
-      candidate.state !== "completed" &&
-      candidate.state !== "failed",
-  );
-  if (!rotation) return undefined;
-  const rotationLead = input.governance.agentSeats.find(
-    (candidate) => candidate.id === rotation.leadSeatId && candidate.identityRole === "lead",
-  );
-  if (!rotationLead) return undefined;
-  return {
-    role: "lead",
-    seatId: rotationLead.id,
-    profileSnapshotId: rotation.replacementProfileSnapshotId,
-    leadSeatId: rotationLead.id,
-  };
+  return undefined;
 }
 
 export function resolveProjectedSupervisedCallerForThread(input: {
@@ -103,7 +87,19 @@ export function resolveEffectiveCanonicalAuthority(input: {
   | { readonly seat: AgentSeat; readonly receipt: EffectiveAuthorityReceipt }
   | undefined {
   const seat = input.governance.agentSeats.find((candidate) => candidate.id === input.seatId);
-  if (!seat || !["ready", "active"].includes(seat.lifecycleState)) return undefined;
+  if (!seat) return undefined;
+  const drainingRootStillOwnsLease =
+    seat.lifecycleState === "draining" &&
+    input.governance.rootLeases.some(
+      (lease) =>
+        lease.holderSeatId === seat.id &&
+        (lease.status === "active" ||
+          lease.status === "transferring" ||
+          lease.status === "releasing"),
+    );
+  if (!(["ready", "active"].includes(seat.lifecycleState) || drainingRootStillOwnsLease)) {
+    return undefined;
+  }
   const receipt = input.governance.authorityReceipts.find(
     (candidate) => candidate.id === seat.authorityReceiptId,
   );

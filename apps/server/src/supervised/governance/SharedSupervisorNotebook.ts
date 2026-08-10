@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 
 import {
   SupervisorNotebookCompactionReceiptId,
@@ -18,6 +18,28 @@ const cursorId = (workspaceId: string, seatId: string) =>
       .slice(0, 32)}`,
   );
 
+const compactionIdentity = (input: {
+  readonly workspaceId: string;
+  readonly roomId: string | null;
+  readonly taskNodeId: string | null;
+  readonly sourceEntryIds: ReadonlyArray<string>;
+  readonly authorSeatId: string;
+  readonly content: string;
+}) =>
+  createHash("sha256")
+    .update(
+      JSON.stringify({
+        schemaVersion: 1,
+        workspaceId: input.workspaceId,
+        roomId: input.roomId,
+        taskNodeId: input.taskNodeId,
+        sourceEntryIds: input.sourceEntryIds,
+        authorSeatId: input.authorSeatId,
+        content: input.content,
+      }),
+    )
+    .digest("hex");
+
 export interface BuildSupervisorNotebookViewInput {
   readonly workspaceId: SupervisorNotebookEntry["workspaceId"];
   readonly viewerSeatId: SupervisorNotebookEntry["authorSeatId"];
@@ -35,6 +57,12 @@ export interface BuildSupervisorNotebookViewInput {
 export function buildSupervisorNotebookView(
   input: BuildSupervisorNotebookViewInput,
 ): SupervisorNotebookView {
+  if (
+    input.cursor &&
+    (input.cursor.workspaceId !== input.workspaceId || input.cursor.seatId !== input.viewerSeatId)
+  ) {
+    throw new Error("A Supervisor Notebook cursor cannot cross workspace or AgentSeat scope.");
+  }
   const protectionClasses = new Set(input.allowedProtectionClasses);
   const cursorBoundary = input.cursor
     ? `${input.cursor.lastCreatedAt ?? ""}\u0000${input.cursor.lastEntryId ?? ""}`
@@ -69,13 +97,14 @@ export function buildSupervisorNotebookView(
         : [],
     ),
   );
-  const entries = candidates
+  const orderedCandidates = candidates.toSorted(
+    (left, right) =>
+      right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id),
+  );
+  const entries = orderedCandidates
     .filter((entry) => !supersededIds.has(entry.id) && !compactedIds.has(entry.id))
-    .toSorted(
-      (left, right) => right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id),
-    )
     .slice(0, Math.max(1, Math.min(input.limit, 512)));
-  const newest = entries[0] ?? null;
+  const newest = orderedCandidates[0] ?? null;
   const nextCursor: SupervisorNotebookCursor = {
     id: cursorId(input.workspaceId, input.viewerSeatId),
     workspaceId: input.workspaceId,
@@ -107,8 +136,14 @@ export function planSupervisorNotebookCompaction(input: {
   if (input.content.length > 32_768) {
     throw new Error("Notebook compaction summary exceeds the durable text limit.");
   }
-  const sourceEntryIds = [...new Set(input.sourceEntryIds)];
+  if (input.content.trim().length === 0) {
+    throw new Error("Notebook compaction requires summary content.");
+  }
+  const sourceEntryIds = [...new Set(input.sourceEntryIds)].toSorted();
   if (sourceEntryIds.length === 0) throw new Error("Notebook compaction requires source entries.");
+  if (sourceEntryIds.length > 512) {
+    throw new Error("Notebook compaction cannot exceed 512 source entries.");
+  }
   const sources = sourceEntryIds.map((entryId) => {
     const entry = input.entries.find((candidate) => candidate.id === entryId);
     if (!entry) throw new Error(`Notebook compaction source '${entryId}' is unavailable.`);
@@ -121,21 +156,36 @@ export function planSupervisorNotebookCompaction(input: {
   if (sources.some((entry) => entry.roomId !== sources[0]!.roomId)) {
     throw new Error("Notebook compaction cannot cross Room boundaries.");
   }
+  if (sources.some((entry) => entry.taskNodeId !== sources[0]!.taskNodeId)) {
+    throw new Error("Notebook compaction cannot cross TaskNode boundaries.");
+  }
   if (sources.some((entry) => entry.protectionClass !== sources[0]!.protectionClass)) {
     throw new Error("Notebook compaction cannot cross protection classes.");
   }
-  const summaryEntry: SupervisorNotebookEntry = {
-    id: SupervisorNotebookEntryId.makeUnsafe(`notebook-summary:${randomUUID()}`),
+  if (sources.some((entry) => entry.redactedAt !== null)) {
+    throw new Error("Notebook compaction cannot summarize redacted source entries.");
+  }
+  const evidenceRefs = [...new Set(sources.flatMap((entry) => entry.evidenceRefs))].toSorted();
+  const identity = compactionIdentity({
     workspaceId,
     roomId: sources[0]!.roomId,
-    taskNodeId: null,
+    taskNodeId: sources[0]!.taskNodeId,
+    sourceEntryIds,
+    authorSeatId: input.authorSeatId,
+    content: input.content,
+  });
+  const summaryEntry: SupervisorNotebookEntry = {
+    id: SupervisorNotebookEntryId.makeUnsafe(`notebook-summary:${identity}`),
+    workspaceId,
+    roomId: sources[0]!.roomId,
+    taskNodeId: sources[0]!.taskNodeId,
     concern: sources.every((entry) => entry.concern === sources[0]!.concern)
       ? sources[0]!.concern
       : "cross-concern summary",
     authorSeatId: input.authorSeatId,
     kind: "lesson",
     content: input.content,
-    evidenceRefs: [...new Set(sources.flatMap((entry) => entry.evidenceRefs))],
+    evidenceRefs,
     confidence: Math.min(...sources.map((entry) => entry.confidence)),
     supersedesEntryId: null,
     protectionClass: sources[0]!.protectionClass,
@@ -145,11 +195,11 @@ export function planSupervisorNotebookCompaction(input: {
   return {
     summaryEntry,
     receipt: {
-      id: SupervisorNotebookCompactionReceiptId.makeUnsafe(`notebook-compaction:${randomUUID()}`),
+      id: SupervisorNotebookCompactionReceiptId.makeUnsafe(`notebook-compaction:${identity}`),
       workspaceId,
       summaryEntryId: summaryEntry.id,
       sourceEntryIds,
-      evidenceRefs: summaryEntry.evidenceRefs,
+      evidenceRefs,
       createdBySeatId: input.authorSeatId,
       createdAt: input.createdAt,
     },

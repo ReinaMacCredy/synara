@@ -36,6 +36,21 @@ const ACTIVITY_FILTERS: ReadonlyArray<{ id: ActivityFilter; label: string }> = [
   { id: "commands", label: "Commands" },
 ];
 
+export function conversationGroupForTopologyTarget(
+  target: SupervisedTopologyOpenTarget,
+): ConversationGroup | null {
+  switch (target.kind) {
+    case "runtime":
+      return null;
+    case "supervisor":
+      return "supervisor";
+    case "lead":
+      return "lead";
+    case "peer":
+      return "peers";
+  }
+}
+
 function scopeLabel(signal: DerivedSignal): string {
   const scope = signal.scope;
   switch (scope.kind) {
@@ -443,11 +458,12 @@ export function SupervisedOperationsDock(props: {
   useEffect(() => {
     const request = props.navigationRequest;
     if (!request) return;
-    if (request.kind === "runtime") {
+    const targetGroup = conversationGroupForTopologyTarget(request);
+    if (targetGroup === null) {
       setTab("activity");
       return;
     }
-    setConversationGroup(request.kind === "lead" ? "lead" : "peers");
+    setConversationGroup(targetGroup);
     setSelectedSessionId(request.sessionId);
     setTab("conversation");
   }, [props.navigationRequest]);

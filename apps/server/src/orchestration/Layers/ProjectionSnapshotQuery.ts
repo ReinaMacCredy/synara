@@ -427,6 +427,7 @@ function toProjectedSession(row: ProjectionThreadSessionDbRow): OrchestrationSes
     threadId: row.threadId,
     status: row.status,
     providerName: row.providerName,
+    providerSessionId: row.providerSessionId,
     runtimeMode: row.runtimeMode,
     activeTurnId: row.activeTurnId,
     lastError: row.lastError,

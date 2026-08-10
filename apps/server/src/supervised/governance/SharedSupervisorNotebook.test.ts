@@ -108,6 +108,111 @@ describe("shared supervisor notebook projections", () => {
     assert.deepEqual(sourceProtectedView.compactionReceipts, []);
   });
 
+  it("preserves TaskNode scope, evidence lineage, and idempotent compaction identity", () => {
+    const sourceA = entry("source-a", {
+      taskNodeId: "task-node:review" as never,
+      evidenceRefs: ["evidence:z", "evidence:a"],
+    });
+    const sourceB = entry("source-b", {
+      taskNodeId: "task-node:review" as never,
+      evidenceRefs: ["evidence:a", "evidence:b"],
+    });
+    const first = planSupervisorNotebookCompaction({
+      entries: [sourceA, sourceB],
+      sourceEntryIds: [sourceB.id, sourceA.id],
+      authorSeatId: "seat:successor" as SupervisorNotebookEntry["authorSeatId"],
+      content: "Durable TaskNode-scoped summary",
+      createdAt: "2026-08-09T00:02:00.000Z",
+    });
+    const retry = planSupervisorNotebookCompaction({
+      entries: [sourceB, sourceA],
+      sourceEntryIds: [sourceA.id, sourceB.id, sourceA.id],
+      authorSeatId: "seat:successor" as SupervisorNotebookEntry["authorSeatId"],
+      content: "Durable TaskNode-scoped summary",
+      createdAt: "2026-08-09T00:03:00.000Z",
+    });
+
+    assert.equal(first.summaryEntry.taskNodeId, sourceA.taskNodeId);
+    assert.deepEqual(first.summaryEntry.evidenceRefs, [
+      "evidence:a",
+      "evidence:b",
+      "evidence:z",
+    ]);
+    assert.deepEqual(first.receipt.evidenceRefs, first.summaryEntry.evidenceRefs);
+    assert.deepEqual(first.receipt.sourceEntryIds, [sourceA.id, sourceB.id]);
+    assert.equal(retry.summaryEntry.id, first.summaryEntry.id);
+    assert.equal(retry.receipt.id, first.receipt.id);
+  });
+
+  it("gives a successor Supervisor only the requested scoped NotebookView", () => {
+    const priorSupervisorEntry = entry("prior-supervisor-task", {
+      authorSeatId: "seat:supervisor-prior" as never,
+      taskNodeId: "task-node:visible" as never,
+    });
+    const successorEntry = entry("successor-task", {
+      authorSeatId: "seat:supervisor-successor" as never,
+      taskNodeId: "task-node:visible" as never,
+      createdAt: "2026-08-09T00:01:00.000Z",
+    });
+    const otherTask = entry("other-task", {
+      taskNodeId: "task-node:hidden" as never,
+      createdAt: "2026-08-09T00:02:00.000Z",
+    });
+    const otherRoom = entry("other-room", {
+      roomId: "room:hidden" as never,
+      taskNodeId: "task-node:visible" as never,
+      createdAt: "2026-08-09T00:03:00.000Z",
+    });
+
+    const view = buildSupervisorNotebookView({
+      workspaceId: priorSupervisorEntry.workspaceId,
+      viewerSeatId: "seat:supervisor-successor" as never,
+      entries: [otherRoom, otherTask, priorSupervisorEntry, successorEntry],
+      compactionReceipts: [],
+      cursor: null,
+      roomId: priorSupervisorEntry.roomId!,
+      taskNodeId: priorSupervisorEntry.taskNodeId!,
+      allowedProtectionClasses: ["workspace"],
+      limit: 20,
+      createdAt: "2026-08-09T00:04:00.000Z",
+    });
+
+    assert.equal(view.viewerSeatId, "seat:supervisor-successor");
+    assert.deepEqual(
+      view.entries.map((candidate) => [candidate.id, candidate.authorSeatId]),
+      [
+        [successorEntry.id, successorEntry.authorSeatId],
+        [priorSupervisorEntry.id, priorSupervisorEntry.authorSeatId],
+      ],
+    );
+    assert.equal("rootLeaseIds" in view, false);
+  });
+
+  it("rejects a predecessor cursor for a successor Supervisor", () => {
+    const source = entry("source");
+    assert.throws(
+      () =>
+        buildSupervisorNotebookView({
+          workspaceId: source.workspaceId,
+          viewerSeatId: "seat:successor" as never,
+          entries: [source],
+          compactionReceipts: [],
+          cursor: {
+            id: "cursor:predecessor" as never,
+            workspaceId: source.workspaceId,
+            seatId: "seat:predecessor" as never,
+            lastCreatedAt: source.createdAt,
+            lastEntryId: source.id,
+            updatedAt: source.createdAt,
+          },
+          allowedProtectionClasses: ["workspace"],
+          limit: 20,
+          createdAt: now,
+        }),
+      /cannot cross workspace or AgentSeat scope/,
+    );
+  });
+
   it("rejects compaction across notebook workspace boundaries", () => {
     const sourceA = entry("source-a");
     const sourceB = entry("source-b", { workspaceId: "workspace:other" });
@@ -124,10 +229,11 @@ describe("shared supervisor notebook projections", () => {
     );
   });
 
-  it("rejects compaction that would widen Room or protection visibility", () => {
+  it("rejects compaction that would widen Room, TaskNode, or protection visibility", () => {
     const source = entry("source");
     for (const other of [
       entry("other-room", { roomId: "room:other" }),
+      entry("other-task", { taskNodeId: "task-node:other" as never }),
       entry("other-protection", { protectionClass: "internal" }),
     ]) {
       assert.throws(() =>

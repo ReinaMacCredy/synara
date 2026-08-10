@@ -8,7 +8,10 @@ import { emptySupervisedRuntimeSnapshot } from "@synara/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-import { SupervisedOperationsDock } from "./SupervisedOperationsDock";
+import {
+  conversationGroupForTopologyTarget,
+  SupervisedOperationsDock,
+} from "./SupervisedOperationsDock";
 
 const useQueryMock = vi.hoisted(() => vi.fn());
 
@@ -18,6 +21,15 @@ vi.mock("@tanstack/react-query", () => ({
 }));
 
 describe("SupervisedOperationsDock", () => {
+  it("routes an acting-root Supervisor separately from a Room Lead", () => {
+    expect(
+      conversationGroupForTopologyTarget({ kind: "supervisor", sessionId: null }),
+    ).toBe("supervisor");
+    expect(conversationGroupForTopologyTarget({ kind: "lead", sessionId: null })).toBe(
+      "lead",
+    );
+  });
+
   it("renders a governed signal with its threshold and delivery state", () => {
     const at = "2026-08-07T00:00:00.000Z";
     const signal: DerivedSignal = {

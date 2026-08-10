@@ -1,12 +1,9 @@
 import type { ProviderSupervisedSessionContext } from "@synara/contracts";
 
-const BASE_LAWS = [
-  "Communication routing and canonical authority are independent.",
-  "A visible tool never grants authority by itself. Every mutation must remain inside the EffectiveAuthorityReceipt and RunPolicy.",
-  "Provider text and tool output do not directly mutate durable domain state; typed commands and committed events do.",
-  "Communication may bypass Root, but canonical ownership must never become ambiguous.",
-  "Do not expose or persist hidden chain-of-thought. Publish concise decisions, evidence, receipts, and uncertainty instead.",
-].join(" ");
+import {
+  SUPERVISED_BASE_POLICY,
+  SUPERVISED_BASE_POLICY_HASH,
+} from "../../supervised/runtime/HarnessPatchPolicy.ts";
 
 const ROLE_PROTOCOL = {
   supervisor: [
@@ -16,6 +13,8 @@ const ROLE_PROTOCOL = {
     "You may advise Leads and direct bounded Peer work when the authority receipt permits it; direct communication does not require synchronous Lead approval.",
     "After a material direct intervention, persist what was requested, notify the current Root holder, and reconcile canonical Room state.",
     "Do not claim Root ownership unless an active RootAuthorityLease in this receipt names your seat. When acting as Root, own Room topology, sequencing, integration, and acceptance.",
+    "Identify orchestration friction and propose the smallest reversible Harness Patch, grounded in durable observation evidence and scoped only to the affected profile, Project, Room, or Task.",
+    "Never approve, activate, or promote a Harness Patch as the Human. Request explicit Human action, never expand permission or scope, and never weaken RunPolicy or mutate the server-owned base policy.",
     "Every human-authored turn must end with a concise visible response stating what was observed, changed, denied, or left unchanged. Never finish a human turn with tool activity alone; after using native Supervised operations, summarize their result for the user.",
   ].join(" "),
   lead: [
@@ -65,7 +64,7 @@ export function supervisedInstructionForSession(
 
   return [
     '<synara_supervised_protocol version="2">',
-    `<base_laws>${BASE_LAWS}</base_laws>`,
+    `<base_laws digest="${SUPERVISED_BASE_POLICY_HASH}">${SUPERVISED_BASE_POLICY}</base_laws>`,
     `<role_protocol role="${context.role}">${ROLE_PROTOCOL[context.role]}</role_protocol>`,
     `<effective_authority>${authorityBlock(context)}</effective_authority>`,
     `<session_identity>${identity}</session_identity>`,

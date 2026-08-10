@@ -330,6 +330,7 @@ describe("orchestration projector", () => {
       threadId: "thread-1",
       status: "starting",
       providerName: "pi",
+      providerSessionId: null,
       runtimeMode: "approval-required",
       activeTurnId: null,
       lastError: null,

@@ -358,11 +358,69 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
 
   const getNotebookState: SupervisedGovernanceRepositoryShape["getNotebookState"] = (input) =>
     Effect.gen(function* () {
-      const limit = Math.max(1, Math.min(input.limit, 500));
+      const limit = Math.max(1, Math.min(input.limit, 512));
+      const entryIds = input.entryIds ? [...new Set(input.entryIds)] : null;
+      const roomIds = input.roomIds ? [...new Set(input.roomIds)] : null;
+      const taskNodeIds = input.taskNodeIds ? [...new Set(input.taskNodeIds)] : null;
+      const protectionClasses = input.allowedProtectionClasses
+        ? [...new Set(input.allowedProtectionClasses)]
+        : null;
+      const entryIdFilter =
+        entryIds === null
+          ? sql``
+          : entryIds.length === 0
+            ? sql`AND 1 = 0`
+            : sql`AND entry_id IN ${sql.in(entryIds)}`;
+      const roomFilter =
+        roomIds === null
+          ? sql``
+          : roomIds.length === 0
+            ? input.includeWorkspaceEntries === false
+              ? sql`AND 1 = 0`
+              : sql`AND room_id IS NULL`
+            : input.includeWorkspaceEntries === false
+              ? sql`AND room_id IN ${sql.in(roomIds)}`
+              : sql`AND (room_id IS NULL OR room_id IN ${sql.in(roomIds)})`;
+      const taskNodeFilter =
+        taskNodeIds === null
+          ? sql``
+          : taskNodeIds.length === 0
+            ? input.includeUnscopedTaskNodes === false
+              ? sql`AND 1 = 0`
+              : sql`AND task_node_id IS NULL`
+            : input.includeUnscopedTaskNodes === false
+              ? sql`AND task_node_id IN ${sql.in(taskNodeIds)}`
+              : sql`AND (task_node_id IS NULL OR task_node_id IN ${sql.in(taskNodeIds)})`;
+      const concernFilter =
+        input.concern === undefined ? sql`` : sql`AND concern = ${input.concern}`;
+      const queryFilter =
+        input.query === undefined
+          ? sql``
+          : sql`AND instr(
+              lower(concern || char(10) || coalesce(json_extract(entity_json, '$.content'), '')),
+              lower(${input.query})
+            ) > 0`;
+      const protectionFilter =
+        protectionClasses === null
+          ? sql``
+          : protectionClasses.length === 0
+            ? sql`AND 1 = 0`
+            : sql`AND json_extract(entity_json, '$.protectionClass') IN ${sql.in(protectionClasses)}`;
+      const redactionFilter =
+        input.includeRedacted === false
+          ? sql`AND json_extract(entity_json, '$.redactedAt') IS NULL`
+          : sql``;
       const entryRows = yield* sql<EntityRow>`
         SELECT entity_json AS "entityJson"
         FROM projection_supervised_notebook_entries
         WHERE workspace_id = ${input.workspaceId}
+        ${entryIdFilter}
+        ${roomFilter}
+        ${taskNodeFilter}
+        ${concernFilter}
+        ${queryFilter}
+        ${protectionFilter}
+        ${redactionFilter}
         ORDER BY created_at DESC, entry_id DESC
         LIMIT ${limit}
       `;
@@ -370,6 +428,18 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
         SELECT entity_json AS "entityJson"
         FROM projection_supervised_notebook_compactions
         WHERE workspace_id = ${input.workspaceId}
+          AND summary_entry_id IN (
+            SELECT entry_id
+            FROM projection_supervised_notebook_entries
+            WHERE workspace_id = ${input.workspaceId}
+            ${entryIdFilter}
+            ${roomFilter}
+            ${taskNodeFilter}
+            ${concernFilter}
+            ${queryFilter}
+            ${protectionFilter}
+            ${redactionFilter}
+          )
         ORDER BY created_at DESC, receipt_id DESC
         LIMIT ${limit}
       `;
@@ -466,18 +536,43 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
             if ((existingRows[0]?.count ?? 0) > 0) return false;
 
             const sourceIds = new Set(receipt.sourceEntryIds);
-            const sourceRows = yield* sql<{ readonly entryId: string }>`
-              SELECT entry_id AS "entryId"
+            const sourceRows = yield* sql<EntityRow>`
+              SELECT entity_json AS "entityJson"
               FROM projection_supervised_notebook_entries
               WHERE workspace_id = ${entry.workspaceId}
+                AND entry_id IN ${sql.in([...sourceIds])}
             `;
-            const availableSourceIds = new Set(sourceRows.map((row) => row.entryId));
+            const sources = yield* decodeRows(
+              SupervisorNotebookEntry,
+              "SupervisedGovernance.appendNotebookCompaction.sources",
+              sourceRows,
+            );
+            const expectedEvidenceRefs = [
+              ...new Set(sources.flatMap((source) => source.evidenceRefs)),
+            ].toSorted();
+            const summaryEvidenceRefs = [...new Set(entry.evidenceRefs)].toSorted();
+            const receiptEvidenceRefs = [...new Set(receipt.evidenceRefs)].toSorted();
+            const scopeSource = sources[0];
             if (
               sourceIds.size !== receipt.sourceEntryIds.length ||
               sourceIds.has(entry.id) ||
-              receipt.sourceEntryIds.some((entryId) => !availableSourceIds.has(entryId)) ||
-              JSON.stringify([...new Set(entry.evidenceRefs)].toSorted()) !==
-                JSON.stringify([...new Set(receipt.evidenceRefs)].toSorted())
+              sources.length !== sourceIds.size ||
+              !scopeSource ||
+              sources.some(
+                (source) =>
+                  source.workspaceId !== entry.workspaceId ||
+                  source.roomId !== entry.roomId ||
+                  source.taskNodeId !== entry.taskNodeId ||
+                  source.protectionClass !== entry.protectionClass ||
+                  source.redactedAt !== null,
+              ) ||
+              entry.kind !== "lesson" ||
+              entry.redactedAt !== null ||
+              entry.supersedesEntryId !== null ||
+              entry.evidenceRefs.length !== summaryEvidenceRefs.length ||
+              receipt.evidenceRefs.length !== receiptEvidenceRefs.length ||
+              JSON.stringify(expectedEvidenceRefs) !== JSON.stringify(summaryEvidenceRefs) ||
+              JSON.stringify(expectedEvidenceRefs) !== JSON.stringify(receiptEvidenceRefs)
             ) {
               return yield* Effect.fail(
                 new Error("Notebook compaction sources or evidence lineage are invalid."),

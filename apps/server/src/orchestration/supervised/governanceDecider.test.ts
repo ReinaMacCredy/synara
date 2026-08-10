@@ -101,6 +101,61 @@ const base = {
   createdAt: now,
 };
 
+it.effect("marks the first live Supervisor as Primary and never infers that role from its name", () =>
+  Effect.gen(function* () {
+    const empty = {
+      ...emptySupervisedGovernanceDecisionState(now),
+      profileSnapshots: [snapshotProfile],
+    };
+    const first = yield* decideSupervisedGovernanceCommand({
+      state: empty,
+      command: {
+        ...base,
+        type: "supervised.supervisor.create",
+        actor: { kind: "user", actorId: "owner" },
+        expectedRevision: 0,
+        profilePresetId: "profile-default" as never,
+        profileSnapshot: snapshotProfile,
+        supervisor: { ...supervisor, name: "Coordinator", revision: 0 },
+      },
+    });
+    assert.equal(Array.isArray(first), false);
+    if (Array.isArray(first)) return;
+    assert.equal(first.payload.supervisor?.isPrimary, true);
+    assert.equal(first.payload.supervisor?.concern, "primary");
+
+    const projected = projectSupervisedGovernanceDecisionEvent(empty, {
+      ...first,
+      sequence: 1,
+    });
+    const second = yield* decideSupervisedGovernanceCommand({
+      state: projected,
+      command: {
+        ...base,
+        commandId: "command-second" as never,
+        type: "supervised.supervisor.create",
+        actor: { kind: "user", actorId: "owner" },
+        expectedRevision: 0,
+        profilePresetId: "profile-default" as never,
+        profileSnapshot: snapshotProfile,
+        supervisor: {
+          ...supervisor,
+          id: "supervisor-delivery" as never,
+          name: "Primary Supervisor",
+          concern: "delivery",
+          isPrimary: true,
+          activeThreadId: "supervisor-thread-delivery" as never,
+          revision: 0,
+        },
+      },
+    });
+    assert.equal(Array.isArray(second), false);
+    if (Array.isArray(second)) return;
+    assert.equal(second.payload.supervisor?.isPrimary, false);
+    assert.equal(second.payload.supervisor?.concern, "delivery");
+  }),
+);
+
 it.effect("clears only archived profile presets and projects a durable tombstone", () =>
   Effect.gen(function* () {
     const current = { ...state, profiles: [archivedPreset] };

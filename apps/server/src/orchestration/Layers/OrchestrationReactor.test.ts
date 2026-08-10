@@ -2,6 +2,7 @@ import { Effect, Exit, Layer, ManagedRuntime, Scope } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { CheckpointReactor } from "../Services/CheckpointReactor.ts";
+import { LeadRotationReactor } from "../Services/LeadRotationReactor.ts";
 import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
 import { OrchestrationReactor } from "../Services/OrchestrationReactor.ts";
@@ -25,6 +26,19 @@ describe("OrchestrationReactor", () => {
 
     runtime = ManagedRuntime.make(
       Layer.effect(OrchestrationReactor, makeOrchestrationReactor).pipe(
+        Layer.provideMerge(
+          Layer.succeed(LeadRotationReactor, {
+            start: Effect.acquireRelease(
+              Effect.sync(() => {
+                started.push("lead-rotation-reactor");
+              }),
+              () => Effect.sync(() => stopped.push("lead-rotation-reactor")),
+            ),
+            reconcileEvent: () => Effect.void,
+            reconcileRotation: () => Effect.void,
+            reconcilePending: Effect.void,
+          }),
+        ),
         Layer.provideMerge(
           Layer.succeed(SupervisedWakeReactor, {
             start: Effect.acquireRelease(
@@ -86,6 +100,7 @@ describe("OrchestrationReactor", () => {
       "checkpoint-reactor",
       "provider-runtime-ingestion",
       "supervised-wake-reactor",
+      "lead-rotation-reactor",
       "provider-command-reactor",
     ]);
     expect(reconciledOpenTurns).toBe(1);
@@ -93,6 +108,7 @@ describe("OrchestrationReactor", () => {
     await Effect.runPromise(Scope.close(scope, Exit.void));
     expect(stopped).toEqual([
       "provider-command-reactor",
+      "lead-rotation-reactor",
       "supervised-wake-reactor",
       "provider-runtime-ingestion",
       "checkpoint-reactor",

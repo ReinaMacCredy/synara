@@ -70,18 +70,276 @@ it("keeps plugin command requests inside the triggering subscription scope", () 
   );
 });
 
+const readModel = {
+  projects: [
+    { id: "project-1", spaceId: "space-1" },
+    { id: "project-2", spaceId: "space-1" },
+  ],
+  threads: [
+    {
+      id: "thread-lead-context",
+      deletedAt: null,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+    },
+    {
+      id: "thread-supervisor-context",
+      deletedAt: null,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+    },
+    {
+      id: "thread-primary-supervisor",
+      deletedAt: null,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+    },
+  ],
+  supervised: {
+    ...emptySupervisedRuntimeSnapshot(now),
+    rooms: [
+      {
+        id: "room-1",
+        projectId: "project-1",
+        leadSeatId: "lead-1",
+        status: "active",
+        graphRevision: 1,
+        revision: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "room-2",
+        projectId: "project-2",
+        leadSeatId: "lead-2",
+        status: "active",
+        graphRevision: 1,
+        revision: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ],
+  },
+};
+
+const governanceSnapshot = {
+  ...emptySupervisedGovernanceSnapshot(now),
+  agentSeats: [
+    {
+      id: "lead-1",
+      workspaceId: "workspace-1",
+      roomIds: ["room-1"],
+      identityRole: "lead",
+      effectiveRole: "lead",
+      profileId: "profile-lead",
+      providerSessionId: null,
+      lifecycleState: "active",
+      workState: "idle",
+      authorityReceiptId: "receipt-lead",
+      threadId: "thread-lead-context",
+      projectId: "project-1",
+      profileSnapshotId: "snapshot-lead",
+      predecessorThreadIds: [],
+      displayName: "Project Lead",
+      createdAt: now,
+      retainedAt: null,
+      retiredAt: null,
+      revision: 0,
+      updatedAt: now,
+    },
+    {
+      id: "supervisor-context",
+      workspaceId: "workspace-1",
+      roomIds: ["room-1"],
+      identityRole: "supervisor",
+      effectiveRole: "supervisor",
+      profileId: "profile-supervisor-context",
+      concern: "context",
+      providerSessionId: null,
+      lifecycleState: "active",
+      workState: "idle",
+      authorityReceiptId: "receipt-supervisor-context",
+      threadId: "thread-supervisor-context",
+      projectId: null,
+      profileSnapshotId: "snapshot-supervisor-context",
+      predecessorThreadIds: [],
+      displayName: "Context Supervisor",
+      createdAt: now,
+      retainedAt: null,
+      retiredAt: null,
+      revision: 0,
+      updatedAt: now,
+    },
+    {
+      id: "lead-2",
+      workspaceId: "workspace-1",
+      roomIds: ["room-2"],
+      identityRole: "lead",
+      effectiveRole: "lead",
+      profileId: "profile-lead",
+      providerSessionId: null,
+      lifecycleState: "active",
+      workState: "idle",
+      authorityReceiptId: "receipt-lead-2",
+      threadId: "thread-lead-2",
+      projectId: "project-2",
+      profileSnapshotId: "snapshot-lead-2",
+      predecessorThreadIds: [],
+      displayName: "Second Project Lead",
+      createdAt: now,
+      retainedAt: null,
+      retiredAt: null,
+      revision: 0,
+      updatedAt: now,
+    },
+    {
+      id: "supervisor-primary",
+      workspaceId: "workspace-1",
+      roomIds: ["room-1"],
+      identityRole: "supervisor",
+      effectiveRole: "supervisor",
+      profileId: "profile-supervisor-default",
+      providerSessionId: null,
+      lifecycleState: "active",
+      workState: "idle",
+      authorityReceiptId: "receipt-supervisor-primary",
+      threadId: "thread-primary-supervisor",
+      projectId: null,
+      profileSnapshotId: "snapshot-supervisor-primary",
+      predecessorThreadIds: [],
+      displayName: "Primary Supervisor",
+      createdAt: now,
+      retainedAt: null,
+      retiredAt: null,
+      revision: 0,
+      updatedAt: now,
+    },
+  ],
+  authorityReceipts: [
+    {
+      id: "receipt-lead",
+      actorSeatId: "lead-1",
+      identityRole: "lead",
+      effectiveRole: "lead",
+      workspaceScopes: ["workspace-1"],
+      roomScopes: ["room-1"],
+      taskNodeScopes: [],
+      allowedCommands: [],
+      allowedTools: [],
+      rootLeaseIds: ["root-room-1"],
+      mandateIds: [],
+      runPolicyRevision: 0,
+      issuedAt: now,
+      expiresAt: null,
+      revokedAt: null,
+    },
+    {
+      id: "receipt-supervisor-context",
+      actorSeatId: "supervisor-context",
+      identityRole: "supervisor",
+      effectiveRole: "supervisor",
+      workspaceScopes: ["workspace-1"],
+      roomScopes: ["room-1"],
+      taskNodeScopes: [],
+      allowedCommands: [],
+      allowedTools: [],
+      rootLeaseIds: [],
+      mandateIds: [],
+      runPolicyRevision: 0,
+      issuedAt: now,
+      expiresAt: null,
+      revokedAt: null,
+    },
+    {
+      id: "receipt-lead-2",
+      actorSeatId: "lead-2",
+      identityRole: "lead",
+      effectiveRole: "lead",
+      workspaceScopes: ["workspace-1"],
+      roomScopes: ["room-2"],
+      taskNodeScopes: [],
+      allowedCommands: [],
+      allowedTools: [],
+      rootLeaseIds: ["root-room-2"],
+      mandateIds: [],
+      runPolicyRevision: 0,
+      issuedAt: now,
+      expiresAt: null,
+      revokedAt: null,
+    },
+    {
+      id: "receipt-supervisor-primary",
+      actorSeatId: "supervisor-primary",
+      identityRole: "supervisor",
+      effectiveRole: "supervisor",
+      workspaceScopes: ["workspace-1"],
+      roomScopes: ["room-1"],
+      taskNodeScopes: [],
+      allowedCommands: [],
+      allowedTools: [],
+      rootLeaseIds: [],
+      mandateIds: [],
+      runPolicyRevision: 0,
+      issuedAt: now,
+      expiresAt: null,
+      revokedAt: null,
+    },
+  ],
+  rootLeases: [
+    {
+      id: "root-room-1",
+      roomId: "room-1",
+      holderSeatId: "lead-1",
+      status: "active",
+      revision: 1,
+    },
+    {
+      id: "root-room-2",
+      roomId: "room-2",
+      holderSeatId: "lead-2",
+      status: "active",
+      revision: 1,
+    },
+  ],
+  orchestration: {
+    ...emptySupervisedGovernanceSnapshot(now).orchestration,
+    missions: [
+      {
+        id: "mission-context",
+        supervisorSeatId: "supervisor-context",
+        brief: "Watch context pressure.",
+        focus: "context",
+        scope: [{ kind: "project", projectId: "project-1" }],
+        grants: ["lead.observe"],
+        endCondition: { kind: "manual" },
+        status: "active",
+        sourceMessageId: null,
+        createdAt: now,
+        updatedAt: now,
+        completedAt: null,
+        revision: 0,
+      },
+      {
+        id: "mission-primary",
+        supervisorSeatId: "supervisor-primary",
+        brief: "Watch project delivery.",
+        focus: "delivery",
+        scope: [{ kind: "project", projectId: "project-1" }],
+        grants: ["lead.observe"],
+        endCondition: { kind: "manual" },
+        status: "active",
+        sourceMessageId: null,
+        createdAt: now,
+        updatedAt: now,
+        completedAt: null,
+        revision: 0,
+      },
+    ],
+  },
+};
+
 const engineLayer = Layer.succeed(OrchestrationEngineService, {
-  getReadModel: () =>
-    Effect.succeed({
-      threads: [
-        {
-          id: "thread-lead-context",
-          deletedAt: null,
-          runtimeMode: "full-access",
-          interactionMode: "default",
-        },
-      ],
-    } as never),
+  getReadModel: () => Effect.succeed(readModel as never),
   dispatch: (command: OrchestrationCommand) =>
     Effect.sync(() => {
       dispatched.push(command);
@@ -89,34 +347,7 @@ const engineLayer = Layer.succeed(OrchestrationEngineService, {
     }),
 } as never);
 const governanceLayer = Layer.succeed(SupervisedGovernanceRepository, {
-  getSnapshot: () =>
-    Effect.succeed({
-      ...emptySupervisedGovernanceSnapshot(now),
-      agentSeats: [
-        {
-          id: "lead-1",
-          workspaceId: "workspace-1",
-          roomIds: ["room-1"],
-          identityRole: "lead",
-          effectiveRole: "lead",
-          profileId: "profile-lead",
-          providerSessionId: null,
-          lifecycleState: "active",
-          workState: "idle",
-          authorityReceiptId: "receipt-lead",
-          threadId: "thread-lead-context",
-          projectId: "project-1",
-          profileSnapshotId: "snapshot-lead",
-          predecessorThreadIds: [],
-          displayName: null,
-          createdAt: now,
-          retainedAt: null,
-          retiredAt: null,
-          revision: 0,
-          updatedAt: now,
-        },
-      ],
-    } as never),
+  getSnapshot: () => Effect.succeed(governanceSnapshot as never),
 } as never);
 const repositoryLayer = SupervisedRuntimeRepositoryLive.pipe(
   Layer.provideMerge(SqlitePersistenceMemory),
@@ -170,22 +401,116 @@ const delivery = {
 };
 
 layer("SupervisedSignalDelivery", (it) => {
-  it.effect("wakes the matching Lead with an idempotent queued command", () =>
+  it.effect("wakes the active concern Supervisor without changing Root or Room Lead", () =>
     Effect.gen(function* () {
       dispatched.length = 0;
       const service = yield* SupervisedSignalDelivery;
-      const subscription = {
-        ...builtInSubscriptions(now)[1]!,
-        ownerLeadSeatId: "lead-1" as const,
-        destination: { kind: "lead_seat" as const, leadSeatId: "lead-1" as const },
-      };
+      const governanceRepository = yield* SupervisedGovernanceRepository;
+      const orchestrationEngine = yield* OrchestrationEngineService;
+      const beforeGovernance = yield* governanceRepository.getSnapshot();
+      const beforeReadModel = yield* orchestrationEngine.getReadModel();
+      const subscription = builtInSubscriptions(now)[1]!;
       yield* service.deliver({ subscription, signal, delivery });
       assert.equal(dispatched.length, 1);
       const command = dispatched[0];
       assert.equal(command?.type, "thread.turn.start");
       if (command?.type !== "thread.turn.start") return;
-      assert.equal(command.threadId, "thread-lead-context");
+      assert.equal(command.threadId, "thread-supervisor-context");
+      assert.notEqual(command.threadId, "thread-lead-context");
       assert.match(command.message.text, /grants no new authority/);
+      assert.match(command.message.text, /mission_id: mission-context/);
+      const afterGovernance = yield* governanceRepository.getSnapshot();
+      const afterReadModel = yield* orchestrationEngine.getReadModel();
+      assert.deepEqual(afterGovernance.rootLeases, beforeGovernance.rootLeases);
+      assert.equal(
+        afterReadModel.supervised.rooms.find((room) => room.id === "room-1")?.leadSeatId,
+        beforeReadModel.supervised.rooms.find((room) => room.id === "room-1")?.leadSeatId,
+      );
+      assert.deepEqual(
+        afterGovernance.authorityReceipts.find(
+          (receipt) => receipt.actorSeatId === "supervisor-context",
+        )?.rootLeaseIds,
+        [],
+      );
+      assert.deepEqual(
+        afterGovernance.authorityReceipts.find((receipt) => receipt.actorSeatId === "lead-1")
+          ?.rootLeaseIds,
+        ["root-room-1"],
+      );
+      const sql = yield* SqlClient.SqlClient;
+      const rows = yield* sql<{ readonly outcome: string; readonly detailJson: string }>`
+        SELECT outcome, detail_json AS "detailJson"
+        FROM supervised_runtime_audit
+        ORDER BY audit_sequence DESC
+        LIMIT 1
+      `;
+      assert.equal(rows[0]?.outcome, "supervisor_woken");
+      assert.deepEqual(JSON.parse(rows[0]!.detailJson), {
+        signalId: "signal-context",
+        signalKind: "ContextPressureHigh",
+        measuredValue: 82,
+        threshold: { operator: "gte", value: 80 },
+        authorityUnchanged: true,
+        supervisorSeatId: "supervisor-context",
+        supervisorThreadId: "thread-supervisor-context",
+        missionId: "mission-context",
+        affectedLeadSeatId: "lead-1",
+        affectedRoomId: "room-1",
+        selection: "concern",
+      });
+    }),
+  );
+
+  it.effect("keeps Supervisor wake command and message identities stable across a retry", () =>
+    Effect.gen(function* () {
+      dispatched.length = 0;
+      const service = yield* SupervisedSignalDelivery;
+      const subscription = builtInSubscriptions(now)[1]!;
+      yield* service.deliver({ subscription, signal, delivery });
+      yield* service.deliver({ subscription, signal, delivery });
+      assert.equal(dispatched.length, 2);
+      const [first, second] = dispatched;
+      assert.equal(first?.type, "thread.turn.start");
+      assert.equal(second?.type, "thread.turn.start");
+      if (first?.type !== "thread.turn.start" || second?.type !== "thread.turn.start") return;
+      assert.equal(second.commandId, first.commandId);
+      assert.equal(second.message.messageId, first.message.messageId);
+      assert.equal(second.threadId, first.threadId);
+    }),
+  );
+
+  it.effect("falls back to the active Primary Supervisor for an uncovered concern", () =>
+    Effect.gen(function* () {
+      dispatched.length = 0;
+      const service = yield* SupervisedSignalDelivery;
+      const subscription = builtInSubscriptions(now)[0]!;
+      yield* service.deliver({
+        subscription,
+        signal: {
+          ...signal,
+          id: "signal-review" as const,
+          kind: "ReviewLoopSuspected",
+          subscriptionId: subscription.id,
+          context: {
+            taskNodeId: "node-1",
+            graphRevision: 1,
+            leadSeatId: "lead-1",
+            roomId: "room-1",
+          },
+        },
+        delivery: {
+          ...delivery,
+          id: "delivery-review" as const,
+          subscriptionId: subscription.id,
+          signalId: "signal-review" as const,
+        },
+      });
+      assert.equal(dispatched.length, 1);
+      const command = dispatched[0];
+      assert.equal(command?.type, "thread.turn.start");
+      if (command?.type !== "thread.turn.start") return;
+      assert.equal(command.threadId, "thread-primary-supervisor");
+      assert.match(command.message.text, /mission_id: mission-primary/);
     }),
   );
 
@@ -193,17 +518,13 @@ layer("SupervisedSignalDelivery", (it) => {
     Effect.gen(function* () {
       dispatched.length = 0;
       const service = yield* SupervisedSignalDelivery;
-      const subscription = {
-        ...builtInSubscriptions(now)[1]!,
-        ownerLeadSeatId: "lead-1" as const,
-        destination: { kind: "lead_seat" as const, leadSeatId: "lead-1" as const },
-      };
+      const subscription = builtInSubscriptions(now)[1]!;
       yield* service.deliver({ subscription, signal, delivery: { ...delivery, replay: true } });
       assert.equal(dispatched.length, 0);
     }),
   );
 
-  it.effect("falls back to a durable concern inbox audit when no Seat exists", () =>
+  it.effect("fails an unresolved destination so the daemon can retry and dead-letter it", () =>
     Effect.gen(function* () {
       dispatched.length = 0;
       const service = yield* SupervisedSignalDelivery;
@@ -212,17 +533,29 @@ layer("SupervisedSignalDelivery", (it) => {
         ownerLeadSeatId: null,
         destination: { kind: "concern" as const, concern: "missing-concern" },
       };
-      yield* service.deliver({
-        subscription,
-        signal: { ...signal, context: { ...signal.context, leadSeatId: "missing-lead" } },
-        delivery,
-      });
+      const exit = yield* Effect.exit(
+        service.deliver({
+          subscription,
+          signal: {
+            ...signal,
+            scope: { kind: "room", roomId: "room-2" },
+            subjectId: "lead-2",
+            context: { ...signal.context, roomId: "room-2", leadSeatId: "lead-2" },
+          },
+          delivery,
+        }),
+      );
       const sql = yield* SqlClient.SqlClient;
-      const rows = yield* sql<{ readonly outcome: string }>`
-        SELECT outcome FROM supervised_runtime_audit ORDER BY audit_sequence DESC LIMIT 1
+      const rows = yield* sql<{ readonly outcome: string; readonly detailJson: string }>`
+        SELECT outcome, detail_json AS "detailJson"
+        FROM supervised_runtime_audit
+        ORDER BY audit_sequence DESC
+        LIMIT 1
       `;
+      assert.equal(exit._tag, "Failure");
       assert.equal(dispatched.length, 0);
-      assert.equal(rows[0]?.outcome, "concern_inbox_delivered");
+      assert.equal(rows[0]?.outcome, "delivery_unresolved");
+      assert.match(JSON.parse(rows[0]!.detailJson).reason, /No active 'missing-concern'/);
     }),
   );
 

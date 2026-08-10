@@ -11,6 +11,7 @@ import {
   type ModelTelemetryAggregate,
   type RoomId,
   type RunPolicy,
+  type ServerProviderStatus,
   type SynaraProviderCatalog,
   type SupervisedWorkspaceId,
   type TaskNodeId,
@@ -110,6 +111,16 @@ export const providerAvailabilityFromCatalog = (
     catalogs.map((catalog) => [
       catalog.provider,
       catalog.enabled && catalog.available && catalog.error === undefined,
+    ]),
+  );
+
+export const providerAvailabilityFromHealth = (
+  statuses: readonly ServerProviderStatus[],
+): Readonly<Record<string, boolean>> =>
+  Object.fromEntries(
+    statuses.map((status) => [
+      status.provider,
+      status.available && status.status === "ready" && status.authStatus !== "unauthenticated",
     ]),
   );
 
@@ -447,6 +458,10 @@ export function createModelSelectionReceipt(
   const fallbackText = request.fallback
     ? ` Fallback from '${request.fallback.fromReceiptId}' because ${request.fallback.reason}`
     : "";
+  const preferenceText =
+    selected.preferenceEffects.length === 0
+      ? "No model-specific personal preference effect was applied."
+      : selected.preferenceEffects.join(" ");
   return {
     id,
     workspaceId: request.workspaceId,
@@ -454,7 +469,10 @@ export function createModelSelectionReceipt(
     taskNodeId: request.taskNodeId,
     actorSeatId: request.actorSeatId,
     selectedModelId: selected.modelId,
-    candidateModelIds: recommendation.rankedCandidates.map((candidate) => candidate.modelId),
+    candidateModelIds: [
+      ...recommendation.rankedCandidates.map((candidate) => candidate.modelId),
+      ...recommendation.rejectedCandidates.map((candidate) => candidate.modelId),
+    ],
     hardConstraints: [...recommendation.hardConstraints],
     explanation:
       `Selected '${selected.modelId}' at score ${selected.totalScore}; ` +
@@ -463,7 +481,7 @@ export function createModelSelectionReceipt(
       `personal ${selected.preferenceScore}, ` +
       `telemetry ${selected.telemetryScore}, estimated cost ${
         selected.estimatedCostUsd === null ? "unknown" : `$${selected.estimatedCostUsd.toFixed(6)}`
-      }.` +
+      }. ${preferenceText}` +
       fallbackText,
     rejectedReasons,
     capabilityProfileRevision: recommendation.capabilityProfileRevision,

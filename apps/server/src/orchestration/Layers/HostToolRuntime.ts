@@ -11,7 +11,13 @@ import { makeHandoffDestinationTools } from "../../handoff/handoffDestinationToo
 import { SupervisedGovernanceRepository } from "../../persistence/Services/SupervisedGovernanceRepository.ts";
 import { SupervisedToolReceiptRepository } from "../../persistence/Services/SupervisedToolReceipts.ts";
 import { SupervisedToolPolicyRepository } from "../../persistence/Services/SupervisedToolPolicies.ts";
+import { ProviderHealth } from "../../provider/Services/ProviderHealth.ts";
+import { providerAvailabilityFromHealth } from "../../supervised/modelRouting/ModelRouting.ts";
 import { authorizeSupervisedIntentTool } from "../../supervised/tools/Registry.ts";
+import {
+  ModelRoutingService,
+  ModelRoutingServiceLive,
+} from "../../supervised/modelRouting/ModelRoutingService.ts";
 import { HostToolError, hostToolFailure } from "../hostTools/runtime.ts";
 import { OrchestrationLayerLive } from "../runtimeLayer.ts";
 import { HostToolRuntime } from "../Services/HostToolRuntime.ts";
@@ -47,6 +53,7 @@ const makeHostToolRuntime = Effect.gen(function* () {
   const governanceRepository = yield* SupervisedGovernanceRepository;
   const toolReceiptRepository = yield* SupervisedToolReceiptRepository;
   const toolPolicyRepository = yield* SupervisedToolPolicyRepository;
+  const providerHealth = yield* ProviderHealth;
   const entries = [
     ...makeHandoffDestinationTools({ snapshotQuery }),
     ...makeSupervisedTools({
@@ -54,6 +61,9 @@ const makeHostToolRuntime = Effect.gen(function* () {
       snapshotQuery,
       governanceRepository,
       runtimeDaemon: yield* SupervisedRuntimeDaemon,
+      modelRoutingService: yield* ModelRoutingService,
+      getProviderAvailability: () =>
+        providerHealth.getStatuses.pipe(Effect.map(providerAvailabilityFromHealth)),
     }),
   ];
   const byName = new Map(entries.map((entry) => [entry.definition.name, entry]));
@@ -293,4 +303,7 @@ export const HostToolRuntimeLive = Layer.effect(HostToolRuntime, makeHostToolRun
 
 export const HostToolRuntimeConfiguredLive = HostToolRuntimeLive.pipe(
   Layer.provideMerge(OrchestrationLayerLive),
+  Layer.provideMerge(
+    ModelRoutingServiceLive.pipe(Layer.provideMerge(OrchestrationLayerLive)),
+  ),
 );

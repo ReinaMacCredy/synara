@@ -6,16 +6,19 @@ import type { HarnessPatch, SupervisedActor } from "@synara/contracts";
 import {
   applyHarnessPatchSandboxEvaluation,
   awaitHarnessPatchApproval,
+  createHarnessPatchProposal,
   mayPromoteHarnessPatch,
   promoteHarnessPatch,
   recordHarnessPatchCanaryEvaluation,
   revertHarnessPatch,
+  reviseHarnessPatchProposal,
   startHarnessPatchCanary,
   validateHarnessPatchUpdate,
   type HarnessPatchEvaluation,
 } from "./HarnessPatches.ts";
+import { SUPERVISED_BASE_POLICY_HASH } from "./HarnessPatchPolicy.ts";
 
-const hash = `sha256:${"a".repeat(64)}` as HarnessPatch["basePolicyHash"];
+const hash = SUPERVISED_BASE_POLICY_HASH;
 const now = "2026-08-07T00:00:00.000Z";
 const owner: SupervisedActor = { kind: "user", actorId: "owner" };
 const daemon: SupervisedActor = { kind: "daemon", actorId: "supervised-runtime" };
@@ -62,6 +65,20 @@ function sandboxedPatch() {
   const patch = { ...proposed, status: "sandboxed" as const, revision: 1 };
   validateHarnessPatchUpdate(proposed, patch, daemon);
   return patch;
+}
+
+function successfulCanary() {
+  const sandboxed = sandboxedPatch();
+  const evaluated = applyHarnessPatchSandboxEvaluation(
+    sandboxed,
+    evaluation({ passed: true, sequence: 1, evidence: "evidence-sandbox" }),
+  );
+  const awaiting = awaitHarnessPatchApproval(evaluated, daemon, "2026-08-07T00:02:00.000Z");
+  const canary = startHarnessPatchCanary(awaiting, owner, "2026-08-07T00:03:00.000Z", 2);
+  return recordHarnessPatchCanaryEvaluation(
+    canary,
+    evaluation({ passed: true, sequence: 2, evidence: "evidence-canary" }),
+  );
 }
 
 describe("Harness Patches", () => {
@@ -124,7 +141,69 @@ describe("Harness Patches", () => {
     assert.equal(rolledBack.rollback?.reason, "Canary failure threshold reached.");
   });
 
-  it("rejects base-policy mutation and promotion without Human approval", () => {
+  it("creates evidence-backed proposals against the server-owned base policy", () => {
+    const created = createHarnessPatchProposal({
+      id: "patch-created" as never,
+      name: "Require review evidence",
+      patchType: "evaluation",
+      scope: { kind: "project", projectId: "project-1" as never },
+      content: "Require durable evidence references before review.",
+      observationEvidenceRefs: ["evidence-friction" as never],
+      createdBy: proposed.createdBy,
+      createdAt: now,
+    });
+    assert.equal(created.basePolicyHash, SUPERVISED_BASE_POLICY_HASH);
+    assert.equal(created.status, "proposed");
+    assert.throws(
+      () =>
+        createHarnessPatchProposal({
+          id: "patch-without-evidence" as never,
+          name: "Missing evidence",
+          patchType: "instruction",
+          scope: { kind: "project", projectId: "project-1" as never },
+          content: "This proposal has no friction receipt.",
+          observationEvidenceRefs: [],
+          createdBy: proposed.createdBy,
+          createdAt: now,
+        }),
+      /requires durable friction evidence/,
+    );
+  });
+
+  it("versions revised proposals and resets lifecycle receipts without losing evidence", () => {
+    const revised = reviseHarnessPatchProposal(proposed, proposed.createdBy, {
+      content: "Require evidence references and a concise regression summary before review.",
+      observationEvidenceRefs: ["evidence-revision" as never],
+      updatedAt: "2026-08-07T00:01:00.000Z",
+    });
+    assert.equal(revised.status, "proposed");
+    assert.equal(revised.version, 2);
+    assert.equal(revised.revision, 1);
+    assert.deepEqual(revised.observationEvidenceRefs, [
+      "evidence-observation",
+      "evidence-revision",
+    ]);
+    assert.equal(revised.sandboxEvaluation, null);
+
+    const failed = applyHarnessPatchSandboxEvaluation(
+      sandboxedPatch(),
+      evaluation({
+        passed: false,
+        sequence: 1,
+        evidence: "evidence-regression",
+        regressions: ["Review latency regressed"],
+      }),
+    );
+    const retried = reviseHarnessPatchProposal(failed, proposed.createdBy, {
+      observationEvidenceRefs: ["evidence-retry" as never],
+      updatedAt: "2026-08-07T00:02:00.000Z",
+    });
+    assert.equal(retried.version, 2);
+    assert.equal(retried.evaluationEvidenceRefs.length, 0);
+    assert.equal(retried.lastControlPlaneSequence, failed.lastControlPlaneSequence);
+  });
+
+  it("rejects base-policy mutation and promotion without explicit Human authority", () => {
     const mutated = {
       ...sandboxedPatch(),
       basePolicyHash: `sha256:${"b".repeat(64)}` as HarnessPatch["basePolicyHash"],
@@ -142,22 +221,73 @@ describe("Harness Patches", () => {
         }),
       /immutable base policy hash/,
     );
+    const awaiting = awaitHarnessPatchApproval(
+      applyHarnessPatchSandboxEvaluation(
+        sandboxedPatch(),
+        evaluation({ passed: true, sequence: 1, evidence: "evidence-sandbox" }),
+      ),
+      daemon,
+      "2026-08-07T00:02:00.000Z",
+    );
+    assert.throws(
+      () => startHarnessPatchCanary(awaiting, daemon, "2026-08-07T00:03:00.000Z", 2),
+      /Only the Human may approve/,
+    );
+    const canary = startHarnessPatchCanary(
+      awaiting,
+      owner,
+      "2026-08-07T00:03:00.000Z",
+      2,
+    );
+    assert.throws(
+      () => promoteHarnessPatch(canary, owner, "2026-08-07T00:04:00.000Z"),
+      /successful canary evaluation/,
+    );
+    const successful = recordHarnessPatchCanaryEvaluation(
+      canary,
+      evaluation({ passed: true, sequence: 2, evidence: "evidence-canary" }),
+    );
+    assert.throws(
+      () => promoteHarnessPatch(successful, daemon, "2026-08-07T00:05:00.000Z"),
+      /Only the Human may transition.*promoted/,
+    );
   });
 
-  it("blocks automatic cross-Project promotion", () => {
+  it("allows promotion only inside the evaluated scope or a Human-created cross-Project scope", () => {
+    const canary = successfulCanary();
     assert.equal(
       mayPromoteHarnessPatch({
-        patch: proposed,
-        targetProjectId: "project-2",
-        actor: daemon,
+        patch: canary,
+        targetProjectId: "project-1",
+        actor: owner,
         explicitHumanApproval: false,
-        evaluationScopeCreated: true,
+        evaluationScopeCreated: false,
       }),
       false,
     );
     assert.equal(
       mayPromoteHarnessPatch({
-        patch: proposed,
+        patch: canary,
+        targetProjectId: "project-1",
+        actor: owner,
+        explicitHumanApproval: true,
+        evaluationScopeCreated: false,
+      }),
+      true,
+    );
+    assert.equal(
+      mayPromoteHarnessPatch({
+        patch: canary,
+        targetProjectId: "project-2",
+        actor: owner,
+        explicitHumanApproval: true,
+        evaluationScopeCreated: false,
+      }),
+      false,
+    );
+    assert.equal(
+      mayPromoteHarnessPatch({
+        patch: canary,
         targetProjectId: "project-2",
         actor: owner,
         explicitHumanApproval: true,

@@ -55,7 +55,7 @@ import {
   buildProviderChildEnvironment,
   type ProviderChildKind,
 } from "../../providerChildEnvironment.ts";
-import { ServerSettingsService } from "../../serverSettings";
+import { ServerSettingsLive, ServerSettingsService } from "../../serverSettings";
 import { isWindowsShellCommandMissingResult } from "../../shell-command-detection";
 import {
   buildCursorAgentCommand,
@@ -2732,3 +2732,7 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
 }
 
 export const ProviderHealthLive = makeProviderHealthLive();
+
+export const ProviderHealthConfiguredLive = ProviderHealthLive.pipe(
+  Layer.provideMerge(ServerSettingsLive),
+);

@@ -7,6 +7,7 @@ import {
   LeadRotationId,
   LeadNotificationId,
   LeadSeatId,
+  ModelSelectionReceiptId,
   MessageId,
   MissionEndCondition,
   MissionGrant,
@@ -15,6 +16,7 @@ import {
   PeerSpecialtyId,
   ReconciliationId,
   RoomId,
+  RunId,
   SupervisorNotebookEntryId,
   SupervisorNotebookEntryKind,
   SupervisionAdviceId,
@@ -25,6 +27,7 @@ import {
   TaskNodeId,
   TaskNodeRevisionId,
   ThreadId,
+  WorkClaimId,
   WorkflowDirectiveId,
   type OrchestrationReadModel,
   type SupervisedGovernanceSnapshot,
@@ -54,6 +57,7 @@ import {
   buildSupervisorNotebookView,
   planSupervisorNotebookCompaction,
 } from "../../supervised/governance/SharedSupervisorNotebook.ts";
+import type { ModelRoutingServiceShape } from "../../supervised/modelRouting/ModelRoutingService.ts";
 
 const AGGREGATE_ID = SupervisedGovernanceAggregateId.makeUnsafe("supervised");
 const objectSchema = (
@@ -78,6 +82,11 @@ const intArg = (args: Record<string, unknown>, key: string): number => {
     );
   }
   return value as number;
+};
+
+const optionalIntArg = (args: Record<string, unknown>, key: string): number | undefined => {
+  if (args[key] === undefined) return undefined;
+  return intArg(args, key);
 };
 
 const optionalStringArg = (args: Record<string, unknown>, key: string): string | null => {
@@ -135,6 +144,11 @@ export interface SupervisedToolsInput {
   readonly snapshotQuery: ProjectionSnapshotQueryShape;
   readonly governanceRepository: SupervisedGovernanceRepositoryShape;
   readonly runtimeDaemon: SupervisedRuntimeDaemonShape;
+  readonly modelRoutingService?: ModelRoutingServiceShape;
+  readonly getProviderAvailability?: () => Effect.Effect<
+    Readonly<Record<string, boolean>>,
+    unknown
+  >;
 }
 
 const canonicalLeadStatus = (
@@ -167,6 +181,53 @@ const canonicalLeadViews = (governance: SupervisedGovernanceSnapshot) =>
         ]
       : [],
   );
+
+const activeRootContextForCaller = (
+  state: OrchestrationReadModel & { readonly governance: SupervisedGovernanceSnapshot },
+  callerThreadId: string,
+  requestedRoomId?: string,
+) => {
+  const seat = state.governance.agentSeats.find(
+    (candidate) =>
+      candidate.threadId === callerThreadId &&
+      (candidate.effectiveRole === "lead" || candidate.effectiveRole === "acting_root") &&
+      (candidate.lifecycleState === "ready" || candidate.lifecycleState === "active"),
+  );
+  if (!seat) return null;
+  const room = state.supervised.rooms.find(
+    (candidate) =>
+      candidate.leadSeatId === seat.id &&
+      candidate.status === "active" &&
+      (requestedRoomId === undefined || candidate.id === requestedRoomId),
+  );
+  if (!room) return null;
+  const receipt = state.governance.authorityReceipts.find(
+    (candidate) =>
+      candidate.id === seat.authorityReceiptId &&
+      candidate.actorSeatId === seat.id &&
+      candidate.effectiveRole === seat.effectiveRole &&
+      candidate.revokedAt === null &&
+      (candidate.expiresAt === null || candidate.expiresAt > new Date().toISOString()) &&
+      candidate.roomScopes.includes(room.id),
+  );
+  const lease = state.governance.rootLeases.find(
+    (candidate) =>
+      candidate.roomId === room.id &&
+      candidate.holderSeatId === seat.id &&
+      (candidate.status === "active" ||
+        candidate.status === "transferring" ||
+        candidate.status === "releasing") &&
+      receipt?.rootLeaseIds.includes(candidate.id),
+  );
+  return receipt && lease ? { seat, room, receipt, lease } : null;
+};
+
+const rootHolderSeatId = (
+  seat: SupervisedGovernanceSnapshot["agentSeats"][number],
+) =>
+  seat.identityRole === "supervisor"
+    ? SupervisorSeatId.makeUnsafe(seat.id)
+    : LeadSeatId.makeUnsafe(seat.id);
 
 export function makeSupervisedTools(
   input: SupervisedToolsInput,
@@ -295,7 +356,11 @@ export function makeSupervisedTools(
     definition,
     isVisible: (context) =>
       loadAuthority(context.callerThreadId).pipe(
-        Effect.map(({ state, authority }) => handlers.visible(state, authority.role)),
+        Effect.map(({ state, authority }) =>
+          handlers.visible(state, authority.role) ||
+          (activeRootContextForCaller(state, context.callerThreadId) !== null &&
+            handlers.visible(state, "lead")),
+        ),
         Effect.catch(() => Effect.succeed(false)),
       ),
     execute: (args, context) =>
@@ -331,13 +396,34 @@ export function makeSupervisedTools(
               ),
             );
             const visibleLeadIds = new Set(visibleLeads.map((lead) => lead.id));
+            const supervisorSeat = state.governance.agentSeats.find(
+              (seat) =>
+                seat.id === authority.supervisorSeatId &&
+                seat.threadId === authority.callerThreadId,
+            );
             const visibleRooms = state.supervised.rooms.filter(
-              (room) => room.leadSeatId !== null && visibleLeadIds.has(room.leadSeatId),
+              (room) =>
+                room.leadSeatId !== null &&
+                (visibleLeadIds.has(room.leadSeatId) ||
+                  (supervisorSeat?.effectiveRole === "acting_root" &&
+                    room.leadSeatId === supervisorSeat.id)),
             );
             const visibleRoomIds = new Set(visibleRooms.map((room) => room.id));
+            const visibleTasks = state.supervised.tasks.filter((task) =>
+              visibleRoomIds.has(task.roomId),
+            );
+            const visibleTaskIds = new Set(visibleTasks.map((task) => task.id));
             return hostToolSuccess({
               role: authority.role,
+              effectiveRole: supervisorSeat?.effectiveRole ?? "supervisor",
               supervisorSeatId: authority.supervisorSeatId,
+              rootLeases: state.governance.rootLeases.filter(
+                (lease) =>
+                  lease.holderSeatId === supervisorSeat?.id &&
+                  (lease.status === "active" ||
+                    lease.status === "transferring" ||
+                    lease.status === "releasing"),
+              ),
               missions: authority.missions,
               leads: visibleLeads.map((lead) => ({
                 id: lead.id,
@@ -352,6 +438,14 @@ export function makeSupervisedTools(
                 leadSeatId: room.leadSeatId,
                 status: room.status,
               })),
+              tasks: visibleTasks,
+              taskNodes: state.supervised.taskNodes.filter((node) =>
+                visibleTaskIds.has(node.taskId),
+              ),
+              runs: state.supervised.runs.filter((run) => visibleRoomIds.has(run.roomId)),
+              evidence: state.supervised.evidence.filter(
+                (item) => item.scope.kind === "room" && visibleRoomIds.has(item.scope.roomId),
+              ),
               peers: state.governance.agentSeats
                 .filter(
                   (seat) =>
@@ -378,6 +472,10 @@ export function makeSupervisedTools(
                 .filter((room) => room.leadSeatId === authority.leadSeatId)
                 .map((room) => room.id),
             );
+            const leadTasks = state.supervised.tasks.filter((task) =>
+              leadRoomIds.has(task.roomId),
+            );
+            const leadTaskIds = new Set(leadTasks.map((task) => task.id));
             return hostToolSuccess({
               role: authority.role,
               leadSeatId: authority.leadSeatId,
@@ -394,6 +492,19 @@ export function makeSupervisedTools(
               interventions: state.supervised.interventions.filter((intervention) =>
                 leadRoomIds.has(intervention.roomId),
               ),
+              tasks: leadTasks,
+              taskNodes: state.supervised.taskNodes.filter((node) =>
+                leadTaskIds.has(node.taskId),
+              ),
+              runs: state.supervised.runs.filter((run) => leadRoomIds.has(run.roomId)),
+              workClaims: state.supervised.workClaims.filter((claim) =>
+                state.supervised.runs.some(
+                  (run) => run.id === claim.runId && leadRoomIds.has(run.roomId),
+                ),
+              ),
+              evidence: state.supervised.evidence.filter(
+                (item) => item.scope.kind === "room" && leadRoomIds.has(item.scope.roomId),
+              ),
             });
           }
           const interventions = state.supervised.interventions.filter(
@@ -402,12 +513,207 @@ export function makeSupervisedTools(
               authority.roomIds.includes(intervention.roomId),
           );
           const evidenceIds = new Set(interventions.flatMap((item) => item.evidenceRefs));
+          const ownedRuns = state.supervised.runs.filter(
+            (run) => run.ownerSeatId === authority.peerSeatId,
+          );
+          const ownedRunIds = new Set(ownedRuns.map((run) => run.id));
+          const ownedTaskNodeIds = new Set(
+            ownedRuns.flatMap((run) => (run.taskNodeId === null ? [] : [run.taskNodeId])),
+          );
           return hostToolSuccess({
             role: authority.role,
             peerSeatId: authority.peerSeatId,
             roomIds: authority.roomIds,
             interventions,
-            evidence: state.supervised.evidence.filter((item) => evidenceIds.has(item.id)),
+            taskNodes: state.supervised.taskNodes.filter((node) =>
+              ownedTaskNodeIds.has(node.id),
+            ),
+            runs: ownedRuns,
+            workClaims: state.supervised.workClaims.filter((claim) =>
+              ownedRunIds.has(claim.runId),
+            ),
+            evidence: state.supervised.evidence.filter(
+              (item) =>
+                evidenceIds.has(item.id) ||
+                (item.scope.kind === "room" && authority.roomIds.includes(item.scope.roomId)),
+            ),
+          });
+        }),
+    },
+  );
+
+  const recommendSupervisedModel = entry(
+    {
+      name: "recommend_supervised_model",
+      displayName: "Recommend Supervised model",
+      description:
+        "Select and retain an authority-scoped model recommendation using the owner's preferences, hard capabilities, current RunPolicy, and canonical routing revision.",
+      inputSchema: objectSchema(
+        {
+          taskCategory: { type: "string", maxLength: 512 },
+          roomId: { type: "string" },
+          taskNodeId: { type: "string" },
+          minimumContextCapacity: { type: "integer", minimum: 0 },
+          minimumCodingScore: { type: "number", minimum: 0, maximum: 10 },
+          requiresVision: { type: "boolean", default: false },
+          requiresTools: { type: "boolean", default: true },
+          requiresReasoning: { type: "boolean", default: false },
+          expectedInputTokens: { type: "integer", minimum: 0 },
+          expectedOutputTokens: { type: "integer", minimum: 0 },
+        },
+        ["taskCategory"],
+      ),
+      readOnly: false,
+      providerSupport: { codex: "native", claude: "unsupported" },
+      supervised: {
+        toolId: "supervised.models.recommend",
+        schemaVersion: "1.0.0",
+      },
+    },
+    {
+      visible: (_state, role) => role !== "peer",
+      execute: (args, context) =>
+        Effect.gen(function* () {
+          yield* context.assertCallerTurnActive();
+          const routing = input.modelRoutingService;
+          if (!routing) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_model_routing_unavailable",
+                "The production model-routing service is unavailable.",
+              ),
+            );
+          }
+          const { state } = yield* loadAuthority(context.callerThreadId);
+          const seat = state.governance.agentSeats.find(
+            (candidate) =>
+              candidate.threadId === context.callerThreadId &&
+              candidate.identityRole !== "peer" &&
+              (candidate.lifecycleState === "ready" || candidate.lifecycleState === "active"),
+          );
+          const roomIdValue = optionalStringArg(args, "roomId");
+          const roomId = roomIdValue === null ? null : RoomId.makeUnsafe(roomIdValue);
+          const taskNodeIdValue = optionalStringArg(args, "taskNodeId");
+          const taskNodeId =
+            taskNodeIdValue === null ? null : TaskNodeId.makeUnsafe(taskNodeIdValue);
+          const room = roomId === null
+            ? null
+            : state.supervised.rooms.find((candidate) => candidate.id === roomId) ?? null;
+          const taskNode = taskNodeId === null
+            ? null
+            : state.supervised.taskNodes.find((candidate) => candidate.id === taskNodeId) ?? null;
+          const runPolicy = state.supervised.runPolicies[0];
+          const minimumCodingScore = args.minimumCodingScore;
+          if (
+            !seat ||
+            !runPolicy ||
+            (roomId !== null && (!room || !seat.roomIds.includes(roomId))) ||
+            (taskNodeId !== null && (!taskNode || taskNode.roomId !== roomId)) ||
+            (minimumCodingScore !== undefined &&
+              (typeof minimumCodingScore !== "number" ||
+                !Number.isFinite(minimumCodingScore) ||
+                minimumCodingScore < 0 ||
+                minimumCodingScore > 10))
+          ) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_model_routing_scope_invalid",
+                "Model routing requires a scoped active seat, RunPolicy, and matching Room/TaskNode.",
+              ),
+            );
+          }
+          const routingState = yield* routing.getState("owner").pipe(
+            Effect.mapError(
+              (error) =>
+                new HostToolError(
+                  "supervised_model_routing_unavailable",
+                  error instanceof Error ? error.message : String(error),
+              ),
+            ),
+          );
+          if (routingState.capabilityProfiles.length === 0) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_model_profile_required",
+                "No verified model capability profile is available. An owner-curated profile with explicit provenance and confidence is required before recommendation.",
+                { status: "needs_owner_curated_profile" },
+              ),
+            );
+          }
+          const getProviderAvailability = input.getProviderAvailability;
+          if (!getProviderAvailability) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_provider_health_unavailable",
+                "Live provider health is unavailable; model recommendation fails closed.",
+              ),
+            );
+          }
+          const providerAvailability = yield* getProviderAvailability().pipe(
+            Effect.mapError(
+              (error) =>
+                new HostToolError(
+                  "supervised_provider_health_unavailable",
+                  error instanceof Error ? error.message : String(error),
+                ),
+            ),
+          );
+          const createdAt = new Date().toISOString();
+          const receipt = yield* routing.select({
+            receiptId: ModelSelectionReceiptId.makeUnsafe(`model-selection:${randomUUID()}`),
+            request: {
+              userId: "owner",
+              taskCategory: stringArg(args, "taskCategory"),
+              agentRole: seat.identityRole,
+              workspaceId: seat.workspaceId,
+              roomId,
+              taskNodeId,
+              actorSeatId: seat.id,
+              providerAvailability,
+              requirements: {
+                ...(optionalIntArg(args, "minimumContextCapacity") === undefined
+                  ? {}
+                  : {
+                      minimumContextCapacity: optionalIntArg(
+                        args,
+                        "minimumContextCapacity",
+                      ),
+                    }),
+                requiresVision: optionalBooleanArg(args, "requiresVision", false),
+                requiresTools: optionalBooleanArg(args, "requiresTools", true),
+                requiresReasoning: optionalBooleanArg(args, "requiresReasoning", false),
+                ...(minimumCodingScore === undefined
+                  ? {}
+                  : { minimumScores: { coding: minimumCodingScore } }),
+              },
+              runPolicy,
+              expectedInputTokens: optionalIntArg(args, "expectedInputTokens"),
+              expectedOutputTokens: optionalIntArg(args, "expectedOutputTokens"),
+              routingRevision: routingState.routingRevision,
+              createdAt,
+            },
+          }).pipe(
+            Effect.mapError(
+              (error) =>
+                new HostToolError(
+                  "supervised_model_selection_rejected",
+                  error instanceof Error ? error.message : String(error),
+                ),
+            ),
+          );
+          const selectedProfile = routingState.capabilityProfiles.find(
+            (profile) => profile.id === receipt.selectedModelId,
+          );
+          return hostToolSuccess({
+            receipt,
+            selected: selectedProfile
+              ? {
+                  id: selectedProfile.id,
+                  provider: selectedProfile.provider,
+                  model: selectedProfile.model,
+                  version: selectedProfile.version,
+                }
+              : null,
           });
         }),
     },
@@ -898,6 +1204,121 @@ export function makeSupervisedTools(
     },
   );
 
+  const assumeRoomRoot = entry(
+    {
+      name: "assume_room_root",
+      displayName: "Assume Room Root",
+      description:
+        "Under the current authenticated owner request, transfer one active Room Root lease to this Supervisor and notify the former Root for a durable handoff.",
+      inputSchema: objectSchema(
+        {
+          roomId: { type: "string" },
+          reason: { type: "string", maxLength: 32_768 },
+          expectedRevision: { type: "integer", minimum: 0 },
+        },
+        ["roomId", "reason", "expectedRevision"],
+      ),
+      readOnly: false,
+      providerSupport: { codex: "native", claude: "unsupported" },
+      supervised: {
+        toolId: "supervised.role.assume",
+        schemaVersion: "1.0.0",
+      },
+    },
+    {
+      visible: (_state, role) => role === "supervisor",
+      execute: (args, context) =>
+        Effect.gen(function* () {
+          yield* context.assertCallerTurnActive();
+          yield* loadHumanOrigin(context);
+          const { state, authority } = yield* loadAuthority(context.callerThreadId);
+          if (authority.role !== "supervisor") {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_supervisor_required",
+                "Only the current Supervisor may request an owner-authorized Root assumption.",
+              ),
+            );
+          }
+          const roomId = RoomId.makeUnsafe(stringArg(args, "roomId"));
+          const supervisorSeat = state.governance.agentSeats.find(
+            (seat) =>
+              seat.id === authority.supervisorSeatId &&
+              seat.identityRole === "supervisor" &&
+              seat.effectiveRole === "supervisor" &&
+              seat.threadId === context.callerThreadId &&
+              (seat.lifecycleState === "ready" || seat.lifecycleState === "active"),
+          );
+          const supervisorReceipt = state.governance.authorityReceipts.find(
+            (receipt) =>
+              receipt.id === supervisorSeat?.authorityReceiptId &&
+              receipt.actorSeatId === supervisorSeat?.id &&
+              receipt.revokedAt === null &&
+              receipt.roomScopes.includes(roomId),
+          );
+          const room = state.supervised.rooms.find(
+            (candidate) =>
+              candidate.id === roomId &&
+              candidate.status === "active" &&
+              candidate.leadSeatId !== null &&
+              candidate.leadSeatId !== supervisorSeat?.id,
+          );
+          const previousRootSeat = state.governance.agentSeats.find(
+            (seat) =>
+              seat.id === room?.leadSeatId &&
+              seat.threadId !== null &&
+              (seat.lifecycleState === "ready" || seat.lifecycleState === "active"),
+          );
+          const previousRootLease = state.governance.rootLeases.find(
+            (lease) =>
+              lease.roomId === room?.id &&
+              lease.holderSeatId === previousRootSeat?.id &&
+              (lease.status === "active" ||
+                lease.status === "transferring" ||
+                lease.status === "releasing"),
+          );
+          if (
+            !room ||
+            !supervisorSeat ||
+            !supervisorReceipt ||
+            !previousRootSeat?.threadId ||
+            !previousRootLease
+          ) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_root_assumption_unavailable",
+                "The scoped Supervisor, active Room, former Root thread, and live Root lease must all be available.",
+              ),
+            );
+          }
+          const createdAt = new Date().toISOString();
+          const receipt = yield* dispatch({
+            type: "supervised.role.assume",
+            commandId: CommandId.makeUnsafe(randomUUID()),
+            aggregateId: room.id,
+            actor: { kind: "user", actorId: "owner" },
+            expectedRevision: intArg(args, "expectedRevision"),
+            idempotencyKey: `role-assume:${room.id}:${supervisorSeat.id}:${room.revision}`,
+            createdAt,
+            roomId: room.id,
+            supervisorSeatId: SupervisorSeatId.makeUnsafe(supervisorSeat.id),
+            supervisorThreadId: ThreadId.makeUnsafe(context.callerThreadId),
+            previousRootSeatId: previousRootSeat.id,
+            previousRootThreadId: previousRootSeat.threadId,
+            reason: stringArg(args, "reason"),
+          });
+          return hostToolSuccess({
+            sequence: receipt.sequence,
+            roomId: room.id,
+            previousRootSeatId: previousRootSeat.id,
+            rootSeatId: supervisorSeat.id,
+            effectiveRole: "acting_root",
+            ownershipTransferred: true,
+          });
+        }),
+    },
+  );
+
   const createLeadRoom = entry(
     {
       name: "create_lead_room",
@@ -1069,7 +1490,7 @@ export function makeSupervisedTools(
       name: "create_task_graph",
       displayName: "Create Task Graph",
       description:
-        "Atomically create the first durable Task Graph for the current Lead Room. Dependencies reference node keys from the same request.",
+        "Atomically create a durable Task Graph for the current Lead Room. Dependencies reference node keys from the same request.",
       inputSchema: objectSchema(
         {
           title: { type: "string", maxLength: 512 },
@@ -1117,47 +1538,17 @@ export function makeSupervisedTools(
       execute: (args, context) =>
         Effect.gen(function* () {
           yield* context.assertCallerTurnActive();
-          const { state, authority } = yield* loadAuthority(context.callerThreadId);
-          if (authority.role !== "lead") {
-            return yield* Effect.fail(
-              new HostToolError(
-                "supervised_lead_required",
-                "Only the active Room Lead may create its Task Graph.",
-              ),
-            );
-          }
-          const lead = state.leads.find(
-            (candidate) =>
-              candidate.id === authority.leadSeatId &&
-              candidate.activeThreadId === authority.callerThreadId &&
-              candidate.status === "active",
-          );
-          const room = state.supervised.rooms.find(
-            (candidate) =>
-              candidate.leadSeatId === authority.leadSeatId && candidate.status === "active",
-          );
-          const leadSeat = state.governance.agentSeats.find(
-            (candidate) =>
-              candidate.id === authority.leadSeatId &&
-              candidate.identityRole === "lead" &&
-              candidate.threadId === authority.callerThreadId,
-          );
-          if (!lead || !room || !leadSeat) {
+          const { state } = yield* loadAuthority(context.callerThreadId);
+          const root = activeRootContextForCaller(state, context.callerThreadId);
+          if (!root) {
             return yield* Effect.fail(
               new HostToolError(
                 "supervised_room_unavailable",
-                "The active Lead Room and durable Root authority must exist.",
+                "The caller must hold the active Room Root lease.",
               ),
             );
           }
-          if (state.supervised.tasks.some((candidate) => candidate.roomId === room.id)) {
-            return yield* Effect.fail(
-              new HostToolError(
-                "supervised_task_graph_exists",
-                "This Room already has a Task Graph; use typed Task Graph revisions instead.",
-              ),
-            );
-          }
+          const { room, seat: leadSeat } = root;
           if (!Array.isArray(args.nodes) || args.nodes.length === 0 || args.nodes.length > 256) {
             return yield* Effect.fail(
               new HostToolError(
@@ -1207,7 +1598,7 @@ export function makeSupervisedTools(
           const actor = {
             kind: "seat" as const,
             actorId: context.callerThreadId,
-            seatId: LeadSeatId.makeUnsafe(leadSeat.id),
+            seatId: rootHolderSeatId(leadSeat),
           };
           const nodeIdsByKey = new Map(
             nodeSpecs.map((node) => [node.key, TaskNodeId.makeUnsafe(randomUUID())]),
@@ -1283,6 +1674,495 @@ export function makeSupervisedTools(
     },
   );
 
+  const delegateTaskNode = entry(
+    {
+      name: "delegate_task_node",
+      displayName: "Delegate TaskNode",
+      description:
+        "As the current Root Lead, delegate one ready durable TaskNode revision to an active Room Peer and queue its provider Run.",
+      inputSchema: objectSchema(
+        {
+          roomId: { type: "string" },
+          taskNodeId: { type: "string" },
+          peerThreadId: { type: "string" },
+          workRequest: { type: "string", maxLength: 32_768 },
+        },
+        ["roomId", "taskNodeId", "peerThreadId", "workRequest"],
+      ),
+      readOnly: false,
+      providerSupport: { codex: "native", claude: "unsupported" },
+      supervised: {
+        toolId: "supervised.task.delegate",
+        schemaVersion: "1.0.0",
+      },
+    },
+    {
+      visible: (_state, role) => role === "lead",
+      execute: (args, context) =>
+        Effect.gen(function* () {
+          yield* context.assertCallerTurnActive();
+          const { state } = yield* loadAuthority(context.callerThreadId);
+          const roomId = RoomId.makeUnsafe(stringArg(args, "roomId"));
+          const taskNodeId = TaskNodeId.makeUnsafe(stringArg(args, "taskNodeId"));
+          const peerThreadId = ThreadId.makeUnsafe(stringArg(args, "peerThreadId"));
+          const root = activeRootContextForCaller(state, context.callerThreadId, roomId);
+          const room = root?.room;
+          const taskNode = state.supervised.taskNodes.find(
+            (candidate) => candidate.id === taskNodeId && candidate.roomId === room?.id,
+          );
+          const task = taskNode
+            ? state.supervised.tasks.find(
+                (candidate) =>
+                  candidate.id === taskNode.taskId &&
+                  candidate.roomId === room?.id &&
+                  candidate.lifecycle === "active",
+              )
+            : undefined;
+          const taskNodeRevision = taskNode
+            ? state.supervised.taskNodeRevisions.find(
+                (candidate) => candidate.id === taskNode.activeRevisionId,
+              )
+            : undefined;
+          const leadSeat = root?.seat;
+          const peerSeat = state.governance.agentSeats.find(
+            (candidate) =>
+              candidate.identityRole === "peer" &&
+              candidate.threadId === peerThreadId &&
+              candidate.roomIds.includes(roomId) &&
+              (candidate.lifecycleState === "ready" || candidate.lifecycleState === "active"),
+          );
+          const policy = state.supervised.runPolicies[0];
+          if (
+            !room ||
+            !task ||
+            !taskNode ||
+            !taskNodeRevision ||
+            !leadSeat ||
+            !peerSeat ||
+            !policy ||
+            taskNode.lifecycle !== "ready"
+          ) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_task_node_unavailable",
+                "Delegation requires the current Root Room, one ready active TaskNode revision, an active scoped Peer, and a RunPolicy.",
+              ),
+            );
+          }
+          const runId = RunId.makeUnsafe(
+            `task-node-run:${taskNode.id}:${taskNode.activeRevisionId}:${peerSeat.id}`,
+          );
+          const existingRun = state.supervised.runs.find(
+            (candidate) =>
+              candidate.taskNodeId === taskNode.id &&
+              !["succeeded", "failed", "cancelled"].includes(candidate.status),
+          );
+          if (existingRun) {
+            if (existingRun.id === runId && existingRun.ownerSeatId === peerSeat.id) {
+              return hostToolSuccess({
+                sequence: state.snapshotSequence,
+                roomId,
+                taskNodeId,
+                taskNodeRevisionId: taskNodeRevision.id,
+                runId: existingRun.id,
+                peerThreadId,
+                status: existingRun.status,
+                ownershipTransferred: false,
+              });
+            }
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_task_node_already_delegated",
+                "The active TaskNode revision already has a live Run.",
+              ),
+            );
+          }
+          const createdAt = new Date().toISOString();
+          const receipt = yield* dispatch({
+            type: "supervised.task.delegate",
+            commandId: CommandId.makeUnsafe(randomUUID()),
+            aggregateId: runId,
+            actor: {
+              kind: "seat",
+              actorId: context.callerThreadId,
+              seatId: rootHolderSeatId(leadSeat),
+            },
+            authorityReceiptId: leadSeat.authorityReceiptId,
+            expectedRevision: 0,
+            idempotencyKey: `task-node-delegate:${runId}`,
+            createdAt,
+            roomId,
+            projectId: room.projectId,
+            leadSeatId: rootHolderSeatId(leadSeat),
+            leadThreadId: ThreadId.makeUnsafe(context.callerThreadId),
+            peerThreadId,
+            workRequest: stringArg(args, "workRequest"),
+            run: {
+              id: runId,
+              roomId,
+              taskId: task.id,
+              taskNodeId: taskNode.id,
+              taskNodeRevisionId: taskNodeRevision.id,
+              ownerSeatId: peerSeat.id,
+              policyId: policy.id,
+              status: "queued",
+              attempt: 1,
+              daemonEpoch: Math.max(1, state.supervised.health.daemonEpoch),
+              startedAt: null,
+              lastProgressAt: null,
+              finishedAt: null,
+              revision: 0,
+              createdAt,
+              updatedAt: createdAt,
+            },
+          });
+          return hostToolSuccess({
+            sequence: receipt.sequence,
+            roomId,
+            taskNodeId,
+            taskNodeRevisionId: taskNodeRevision.id,
+            runId,
+            peerThreadId,
+            status: "queued",
+            ownershipTransferred: false,
+          });
+        }),
+    },
+  );
+
+  const startTaskNodeRun = entry(
+    {
+      name: "start_task_node_run",
+      displayName: "Start TaskNode Run",
+      description:
+        "As the assigned Peer, atomically acquire the durable WorkClaim and start a queued TaskNode Run.",
+      inputSchema: objectSchema({ runId: { type: "string" } }, ["runId"]),
+      readOnly: false,
+      providerSupport: { codex: "native", claude: "unsupported" },
+      supervised: {
+        toolId: "supervised.run.control",
+        schemaVersion: "1.0.0",
+      },
+    },
+    {
+      visible: (_state, role) => role === "peer",
+      execute: (args, context) =>
+        Effect.gen(function* () {
+          yield* context.assertCallerTurnActive();
+          const { state, authority } = yield* loadAuthority(context.callerThreadId);
+          if (authority.role !== "peer") {
+            return yield* Effect.fail(
+              new HostToolError("supervised_peer_required", "The assigned Peer is required."),
+            );
+          }
+          const runId = RunId.makeUnsafe(stringArg(args, "runId"));
+          const run = state.supervised.runs.find(
+            (candidate) =>
+              candidate.id === runId && candidate.ownerSeatId === authority.peerSeatId,
+          );
+          const taskNode = run?.taskNodeId
+            ? state.supervised.taskNodes.find((candidate) => candidate.id === run.taskNodeId)
+            : undefined;
+          const policy = run
+            ? state.supervised.runPolicies.find((candidate) => candidate.id === run.policyId)
+            : undefined;
+          const peerSeat = state.governance.agentSeats.find(
+            (candidate) =>
+              candidate.id === authority.peerSeatId &&
+              candidate.threadId === authority.callerThreadId,
+          );
+          const existingClaim = run
+            ? state.supervised.workClaims.find(
+                (candidate) => candidate.runId === run.id && candidate.status === "active",
+              )
+            : undefined;
+          if (run?.status === "running" && existingClaim) {
+            return hostToolSuccess({
+              sequence: state.snapshotSequence,
+              runId: run.id,
+              workClaimId: existingClaim.id,
+              taskNodeId: run.taskNodeId,
+              status: run.status,
+            });
+          }
+          if (
+            !run ||
+            !taskNode ||
+            !policy ||
+            !peerSeat ||
+            run.taskNodeRevisionId === null ||
+            run.status !== "queued" ||
+            taskNode.lifecycle !== "ready" ||
+            existingClaim
+          ) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_run_not_startable",
+                "The caller must own one queued Run for a ready TaskNode without an active WorkClaim.",
+              ),
+            );
+          }
+          const createdAt = new Date().toISOString();
+          const workClaimId = WorkClaimId.makeUnsafe(
+            `work-claim:${run.id}:${run.taskNodeRevisionId}`,
+          );
+          const receipt = yield* dispatch({
+            type: "supervised.run.start",
+            commandId: CommandId.makeUnsafe(randomUUID()),
+            aggregateId: run.id,
+            actor: {
+              kind: "seat",
+              actorId: context.callerThreadId,
+              seatId: peerSeat.id,
+            },
+            authorityReceiptId: peerSeat.authorityReceiptId,
+            expectedRevision: run.revision,
+            idempotencyKey: `task-node-run-start:${run.id}:${run.attempt}`,
+            createdAt,
+            runId: run.id,
+            claim: {
+              id: workClaimId,
+              taskNodeId: taskNode.id,
+              taskNodeRevisionId: run.taskNodeRevisionId,
+              runId: run.id,
+              ownerSeatId: peerSeat.id,
+              status: "active",
+              acquiredAt: createdAt,
+              expiresAt: new Date(
+                Date.parse(createdAt) + policy.maxWallTimeMs,
+              ).toISOString(),
+              releasedAt: null,
+              revision: 0,
+            },
+          });
+          return hostToolSuccess({
+            sequence: receipt.sequence,
+            runId: run.id,
+            workClaimId,
+            taskNodeId: taskNode.id,
+            status: "running",
+          });
+        }),
+    },
+  );
+
+  const publishTaskNodeEvidence = entry(
+    {
+      name: "publish_task_node_evidence",
+      displayName: "Publish TaskNode evidence",
+      description:
+        "As the assigned Peer, atomically publish durable evidence, move the Run and TaskNode to review, release the WorkClaim, and notify the Root Lead.",
+      inputSchema: objectSchema(
+        {
+          runId: { type: "string" },
+          summary: { type: "string", maxLength: 32_768 },
+        },
+        ["runId", "summary"],
+      ),
+      readOnly: false,
+      providerSupport: { codex: "native", claude: "unsupported" },
+      supervised: {
+        toolId: "supervised.evidence.publish",
+        schemaVersion: "1.0.0",
+      },
+    },
+    {
+      visible: (_state, role) => role === "peer",
+      execute: (args, context) =>
+        Effect.gen(function* () {
+          yield* context.assertCallerTurnActive();
+          const { state, authority } = yield* loadAuthority(context.callerThreadId);
+          if (authority.role !== "peer") {
+            return yield* Effect.fail(
+              new HostToolError("supervised_peer_required", "The assigned Peer is required."),
+            );
+          }
+          const runId = RunId.makeUnsafe(stringArg(args, "runId"));
+          const run = state.supervised.runs.find(
+            (candidate) =>
+              candidate.id === runId && candidate.ownerSeatId === authority.peerSeatId,
+          );
+          const taskNode = run?.taskNodeId
+            ? state.supervised.taskNodes.find((candidate) => candidate.id === run.taskNodeId)
+            : undefined;
+          const claim = run
+            ? state.supervised.workClaims.find(
+                (candidate) => candidate.runId === run.id && candidate.status === "active",
+              )
+            : undefined;
+          const peerSeat = state.governance.agentSeats.find(
+            (candidate) =>
+              candidate.id === authority.peerSeatId &&
+              candidate.threadId === authority.callerThreadId,
+          );
+          const evidenceId = EvidenceId.makeUnsafe(
+            `task-node-evidence:${runId}:attempt:${run?.attempt ?? 1}`,
+          );
+          if (run?.status === "reviewing" || run?.status === "succeeded") {
+            const evidence = state.supervised.evidence.find(
+              (candidate) => candidate.id === evidenceId,
+            );
+            if (evidence) {
+              return hostToolSuccess({
+                sequence: state.snapshotSequence,
+                runId,
+                taskNodeId: run.taskNodeId,
+                evidenceId,
+                status: run.status,
+                leadNotified: true,
+              });
+            }
+          }
+          if (
+            !run ||
+            !taskNode ||
+            !claim ||
+            !peerSeat ||
+            run.status !== "running" ||
+            taskNode.lifecycle !== "running"
+          ) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_run_not_submittable",
+                "The caller must own a running TaskNode Run with an active WorkClaim.",
+              ),
+            );
+          }
+          const createdAt = new Date().toISOString();
+          const receipt = yield* dispatch({
+            type: "supervised.run.submit",
+            commandId: CommandId.makeUnsafe(randomUUID()),
+            aggregateId: run.id,
+            actor: {
+              kind: "seat",
+              actorId: context.callerThreadId,
+              seatId: peerSeat.id,
+            },
+            authorityReceiptId: peerSeat.authorityReceiptId,
+            expectedRevision: run.revision,
+            idempotencyKey: `task-node-run-submit:${run.id}:${run.attempt}`,
+            createdAt,
+            runId: run.id,
+            claimId: claim.id,
+            evidence: {
+              id: evidenceId,
+              scope: { kind: "room", roomId: run.roomId },
+              kind: "provider_receipt",
+              summary: stringArg(args, "summary"),
+              blob: null,
+              sourceEventIds: [],
+              modelSessionId: null,
+              createdBy: {
+                kind: "seat",
+                actorId: context.callerThreadId,
+                seatId: peerSeat.id,
+              },
+              createdAt,
+            },
+          });
+          return hostToolSuccess({
+            sequence: receipt.sequence,
+            runId: run.id,
+            taskNodeId: taskNode.id,
+            evidenceId,
+            status: "reviewing",
+            leadNotified: true,
+          });
+        }),
+    },
+  );
+
+  const acceptTaskNode = entry(
+    {
+      name: "accept_task_node",
+      displayName: "Accept TaskNode",
+      description:
+        "As the current Root Lead, accept a reviewing TaskNode Run only after validating its attached durable evidence.",
+      inputSchema: objectSchema(
+        {
+          runId: { type: "string" },
+          evidenceId: { type: "string" },
+        },
+        ["runId", "evidenceId"],
+      ),
+      readOnly: false,
+      providerSupport: { codex: "native", claude: "unsupported" },
+      supervised: {
+        toolId: "supervised.review.request",
+        schemaVersion: "1.0.0",
+      },
+    },
+    {
+      visible: (_state, role) => role === "lead",
+      execute: (args, context) =>
+        Effect.gen(function* () {
+          yield* context.assertCallerTurnActive();
+          const { state } = yield* loadAuthority(context.callerThreadId);
+          const runId = RunId.makeUnsafe(stringArg(args, "runId"));
+          const evidenceId = EvidenceId.makeUnsafe(stringArg(args, "evidenceId"));
+          const run = state.supervised.runs.find((candidate) => candidate.id === runId);
+          const taskNode = run?.taskNodeId
+            ? state.supervised.taskNodes.find((candidate) => candidate.id === run.taskNodeId)
+            : undefined;
+          const root = run
+            ? activeRootContextForCaller(state, context.callerThreadId, run.roomId)
+            : null;
+          const room = root?.room;
+          const leadSeat = root?.seat;
+          if (run?.status === "succeeded" && taskNode?.lifecycle === "accepted" && room) {
+            return hostToolSuccess({
+              sequence: state.snapshotSequence,
+              roomId: room.id,
+              runId,
+              taskNodeId: taskNode.id,
+              evidenceId,
+              status: "accepted",
+            });
+          }
+          if (
+            !run ||
+            !taskNode ||
+            !room ||
+            !leadSeat ||
+            run.status !== "reviewing" ||
+            taskNode.lifecycle !== "review"
+          ) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_review_unavailable",
+                "The current Root Lead requires a reviewing Run and TaskNode in its active Room.",
+              ),
+            );
+          }
+          const createdAt = new Date().toISOString();
+          const receipt = yield* dispatch({
+            type: "supervised.review.accept",
+            commandId: CommandId.makeUnsafe(randomUUID()),
+            aggregateId: run.id,
+            actor: {
+              kind: "seat",
+              actorId: context.callerThreadId,
+              seatId: rootHolderSeatId(leadSeat),
+            },
+            authorityReceiptId: leadSeat.authorityReceiptId,
+            expectedRevision: run.revision,
+            idempotencyKey: `task-node-review-accept:${run.id}:${evidenceId}`,
+            createdAt,
+            runId,
+            evidenceId,
+          });
+          return hostToolSuccess({
+            sequence: receipt.sequence,
+            roomId: room.id,
+            runId,
+            taskNodeId: taskNode.id,
+            evidenceId,
+            status: "accepted",
+          });
+        }),
+    },
+  );
+
   const createPeer = entry(
     {
       name: "create_peer",
@@ -1323,20 +2203,35 @@ export function makeSupervisedTools(
           }
           const requestedRoomId = RoomId.makeUnsafe(stringArg(args, "roomId"));
           const requestedLeadSeatId = stringArg(args, "leadSeatId");
-          const eligibleLeads = state.leads.filter(
-            (candidate) =>
-              candidate.status === "active" &&
-              (authority.role === "lead"
-                ? candidate.id === authority.leadSeatId &&
-                  candidate.activeThreadId === authority.callerThreadId
-                : authority.missions.some((mission) =>
-                    missionScopeContainsLead({
-                      scope: mission.scope,
-                      lead: candidate,
-                      projects: state.projects,
-                    }),
-                  )),
+          const actingRoot = activeRootContextForCaller(
+            state,
+            context.callerThreadId,
+            requestedRoomId,
           );
+          const eligibleLeads = actingRoot
+            ? [
+                {
+                  id: actingRoot.seat.id,
+                  projectId: actingRoot.room.projectId,
+                  activeThreadId: ThreadId.makeUnsafe(context.callerThreadId),
+                  status: "active" as const,
+                  revision: actingRoot.seat.revision,
+                },
+              ]
+            : state.leads.filter(
+                (candidate) =>
+                  candidate.status === "active" &&
+                  (authority.role === "lead"
+                    ? candidate.id === authority.leadSeatId &&
+                      candidate.activeThreadId === authority.callerThreadId
+                    : authority.missions.some((mission) =>
+                        missionScopeContainsLead({
+                          scope: mission.scope,
+                          lead: candidate,
+                          projects: state.projects,
+                        }),
+                      )),
+              );
           const lead = eligibleLeads.find(
             (candidate) => candidate.id === requestedLeadSeatId,
           );
@@ -1403,7 +2298,7 @@ export function makeSupervisedTools(
             );
           }
           const initialPrompt = optionalStringArg(args, "initialPrompt");
-          if (authority.role === "supervisor" && initialPrompt !== null) {
+          if (authority.role === "supervisor" && actingRoot === null && initialPrompt !== null) {
             return yield* Effect.fail(
               new HostToolError(
                 "supervised_work_assignment_required",
@@ -1463,7 +2358,7 @@ export function makeSupervisedTools(
             peerSpecialtyId,
             threadId,
             roomId: room.id,
-            requiresWorkAssignment: authority.role === "supervisor",
+            requiresWorkAssignment: authority.role === "supervisor" && actingRoot === null,
           });
         }),
     },
@@ -1527,12 +2422,23 @@ export function makeSupervisedTools(
                   candidate.status !== "archived",
               )
             : undefined;
-          const lead = room?.leadSeatId
-            ? state.leads.find(
-                (candidate) =>
-                  candidate.id === room.leadSeatId && candidate.status === "active",
-              )
-            : undefined;
+          const actingRoot = room
+            ? activeRootContextForCaller(state, context.callerThreadId, room.id)
+            : null;
+          const lead = actingRoot
+            ? {
+                id: actingRoot.seat.id,
+                projectId: actingRoot.room.projectId,
+                activeThreadId: ThreadId.makeUnsafe(context.callerThreadId),
+                status: "active" as const,
+                revision: actingRoot.seat.revision,
+              }
+            : room?.leadSeatId
+              ? state.leads.find(
+                  (candidate) =>
+                    candidate.id === room.leadSeatId && candidate.status === "active",
+                )
+              : undefined;
           const project = room
             ? state.projects.find(
                 (candidate) => candidate.id === room.projectId && candidate.deletedAt === null,
@@ -1541,13 +2447,14 @@ export function makeSupervisedTools(
           const supervisorScopeAllows =
             authority.role === "supervisor" &&
             lead !== undefined &&
-            authority.missions.some((mission) =>
-              missionScopeContainsLead({
-                scope: mission.scope,
-                lead,
-                projects: state.projects,
-              }),
-            );
+            (actingRoot !== null ||
+              authority.missions.some((mission) =>
+                missionScopeContainsLead({
+                  scope: mission.scope,
+                  lead,
+                  projects: state.projects,
+                }),
+              ));
           const leadScopeAllows =
             authority.role === "lead" && lead?.id === authority.leadSeatId;
           if (
@@ -2020,7 +2927,7 @@ export function makeSupervisedTools(
       name: "search_supervisor_notebook",
       displayName: "Search supervisor notebook",
       description:
-        "Read a bounded, protection-filtered view of the shared workspace Supervisor notebook and advance the caller's durable cursor.",
+        "Read a bounded, protection-filtered view of the shared workspace Supervisor notebook without mutating durable state. The returned nextCursor is an advisory checkpoint only.",
       inputSchema: objectSchema({
         concern: { type: "string", maxLength: 512 },
         roomId: { type: "string" },
@@ -2068,11 +2975,6 @@ export function makeSupervisedTools(
             args.limit === undefined
               ? 50
               : Math.max(1, Math.min(200, intArg(args, "limit")));
-          const notebookState = yield* input.governanceRepository.getNotebookState({
-            workspaceId: seat.workspaceId,
-            seatId: seat.id,
-            limit: 500,
-          });
           const incremental = args.incremental === true;
           if (args.incremental !== undefined && typeof args.incremental !== "boolean") {
             return yield* Effect.fail(
@@ -2080,7 +2982,21 @@ export function makeSupervisedTools(
             );
           }
           const concern = optionalStringArg(args, "concern");
-          const query = optionalStringArg(args, "query")?.toLocaleLowerCase() ?? null;
+          const query = optionalStringArg(args, "query");
+          const notebookState = yield* input.governanceRepository.getNotebookState({
+            workspaceId: seat.workspaceId,
+            seatId: seat.id,
+            limit: 512,
+            roomIds: requestedRoomId === null ? [...allowedRoomIds] : [requestedRoomId],
+            includeWorkspaceEntries: requestedRoomId === null,
+            ...(receipt.taskNodeScopes.length === 0
+              ? {}
+              : { taskNodeIds: receipt.taskNodeScopes, includeUnscopedTaskNodes: true }),
+            ...(concern === null ? {} : { concern }),
+            ...(query === null ? {} : { query }),
+            allowedProtectionClasses: ["workspace", "internal"],
+            includeRedacted: false,
+          });
           const view = buildSupervisorNotebookView({
             workspaceId: seat.workspaceId,
             viewerSeatId: seat.id,
@@ -2099,21 +3015,7 @@ export function makeSupervisedTools(
             limit,
             createdAt: new Date().toISOString(),
           });
-          if (query === null) {
-            yield* input.governanceRepository.putNotebookCursor(view.nextCursor);
-          }
-          const entries =
-            query === null
-              ? view.entries
-              : view.entries.filter((candidate) =>
-                  `${candidate.concern}\n${candidate.content}`.toLocaleLowerCase().includes(query),
-                );
-          return hostToolSuccess({
-            workspaceId: view.workspaceId,
-            entries,
-            compactionReceipts: view.compactionReceipts,
-            nextCursor: view.nextCursor,
-          });
+          return hostToolSuccess(view);
         }).pipe(
           Effect.mapError(
             (error) =>
@@ -2326,16 +3228,24 @@ export function makeSupervisedTools(
               ),
             );
           }
-          const current = yield* input.governanceRepository.getNotebookState({
-            workspaceId: seat.workspaceId,
-            seatId: seat.id,
-            limit: 500,
-          });
           const sourceEntryIds = stringArrayArg(args, "sourceEntryIds");
           const requestedRoomId = optionalStringArg(args, "roomId");
           const allowedRoomIds = new Set(
             seat.roomIds.filter((roomId) => receipt.roomScopes.includes(roomId)),
           );
+          const current = yield* input.governanceRepository.getNotebookState({
+            workspaceId: seat.workspaceId,
+            seatId: seat.id,
+            limit: 512,
+            entryIds: sourceEntryIds,
+            roomIds: requestedRoomId === null ? [] : [requestedRoomId],
+            includeWorkspaceEntries: requestedRoomId === null,
+            ...(receipt.taskNodeScopes.length === 0
+              ? {}
+              : { taskNodeIds: receipt.taskNodeScopes, includeUnscopedTaskNodes: true }),
+            allowedProtectionClasses: ["workspace", "internal"],
+            includeRedacted: false,
+          });
           const visibleEntries = current.entries.filter(
             (candidate) =>
               (candidate.roomId === null || allowedRoomIds.has(candidate.roomId)) &&
@@ -2373,12 +3283,33 @@ export function makeSupervisedTools(
           });
           const inserted = yield* input.governanceRepository.appendNotebookCompaction(planned);
           if (!inserted) {
-            return yield* Effect.fail(
-              new HostToolError(
-                "supervised_notebook_duplicate",
-                "Notebook compaction already exists.",
-              ),
+            const existing = yield* input.governanceRepository.getNotebookState({
+              workspaceId: seat.workspaceId,
+              seatId: seat.id,
+              limit: 1,
+              entryIds: [planned.summaryEntry.id],
+              allowedProtectionClasses: [planned.summaryEntry.protectionClass],
+              includeRedacted: false,
+            });
+            const summaryEntry = existing.entries.find(
+              (candidate) => candidate.id === planned.summaryEntry.id,
             );
+            const compactionReceipt = existing.compactionReceipts.find(
+              (candidate) => candidate.id === planned.receipt.id,
+            );
+            if (!summaryEntry || !compactionReceipt) {
+              return yield* Effect.fail(
+                new HostToolError(
+                  "supervised_notebook_duplicate",
+                  "Notebook compaction identity conflicts with unavailable durable state.",
+                ),
+              );
+            }
+            return hostToolSuccess({
+              summaryEntry,
+              receipt: compactionReceipt,
+              idempotent: true,
+            });
           }
           return hostToolSuccess(planned);
         }).pipe(
@@ -2620,6 +3551,7 @@ export function makeSupervisedTools(
 
   return [
     readState,
+    recommendSupervisedModel,
     createMission,
     mutateMission("update_supervised_mission", "supervised.mission.update"),
     mutateMission("complete_supervised_mission", "supervised.mission.complete"),
@@ -2628,8 +3560,13 @@ export function makeSupervisedTools(
     applyWorkflow,
     revokeWorkflow,
     requestReplacement,
+    assumeRoomRoot,
     createLeadRoom,
     createTaskGraph,
+    delegateTaskNode,
+    startTaskNodeRun,
+    publishTaskNodeEvidence,
+    acceptTaskNode,
     createPeer,
     assignPeerWork,
     publishPeerEvidence,

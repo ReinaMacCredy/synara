@@ -1,6 +1,7 @@
 import {
   DEFAULT_SUPERVISED_RUN_POLICY,
   type AuthorityScope,
+  type HarnessPatch,
   type PluginCapability,
   type ProjectId,
   type RoomId,
@@ -34,6 +35,96 @@ import {
 const value = (text: string) => (
   <span className="text-xs tabular-nums text-foreground/80">{text}</span>
 );
+
+const HARNESS_PATCH_STATUS_LABEL: Readonly<Record<HarnessPatch["status"], string>> = {
+  observed: "Observed",
+  proposed: "Proposed",
+  sandboxed: "Sandboxed",
+  evaluated: "Evaluated",
+  awaiting_approval: "Awaiting approval",
+  canary: "Canary",
+  promoted: "Promoted",
+  rejected: "Rejected",
+  failed: "Failed",
+  rolled_back: "Rolled back",
+  revoked: "Revoked",
+};
+
+export function harnessPatchScopeLabel(scope: HarnessPatch["scope"]): string {
+  switch (scope.kind) {
+    case "profile":
+      return `Profile ${scope.profilePresetId}`;
+    case "project":
+      return `Project ${scope.projectId}`;
+    case "room":
+      return `Room ${scope.roomId}`;
+    case "task":
+      return `Task ${scope.taskId}`;
+  }
+}
+
+export function harnessPatchLifecycleSummary(patch: HarnessPatch): {
+  readonly label: string;
+  readonly detail: string;
+} {
+  const observationCount = patch.observationEvidenceRefs.length;
+  const evaluationCount = patch.evaluationEvidenceRefs.length;
+  switch (patch.status) {
+    case "observed":
+      return {
+        label: HARNESS_PATCH_STATUS_LABEL[patch.status],
+        detail: `${observationCount} durable observation evidence`,
+      };
+    case "proposed":
+      return {
+        label: HARNESS_PATCH_STATUS_LABEL[patch.status],
+        detail: `Awaiting sandbox evaluation · ${observationCount} observation evidence`,
+      };
+    case "sandboxed":
+      return {
+        label: HARNESS_PATCH_STATUS_LABEL[patch.status],
+        detail: "Sandbox evaluation pending",
+      };
+    case "evaluated":
+      return {
+        label: HARNESS_PATCH_STATUS_LABEL[patch.status],
+        detail: `Sandbox passed · ${evaluationCount} evaluation evidence`,
+      };
+    case "awaiting_approval":
+      return {
+        label: HARNESS_PATCH_STATUS_LABEL[patch.status],
+        detail: "Explicit Human approval is required before canary activation",
+      };
+    case "canary":
+      return {
+        label: HARNESS_PATCH_STATUS_LABEL[patch.status],
+        detail: `${patch.canary?.successfulEvaluations ?? 0} passed · ${patch.canary?.observedFailures ?? 0}/${patch.canary?.failureThreshold ?? 0} failed`,
+      };
+    case "promoted":
+      return {
+        label: HARNESS_PATCH_STATUS_LABEL[patch.status],
+        detail: `Promoted after ${patch.canary?.successfulEvaluations ?? 0} successful canary evaluations`,
+      };
+    case "failed":
+      return {
+        label: HARNESS_PATCH_STATUS_LABEL[patch.status],
+        detail:
+          patch.sandboxEvaluation?.regressions.join(" · ") ||
+          "Sandbox evaluation did not pass",
+      };
+    case "rolled_back":
+      return {
+        label: HARNESS_PATCH_STATUS_LABEL[patch.status],
+        detail: patch.rollback?.reason ?? "Rollback receipt unavailable",
+      };
+    case "rejected":
+    case "revoked":
+      return {
+        label: HARNESS_PATCH_STATUS_LABEL[patch.status],
+        detail: `${observationCount + evaluationCount} retained evidence references`,
+      };
+  }
+}
 
 export type SupervisedRuntimeSettingsSurface = "runtime" | "plugins" | "diagnostics";
 
@@ -435,6 +526,16 @@ export function SupervisedRuntimeSettingsPanel(props: {
   }
   const snapshot = query.data;
   const health = snapshot.health;
+  const harnessPatches = [...snapshot.harnessPatches].sort(
+    (left, right) =>
+      right.updatedAt.localeCompare(left.updatedAt) || right.revision - left.revision,
+  );
+  const activeHarnessPatchCount = harnessPatches.filter(
+    (patch) => patch.status === "canary" || patch.status === "promoted",
+  ).length;
+  const approvalPendingHarnessPatchCount = harnessPatches.filter(
+    (patch) => patch.status === "awaiting_approval",
+  ).length;
 
   return (
     <div className="space-y-8">
@@ -709,12 +810,52 @@ export function SupervisedRuntimeSettingsPanel(props: {
         />
       </SettingsSection>
 
-      <SettingsSection title="Harness patches & retained Peer specialties">
-        <SettingsRow
-          title="Patch activation"
-          description="Evaluation evidence is required; cross-Project auto-promotion is disabled."
-          control={value("Evaluation-gated")}
-        />
+      <SettingsSectionShell title="Harness Patch lifecycle">
+        <SettingsCard>
+          <SettingsRow
+            title="Governed patch activation"
+            description="Read-only projected lifecycle. Supervisor proposals require durable friction evidence; the daemon evaluates them in sandbox; only a Human may activate or promote a canary."
+            status={`${approvalPendingHarnessPatchCount} awaiting Human approval · ${activeHarnessPatchCount} active`}
+            control={value(`${harnessPatches.length} retained`)}
+          />
+          {harnessPatches.length === 0 ? (
+            <SettingsListRow
+              title="No Harness Patch proposals retained"
+              description="The runtime snapshot has no observed, evaluated, active, or rolled-back patches."
+            />
+          ) : (
+            harnessPatches.map((patch) => {
+              const lifecycle = harnessPatchLifecycleSummary(patch);
+              const digest = `${patch.basePolicyHash.slice(0, 18)}…`;
+              return (
+                <SettingsListRow
+                  key={patch.id}
+                  align="start"
+                  title={
+                    <span>
+                      {patch.name} · v{patch.version}
+                    </span>
+                  }
+                  description={
+                    <div className="space-y-1">
+                      <p>{patch.content}</p>
+                      <p>{lifecycle.detail}</p>
+                      <p className="break-all font-mono text-[10px] text-muted-foreground/75">
+                        {harnessPatchScopeLabel(patch.scope)} · {patch.patchType} · revision {patch.revision}
+                        {" · "}
+                        base {digest}
+                      </p>
+                    </div>
+                  }
+                  actions={value(lifecycle.label)}
+                />
+              );
+            })
+          )}
+        </SettingsCard>
+      </SettingsSectionShell>
+
+      <SettingsSection title="Retained Peer specialties">
         <SettingsRow
           title="Retained Peer specialties"
           description="Restore only sanitized, unexpired, scope-compatible snapshots."

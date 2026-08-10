@@ -106,6 +106,7 @@ import { RouteInsetSurface } from "../RouteInsetSurface";
 import { SidebarInset } from "../ui/sidebar";
 import { toastManager } from "../ui/toast";
 import type { SupervisedTopologyOpenTarget } from "../supervised/SupervisedTopologyView";
+import { supervisedRoomRoot } from "../supervised/supervisedTopologyProjection";
 import {
   collectParentDirectoryPaths,
   resolveFilePreviewWorkspaceRoot,
@@ -256,7 +257,20 @@ export function SingleChatSurface(props: {
   });
   const availableDockPaneKinds = dockLauncherItems.map(({ kind }) => kind);
   const projects = useStore((store) => store.projects);
-  const primarySupervisorThreadId = useStore((store) => {
+  const supervisorConversationThreadId = useStore((store) => {
+    if (props.roomView) {
+      const root = supervisedRoomRoot(
+        store.supervisedOrchestration,
+        props.roomView.roomId,
+      );
+      if (
+        root.resolution === "resolved" &&
+        root.identityRole === "supervisor" &&
+        root.threadId !== null
+      ) {
+        return root.threadId as ThreadId;
+      }
+    }
     const supervisors = store.supervisedOrchestration.agentSeats.filter(
       (seat) =>
         seat.identityRole === "supervisor" &&
@@ -1119,9 +1133,9 @@ export function SingleChatSurface(props: {
                     `${EDITOR_CHAT_PANE_SCOPE_ID}:${props.roomView.roomId}`,
                   )}
                   supervisorConversation={
-                    primarySupervisorThreadId
+                    supervisorConversationThreadId
                       ? renderRoomConversation(
-                          primarySupervisorThreadId,
+                          supervisorConversationThreadId,
                           `${EDITOR_CHAT_PANE_SCOPE_ID}:supervisor:${props.roomView.roomId}`,
                         )
                       : undefined

@@ -3,6 +3,7 @@ import { Schema } from "effect";
 import { IsoDateTime, NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas";
 import {
   EffectiveAgentRole,
+  ModelCapabilityProfile,
   SupervisedWorkspaceId,
   SupervisedGovernanceSnapshot,
   UserModelPreferenceProfile,
@@ -88,6 +89,28 @@ export const PutSupervisedModelPreferencesResult = Schema.Struct({
 });
 export type PutSupervisedModelPreferencesResult =
   typeof PutSupervisedModelPreferencesResult.Type;
+
+export const ModelCapabilityCatalogStatus = Schema.Literals([
+  "catalog_matched",
+  "owner_curated_only",
+]);
+export type ModelCapabilityCatalogStatus = typeof ModelCapabilityCatalogStatus.Type;
+
+export const PutSupervisedModelCapabilityProfileInput = Schema.Struct({
+  profile: ModelCapabilityProfile,
+  expectedRevision: Schema.NullOr(NonNegativeInt),
+});
+export type PutSupervisedModelCapabilityProfileInput =
+  typeof PutSupervisedModelCapabilityProfileInput.Type;
+
+export const PutSupervisedModelCapabilityProfileResult = Schema.Struct({
+  profile: ModelCapabilityProfile,
+  routingRevision: NonNegativeInt,
+  catalogStatus: ModelCapabilityCatalogStatus,
+  catalogSource: Schema.NullOr(TrimmedNonEmptyString),
+});
+export type PutSupervisedModelCapabilityProfileResult =
+  typeof PutSupervisedModelCapabilityProfileResult.Type;
 
 export const UpdateSupervisedToolPolicyInput = Schema.Struct({
   toolId: SupervisedIntentToolId,

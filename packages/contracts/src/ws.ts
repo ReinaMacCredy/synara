@@ -43,6 +43,7 @@ import {
 } from "./supervised";
 import {
   GetSupervisedSettingsInput,
+  PutSupervisedModelCapabilityProfileInput,
   PutSupervisedModelPreferencesInput,
   UpdateSupervisedToolPolicyInput,
 } from "./supervisedSettings";
@@ -319,6 +320,10 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(ORCHESTRATION_WS_METHODS.getSnapshot, OrchestrationGetSnapshotInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.getSupervisedRuntime, GetSupervisedRuntimeInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.getSupervisedSettings, GetSupervisedSettingsInput),
+  tagRequestBody(
+    ORCHESTRATION_WS_METHODS.putSupervisedModelCapabilityProfile,
+    PutSupervisedModelCapabilityProfileInput,
+  ),
   tagRequestBody(
     ORCHESTRATION_WS_METHODS.putSupervisedModelPreferences,
     PutSupervisedModelPreferencesInput,

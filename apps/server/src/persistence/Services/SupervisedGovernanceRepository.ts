@@ -48,6 +48,15 @@ export interface SupervisedGovernanceRepositoryShape {
     readonly workspaceId: string;
     readonly seatId: string;
     readonly limit: number;
+    readonly entryIds?: ReadonlyArray<string>;
+    readonly roomIds?: ReadonlyArray<string>;
+    readonly includeWorkspaceEntries?: boolean;
+    readonly taskNodeIds?: ReadonlyArray<string>;
+    readonly includeUnscopedTaskNodes?: boolean;
+    readonly concern?: string;
+    readonly query?: string;
+    readonly allowedProtectionClasses?: ReadonlyArray<string>;
+    readonly includeRedacted?: boolean;
   }) => Effect.Effect<PersistedSupervisorNotebookState, ProjectionRepositoryError>;
   readonly appendNotebookEntry: (
     entry: SupervisorNotebookEntry,

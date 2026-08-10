@@ -236,7 +236,16 @@ export const decideSupervisedGovernanceCommand = Effect.fn(
       if (command.profileSnapshot === undefined) {
         return yield* reject(command, "Server-resolved profile snapshot is required.");
       }
-      const supervisor = { ...command.supervisor, revision: 1 };
+      const hasActivePrimary = state.supervisors.some(
+        (seat) => seat.isPrimary === true && seat.status !== "archived",
+      );
+      const supervisor = {
+        ...command.supervisor,
+        ...(hasActivePrimary
+          ? { isPrimary: false }
+          : { concern: "primary", isPrimary: true }),
+        revision: 1,
+      };
       const created = event(command, "supervised.supervisor-created", 1, {
         supervisor,
         profileSnapshot: command.profileSnapshot,

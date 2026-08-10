@@ -219,11 +219,16 @@ function pluginRunPolicyViolation(
   return null;
 }
 
-function commandRoomId(command: SupervisedCommand): string | null {
+function commandRoomId(
+  command: SupervisedCommand,
+  state: SupervisedRuntimeSnapshot,
+): string | null {
   switch (command.type) {
     case "supervised.room.create":
     case "supervised.room.update":
       return command.room.id;
+    case "supervised.role.assume":
+      return command.roomId;
     case "supervised.lead.create":
       return command.room.id;
     case "supervised.task.create":
@@ -232,8 +237,14 @@ function commandRoomId(command: SupervisedCommand): string | null {
       return command.task.roomId;
     case "supervised.task-node.commit":
       return command.taskNode.roomId;
-      case "supervised.run.request":
-        return command.run.roomId;
+    case "supervised.run.request":
+      return command.run.roomId;
+    case "supervised.task.delegate":
+      return command.roomId;
+    case "supervised.run.start":
+    case "supervised.run.submit":
+    case "supervised.review.accept":
+      return state.runs.find((run) => run.id === command.runId)?.roomId ?? null;
       case "supervised.intervention.propose":
         return command.intervention.roomId;
       case "supervised.intervention.reconcile":
@@ -286,7 +297,7 @@ function requirePluginAuthority(
   ) {
     return reject(command, `Plugin is not granted '${command.type}'.`);
   }
-  if (!scopeAllowsRoom(installation.grant.scopes, commandRoomId(command))) {
+  if (!scopeAllowsRoom(installation.grant.scopes, commandRoomId(command, state))) {
     return reject(command, "Plugin command is outside its granted authority scope.");
   }
   const policy = state.runPolicies.find((candidate) => candidate.id === command.runPolicyId);
@@ -413,6 +424,78 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
         room,
       });
     }
+    case "supervised.role.assume": {
+      yield* requireHuman(
+        command,
+        "Only the authenticated Human may authorize a Supervisor Root assumption.",
+      );
+      const current = state.rooms.find((room) => room.id === command.roomId);
+      if (!current || current.status !== "active") {
+        return yield* reject(command, "Root assumption requires an active Room.");
+      }
+      yield* requireRevision(command, current.revision);
+      if (
+        current.leadSeatId !== command.previousRootSeatId ||
+        command.previousRootSeatId === command.supervisorSeatId
+      ) {
+        return yield* reject(
+          command,
+          "Root assumption requires the current distinct Root holder.",
+        );
+      }
+      const supervisorSeat = input.governance?.agentSeats.find(
+        (seat) =>
+          seat.id === command.supervisorSeatId &&
+          seat.identityRole === "supervisor" &&
+          seat.effectiveRole === "supervisor" &&
+          seat.threadId === command.supervisorThreadId &&
+          (seat.lifecycleState === "ready" || seat.lifecycleState === "active"),
+      );
+      const previousRootSeat = input.governance?.agentSeats.find(
+        (seat) =>
+          seat.id === command.previousRootSeatId &&
+          seat.threadId === command.previousRootThreadId &&
+          (seat.lifecycleState === "ready" || seat.lifecycleState === "active"),
+      );
+      const supervisorReceipt = input.governance?.authorityReceipts.find(
+        (receipt) =>
+          receipt.id === supervisorSeat?.authorityReceiptId &&
+          receipt.actorSeatId === supervisorSeat?.id &&
+          receipt.revokedAt === null &&
+          (receipt.expiresAt === null || receipt.expiresAt > command.createdAt) &&
+          receipt.roomScopes.includes(current.id),
+      );
+      const currentRootLease = input.governance?.rootLeases.find(
+        (lease) =>
+          lease.roomId === current.id &&
+          lease.holderSeatId === command.previousRootSeatId &&
+          (lease.status === "active" ||
+            lease.status === "transferring" ||
+            lease.status === "releasing"),
+      );
+      if (!supervisorSeat || !previousRootSeat || !supervisorReceipt || !currentRootLease) {
+        return yield* reject(
+          command,
+          "Root assumption requires a ready scoped Supervisor and the current live Root lease.",
+        );
+      }
+      return event(command, "supervised.room-updated", "supervised_room", current.revision + 1, {
+        room: {
+          ...current,
+          leadSeatId: command.supervisorSeatId,
+          revision: current.revision + 1,
+          updatedAt: command.createdAt,
+        },
+        metadata: {
+          operation: "role.assume",
+          reason: command.reason,
+          previousRootSeatId: command.previousRootSeatId,
+          previousRootThreadId: command.previousRootThreadId,
+          supervisorSeatId: command.supervisorSeatId,
+          supervisorThreadId: command.supervisorThreadId,
+        },
+      });
+    }
     case "supervised.task.create": {
       const room = state.rooms.find((candidate) => candidate.id === command.task.roomId);
       yield* requireHumanOrMatchingSeat(
@@ -432,17 +515,34 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
     }
     case "supervised.lead.create":
     case "supervised.task-graph.create":
+    case "supervised.task.delegate":
+    case "supervised.run.start":
+    case "supervised.run.submit":
+    case "supervised.review.accept":
       return yield* reject(command, "This command must execute through its orchestration saga.");
     case "supervised.task-node.commit": {
+      const current = state.taskNodes.find((node) => node.id === command.taskNode.id);
+      const room = state.rooms.find((candidate) => candidate.id === command.taskNode.roomId);
+      const activeClaim = current
+        ? state.workClaims.find(
+            (claim) =>
+              claim.status === "active" &&
+              claim.taskNodeId === current.id &&
+              claim.taskNodeRevisionId === current.activeRevisionId,
+          )
+        : undefined;
       yield* requireHumanOrMatchingSeat(
         command,
-        [command.taskNodeRevision.createdBy.seatId],
-        "Only the Human or TaskNode revision author may commit this revision.",
+        current
+          ? [room?.leadSeatId, activeClaim?.ownerSeatId]
+          : [command.taskNodeRevision.createdBy.seatId],
+        current
+          ? `Only the Human, current Room Lead, or active WorkClaim owner may update this TaskNode (command=${command.commandId}, actor=${actorSeatId(command) ?? "none"}, lead=${room?.leadSeatId ?? "none"}, claimOwner=${activeClaim?.ownerSeatId ?? "none"}).`
+          : "Only the Human or TaskNode revision author may create this TaskNode.",
       );
       if (!state.tasks.some((task) => task.id === command.taskNode.taskId)) {
         return yield* reject(command, "TaskNode Task does not exist.");
       }
-      const current = state.taskNodes.find((node) => node.id === command.taskNode.id);
       yield* requireRevision(command, current?.revision ?? null);
       const revision = current ? current.revision + 1 : command.taskNode.revision;
       return event(command, "supervised.task-node-committed", "supervised_task", revision, {
@@ -451,10 +551,11 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
       });
     }
     case "supervised.run.request": {
+      const room = state.rooms.find((candidate) => candidate.id === command.run.roomId);
       yield* requireHumanOrMatchingSeat(
         command,
-        [command.run.ownerSeatId],
-        "Only the Human or Run owner may request this Run.",
+        [command.run.ownerSeatId, room?.leadSeatId],
+        "Only the Human, Run owner, or current Room Lead may request this Run.",
       );
       if (state.runs.some((run) => run.id === command.run.id)) {
         return yield* reject(command, "Run already exists.");
@@ -493,21 +594,40 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
     case "supervised.run.transition": {
       const current = state.runs.find((run) => run.id === command.runId);
       if (!current) return yield* reject(command, "Run does not exist.");
+      if (command.daemonEpoch !== undefined && command.actor.kind !== "daemon") {
+        return yield* reject(command, "Only the daemon may attach a recovery epoch to a Run transition.");
+      }
       const daemonOwnsRlmLifecycle =
         command.actor.kind === "daemon" &&
         state.rlmEpisodes.some((episode) => episode.runId === current.id);
+      const daemonRestartTransition =
+        command.actor.kind === "daemon" &&
+        command.daemonEpoch !== undefined &&
+        ((current.status === "running" &&
+          (command.status === "interrupted" || command.status === "failed") &&
+          command.daemonEpoch > current.daemonEpoch) ||
+          (current.status === "interrupted" &&
+            (command.status === "recovering" || command.status === "failed") &&
+            command.daemonEpoch >= current.daemonEpoch) ||
+          (current.status === "recovering" &&
+            (command.status === "running" || command.status === "failed") &&
+            command.daemonEpoch >= current.daemonEpoch));
       if (
         !(
           command.actor.kind === "daemon" &&
           current.status === "interrupted" &&
           command.status === "recovering"
         ) &&
+        !daemonRestartTransition &&
         !daemonOwnsRlmLifecycle
       ) {
         yield* requireHumanOrMatchingSeat(
           command,
-          [current.ownerSeatId],
-          "Only the Human or Run owner may transition this Run.",
+          [
+            current.ownerSeatId,
+            state.rooms.find((room) => room.id === current.roomId)?.leadSeatId,
+          ],
+          "Only the Human, Run owner, or current Room Lead may transition this Run.",
         );
       }
       yield* requireRevision(command, current.revision);
@@ -516,6 +636,9 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
         run = transitionRun(current, command.status, command.createdAt);
       } catch (cause) {
         return yield* reject(command, cause instanceof Error ? cause.message : String(cause));
+      }
+      if (command.actor.kind === "daemon" && command.daemonEpoch !== undefined) {
+        run = { ...run, daemonEpoch: command.daemonEpoch };
       }
       return event(command, "supervised.run-transitioned", "supervised_run", run.revision, {
         run,
@@ -1133,6 +1256,18 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
         return yield* reject(command, "Model session parent does not belong to this Room.");
       }
       const current = state.modelSessions.find((session) => session.id === trace.id);
+      if (
+        current &&
+        (current.actorSeatId !== trace.actorSeatId ||
+          current.authorityReceiptId !== trace.authorityReceiptId ||
+          current.effectiveRole !== trace.effectiveRole ||
+          JSON.stringify(current.rootLeaseIds) !== JSON.stringify(trace.rootLeaseIds))
+      ) {
+        return yield* reject(
+          command,
+          "Model session authority lineage cannot change after creation.",
+        );
+      }
       yield* requireRevision(command, current?.revision ?? null);
       const revision = current ? current.revision + 1 : trace.revision;
       return event(

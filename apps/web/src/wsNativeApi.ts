@@ -725,6 +725,8 @@ export function createWsNativeApi(): NativeApi {
         transport.request(ORCHESTRATION_WS_METHODS.getSupervisedRuntime, input),
       getSupervisedSettings: (input = {}) =>
         transport.request(ORCHESTRATION_WS_METHODS.getSupervisedSettings, input),
+      putSupervisedModelCapabilityProfile: (input) =>
+        transport.request(ORCHESTRATION_WS_METHODS.putSupervisedModelCapabilityProfile, input),
       putSupervisedModelPreferences: (input) =>
         transport.request(ORCHESTRATION_WS_METHODS.putSupervisedModelPreferences, input),
       updateSupervisedToolPolicy: (input) =>

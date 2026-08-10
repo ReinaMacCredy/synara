@@ -11,7 +11,10 @@ import {
 
 import { emptySupervisedGovernanceDecisionState } from "../../orchestration/supervised/governanceState.ts";
 import type { SupervisedGovernanceDecisionState } from "../../orchestration/supervised/governanceState.ts";
-import { reconcileGovernanceProjection } from "./GovernanceReconciliation.ts";
+import {
+  governanceDecisionStateFromSnapshot,
+  reconcileGovernanceProjection,
+} from "./GovernanceReconciliation.ts";
 import { defaultSupervisedCommandsForRole } from "../tools/Registry.ts";
 
 const now = "2026-08-09T00:00:00.000Z";
@@ -27,6 +30,8 @@ describe("Supervised governance reconciliation", () => {
         {
           id: "supervisor-seat-1",
           name: "Primary Supervisor",
+          concern: "delivery",
+          isPrimary: false,
           activeThreadId: "supervisor-thread-1",
           predecessorThreadIds: [],
           profileSnapshotId: "supervisor-profile-snapshot-1",
@@ -98,9 +103,48 @@ describe("Supervised governance reconciliation", () => {
     )!;
 
     assert.deepEqual(supervisor.roomIds, ["room-1"]);
+    assert.equal(supervisor.concern, "delivery");
     assert.deepEqual(receipt.roomScopes, ["room-1"]);
     assert.ok(receipt.allowedCommands.includes("supervised.peer.create"));
     assert.ok(receipt.allowedCommands.includes("supervised.work.assign"));
+  });
+
+  it("round-trips a durable Primary Supervisor marker without relying on its name", () => {
+    const state = ({
+      ...emptySupervisedGovernanceDecisionState(now),
+      supervisors: [
+        {
+          id: "supervisor-primary",
+          name: "Coordinator",
+          concern: "context",
+          isPrimary: true,
+          activeThreadId: "supervisor-primary-thread",
+          predecessorThreadIds: [],
+          profileSnapshotId: "supervisor-primary-profile",
+          status: "active",
+          createdAt: now,
+          updatedAt: now,
+          archivedAt: null,
+          revision: 1,
+        },
+      ],
+    }) as SupervisedGovernanceDecisionState;
+
+    const projected = reconcileGovernanceProjection({
+      governance: emptySupervisedGovernanceSnapshot(now),
+      state,
+      runtime: emptySupervisedRuntimeSnapshot(now),
+      at: now,
+      source: "canonical",
+    });
+    const decisionState = governanceDecisionStateFromSnapshot({
+      governance: projected,
+      runtime: emptySupervisedRuntimeSnapshot(now),
+    });
+
+    assert.equal(projected.agentSeats[0]?.concern, "primary");
+    assert.equal(decisionState.supervisors[0]?.isPrimary, true);
+    assert.equal(decisionState.supervisors[0]?.concern, "primary");
   });
 
   it("projects a canonical Lead Room without minting legacy authority identifiers", () => {

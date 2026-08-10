@@ -24,6 +24,19 @@ const string = (value: unknown): string | null =>
 const number = (value: unknown): number | null =>
   typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
 
+const summary = (value: unknown): string | null => {
+  const direct = string(value);
+  if (direct !== null) return direct;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (value === null || value === undefined) return null;
+  try {
+    const encoded = JSON.stringify(value);
+    return encoded && encoded !== "{}" && encoded !== "[]" ? encoded : null;
+  } catch {
+    return null;
+  }
+};
+
 export const promptReceiptHash = (prompt: string): ModelSessionTrace["promptHash"] =>
   `sha256:${createHash("sha256").update(prompt).digest("hex")}` as ModelSessionTrace["promptHash"];
 
@@ -31,10 +44,29 @@ const toolIdentity = (activity: OrchestrationThread["activities"][number]) => {
   const payload = object(activity.payload);
   const data = object(payload?.data);
   return {
-    callId: string(data?.toolUseId) ?? string(data?.callId) ?? activity.id,
+    callId:
+      string(data?.toolUseId) ??
+      string(data?.toolCallId) ??
+      string(data?.callID) ??
+      string(data?.callId) ??
+      string(payload?.callId) ??
+      activity.id,
     toolName:
       string(data?.toolName) ?? string(payload?.title) ?? string(payload?.itemType) ?? activity.summary,
-    detail: string(payload?.detail) ?? string(data?.summary),
+    inputSummary:
+      summary(data?.input) ??
+      summary(data?.arguments) ??
+      summary(data?.args) ??
+      string(payload?.detail) ??
+      string(data?.summary),
+    outputSummary:
+      summary(data?.output) ??
+      summary(data?.result) ??
+      summary(data?.rawOutput) ??
+      string(payload?.detail) ??
+      string(data?.summary),
+    errorSummary:
+      summary(data?.error) ?? summary(data?.stderr) ?? string(payload?.detail) ?? string(data?.summary),
     status: string(payload?.status),
   };
 };
@@ -55,80 +87,113 @@ const traceItems = (thread: OrchestrationThread): ReadonlyArray<ModelTranscriptI
       },
     ];
   });
-  const tools: ModelTranscriptItem[] = thread.activities.flatMap((activity) => {
-    if (activity.kind === "tool.started" || activity.kind === "tool.updated") {
-      const tool = toolIdentity(activity);
-      return [
-        {
-          id: activity.id,
-          type: "tool_call" as const,
-          callId: tool.callId,
-          toolName: bounded(tool.toolName, 512),
-          inputSummary: bounded(tool.detail ?? activity.summary),
-          status: activity.kind === "tool.started" ? ("running" as const) : ("pending" as const),
-          finishedAt: null,
-          createdAt: activity.createdAt,
-        },
-      ];
+  type ToolCallItem = Extract<ModelTranscriptItem, { readonly type: "tool_call" }>;
+  type ToolResultItem = Extract<ModelTranscriptItem, { readonly type: "tool_result" }>;
+  const calls = new Map<string, ToolCallItem>();
+  const results = new Map<string, ToolResultItem>();
+  const activities = [...thread.activities].toSorted(
+    (left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+  );
+  for (const activity of activities) {
+    if (
+      activity.kind !== "tool.started" &&
+      activity.kind !== "tool.updated" &&
+      activity.kind !== "tool.completed"
+    ) {
+      continue;
     }
-    if (activity.kind !== "tool.completed") return [];
     const tool = toolIdentity(activity);
-    const failed = tool.status === "failed" || activity.tone === "error";
-    return [
-      {
-        id: `${activity.id}:call`,
-        type: "tool_call" as const,
+    const lifecycleKey = `${activity.turnId ?? "no-turn"}:${tool.callId}`;
+    const previous = calls.get(lifecycleKey);
+    const completed = activity.kind === "tool.completed";
+    const failed = completed && (tool.status === "failed" || activity.tone === "error");
+    if (!previous || completed || (previous.status !== "completed" && previous.status !== "failed")) {
+      calls.set(lifecycleKey, {
+        id: previous?.id ?? `${activity.id}:call`,
+        type: "tool_call",
         callId: tool.callId,
         toolName: bounded(tool.toolName, 512),
-        inputSummary: bounded(tool.detail ?? activity.summary),
-        status: failed ? ("failed" as const) : ("completed" as const),
-        finishedAt: activity.createdAt,
-        createdAt: activity.createdAt,
-      },
-      {
+        inputSummary: bounded(tool.inputSummary ?? previous?.inputSummary ?? activity.summary),
+        status: completed ? (failed ? "failed" : "completed") : previous?.status ?? "running",
+        finishedAt: completed ? activity.createdAt : null,
+        createdAt: previous?.createdAt ?? activity.createdAt,
+      });
+    }
+    if (completed) {
+      results.set(lifecycleKey, {
         id: `${activity.id}:result`,
-        type: "tool_result" as const,
+        type: "tool_result",
         callId: tool.callId,
-        outputSummary: failed ? null : bounded(tool.detail ?? activity.summary),
-        errorSummary: failed ? bounded(tool.detail ?? activity.summary) : null,
+        outputSummary: failed ? null : bounded(tool.outputSummary ?? activity.summary),
+        errorSummary: failed ? bounded(tool.errorSummary ?? activity.summary) : null,
         createdAt: activity.createdAt,
-      },
-    ];
-  });
-  return [...messages, ...tools]
+      });
+    }
+  }
+  return [...messages, ...calls.values(), ...results.values()]
     .toSorted((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
     .slice(-10_000);
 };
 
-const usage = (thread: OrchestrationThread): ModelSessionTrace["usage"] => {
+const usage = (thread: OrchestrationThread): {
+  readonly usage: ModelSessionTrace["usage"];
+  readonly provenance: ModelSessionTrace["usageProvenance"];
+} => {
   let inputTokens = 0;
   let outputTokens = 0;
   let contextTokens = 0;
   let providerLimitTokens: number | null = null;
   let contextUsagePercent: number | null = null;
+  let inputOutputTokensObserved = false;
+  let contextWindowObserved = false;
   for (const activity of thread.activities) {
     const payload = object(activity.payload);
     if (activity.kind === "context-window.updated") {
-      contextTokens = number(payload?.usedTokens) ?? contextTokens;
-      providerLimitTokens = number(payload?.maxTokens) ?? providerLimitTokens;
-      contextUsagePercent = number(payload?.usedPercent) ?? contextUsagePercent;
+      const observedContextTokens = number(payload?.usedTokens);
+      const observedProviderLimit = number(payload?.maxTokens);
+      const observedContextPercent = number(payload?.usedPercent);
+      if (
+        observedContextTokens !== null ||
+        observedProviderLimit !== null ||
+        observedContextPercent !== null
+      ) {
+        contextWindowObserved = true;
+      }
+      contextTokens = observedContextTokens ?? contextTokens;
+      providerLimitTokens = observedProviderLimit ?? providerLimitTokens;
+      contextUsagePercent = observedContextPercent ?? contextUsagePercent;
     }
     if (activity.kind !== "turn.completed") continue;
     const modelUsage = object(payload?.modelUsage);
     if (!modelUsage) continue;
     for (const value of Object.values(modelUsage)) {
       const model = object(value);
-      inputTokens += number(model?.inputTokens) ?? 0;
-      outputTokens += number(model?.outputTokens) ?? 0;
+      const observedInputTokens = number(model?.inputTokens);
+      const observedOutputTokens = number(model?.outputTokens);
+      if (observedInputTokens !== null || observedOutputTokens !== null) {
+        inputOutputTokensObserved = true;
+      }
+      inputTokens += observedInputTokens ?? 0;
+      outputTokens += observedOutputTokens ?? 0;
     }
   }
   return {
-    inputTokens,
-    outputTokens,
-    contextTokens,
-    providerLimitTokens: providerLimitTokens !== null && providerLimitTokens > 0 ? providerLimitTokens : null,
-    contextUsagePercent:
-      contextUsagePercent !== null && contextUsagePercent <= 100 ? contextUsagePercent : null,
+    usage: {
+      inputTokens,
+      outputTokens,
+      contextTokens,
+      providerLimitTokens: providerLimitTokens !== null && providerLimitTokens > 0 ? providerLimitTokens : null,
+      contextUsagePercent:
+        contextUsagePercent !== null && contextUsagePercent <= 100
+          ? contextUsagePercent
+          : providerLimitTokens !== null && providerLimitTokens > 0
+            ? Math.min(100, (contextTokens / providerLimitTokens) * 100)
+            : null,
+    },
+    provenance: {
+      inputOutputTokens: inputOutputTokensObserved ? "provider_observed" : "unavailable",
+      contextWindow: contextWindowObserved ? "provider_observed" : "unavailable",
+    },
   };
 };
 
@@ -137,7 +202,10 @@ export interface RlmThreadResult {
   readonly response: string | null;
   readonly items: ReadonlyArray<ModelTranscriptItem>;
   readonly usage: ModelSessionTrace["usage"];
+  readonly usageProvenance: ModelSessionTrace["usageProvenance"];
+  readonly providerSessionId: string | null;
   readonly providerCallId: string | null;
+  readonly terminalSourceEventId: OrchestrationThread["activities"][number]["id"] | null;
   readonly sourceEventIds: ReadonlyArray<OrchestrationThread["activities"][number]["id"]>;
   readonly durationMs: number | null;
   readonly costUsd: number | null;
@@ -145,6 +213,7 @@ export interface RlmThreadResult {
 }
 
 export function extractRlmThreadResult(thread: OrchestrationThread): RlmThreadResult {
+  const extractedUsage = usage(thread);
   const latestTurn = thread.latestTurn;
   const response = thread.messages
     .filter(
@@ -154,7 +223,17 @@ export function extractRlmThreadResult(thread: OrchestrationThread): RlmThreadRe
         (latestTurn === null || message.turnId === latestTurn.turnId),
     )
     .at(-1)?.text.trim() ?? null;
-  const sessionError = thread.session?.lastError ?? null;
+  const terminalActivity = thread.activities
+    .filter(
+      (activity) =>
+        (activity.kind === "turn.completed" || activity.kind === "turn.aborted") &&
+        (latestTurn === null || activity.turnId === latestTurn.turnId),
+    )
+    .toSorted(
+      (left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+    )
+    .at(-1);
+  const terminalPayload = object(terminalActivity?.payload);
   const status: ModelSessionTrace["status"] =
     latestTurn?.state === "completed"
       ? "completed"
@@ -165,29 +244,50 @@ export function extractRlmThreadResult(thread: OrchestrationThread): RlmThreadRe
           : latestTurn?.state === "running" || thread.session?.status === "running"
             ? "running"
             : "waiting";
-  const durationMs =
-    latestTurn?.completedAt && latestTurn.requestedAt
-      ? Math.max(0, Date.parse(latestTurn.completedAt) - Date.parse(latestTurn.requestedAt))
+  const sessionError =
+    status === "failed" || status === "cancelled"
+      ? string(terminalPayload?.errorMessage) ??
+        string(terminalPayload?.detail) ??
+        thread.session?.lastError ??
+        null
       : null;
+  const durationMs = (() => {
+    if (!latestTurn?.completedAt || !latestTurn.requestedAt) return null;
+    const requestedAt = Date.parse(latestTurn.requestedAt);
+    const completedAt = Date.parse(latestTurn.completedAt);
+    return Number.isFinite(requestedAt) && Number.isFinite(completedAt)
+      ? Math.max(0, completedAt - requestedAt)
+      : null;
+  })();
   const costUsd = thread.activities.reduce<number | null>((current, activity) => {
     if (activity.kind !== "turn.completed") return current;
     return number(object(activity.payload)?.totalCostUsd) ?? current;
   }, null);
+  const sourceEventIds: Array<OrchestrationThread["activities"][number]["id"]> = [];
+  const seenSourceEventIds = new Set<string>();
+  for (const activity of thread.activities) {
+    if (
+      activity.kind !== "turn.completed" &&
+      activity.kind !== "turn.aborted" &&
+      activity.kind !== "tool.completed" &&
+      activity.kind !== "context-window.updated"
+    ) {
+      continue;
+    }
+    if (seenSourceEventIds.has(activity.id)) continue;
+    seenSourceEventIds.add(activity.id);
+    sourceEventIds.push(activity.id);
+  }
   return {
     status,
     response: response && response.length > 0 ? bounded(response) : null,
     items: traceItems(thread),
-    usage: usage(thread),
+    usage: extractedUsage.usage,
+    usageProvenance: extractedUsage.provenance,
+    providerSessionId: thread.session?.providerSessionId ?? null,
     providerCallId: latestTurn?.turnId ?? null,
-    sourceEventIds: thread.activities
-      .filter(
-        (activity) =>
-          activity.kind === "turn.completed" ||
-          activity.kind === "turn.aborted" ||
-          activity.kind === "tool.completed",
-      )
-      .map((activity) => activity.id)
-      .slice(-512),
+    terminalSourceEventId: terminalActivity?.id ?? null,
+    sourceEventIds: sourceEventIds.slice(-512),
     durationMs,
     costUsd,
     error: sessionError,

@@ -4,6 +4,7 @@ import {
   CommandId,
   ContextBundleId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
+  DEFAULT_SUPERVISED_RUN_POLICY,
   EvidenceId,
   InterventionId,
   LeadNotificationId,
@@ -16,6 +17,8 @@ import {
   ProjectTaskId,
   RoomId,
   ReconciliationId,
+  RunId,
+  RunPolicyId,
   SupervisorSeatId,
   SupervisionMissionId,
   TaskId,
@@ -26,6 +29,7 @@ import {
   TaskThreadBindingId,
   ThreadId,
   TurnId,
+  WorkClaimId,
   type OrchestrationCommand,
   type OrchestrationEvent,
 } from "@synara/contracts";
@@ -1544,6 +1548,7 @@ describe("OrchestrationEngine", () => {
       (candidate) => candidate.id === supervisorSeatId,
     )!;
     expect(supervisorSeat.identityRole).toBe("supervisor");
+    expect(supervisorSeat.concern).toBe("primary");
     expect(
       governanceAfterSupervisor.authorityReceipts
         .find((candidate) => candidate.id === supervisorSeat.authorityReceiptId)
@@ -1797,6 +1802,219 @@ describe("OrchestrationEngine", () => {
     expect(peerSeat.identityRole).toBe("peer");
     expect(peerSeat.roomIds).toContain(roomId);
     expect(peerReceipt.allowedCommands).toContain("supervised.work.complete");
+    expect(peerReceipt.allowedCommands).toContain("supervised.run.start");
+    expect(peerReceipt.allowedCommands).toContain("supervised.run.submit");
+
+    const currentLeadSeat = governanceAfterPeer.agentSeats.find(
+      (candidate) => candidate.id === leadSeatId,
+    )!;
+    const currentLeadReceipt = governanceAfterPeer.authorityReceipts.find(
+      (candidate) => candidate.id === currentLeadSeat.authorityReceiptId,
+    )!;
+    expect(currentLeadReceipt.allowedCommands).toContain("supervised.task.delegate");
+    expect(currentLeadReceipt.allowedCommands).toContain("supervised.review.accept");
+    expect(currentSupervisorReceipt.allowedCommands).not.toContain(
+      "supervised.task.delegate",
+    );
+    expect(currentSupervisorReceipt.allowedCommands).not.toContain(
+      "supervised.review.accept",
+    );
+
+    const runPolicyId = RunPolicyId.makeUnsafe("policy-supervisor-first-task-node");
+    await system.run(
+      engine.dispatch({
+        type: "supervised.run-policy.upsert",
+        commandId: CommandId.makeUnsafe("command-create-task-node-run-policy"),
+        aggregateId: runPolicyId,
+        actor: { kind: "user", actorId: "owner" },
+        expectedRevision: 0,
+        idempotencyKey: "create-task-node-run-policy",
+        createdAt,
+        runPolicy: {
+          id: runPolicyId,
+          name: "Supervisor-first test policy",
+          ...DEFAULT_SUPERVISED_RUN_POLICY,
+          maxCostUsd: null,
+          allowedCapabilities: [],
+          allowedPluginActions: [],
+          revision: 0,
+          createdAt,
+          updatedAt: createdAt,
+        },
+      }),
+    );
+    readModel = await system.run(engine.getReadModel());
+    const runPolicy = readModel.supervised.runPolicies[0]!;
+    const taskNodeRunId = RunId.makeUnsafe("run-supervisor-first-task-node");
+    const taskNodeRun = {
+      id: taskNodeRunId,
+      roomId,
+      taskId,
+      taskNodeId: firstNodeId,
+      taskNodeRevisionId: TaskNodeRevisionId.makeUnsafe(
+        "revision-supervisor-first-plan",
+      ),
+      ownerSeatId: peerSeat.id,
+      policyId: runPolicy.id,
+      status: "queued" as const,
+      attempt: 1,
+      daemonEpoch: readModel.supervised.health.daemonEpoch,
+      startedAt: null,
+      lastProgressAt: null,
+      finishedAt: null,
+      revision: 0,
+      createdAt,
+      updatedAt: createdAt,
+    };
+    await expect(
+      system.run(
+        engine.dispatch({
+          type: "supervised.task.delegate",
+          commandId: CommandId.makeUnsafe("command-supervisor-cannot-delegate-task-node"),
+          aggregateId: taskNodeRunId,
+          actor: {
+            kind: "seat",
+            actorId: supervisorThreadId,
+            seatId: supervisorSeatId,
+          },
+          authorityReceiptId: currentSupervisorReceipt.id,
+          expectedRevision: 0,
+          idempotencyKey: "supervisor-cannot-delegate-task-node",
+          createdAt,
+          roomId,
+          projectId,
+          leadSeatId,
+          leadThreadId,
+          peerThreadId,
+          workRequest: "Inspect the requested file without editing it.",
+          run: taskNodeRun,
+        }),
+      ),
+    ).rejects.toThrow("does not grant 'supervised.task.delegate'");
+
+    await system.run(
+      engine.dispatch({
+        type: "supervised.task.delegate",
+        commandId: CommandId.makeUnsafe("command-lead-delegate-task-node"),
+        aggregateId: taskNodeRunId,
+        actor: taskGraphActor,
+        authorityReceiptId: currentLeadReceipt.id,
+        expectedRevision: 0,
+        idempotencyKey: "lead-delegate-task-node",
+        createdAt,
+        roomId,
+        projectId,
+        leadSeatId,
+        leadThreadId,
+        peerThreadId,
+        workRequest: "Inspect the requested file without editing it.",
+        run: taskNodeRun,
+      }),
+    );
+
+    const workClaimId = WorkClaimId.makeUnsafe("claim-supervisor-first-task-node");
+    await system.run(
+      engine.dispatch({
+        type: "supervised.run.start",
+        commandId: CommandId.makeUnsafe("command-peer-start-task-node-run"),
+        aggregateId: taskNodeRunId,
+        actor: {
+          kind: "seat",
+          actorId: peerThreadId,
+          seatId: peerSeat.id,
+        },
+        authorityReceiptId: peerReceipt.id,
+        expectedRevision: 0,
+        idempotencyKey: "peer-start-task-node-run",
+        createdAt: "2026-08-10T01:01:00.000Z",
+        runId: taskNodeRunId,
+        claim: {
+          id: workClaimId,
+          taskNodeId: firstNodeId,
+          taskNodeRevisionId: taskNodeRun.taskNodeRevisionId,
+          runId: taskNodeRunId,
+          ownerSeatId: peerSeat.id,
+          status: "active",
+          acquiredAt: "2026-08-10T01:01:00.000Z",
+          expiresAt: "2026-08-10T01:31:00.000Z",
+          releasedAt: null,
+          revision: 0,
+        },
+      }),
+    );
+
+    const taskNodeEvidenceId = EvidenceId.makeUnsafe(
+      "evidence-supervisor-first-task-node",
+    );
+    await system.run(
+      engine.dispatch({
+        type: "supervised.run.submit",
+        commandId: CommandId.makeUnsafe("command-peer-submit-task-node-run"),
+        aggregateId: taskNodeRunId,
+        actor: {
+          kind: "seat",
+          actorId: peerThreadId,
+          seatId: peerSeat.id,
+        },
+        authorityReceiptId: peerReceipt.id,
+        expectedRevision: 3,
+        idempotencyKey: "peer-submit-task-node-run",
+        createdAt: "2026-08-10T01:02:00.000Z",
+        runId: taskNodeRunId,
+        claimId: workClaimId,
+        evidence: {
+          id: taskNodeEvidenceId,
+          scope: { kind: "room", roomId },
+          kind: "provider_receipt",
+          summary: "The requested file was inspected and the acceptance condition is present.",
+          blob: null,
+          sourceEventIds: [],
+          modelSessionId: null,
+          createdBy: {
+            kind: "seat",
+            actorId: peerThreadId,
+            seatId: peerSeat.id,
+          },
+          createdAt: "2026-08-10T01:02:00.000Z",
+        },
+      }),
+    );
+
+    await system.run(
+      engine.dispatch({
+        type: "supervised.review.accept",
+        commandId: CommandId.makeUnsafe("command-lead-accept-task-node-run"),
+        aggregateId: taskNodeRunId,
+        actor: taskGraphActor,
+        authorityReceiptId: currentLeadReceipt.id,
+        expectedRevision: 4,
+        idempotencyKey: "lead-accept-task-node-run",
+        createdAt: "2026-08-10T01:03:00.000Z",
+        runId: taskNodeRunId,
+        evidenceId: taskNodeEvidenceId,
+      }),
+    );
+
+    readModel = await system.run(engine.getReadModel());
+    expect(
+      readModel.supervised.runs.find((candidate) => candidate.id === taskNodeRunId),
+    ).toMatchObject({ status: "succeeded", ownerSeatId: peerSeat.id });
+    expect(
+      readModel.supervised.workClaims.find((candidate) => candidate.id === workClaimId),
+    ).toMatchObject({ status: "released" });
+    expect(
+      readModel.supervised.taskNodes.find((candidate) => candidate.id === firstNodeId),
+    ).toMatchObject({ lifecycle: "accepted" });
+    expect(
+      readModel.supervised.taskNodes.find((candidate) => candidate.id === secondNodeId),
+    ).toMatchObject({ lifecycle: "ready" });
+    expect(
+      readModel.supervised.taskNodeRevisions.find(
+        (candidate) =>
+          candidate.taskNodeId === firstNodeId &&
+          candidate.evidenceRefs.includes(taskNodeEvidenceId),
+      ),
+    ).toBeDefined();
 
     const interventionId = InterventionId.makeUnsafe("intervention-supervisor-peer-work");
     const notificationId = LeadNotificationId.makeUnsafe(
@@ -1919,7 +2137,9 @@ describe("OrchestrationEngine", () => {
         (item) => item.interventionId === interventionId,
       ),
     ).toMatchObject({ status: "accepted", taskNodeRevisionId: null });
-    expect(readModel.supervised.workClaims).toHaveLength(0);
+    expect(
+      readModel.supervised.workClaims.filter((claim) => claim.status === "active"),
+    ).toHaveLength(0);
     const events = await system.run(
       Stream.runCollect(engine.readEvents(0)).pipe(
         Effect.map((chunk): OrchestrationEvent[] => Array.from(chunk)),
@@ -1964,6 +2184,47 @@ describe("OrchestrationEngine", () => {
       "thread.message-sent",
       "thread.turn-start-requested",
     ]);
+    expect(
+      events
+        .filter((event) => event.commandId === "command-lead-delegate-task-node")
+        .map((event) => event.type),
+    ).toEqual([
+      "supervised.run-requested",
+      "thread.message-sent",
+      "thread.turn-start-requested",
+    ]);
+    expect(
+      events
+        .filter((event) => event.commandId === "command-peer-start-task-node-run")
+        .map((event) => event.type),
+    ).toEqual([
+      "supervised.claim-acquired",
+      "supervised.run-transitioned",
+      "supervised.run-transitioned",
+      "supervised.run-transitioned",
+      "supervised.task-node-committed",
+    ]);
+    expect(
+      events
+        .filter((event) => event.commandId === "command-peer-submit-task-node-run")
+        .map((event) => event.type),
+    ).toEqual([
+      "supervised.evidence-published",
+      "supervised.run-transitioned",
+      "supervised.task-node-committed",
+      "supervised.claim-state-changed",
+      "thread.message-sent",
+      "thread.turn-start-requested",
+    ]);
+    expect(
+      events
+        .filter((event) => event.commandId === "command-lead-accept-task-node-run")
+        .map((event) => event.type),
+    ).toEqual([
+      "supervised.run-transitioned",
+      "supervised.task-node-committed",
+      "supervised.task-node-committed",
+    ]);
     const assignmentOrigin = events.find(
       (event) =>
         event.commandId === "command-supervisor-assign-peer-work" &&
@@ -1986,6 +2247,160 @@ describe("OrchestrationEngine", () => {
       targetThreadId: leadThreadId,
       assignmentId: interventionId,
     });
+
+    const roomBeforeAssumption = readModel.supervised.rooms.find(
+      (candidate) => candidate.id === roomId,
+    )!;
+    await system.run(
+      engine.dispatch({
+        type: "supervised.role.assume",
+        commandId: CommandId.makeUnsafe("command-owner-authorize-supervisor-root"),
+        aggregateId: roomId,
+        actor: { kind: "user", actorId: "owner" },
+        expectedRevision: roomBeforeAssumption.revision,
+        idempotencyKey: "owner-authorize-supervisor-root",
+        createdAt: "2026-08-10T01:04:00.000Z",
+        roomId,
+        supervisorSeatId,
+        supervisorThreadId,
+        previousRootSeatId: leadSeatId,
+        previousRootThreadId: leadThreadId,
+        reason: "The owner asked the Primary Supervisor to take over this Room.",
+      }),
+    );
+
+    readModel = await system.run(engine.getReadModel());
+    expect(readModel.supervised.rooms.find((candidate) => candidate.id === roomId)).toMatchObject({
+      leadSeatId: supervisorSeatId,
+      status: "active",
+    });
+    const governanceAfterAssumption = await system.run(
+      supervisedGovernanceRepository.getSnapshot(),
+    );
+    const actingSupervisor = governanceAfterAssumption.agentSeats.find(
+      (candidate) => candidate.id === supervisorSeatId,
+    )!;
+    const actingSupervisorReceipt = governanceAfterAssumption.authorityReceipts.find(
+      (candidate) => candidate.id === actingSupervisor.authorityReceiptId,
+    )!;
+    const formerRoot = governanceAfterAssumption.agentSeats.find(
+      (candidate) => candidate.id === leadSeatId,
+    )!;
+    const formerRootReceipt = governanceAfterAssumption.authorityReceipts.find(
+      (candidate) => candidate.id === formerRoot.authorityReceiptId,
+    )!;
+    expect(actingSupervisor).toMatchObject({
+      identityRole: "supervisor",
+      effectiveRole: "acting_root",
+    });
+    expect(actingSupervisorReceipt.rootLeaseIds).toHaveLength(1);
+    expect(actingSupervisorReceipt.allowedCommands).toContain("supervised.task.delegate");
+    expect(formerRoot.effectiveRole).toBe("lead");
+    expect(formerRootReceipt.rootLeaseIds).toEqual([]);
+    expect(
+      governanceAfterAssumption.rootLeases.filter(
+        (lease) => lease.roomId === roomId && lease.status === "active",
+      ),
+    ).toEqual([
+      expect.objectContaining({ holderSeatId: supervisorSeatId }),
+    ]);
+    expect(governanceAfterAssumption.roleAssumptions).toEqual([
+      expect.objectContaining({
+        roomId,
+        actorSeatId: supervisorSeatId,
+        previousRootSeatId: leadSeatId,
+        lifecycleState: "active",
+      }),
+    ]);
+    expect(governanceAfterAssumption.handoffs).toEqual([
+      expect.objectContaining({
+        roomId,
+        fromSeatId: leadSeatId,
+        toSeatId: supervisorSeatId,
+        lifecycleState: "reconciled",
+      }),
+    ]);
+
+    const roomAfterAssumption = readModel.supervised.rooms.find(
+      (candidate) => candidate.id === roomId,
+    )!;
+    await expect(
+      system.run(
+        engine.dispatch({
+          type: "supervised.room.update",
+          commandId: CommandId.makeUnsafe("command-former-root-cannot-mutate-room"),
+          aggregateId: roomId,
+          actor: { kind: "seat", actorId: leadThreadId, seatId: leadSeatId },
+          authorityReceiptId: formerRootReceipt.id,
+          expectedRevision: roomAfterAssumption.revision,
+          idempotencyKey: "former-root-cannot-mutate-room",
+          createdAt: "2026-08-10T01:04:01.000Z",
+          room: { ...roomAfterAssumption, title: "Unauthorized former Root mutation" },
+        }),
+      ),
+    ).rejects.toThrow("does not cover the command Room");
+
+    const actingRootRunId = RunId.makeUnsafe("run-acting-supervisor-task-node");
+    await system.run(
+      engine.dispatch({
+        type: "supervised.task.delegate",
+        commandId: CommandId.makeUnsafe("command-acting-supervisor-delegate-task-node"),
+        aggregateId: actingRootRunId,
+        actor: {
+          kind: "seat",
+          actorId: supervisorThreadId,
+          seatId: supervisorSeatId,
+        },
+        authorityReceiptId: actingSupervisorReceipt.id,
+        expectedRevision: 0,
+        idempotencyKey: "acting-supervisor-delegate-task-node",
+        createdAt: "2026-08-10T01:05:00.000Z",
+        roomId,
+        projectId,
+        leadSeatId: supervisorSeatId,
+        leadThreadId: supervisorThreadId,
+        peerThreadId,
+        workRequest: "Verify the accepted implementation without changing Root ownership.",
+        run: {
+          id: actingRootRunId,
+          roomId,
+          taskId,
+          taskNodeId: secondNodeId,
+          taskNodeRevisionId: TaskNodeRevisionId.makeUnsafe(
+            "revision-supervisor-first-verify",
+          ),
+          ownerSeatId: peerSeat.id,
+          policyId: runPolicy.id,
+          status: "queued",
+          attempt: 1,
+          daemonEpoch: readModel.supervised.health.daemonEpoch,
+          startedAt: null,
+          lastProgressAt: null,
+          finishedAt: null,
+          revision: 0,
+          createdAt: "2026-08-10T01:05:00.000Z",
+          updatedAt: "2026-08-10T01:05:00.000Z",
+        },
+      }),
+    );
+    readModel = await system.run(engine.getReadModel());
+    expect(
+      readModel.supervised.runs.find((candidate) => candidate.id === actingRootRunId),
+    ).toMatchObject({ status: "queued", taskNodeId: secondNodeId });
+    const assumptionEvents = await system.run(
+      Stream.runCollect(engine.readEvents(0)).pipe(
+        Effect.map((chunk): OrchestrationEvent[] => Array.from(chunk)),
+      ),
+    );
+    expect(
+      assumptionEvents
+        .filter((event) => event.commandId === "command-owner-authorize-supervisor-root")
+        .map((event) => event.type),
+    ).toEqual([
+      "supervised.room-updated",
+      "thread.message-sent",
+      "thread.turn-start-requested",
+    ]);
     await system.dispose();
   });
 

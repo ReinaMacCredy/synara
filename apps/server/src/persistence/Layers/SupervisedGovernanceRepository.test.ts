@@ -392,9 +392,40 @@ testLayer("SupervisedGovernanceRepository", (it) => {
   it.effect("appends notebook facts idempotently without overwriting concurrent entries", () =>
     Effect.gen(function* () {
       const repository = yield* SupervisedGovernanceRepository;
-      const current = yield* repository.getSnapshot();
+      let current = yield* repository.getSnapshot();
       if (!current.workspaces.some((workspace) => workspace.id === snapshot.workspaces[0]!.id)) {
         yield* repository.replaceSnapshot({ ...snapshot, revision: current.revision });
+        current = yield* repository.getSnapshot();
+      }
+      const primarySeat = current.agentSeats.find((seat) => seat.id === "seat-supervisor")!;
+      const primaryReceipt = current.authorityReceipts.find(
+        (receipt) => receipt.id === primarySeat.authorityReceiptId,
+      )!;
+      if (!current.agentSeats.some((seat) => seat.id === "seat-supervisor-successor")) {
+        yield* repository.replaceSnapshot({
+          ...current,
+          authorityReceipts: [
+            ...current.authorityReceipts,
+            {
+              ...primaryReceipt,
+              id: "receipt-supervisor-successor" as typeof primaryReceipt.id,
+              actorSeatId: "seat-supervisor-successor" as typeof primaryReceipt.actorSeatId,
+              rootLeaseIds: [],
+            },
+          ],
+          agentSeats: [
+            ...current.agentSeats,
+            {
+              ...primarySeat,
+              id: "seat-supervisor-successor" as typeof primarySeat.id,
+              authorityReceiptId:
+                "receipt-supervisor-successor" as typeof primarySeat.authorityReceiptId,
+              providerSessionId: null,
+              threadId: "thread-supervisor-successor" as typeof primarySeat.threadId,
+              displayName: "Successor Supervisor",
+            },
+          ],
+        });
       }
       const first = {
         ...snapshot.notebookEntries[0]!,
@@ -404,6 +435,7 @@ testLayer("SupervisedGovernanceRepository", (it) => {
         ...first,
         id: "notebook-concurrent-2" as typeof first.id,
         content: "A separately appended observation.",
+        authorSeatId: "seat-supervisor-successor" as typeof first.authorSeatId,
         createdAt: "2026-08-09T00:01:00.000Z",
       };
 
@@ -430,6 +462,105 @@ testLayer("SupervisedGovernanceRepository", (it) => {
       assert.equal(state.entries.some((entry) => entry.id === first.id), true);
       assert.equal(state.entries.some((entry) => entry.id === second.id), true);
       assert.equal(state.entries.find((entry) => entry.id === first.id)?.content, first.content);
+      assert.deepEqual(
+        state.entries
+          .filter((entry) => entry.id === first.id || entry.id === second.id)
+          .map((entry) => entry.authorSeatId)
+          .toSorted(),
+        [first.authorSeatId, second.authorSeatId].toSorted(),
+      );
+    }),
+  );
+
+  it.effect("applies notebook authority and content scope before the repository limit", () =>
+    Effect.gen(function* () {
+      const repository = yield* SupervisedGovernanceRepository;
+      const sql = yield* SqlClient.SqlClient;
+      const current = yield* repository.getSnapshot();
+      if (!current.workspaces.some((workspace) => workspace.id === snapshot.workspaces[0]!.id)) {
+        yield* repository.replaceSnapshot({ ...snapshot, revision: current.revision });
+      }
+      yield* sql`
+        INSERT OR IGNORE INTO projection_projects (
+          project_id, kind, title, workspace_root, scripts_json, created_at, updated_at
+        ) VALUES (
+          'project-notebook-scope', 'project', 'Notebook scope', '/tmp/notebook-scope', '[]',
+          ${now}, ${now}
+        )
+      `;
+      for (const roomId of ["room-notebook-visible", "room-notebook-hidden"] as const) {
+        yield* sql`
+          INSERT OR IGNORE INTO projection_supervised_rooms (
+            room_id, project_id, lead_seat_id, status, graph_revision, revision,
+            updated_at, entity_json
+          ) VALUES (
+            ${roomId}, 'project-notebook-scope', NULL, 'active', 0, 0, ${now}, '{}'
+          )
+        `;
+        const taskId = `task-${roomId}`;
+        const taskNodeId = `node-${roomId}`;
+        yield* sql`
+          INSERT OR IGNORE INTO projection_supervised_tasks (
+            task_id, room_id, lifecycle, graph_revision, revision, updated_at, entity_json
+          ) VALUES (${taskId}, ${roomId}, 'active', 0, 0, ${now}, '{}')
+        `;
+        yield* sql`
+          INSERT OR IGNORE INTO projection_supervised_task_nodes (
+            task_node_id, task_id, room_id, active_revision_id, lifecycle,
+            graph_revision, revision, updated_at, entity_json
+          ) VALUES (
+            ${taskNodeId}, ${taskId}, ${roomId}, 'revision-notebook-scope', 'ready',
+            0, 0, ${now}, '{}'
+          )
+        `;
+      }
+
+      const template = snapshot.notebookEntries[0]!;
+      const visible = {
+        ...template,
+        id: "notebook-scope-visible" as typeof template.id,
+        roomId: "room-notebook-visible" as typeof template.roomId,
+        taskNodeId: "node-room-notebook-visible" as typeof template.taskNodeId,
+        content: "Needle retained in the authorized TaskNode.",
+        createdAt: "2026-08-09T00:01:00.000Z",
+      };
+      const hiddenRoom = {
+        ...visible,
+        id: "notebook-scope-hidden-room" as typeof visible.id,
+        roomId: "room-notebook-hidden" as typeof visible.roomId,
+        taskNodeId: "node-room-notebook-hidden" as typeof visible.taskNodeId,
+        createdAt: "2026-08-09T00:04:00.000Z",
+      };
+      const hiddenProtection = {
+        ...visible,
+        id: "notebook-scope-hidden-protection" as typeof visible.id,
+        protectionClass: "secret",
+        createdAt: "2026-08-09T00:03:00.000Z",
+      };
+      const hiddenQuery = {
+        ...visible,
+        id: "notebook-scope-hidden-query" as typeof visible.id,
+        content: "Does not contain the requested term.",
+        createdAt: "2026-08-09T00:02:00.000Z",
+      };
+      for (const notebookEntry of [visible, hiddenRoom, hiddenProtection, hiddenQuery]) {
+        assert.equal(yield* repository.appendNotebookEntry(notebookEntry), true);
+      }
+
+      const scoped = yield* repository.getNotebookState({
+        workspaceId: visible.workspaceId,
+        seatId: visible.authorSeatId,
+        roomIds: [visible.roomId!],
+        includeWorkspaceEntries: false,
+        taskNodeIds: [visible.taskNodeId!],
+        includeUnscopedTaskNodes: false,
+        concern: visible.concern,
+        query: "needle",
+        allowedProtectionClasses: ["internal"],
+        includeRedacted: false,
+        limit: 1,
+      });
+      assert.deepEqual(scoped.entries.map((entry) => entry.id), [visible.id]);
     }),
   );
 
@@ -443,6 +574,7 @@ testLayer("SupervisedGovernanceRepository", (it) => {
       const source = {
         ...snapshot.notebookEntries[0]!,
         id: "notebook-compaction-source" as (typeof snapshot.notebookEntries)[number]["id"],
+        evidenceRefs: ["evidence:source"],
       };
       const summary = {
         ...source,
@@ -474,6 +606,22 @@ testLayer("SupervisedGovernanceRepository", (it) => {
         }),
       );
       assert.equal(invalid._tag, "Failure");
+      const invalidEvidence = yield* Effect.exit(
+        repository.appendNotebookCompaction({
+          summaryEntry: {
+            ...summary,
+            id: "notebook-summary-evidence-invalid" as typeof summary.id,
+            evidenceRefs: [],
+          },
+          receipt: {
+            ...receipt,
+            id: "notebook-compaction-evidence-invalid" as typeof receipt.id,
+            summaryEntryId: "notebook-summary-evidence-invalid" as typeof summary.id,
+            evidenceRefs: [],
+          },
+        }),
+      );
+      assert.equal(invalidEvidence._tag, "Failure");
       assert.equal(yield* repository.appendNotebookCompaction({ summaryEntry: summary, receipt }), true);
       assert.equal(yield* repository.appendNotebookCompaction({ summaryEntry: summary, receipt }), false);
 

@@ -13,11 +13,13 @@ import {
   emptySupervisedGovernanceSnapshot,
 } from "@synara/contracts";
 import { Effect, Layer, Schema } from "effect";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { SupervisedGovernanceRepositoryLive } from "../../persistence/Layers/SupervisedGovernanceRepository.ts";
 import { runMigrations } from "../../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../../persistence/NodeSqliteClient.ts";
 import { SupervisedGovernanceRepository } from "../../persistence/Services/SupervisedGovernanceRepository.ts";
+import { makeSupervisedTools } from "../../orchestration/supervised/toolRegistry.ts";
 import { builtInRunPolicy } from "../signal/BuiltInSubscriptions.ts";
 import type { ModelRoutingRequest } from "./ModelRouting.ts";
 import {
@@ -174,6 +176,19 @@ describe("ModelRoutingService persistence", () => {
         const repository = yield* SupervisedGovernanceRepository;
         const service = yield* ModelRoutingService;
         yield* repository.replaceSnapshot(seed);
+        const invalidCreation = yield* service
+          .putCapabilityProfile({
+            profile: {
+              ...seed.modelCapabilityProfiles[0]!,
+              id: ModelCapabilityProfileId.makeUnsafe("model-invalid-initial-revision"),
+              model: "invalid-initial-revision",
+              revision: 2,
+            },
+            expectedRevision: null,
+          })
+          .pipe(Effect.flip);
+        assert.ok(invalidCreation instanceof ModelRoutingDomainError);
+        assert.equal(invalidCreation.code, "capability_profile_conflict");
         yield* service.putCapabilityProfile({
           profile: { ...seed.modelCapabilityProfiles[0]!, latencyScore: 9, revision: 2 },
           expectedRevision: 1,
@@ -268,7 +283,7 @@ describe("ModelRoutingService persistence", () => {
     assert.equal(error.code, "routing_authority_denied");
   });
 
-  it("uses a newly persisted owner preference on the next recommendation", async () => {
+  it("uses the next owner preference through the Supervisor HostTool without changing Root/Lead authority", async () => {
     const directory = await fs.mkdtemp(path.join(os.tmpdir(), "synara-model-preference-"));
     tempDirectories.push(directory);
     const filename = path.join(directory, "state.sqlite");
@@ -278,57 +293,247 @@ describe("ModelRoutingService persistence", () => {
         yield* runMigrations();
         const repository = yield* SupervisedGovernanceRepository;
         const service = yield* ModelRoutingService;
-        const alpha = {
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`
+          INSERT INTO projection_projects (
+            project_id, kind, title, workspace_root, scripts_json, created_at, updated_at
+          ) VALUES (
+            'project-lead', 'project', 'Lead authority project', '/tmp/project-lead', '[]',
+            ${now}, ${now}
+          )
+        `;
+        yield* sql`
+          INSERT INTO projection_supervised_rooms (
+            room_id, project_id, lead_seat_id, status, graph_revision, revision,
+            updated_at, entity_json
+          ) VALUES (
+            'room-lead', 'project-lead', NULL, 'active', 0, 0, ${now}, '{}'
+          )
+        `;
+        const sol = {
           ...seed.modelCapabilityProfiles[0]!,
-          id: ModelCapabilityProfileId.makeUnsafe("model-alpha"),
-          model: "alpha",
+          id: ModelCapabilityProfileId.makeUnsafe("model-sol"),
+          provider: "codex" as const,
+          model: "gpt-5.6-sol",
         };
-        const beta = {
+        const fable = {
           ...seed.modelCapabilityProfiles[0]!,
-          id: ModelCapabilityProfileId.makeUnsafe("model-beta"),
-          model: "beta",
+          id: ModelCapabilityProfileId.makeUnsafe("model-fable"),
+          provider: "claudeAgent" as const,
+          model: "claude-fable-5",
         };
-        yield* repository.replaceSnapshot({
+        const withoutTools = {
+          ...seed.modelCapabilityProfiles[0]!,
+          id: ModelCapabilityProfileId.makeUnsafe("model-without-tools"),
+          model: "fixture-without-tools",
+          supportsTools: false,
+        };
+        const ownerPreference = (
+          preferred: typeof sol.id,
+          other: typeof sol.id,
+          revision: number,
+        ) => ({
+          id: UserModelPreferenceProfileId.makeUnsafe("owner-preference"),
+          userId: "owner",
+          revision,
+          ratings: { [preferred]: 10, [other]: 0, [withoutTools.id]: 10 },
+          relativePreferences: [
+            {
+              preferredModelId: preferred,
+              overModelId: other,
+              category: "implementation",
+              reason: "Owner preference",
+            },
+          ],
+          preferredFor: { implementation: [preferred] },
+          avoidFor: {},
+          priorities: { quality: 10, speed: 5, cost: 5, contextCapacity: 5 },
+          defaultModels: { supervisor: preferred },
+          fallbackChains: { implementation: [preferred, other] },
+          ownerNotes: "Persisted from Settings.",
+          updatedAt: "2026-08-09T05:01:00.000Z",
+        });
+        const scenarioSeed = Schema.decodeUnknownSync(SupervisedGovernanceSnapshot)({
           ...seed,
-          modelCapabilityProfiles: [alpha, beta],
+          agentSeats: [
+            {
+              ...seed.agentSeats[0]!,
+              id: "seat-supervisor-routing",
+              authorityReceiptId: "authority-supervisor-routing",
+              threadId: "thread-supervisor-routing",
+            },
+            {
+              ...seed.agentSeats[0]!,
+              id: "seat-lead-authority",
+              roomIds: ["room-lead"],
+              identityRole: "lead",
+              effectiveRole: "lead",
+              authorityReceiptId: "authority-lead",
+              threadId: "thread-lead-authority",
+              projectId: "project-lead",
+            },
+          ],
+          authorityReceipts: [
+            {
+              ...seed.authorityReceipts[0]!,
+              id: "authority-supervisor-routing",
+              actorSeatId: "seat-supervisor-routing",
+              allowedCommands: ["model.selection.record"],
+              allowedTools: ["supervised.models.recommend"],
+            },
+            {
+              ...seed.authorityReceipts[0]!,
+              id: "authority-lead",
+              actorSeatId: "seat-lead-authority",
+              identityRole: "lead",
+              effectiveRole: "lead",
+              roomScopes: ["room-lead"],
+              allowedCommands: ["task.accept"],
+              allowedTools: ["supervised.task.get"],
+              rootLeaseIds: ["lease-lead-root"],
+            },
+          ],
+          rootLeases: [
+            {
+              id: "lease-lead-root",
+              workspaceId: "workspace-routing",
+              roomId: "room-lead",
+              holderSeatId: "seat-lead-authority",
+              status: "active",
+              acquiredUnderReceiptId: "authority-lead",
+              predecessorLeaseId: null,
+              acquiredAt: now,
+              releasedAt: null,
+              expiresAt: null,
+              revision: 1,
+              updatedAt: now,
+            },
+          ],
+          modelCapabilityProfiles: [sol, fable, withoutTools],
+          userModelPreferenceProfiles: [ownerPreference(sol.id, fable.id, 1)],
+        });
+        yield* repository.replaceSnapshot(scenarioSeed);
+        const authorityBefore = structuredClone({
+          lead: scenarioSeed.agentSeats.find((seat) => seat.id === "seat-lead-authority"),
+          receipt: scenarioSeed.authorityReceipts.find(
+            (receipt) => receipt.id === "authority-lead",
+          ),
+          leases: scenarioSeed.rootLeases,
+        });
+        const tools = makeSupervisedTools({
+          governanceRepository: repository,
+          modelRoutingService: service,
+          snapshotQuery: {
+            getSnapshot: () =>
+              Effect.succeed({
+                snapshotSequence: 0,
+                spaces: [],
+                projects: [],
+                threads: [],
+                supervised: {
+                  rooms: [],
+                  taskNodes: [],
+                  runPolicies: [builtInRunPolicy(now)],
+                },
+                updatedAt: now,
+              } as never),
+          } as never,
+          orchestrationEngine: {} as never,
+          runtimeDaemon: {} as never,
+          getProviderAvailability: () =>
+            Effect.succeed({ codex: true, claudeAgent: providerAvailability.claudeAgent }),
+        });
+        const recommend = tools.find(
+          (tool) => tool.definition.name === "recommend_supervised_model",
+        )!;
+        const context = {
+          callerThreadId: "thread-supervisor-routing",
+          callerSessionKey: "session-supervisor-routing",
+          callerProvider: "codex" as const,
+          callerTurnId: "turn-supervisor-routing",
+          callerDispatchOrigin: "supervised" as const,
+          assertCallerTurnActive: () => Effect.succeed(undefined),
+        };
+        const providerAvailability = { claudeAgent: true };
+        const withoutProfilesRevision = (yield* repository.getSnapshot()).revision;
+        yield* repository.replaceSnapshot({
+          ...scenarioSeed,
+          revision: withoutProfilesRevision,
+          modelCapabilityProfiles: [],
           userModelPreferenceProfiles: [],
         });
-        const recommendationRequest = {
-          ...request,
-          userId: "owner",
-          routingRevision: (yield* repository.getSnapshot()).revision,
-        };
-        const before = yield* service.recommend(recommendationRequest);
-        yield* service.putUserPreferenceProfile({
-          profile: {
-            id: UserModelPreferenceProfileId.makeUnsafe("owner-preference"),
-            userId: "owner",
-            revision: 0,
-            ratings: { [alpha.id]: 0, [beta.id]: 10 },
-            relativePreferences: [
-              {
-                preferredModelId: beta.id,
-                overModelId: alpha.id,
-                category: "implementation",
-                reason: "Owner preference",
-              },
-            ],
-            preferredFor: { implementation: [beta.id] },
-            avoidFor: {},
-            priorities: { quality: 10, speed: 5, cost: 5, contextCapacity: 5 },
-            defaultModels: { supervisor: beta.id },
-            fallbackChains: { implementation: [beta.id, alpha.id] },
-            ownerNotes: "Persisted from Settings.",
-            updatedAt: "2026-08-09T05:01:00.000Z",
-          },
-          expectedRevision: null,
+        const missingProfile = yield* recommend.execute(
+          { taskCategory: "implementation" },
+          context,
+        );
+        assert.equal(missingProfile.ok, false);
+        if (missingProfile.ok) assert.fail("Expected a missing-profile failure.");
+        assert.equal(missingProfile.error.code, "supervised_model_profile_required");
+        assert.deepEqual(missingProfile.error.details, {
+          status: "needs_owner_curated_profile",
         });
-        const after = yield* service.recommend(recommendationRequest);
-        return { before, after };
+        const restoreRevision = (yield* repository.getSnapshot()).revision;
+        yield* repository.replaceSnapshot({ ...scenarioSeed, revision: restoreRevision });
+        const before = yield* recommend.execute({ taskCategory: "implementation" }, context);
+        yield* service.putUserPreferenceProfile({
+          profile: ownerPreference(fable.id, sol.id, 2),
+          expectedRevision: 1,
+        });
+        const after = yield* recommend.execute({ taskCategory: "implementation" }, context);
+        providerAvailability.claudeAgent = false;
+        const afterProviderFailure = yield* recommend.execute(
+          { taskCategory: "implementation" },
+          context,
+        );
+        const persisted = yield* repository.getSnapshot();
+        const authorityAfter = structuredClone({
+          lead: persisted.agentSeats.find((seat) => seat.id === "seat-lead-authority"),
+          receipt: persisted.authorityReceipts.find(
+            (receipt) => receipt.id === "authority-lead",
+          ),
+          leases: persisted.rootLeases,
+        });
+        return {
+          before,
+          after,
+          afterProviderFailure,
+          persisted,
+          authorityBefore,
+          authorityAfter,
+        };
       }).pipe(Effect.provide(makeLayer(filename))),
     );
 
-    assert.equal(result.before.selectedModelId, "model-alpha");
-    assert.equal(result.after.selectedModelId, "model-beta");
+    assert.equal(result.before.ok, true);
+    assert.equal(result.after.ok, true);
+    assert.equal(result.afterProviderFailure.ok, true);
+    if (!result.before.ok || !result.after.ok || !result.afterProviderFailure.ok) {
+      assert.fail("Expected successful recommendations.");
+    }
+    const first = result.before.value as {
+      receipt: { selectedModelId: string; rejectedReasons: Record<string, string> };
+    };
+    const second = result.after.value as { receipt: { selectedModelId: string } };
+    const providerFallback = result.afterProviderFailure.value as {
+      receipt: { selectedModelId: string; rejectedReasons: Record<string, string> };
+    };
+    assert.equal(first.receipt.selectedModelId, "model-sol");
+    assert.equal(second.receipt.selectedModelId, "model-fable");
+    assert.equal(providerFallback.receipt.selectedModelId, "model-sol");
+    assert.match(providerFallback.receipt.rejectedReasons["model-fable"]!, /unavailable/);
+    assert.match(first.receipt.rejectedReasons["model-without-tools"]!, /Tool use is required/);
+    assert.equal(result.persisted.modelSelectionReceipts.length, 3);
+    assert.ok(
+      result.persisted.modelSelectionReceipts.every((receipt) =>
+        /Owner preference|Personal rating/.test(receipt.explanation),
+      ),
+    );
+    assert.equal(
+      result.persisted.modelSelectionReceipts.find(
+        (receipt) => receipt.selectedModelId === "model-fable",
+      )?.preferenceProfileRevision,
+      2,
+    );
+    assert.deepEqual(result.authorityAfter, result.authorityBefore);
   });
 });

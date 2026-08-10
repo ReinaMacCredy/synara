@@ -342,6 +342,10 @@ export function projectEvent(
     case "supervised.run-requested":
     case "supervised.run-transitioned":
     case "supervised.run-policy-upserted":
+    case "supervised.claim-acquired":
+    case "supervised.claim-state-changed":
+    case "supervised.lease-granted":
+    case "supervised.lease-state-changed":
     case "supervised.context-workspace-upserted":
     case "supervised.context-appended":
     case "supervised.evidence-published":
@@ -352,6 +356,8 @@ export function projectEvent(
     // TODO(supervised-runtime): Remove the legacy event case on or after 2027-08-09
     // once every pre-cutover journal has been replayed through the Peer upcaster.
     case "supervised.specialist-upserted":
+    case "supervised.kernel-session-upserted":
+    case "supervised.kernel-execution-upserted":
     case "supervised.subscription-upserted":
     case "supervised.subscription-state-changed":
     case "supervised.plugin-installed":
@@ -366,6 +372,7 @@ export function projectEvent(
     case "supervised.delivery-updated":
     case "supervised.dead-lettered":
     case "supervised.intervention-proposed":
+    case "supervised.intervention-reconciled":
     case "supervised.compaction-requested":
     case "supervised.handoff-requested":
       return Effect.succeed({

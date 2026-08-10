@@ -2148,9 +2148,10 @@ describe("ProviderRuntimeIngestion", () => {
 
     const stableActivityId = "provider-reasoning:thread-1:reasoning-buffered-1";
     const thread = await waitForThread(harness.engine, (entry) =>
-      entry.activities.some(
-        (activity: ProviderRuntimeTestActivity) => activity.id === stableActivityId,
-      ),
+      entry.activities.some((activity: ProviderRuntimeTestActivity) => {
+        if (activity.id !== stableActivityId || typeof activity.payload !== "object") return false;
+        return (activity.payload as { status?: unknown }).status === "completed";
+      }),
     );
     const reasoningActivities = thread.activities.filter(
       (activity: ProviderRuntimeTestActivity) => activity.id === stableActivityId,
@@ -2199,9 +2200,10 @@ describe("ProviderRuntimeIngestion", () => {
 
     const stableActivityId = "provider-reasoning:thread-1:reasoning-aborted-1";
     const thread = await waitForThread(harness.engine, (entry) =>
-      entry.activities.some(
-        (activity: ProviderRuntimeTestActivity) => activity.id === stableActivityId,
-      ),
+      entry.activities.some((activity: ProviderRuntimeTestActivity) => {
+        if (activity.id !== stableActivityId || typeof activity.payload !== "object") return false;
+        return (activity.payload as { status?: unknown }).status === "failed";
+      }),
     );
 
     expect(
@@ -2247,9 +2249,10 @@ describe("ProviderRuntimeIngestion", () => {
 
     const stableActivityId = "provider-reasoning:thread-1:reasoning-failed-turn-1";
     const thread = await waitForThread(harness.engine, (entry) =>
-      entry.activities.some(
-        (activity: ProviderRuntimeTestActivity) => activity.id === stableActivityId,
-      ),
+      entry.activities.some((activity: ProviderRuntimeTestActivity) => {
+        if (activity.id !== stableActivityId || typeof activity.payload !== "object") return false;
+        return (activity.payload as { status?: unknown }).status === "failed";
+      }),
     );
 
     expect(
@@ -2295,9 +2298,10 @@ describe("ProviderRuntimeIngestion", () => {
 
     const stableActivityId = "provider-reasoning:thread-1:reasoning-errored-1";
     const thread = await waitForThread(harness.engine, (entry) =>
-      entry.activities.some(
-        (activity: ProviderRuntimeTestActivity) => activity.id === stableActivityId,
-      ),
+      entry.activities.some((activity: ProviderRuntimeTestActivity) => {
+        if (activity.id !== stableActivityId || typeof activity.payload !== "object") return false;
+        return (activity.payload as { status?: unknown }).status === "failed";
+      }),
     );
 
     expect(
@@ -5512,8 +5516,15 @@ describe("ProviderRuntimeIngestion", () => {
       provider: "codex",
       createdAt: now,
       threadId: asThreadId("thread-1"),
-      message: "session started",
+      payload: { message: "session started" },
+      providerRefs: { providerThreadId: "provider-session-thread-1" },
     });
+    await harness.drain();
+    const startedThread = await waitForThread(
+      harness.engine,
+      (entry) => entry.session?.providerSessionId === "provider-session-thread-1",
+    );
+    expect(startedThread.session?.providerSessionId).toBe("provider-session-thread-1");
     harness.emit({
       type: "thread.started",
       eventId: asEventId("evt-thread-started"),
@@ -5547,6 +5558,7 @@ describe("ProviderRuntimeIngestion", () => {
     );
 
     expect(thread.session?.status).toBe("ready");
+    expect(thread.session?.providerSessionId).toBe("provider-session-thread-1");
     expect(
       thread.activities.some(
         (activity: ProviderRuntimeTestActivity) => activity.kind === "tool.started",

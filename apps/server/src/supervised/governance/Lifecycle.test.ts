@@ -303,6 +303,12 @@ describe("Supervisor-first lifecycle", () => {
 
     const recovered = recoverGovernanceSnapshot(snapshot, later);
     assert.equal(recovered.snapshot.roleAssumptions[0]?.lifecycleState, "lease_transferred");
+    assert.deepEqual(recovered.actions, [
+      {
+        kind: "reconcile_role_assumption",
+        roleAssumptionId: "assumption-after",
+      },
+    ]);
     const settled = settleGovernanceRecoveryActions(
       recovered.snapshot,
       recovered.actions,
@@ -310,6 +316,10 @@ describe("Supervisor-first lifecycle", () => {
     );
 
     assert.equal(settled.roleAssumptions[0]?.lifecycleState, "topology_reconciled");
+    assert.strictEqual(
+      settleGovernanceRecoveryActions(settled, recovered.actions, later),
+      settled,
+    );
   });
 
   it("requires Lead notification before intervention reconciliation", () => {
@@ -343,6 +353,50 @@ describe("Supervisor-first lifecycle", () => {
     assert.equal(
       transitionDirectIntervention(communication, "not_required", later).lifecycleState,
       "not_required",
+    );
+  });
+
+  it("fails an executing intervention exactly once during restart recovery", () => {
+    const snapshot = baseSnapshot();
+    snapshot.directInterventions = [
+      Schema.decodeUnknownSync(DirectIntervention)({
+        id: "intervention-restart",
+        workspaceId: "workspace-1",
+        roomId: "room-1",
+        supervisorSeatId: "supervisor-1",
+        targetPeerSeatId: "peer-1",
+        rootHolderSeatId: "lead-old",
+        taskNodeId: null,
+        workRequest: "Observe the bounded work.",
+        material: true,
+        lifecycleState: "executing",
+        evidenceRefs: [],
+        openedUnderReceiptId: "receipt-supervisor",
+        openedAt: now,
+        leadNotifiedAt: null,
+        reconciledAt: null,
+        closedAt: null,
+        revision: 3,
+        updatedAt: now,
+      }),
+    ];
+
+    const recovered = recoverGovernanceSnapshot(snapshot, later);
+    assert.deepEqual(recovered.actions, [
+      {
+        kind: "resume_intervention",
+        interventionId: "intervention-restart",
+      },
+    ]);
+    const settled = settleGovernanceRecoveryActions(
+      recovered.snapshot,
+      recovered.actions,
+      later,
+    );
+    assert.equal(settled.directInterventions[0]?.lifecycleState, "failed");
+    assert.strictEqual(
+      settleGovernanceRecoveryActions(settled, recovered.actions, later),
+      settled,
     );
   });
 

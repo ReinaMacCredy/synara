@@ -11,6 +11,7 @@ import { AutomationServiceLive } from "./automation/Layers/AutomationService";
 import { CheckpointDiffQueryLive } from "./checkpointing/Layers/CheckpointDiffQuery";
 import { CheckpointStoreLive } from "./checkpointing/Layers/CheckpointStore";
 import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor";
+import { LeadRotationReactorLive } from "./orchestration/Layers/LeadRotationReactor";
 import { OrchestrationReactorLive } from "./orchestration/Layers/OrchestrationReactor";
 import { SupervisedWakeReactorLive } from "./orchestration/Layers/SupervisedWakeReactor";
 import { HostToolRuntimeConfiguredLive } from "./orchestration/Layers/HostToolRuntime";
@@ -54,7 +55,7 @@ import { ProjectionTaskProcessRepositoryLive } from "./persistence/Layers/Projec
 import { ThreadDiagnosticsQueryLive } from "./diagnostics/Layers/ThreadDiagnosticsQuery";
 import { ManagedAttachmentCleanupLive } from "./managedAttachmentCleanup";
 import { PullRequestServiceLive } from "./pullRequests/Layers/PullRequestService";
-import { ProviderHealthLive } from "./provider/Layers/ProviderHealth";
+import { ProviderHealthConfiguredLive } from "./provider/Layers/ProviderHealth";
 import { makeServerProviderLayer } from "./provider/runtimeLayer";
 import { ModelRoutingServiceLive } from "./supervised/modelRouting/ModelRoutingService";
 
@@ -67,7 +68,7 @@ export function makeServerRuntimeServicesLayer(
 ) {
   const agentGatewayCredentialsLayer =
     options.agentGatewayCredentialsLayer ?? AgentGatewayCredentialsWithSecretsLive;
-  const providerHealthLayer = ProviderHealthLive.pipe(Layer.provideMerge(ServerSettingsLive));
+  const providerHealthLayer = ProviderHealthConfiguredLive;
   const checkpointStoreLayer = CheckpointStoreLive.pipe(Layer.provide(GitCoreLive));
 
   const checkpointDiffQueryLayer = CheckpointDiffQueryLive.pipe(
@@ -77,10 +78,13 @@ export function makeServerRuntimeServicesLayer(
   const modelRoutingLayer = ModelRoutingServiceLive.pipe(
     Layer.provideMerge(OrchestrationLayerLive),
   );
+  const hostToolRuntimeLayer = HostToolRuntimeConfiguredLive.pipe(
+    Layer.provideMerge(providerHealthLayer),
+  );
 
   const runtimeServicesLayer = Layer.mergeAll(
     OrchestrationLayerLive,
-    HostToolRuntimeConfiguredLive,
+    hostToolRuntimeLayer,
     modelRoutingLayer,
     checkpointStoreLayer,
     checkpointDiffQueryLayer,
@@ -106,6 +110,9 @@ export function makeServerRuntimeServicesLayer(
   const supervisedWakeReactorLayer = SupervisedWakeReactorLive.pipe(
     Layer.provideMerge(runtimeServicesLayer),
   );
+  const leadRotationReactorLayer = LeadRotationReactorLive.pipe(
+    Layer.provideMerge(runtimeServicesLayer),
+  );
   const profileStatsArchiveLayer = ProfileStatsArchiveLive.pipe(
     Layer.provideMerge(checkpointStoreLayer),
   );
@@ -114,6 +121,7 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(providerCommandReactorLayer),
     Layer.provideMerge(checkpointReactorLayer),
     Layer.provideMerge(supervisedWakeReactorLayer),
+    Layer.provideMerge(leadRotationReactorLayer),
   );
   const taskProcessQueryLayer = TaskProcessQueryLive.pipe(
     Layer.provideMerge(runtimeServicesLayer),
@@ -218,6 +226,7 @@ export function makeServerRuntimeServicesLayer(
     ProjectPullRequestPinsLive,
     pullRequestServiceLayer,
     orchestrationReactorLayer,
+    leadRotationReactorLayer,
     supervisedWakeReactorLayer,
     taskProcessQueryLayer,
     handoffPreparationLayer,

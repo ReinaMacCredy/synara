@@ -14,6 +14,7 @@ import {
   LeadSeatId,
   ProfilePresetId,
   ProfileSnapshot,
+  RootHolderSeatId,
   SupervisorSeatId,
 } from "./supervision";
 
@@ -135,7 +136,7 @@ export const Room = Schema.Struct({
   id: RoomId,
   projectId: ProjectId,
   title: ShortText,
-  leadSeatId: Schema.NullOr(LeadSeatId),
+  leadSeatId: Schema.NullOr(RootHolderSeatId),
   status: RoomStatus,
   graphRevision: NonNegativeInt,
   revision: NonNegativeInt,
@@ -558,6 +559,18 @@ export const ModelSessionTrace = Schema.Struct({
   runId: RunId,
   taskId: TaskId,
   taskNodeId: Schema.NullOr(TaskNodeId),
+  actorSeatId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
+  authorityReceiptId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
+  effectiveRole: Schema.optional(
+    Schema.NullOr(Schema.Literals(["supervisor", "lead", "peer", "acting_root"])),
+  ).pipe(Schema.withDecodingDefault(() => null)),
+  rootLeaseIds: Schema.optional(
+    Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(64)),
+  ).pipe(Schema.withDecodingDefault(() => [])),
   rlmEpisodeId: Schema.NullOr(RlmEpisodeId),
   parentSessionId: Schema.NullOr(ModelSessionId),
   peerSpecialtyId: Schema.optional(Schema.NullOr(PeerSpecialtyId)).pipe(
@@ -588,6 +601,17 @@ export const ModelSessionTrace = Schema.Struct({
     providerLimitTokens: Schema.NullOr(PositiveInt),
     contextUsagePercent: Schema.NullOr(Percent),
   }),
+  usageProvenance: Schema.optional(
+    Schema.Struct({
+      inputOutputTokens: Schema.Literals(["unavailable", "provider_observed"]),
+      contextWindow: Schema.Literals(["unavailable", "provider_observed"]),
+    }),
+  ).pipe(
+    Schema.withDecodingDefault(() => ({
+      inputOutputTokens: "unavailable" as const,
+      contextWindow: "unavailable" as const,
+    })),
+  ),
   status: ModelSessionStatus,
   retryCount: NonNegativeInt,
   durationMs: Schema.NullOr(NonNegativeInt),
@@ -771,7 +795,7 @@ export const LeadNotification = Schema.Struct({
   id: LeadNotificationId,
   interventionId: InterventionId,
   roomId: RoomId,
-  leadSeatId: Schema.NullOr(LeadSeatId),
+  leadSeatId: Schema.NullOr(RootHolderSeatId),
   status: Schema.Literals(["queued", "delivered", "acknowledged"]),
   createdAt: IsoDateTime,
   deliveredAt: Schema.NullOr(IsoDateTime),
@@ -783,7 +807,7 @@ export const Reconciliation = Schema.Struct({
   id: ReconciliationId,
   interventionId: InterventionId,
   roomId: RoomId,
-  leadSeatId: LeadSeatId,
+  leadSeatId: RootHolderSeatId,
   status: Schema.Literals(["open", "accepted", "revised", "rejected"]),
   taskNodeRevisionId: Schema.NullOr(TaskNodeRevisionId),
   reason: Schema.NullOr(BoundedText),
@@ -1162,7 +1186,7 @@ export const ReviewLoopSignalContext = Schema.Struct({
 });
 export type ReviewLoopSignalContext = typeof ReviewLoopSignalContext.Type;
 export const ContextPressureSignalContext = Schema.Struct({
-  leadSeatId: LeadSeatId,
+  leadSeatId: RootHolderSeatId,
   roomId: RoomId,
   providerSessionId: TrimmedNonEmptyString,
   provider: TrimmedNonEmptyString,
@@ -1203,6 +1227,16 @@ export type SupervisedTaskGraphNode = typeof SupervisedTaskGraphNode.Type;
 export const SupervisedCommand = Schema.Union([
   Schema.Struct({ ...CommandBase, type: Schema.Literal("supervised.room.create"), room: Room }),
   Schema.Struct({ ...CommandBase, type: Schema.Literal("supervised.room.update"), room: Room }),
+  Schema.Struct({
+    ...CommandBase,
+    type: Schema.Literal("supervised.role.assume"),
+    roomId: RoomId,
+    supervisorSeatId: SupervisorSeatId,
+    supervisorThreadId: ThreadId,
+    previousRootSeatId: RootHolderSeatId,
+    previousRootThreadId: ThreadId,
+    reason: BoundedText,
+  }),
   Schema.Struct({ ...CommandBase, type: Schema.Literal("supervised.task.create"), task: Task }),
   Schema.Struct({
     ...CommandBase,
@@ -1233,10 +1267,41 @@ export const SupervisedCommand = Schema.Union([
   Schema.Struct({ ...CommandBase, type: Schema.Literal("supervised.run.request"), run: Run }),
   Schema.Struct({
     ...CommandBase,
+    type: Schema.Literal("supervised.task.delegate"),
+    roomId: RoomId,
+    projectId: ProjectId,
+    leadSeatId: RootHolderSeatId,
+    leadThreadId: ThreadId,
+    peerThreadId: ThreadId,
+    workRequest: BoundedText,
+    run: Run,
+  }),
+  Schema.Struct({
+    ...CommandBase,
+    type: Schema.Literal("supervised.run.start"),
+    runId: RunId,
+    claim: WorkClaim,
+  }),
+  Schema.Struct({
+    ...CommandBase,
+    type: Schema.Literal("supervised.run.submit"),
+    runId: RunId,
+    claimId: WorkClaimId,
+    evidence: Evidence,
+  }),
+  Schema.Struct({
+    ...CommandBase,
+    type: Schema.Literal("supervised.review.accept"),
+    runId: RunId,
+    evidenceId: EvidenceId,
+  }),
+  Schema.Struct({
+    ...CommandBase,
     type: Schema.Literal("supervised.run.transition"),
     runId: RunId,
     status: RunStatus,
     reason: Schema.NullOr(BoundedText),
+    daemonEpoch: Schema.optional(PositiveInt),
   }),
   Schema.Struct({
     ...CommandBase,
@@ -1299,7 +1364,7 @@ export const SupervisedCommand = Schema.Union([
     type: Schema.Literal("supervised.peer.create"),
     roomId: RoomId,
     projectId: ProjectId,
-    leadSeatId: LeadSeatId,
+    leadSeatId: RootHolderSeatId,
     leadThreadId: ThreadId,
     threadId: ThreadId,
     title: ShortText,
@@ -1314,7 +1379,7 @@ export const SupervisedCommand = Schema.Union([
     type: Schema.Literal("supervised.work.assign"),
     roomId: RoomId,
     projectId: ProjectId,
-    leadSeatId: LeadSeatId,
+    leadSeatId: RootHolderSeatId,
     leadThreadId: ThreadId,
     peerThreadId: ThreadId,
     intervention: Intervention,
@@ -1409,7 +1474,7 @@ export const SupervisedCommand = Schema.Union([
   Schema.Struct({
     ...CommandBase,
     type: Schema.Literal("supervised.compaction.request"),
-    leadSeatId: LeadSeatId,
+    leadSeatId: RootHolderSeatId,
     roomId: RoomId,
     reason: BoundedText,
   }),

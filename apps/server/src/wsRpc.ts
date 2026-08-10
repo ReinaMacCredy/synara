@@ -144,6 +144,7 @@ import { SupervisedGovernanceRepository } from "./persistence/Services/Supervise
 import { SupervisedToolPolicyRepository } from "./persistence/Services/SupervisedToolPolicies";
 import { SupervisedToolReceiptRepository } from "./persistence/Services/SupervisedToolReceipts";
 import { ModelRoutingService } from "./supervised/modelRouting/ModelRoutingService";
+import { prepareOwnerCuratedModelCapabilityProfile } from "./supervised/modelRouting/ModelCapabilityProvisioning";
 import { projectSupervisedSystemTools } from "./supervised/settings/SupervisedSettingsProjection";
 import { supervisedIntentToolRegistry } from "./supervised/tools/Registry";
 import { evaluateSyntheticSubscriptionTest } from "./supervised/signal/SubscriptionEvaluator";
@@ -1103,6 +1104,43 @@ const makeWsRpcHandlersLayer = () =>
               return { governance, runtime, tools, updatedAt: now };
             }),
             "Failed to load Supervised settings",
+          ),
+        [ORCHESTRATION_WS_METHODS.putSupervisedModelCapabilityProfile]: (input) =>
+          rpcEffect(
+            Effect.gen(function* () {
+              yield* requireOwnerSession;
+              const catalog = yield* providerDiscoveryService
+                .listModels({ provider: input.profile.provider })
+                .pipe(
+                  Effect.catch((error) =>
+                    Effect.logWarning(
+                      "provider model discovery unavailable during owner-curated capability ingestion",
+                      { provider: input.profile.provider, error },
+                    ).pipe(Effect.as(null)),
+                  ),
+                );
+              const prepared = yield* Effect.try({
+                try: () =>
+                  prepareOwnerCuratedModelCapabilityProfile({
+                    profile: input.profile,
+                    catalog,
+                    updatedAt: new Date().toISOString(),
+                  }),
+                catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+              });
+              const profile = yield* modelRoutingService.putCapabilityProfile({
+                profile: prepared.profile,
+                expectedRevision: input.expectedRevision,
+              });
+              const state = yield* modelRoutingService.getState("owner");
+              return {
+                profile,
+                routingRevision: state.routingRevision,
+                catalogStatus: prepared.catalogStatus,
+                catalogSource: prepared.catalogSource,
+              };
+            }),
+            "Failed to save the owner-curated model capability profile",
           ),
         [ORCHESTRATION_WS_METHODS.putSupervisedModelPreferences]: (input) =>
           rpcEffect(

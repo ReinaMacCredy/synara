@@ -4,11 +4,15 @@ import {
   AgentProfileId,
   AgentSeatId,
   EffectiveAuthorityReceiptId,
+  GovernanceHandoffId,
+  RoleAssumptionId,
   RootAuthorityLeaseId,
   SupervisedWorkspaceId,
   type AgentSeat,
   type EffectiveAuthorityReceipt,
+  type GovernanceHandoff,
   type LeadSeat,
+  type RoleAssumption,
   type RootAuthorityLease,
   type SupervisedGovernanceSnapshot,
   type SupervisedRuntimeSnapshot,
@@ -118,6 +122,8 @@ export function governanceDecisionStateFromSnapshot(input: {
           {
             id: seat.id as SupervisorSeat["id"],
             name: seat.displayName ?? "Supervisor",
+            ...(seat.concern === undefined ? {} : { concern: seat.concern }),
+            ...(seat.concern === "primary" ? { isPrimary: true } : {}),
             activeThreadId: seat.threadId,
             predecessorThreadIds: seat.predecessorThreadIds,
             profileSnapshotId: seat.profileSnapshotId,
@@ -213,6 +219,7 @@ const roomIdsForSupervisor = (
   );
   return runtime.rooms
     .filter((room) =>
+      room.leadSeatId === supervisorSeatId ||
       missions.some((mission) =>
         mission.scope.some((scope) => {
           if (scope.kind === "all_projects") return true;
@@ -258,6 +265,7 @@ const makeReceipt = (input: {
   readonly seatId: string;
   readonly role: "supervisor" | "lead" | "peer";
   readonly roomIds: ReadonlyArray<string>;
+  readonly rootRoomIds: ReadonlyArray<string>;
   readonly issuedAt: string;
   readonly at: string;
   readonly source: GovernanceProjectionSource;
@@ -275,46 +283,64 @@ const makeReceipt = (input: {
     return currentReceipt;
   }
 
-  const rootLeaseIds =
-    input.role === "lead"
-      ? input.roomIds.map((roomId) =>
-          rootLeaseIdFor(input.snapshot, roomId, input.seatId, input.source),
-        )
-      : [];
+  const rootLeaseIds = input.rootRoomIds.map((roomId) =>
+    rootLeaseIdFor(input.snapshot, roomId, input.seatId, input.source),
+  );
+  const actingRoot = input.role === "supervisor" && rootLeaseIds.length > 0;
+  const leadCommands = [
+    "supervised.peer.create",
+    "supervised.work.assign",
+    "supervised.intervention.reconcile",
+    "supervised.room.update",
+    "supervised.task.create",
+    "supervised.task-node.commit",
+    "supervised.task-graph.create",
+    "supervised.task.delegate",
+    "supervised.run.request",
+    "supervised.run.transition",
+    "supervised.review.accept",
+    "supervised.context.workspace-upsert",
+    "supervised.context.append",
+    "supervised.rlm.upsert",
+    "supervised.model-session.upsert",
+    "supervised.evidence.publish",
+  ] as const;
+  const supervisorCommands = [
+    "supervised.room.create",
+    "supervised.lead.create",
+    "supervised.role.assume",
+    "supervised.peer.create",
+    "supervised.work.assign",
+    "supervised.context.workspace-upsert",
+    "supervised.context.append",
+    "supervised.rlm.upsert",
+    "supervised.model-session.upsert",
+    "supervised.evidence.publish",
+  ] as const;
   const allowedCommands = [
     ...(input.role === "lead"
-      ? [
-          "supervised.peer.create",
-          "supervised.work.assign",
-          "supervised.intervention.reconcile",
-          "supervised.room.update",
-          "supervised.task.create",
-          "supervised.task-node.commit",
-          "supervised.task-graph.create",
-          "supervised.run.request",
-          "supervised.run.transition",
-          "supervised.context.workspace-upsert",
-          "supervised.context.append",
-          "supervised.rlm.upsert",
-          "supervised.model-session.upsert",
-          "supervised.evidence.publish",
-        ]
+      ? leadCommands
       : input.role === "supervisor"
-        ? [
-            "supervised.room.create",
-            "supervised.lead.create",
-            "supervised.peer.create",
-            "supervised.work.assign",
-            "supervised.context.workspace-upsert",
-            "supervised.context.append",
-            "supervised.rlm.upsert",
-            "supervised.model-session.upsert",
+        ? actingRoot
+          ? [...supervisorCommands, ...leadCommands]
+          : supervisorCommands
+        : [
+            "supervised.work.complete",
+            "supervised.run.start",
+            "supervised.run.submit",
+            "supervised.claim.acquire",
+            "supervised.claim.release",
+            "supervised.run.transition",
+            "supervised.task-node.commit",
             "supervised.evidence.publish",
-          ]
-        : ["supervised.work.complete"]),
+          ]),
     ...defaultSupervisedCommandsForRole(input.role),
+    ...(actingRoot ? defaultSupervisedCommandsForRole("lead") : []),
   ];
-  const allowedTools = defaultSupervisedToolsForRole(input.role);
+  const allowedTools = [
+    ...defaultSupervisedToolsForRole(input.role),
+    ...(actingRoot ? defaultSupervisedToolsForRole("lead") : []),
+  ];
   return {
     id: projectionReceiptId({
       seatId: input.seatId,
@@ -330,7 +356,7 @@ const makeReceipt = (input: {
     }),
     actorSeatId: AgentSeatId.makeUnsafe(input.seatId),
     identityRole: input.role,
-    effectiveRole: input.role,
+    effectiveRole: actingRoot ? "acting_root" : input.role,
     workspaceScopes: [workspaceId],
     roomScopes: input.roomIds as EffectiveAuthorityReceipt["roomScopes"],
     taskNodeScopes: [],
@@ -363,15 +389,19 @@ export function reconcileGovernanceProjection(input: {
   let authorityReceipts = input.governance.authorityReceipts;
   let agentSeats = input.governance.agentSeats;
   let rootLeases = input.governance.rootLeases;
+  let handoffs = input.governance.handoffs;
+  let roleAssumptions = input.governance.roleAssumptions;
 
   for (const supervisor of input.state.supervisors) {
     if (shouldPreserveExternallyManagedSeat(input.governance, supervisor.id)) continue;
     const roomIds = roomIdsForSupervisor(input.runtime, input.state, supervisor.id);
+    const rootRoomIds = roomIdsForLead(input.runtime, supervisor.id);
     const receipt = makeReceipt({
       snapshot: input.governance,
       seatId: supervisor.id,
       role: "supervisor",
       roomIds,
+      rootRoomIds,
       issuedAt: supervisor.createdAt,
       at: input.at,
       source: input.source,
@@ -382,8 +412,13 @@ export function reconcileGovernanceProjection(input: {
       workspaceId,
       roomIds,
       identityRole: "supervisor",
-      effectiveRole: "supervisor",
+      effectiveRole: receipt.effectiveRole,
       profileId: AgentProfileId.makeUnsafe(supervisor.profileSnapshotId),
+      ...((supervisor.isPrimary ?? false)
+        ? { concern: "primary" }
+        : supervisor.concern === undefined
+          ? {}
+          : { concern: supervisor.concern }),
       providerSessionId: null,
       lifecycleState: seatLifecycle(supervisor.status),
       workState: "idle",
@@ -409,6 +444,7 @@ export function reconcileGovernanceProjection(input: {
       seatId: lead.id,
       role: "lead",
       roomIds,
+      rootRoomIds: roomIds,
       issuedAt: lead.createdAt,
       at: input.at,
       source: input.source,
@@ -446,6 +482,7 @@ export function reconcileGovernanceProjection(input: {
       seatId: peer.threadId,
       role: "peer",
       roomIds,
+      rootRoomIds: [],
       issuedAt: peer.createdAt,
       at: input.at,
       source: input.source,
@@ -499,6 +536,7 @@ export function reconcileGovernanceProjection(input: {
       seatId: room.leadSeatId,
       role: "lead",
       roomIds: leadRooms.map((candidate) => candidate.id),
+      rootRoomIds: leadRooms.map((candidate) => candidate.id),
       issuedAt: createdAt,
       at: input.at,
       source: input.source,
@@ -565,6 +603,13 @@ export function reconcileGovernanceProjection(input: {
       );
       continue;
     }
+    const previousRootLease = rootLeases.find(
+      (lease) =>
+        lease.roomId === room.id &&
+        lease.holderSeatId !== room.leadSeatId &&
+        liveRootStatuses.has(lease.status) &&
+        isManagedProjectionLease(lease.id),
+    );
     const current = activeProjectionLeaseFor(
       { ...input.governance, rootLeases },
       room.id,
@@ -594,14 +639,58 @@ export function reconcileGovernanceProjection(input: {
       holderSeatId: AgentSeatId.makeUnsafe(room.leadSeatId),
       status: terminal ? "released" : "active",
       acquiredUnderReceiptId: current?.acquiredUnderReceiptId ?? holderSeat.authorityReceiptId,
-      predecessorLeaseId: null,
-      acquiredAt: room.createdAt,
+      predecessorLeaseId: previousRootLease?.id ?? current?.predecessorLeaseId ?? null,
+      acquiredAt: current?.acquiredAt ?? (previousRootLease ? input.at : room.createdAt),
       releasedAt: terminal ? room.updatedAt : null,
       expiresAt: null,
       revision: room.revision,
       updatedAt: room.updatedAt,
     };
     rootLeases = upsert(rootLeases, lease);
+    if (previousRootLease && holderSeat.identityRole === "supervisor") {
+      const transferKey = `${room.id}:${previousRootLease.holderSeatId}:${holderSeat.id}:${room.revision}`;
+      const handoffId = GovernanceHandoffId.makeUnsafe(
+        `governance-handoff:role-assume:${transferKey}`,
+      );
+      const handoff: GovernanceHandoff = {
+        id: handoffId,
+        workspaceId,
+        roomId: room.id,
+        fromSeatId: previousRootLease.holderSeatId,
+        toSeatId: holderSeat.id,
+        lifecycleState: "reconciled",
+        scope: [{ kind: "room", roomId: room.id }],
+        summary:
+          "The authenticated owner directed the Supervisor to assume Root. The former Root was notified to publish a durable checkpoint and handoff summary.",
+        evidenceRefs: [],
+        preparedAt: input.at,
+        acceptedAt: input.at,
+        transferredAt: input.at,
+        reconciledAt: input.at,
+        revision: 0,
+        updatedAt: input.at,
+      };
+      const roleAssumption: RoleAssumption = {
+        id: RoleAssumptionId.makeUnsafe(`role-assumption:${transferKey}`),
+        workspaceId,
+        roomId: room.id,
+        actorSeatId: holderSeat.id,
+        previousRootSeatId: previousRootLease.holderSeatId,
+        handoffId,
+        previousLeaseId: previousRootLease.id,
+        nextLeaseId: lease.id,
+        operation: "assume",
+        lifecycleState: "active",
+        requestedUnderReceiptId: holderReceipt.id,
+        failureReason: null,
+        createdAt: input.at,
+        completedAt: input.at,
+        revision: 0,
+        updatedAt: input.at,
+      };
+      handoffs = upsert(handoffs, handoff);
+      roleAssumptions = upsert(roleAssumptions, roleAssumption);
+    }
   }
 
   const workspaces = input.governance.workspaces.some((workspace) => workspace.id === workspaceId)
@@ -623,7 +712,9 @@ export function reconcileGovernanceProjection(input: {
     workspaces === input.governance.workspaces &&
     authorityReceipts === input.governance.authorityReceipts &&
     agentSeats === input.governance.agentSeats &&
-    rootLeases === input.governance.rootLeases
+    rootLeases === input.governance.rootLeases &&
+    handoffs === input.governance.handoffs &&
+    roleAssumptions === input.governance.roleAssumptions
   ) {
     return input.governance;
   }
@@ -634,6 +725,8 @@ export function reconcileGovernanceProjection(input: {
     authorityReceipts,
     agentSeats,
     rootLeases,
+    handoffs,
+    roleAssumptions,
     updatedAt: input.at,
   };
 }

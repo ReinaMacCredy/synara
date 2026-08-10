@@ -20,6 +20,7 @@ import {
   aggregateModelOutcome,
   createModelSelectionReceipt,
   providerAvailabilityFromCatalog,
+  providerAvailabilityFromHealth,
   recommendModels,
   type ModelRoutingRequest,
 } from "./ModelRouting.ts";
@@ -83,6 +84,15 @@ const invalid = model("model-invalid", {
   scores: { ...model("invalid-base").scores, coding: 10 },
 });
 
+const sol = model("model-sol", {
+  provider: "codex",
+  model: "gpt-5.6-sol",
+});
+const fable = model("model-fable", {
+  provider: "claudeAgent",
+  model: "claude-fable-5",
+});
+
 const preference = (
   id: string,
   userId: string,
@@ -130,6 +140,37 @@ const request = (userId: string): ModelRoutingRequest => ({
 });
 
 describe("Supervisor-first model routing", () => {
+  it("ranks Sol over Fable for User A and Fable over Sol for User B", () => {
+    const scenarioRequest = (userId: string): ModelRoutingRequest => ({
+      ...request(userId),
+      providerAvailability: { codex: true, claudeAgent: true },
+      workspacePolicy: { allowedProviders: ["codex", "claudeAgent"] },
+      roomPolicy: { allowedModelIds: [sol.id, fable.id] },
+    });
+
+    const userA = recommendModels(
+      [sol, fable],
+      preference("preference-user-a", "user-a", sol.id, fable.id),
+      [],
+      scenarioRequest("user-a"),
+    );
+    const userB = recommendModels(
+      [sol, fable],
+      preference("preference-user-b", "user-b", fable.id, sol.id),
+      [],
+      scenarioRequest("user-b"),
+    );
+
+    assert.deepEqual(
+      userA.rankedCandidates.map((candidate) => candidate.modelId),
+      [sol.id, fable.id],
+    );
+    assert.deepEqual(
+      userB.rankedCandidates.map((candidate) => candidate.modelId),
+      [fable.id, sol.id],
+    );
+  });
+
   it("gives two users different valid rankings without bypassing hard constraints", () => {
     const first = recommendModels(
       [alpha, beta, invalid],
@@ -187,6 +228,28 @@ describe("Supervisor-first model routing", () => {
     ]);
 
     assert.deepEqual(availability, { codex: true, claudeAgent: false });
+  });
+
+  it("fails provider availability closed from live health", () => {
+    const availability = providerAvailabilityFromHealth([
+      {
+        provider: "codex",
+        status: "ready",
+        available: true,
+        authStatus: "authenticated",
+        checkedAt: now,
+      },
+      {
+        provider: "claudeAgent",
+        status: "error",
+        available: true,
+        authStatus: "unauthenticated",
+        checkedAt: now,
+      },
+    ]);
+
+    assert.deepEqual(availability, { codex: true, claudeAgent: false });
+    assert.equal(availability.cursor, undefined);
   });
 
   it("keeps RunPolicy cost limits ahead of a user's model preference", () => {
@@ -336,6 +399,8 @@ describe("Supervisor-first model routing", () => {
     assert.equal(receipt.fallbackFromReceiptId, previousReceiptId);
     assert.match(receipt.fallbackReason!, /capacity error/);
     assert.match(receipt.rejectedReasons[alpha.id]!, /fallback attempt/);
+    assert.deepEqual(receipt.candidateModelIds, [beta.id, alpha.id, invalid.id]);
+    assert.match(receipt.explanation, /Personal rating|Preferred for|Relative preference/);
     assert.ok(receipt.rankedCandidates[0]!.preferenceEffects.length > 0);
   });
 

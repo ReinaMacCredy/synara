@@ -8,6 +8,8 @@ const rootOwnedCommands = new Set<SupervisedCommand["type"]>([
   "supervised.room.update",
   "supervised.task.create",
   "supervised.task-graph.create",
+  "supervised.task.delegate",
+  "supervised.review.accept",
   "supervised.compaction.request",
   "supervised.handoff.request",
 ]);
@@ -20,6 +22,8 @@ function commandRoomId(
     case "supervised.room.create":
     case "supervised.room.update":
       return command.room.id;
+    case "supervised.role.assume":
+      return command.roomId;
     case "supervised.lead.create":
       return command.room.id;
     case "supervised.task.create":
@@ -30,6 +34,12 @@ function commandRoomId(
       return command.taskNode.roomId;
     case "supervised.run.request":
       return command.run.roomId;
+    case "supervised.task.delegate":
+      return command.roomId;
+    case "supervised.run.start":
+    case "supervised.run.submit":
+    case "supervised.review.accept":
+      return runtime.runs.find((run) => run.id === command.runId)?.roomId ?? null;
     case "supervised.run.transition":
       return runtime.runs.find((run) => run.id === command.runId)?.roomId ?? null;
     case "supervised.context.workspace-upsert":

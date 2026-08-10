@@ -202,6 +202,8 @@ import type {
 } from "./supervised";
 import type {
   GetSupervisedSettingsInput,
+  PutSupervisedModelCapabilityProfileInput,
+  PutSupervisedModelCapabilityProfileResult,
   PutSupervisedModelPreferencesInput,
   PutSupervisedModelPreferencesResult,
   SupervisedSettingsSnapshot,
@@ -785,6 +787,9 @@ export interface NativeApi {
     getSupervisedSettings: (
       input?: GetSupervisedSettingsInput,
     ) => Promise<SupervisedSettingsSnapshot>;
+    putSupervisedModelCapabilityProfile: (
+      input: PutSupervisedModelCapabilityProfileInput,
+    ) => Promise<PutSupervisedModelCapabilityProfileResult>;
     putSupervisedModelPreferences: (
       input: PutSupervisedModelPreferencesInput,
     ) => Promise<PutSupervisedModelPreferencesResult>;

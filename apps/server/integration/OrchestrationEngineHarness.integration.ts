@@ -53,6 +53,7 @@ import { OrchestrationReactorLive } from "../src/orchestration/Layers/Orchestrat
 import { ProviderCommandReactorLive } from "../src/orchestration/Layers/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionLive } from "../src/orchestration/Layers/ProviderRuntimeIngestion.ts";
 import { SupervisedWakeReactorLive } from "../src/orchestration/Layers/SupervisedWakeReactor.ts";
+import { LeadRotationReactorLive } from "../src/orchestration/Layers/LeadRotationReactor.ts";
 import { TurnCheckpointCoordinatorLive } from "../src/orchestration/Layers/TurnCheckpointCoordinator.ts";
 import {
   OrchestrationEngineService,
@@ -324,11 +325,15 @@ export const makeOrchestrationIntegrationHarness = (
     const supervisedWakeReactorLayer = SupervisedWakeReactorLive.pipe(
       Layer.provideMerge(runtimeServicesLayer),
     );
+    const leadRotationReactorLayer = LeadRotationReactorLive.pipe(
+      Layer.provideMerge(runtimeServicesLayer),
+    );
     const orchestrationReactorLayer = OrchestrationReactorLive.pipe(
       Layer.provideMerge(runtimeIngestionLayer),
       Layer.provideMerge(providerCommandReactorLayer),
       Layer.provideMerge(checkpointReactorLayer),
       Layer.provideMerge(supervisedWakeReactorLayer),
+      Layer.provideMerge(leadRotationReactorLayer),
     );
     const layer = orchestrationReactorLayer.pipe(
       Layer.provide(persistenceLayer),

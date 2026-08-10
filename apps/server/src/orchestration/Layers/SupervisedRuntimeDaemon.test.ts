@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 
-import type { OrchestrationCommand, OrchestrationThread } from "@synara/contracts";
+import type {
+  OrchestrationCommand,
+  OrchestrationEvent,
+  OrchestrationReadModel,
+  OrchestrationThread,
+} from "@synara/contracts";
 import {
   ControlPlaneEvent,
   emptySupervisedGovernanceSnapshot,
@@ -16,6 +21,7 @@ import { SupervisedRuntimeRepositoryLive } from "../../persistence/Layers/Superv
 import { SupervisedGovernanceRepository } from "../../persistence/Services/SupervisedGovernanceRepository.ts";
 import { SupervisedRuntimeRepository } from "../../persistence/Services/SupervisedRuntimeRepository.ts";
 import { builtInSubscriptions } from "../../supervised/signal/BuiltInSubscriptions.ts";
+import { SUPERVISED_BASE_POLICY_HASH } from "../../supervised/runtime/HarnessPatchPolicy.ts";
 import { decideSupervisedCommand } from "../supervised/decider.ts";
 import { SupervisedRuntimeDaemon } from "../Services/SupervisedRuntimeDaemon.ts";
 import { SupervisedSignalDelivery } from "../Services/SupervisedSignalDelivery.ts";
@@ -25,9 +31,12 @@ import {
   failSubscriptionDelivery,
   shouldDeferRlmProvisioningReconciliation,
   orchestrationContextEvent,
+  orchestrationReviewEvent,
+  restartRunRecoveryPath,
   terminalRunRecoveryPath,
   SupervisedRuntimeDaemonLive,
 } from "./SupervisedRuntimeDaemon.ts";
+import { SupervisedSignalDeliveryLive } from "./SupervisedSignalDelivery.ts";
 
 const delivered: string[] = [];
 const deliveryLayer = Layer.succeed(SupervisedSignalDelivery, {
@@ -114,6 +123,22 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
     ]);
     assert.deepEqual(terminalRunRecoveryPath("queued", "failed"), ["admitted", "failed"]);
     assert.deepEqual(terminalRunRecoveryPath("paused", "cancelled"), ["cancelled"]);
+  });
+
+  it("derives an epoch-bounded ordinary Run restart path", () => {
+    assert.deepEqual(restartRunRecoveryPath({ status: "running", daemonEpoch: 2 }, 3), [
+      "interrupted",
+      "recovering",
+      "running",
+    ]);
+    assert.deepEqual(restartRunRecoveryPath({ status: "interrupted", daemonEpoch: 3 }, 3), [
+      "recovering",
+      "running",
+    ]);
+    assert.deepEqual(restartRunRecoveryPath({ status: "recovering", daemonEpoch: 3 }, 3), [
+      "running",
+    ]);
+    assert.deepEqual(restartRunRecoveryPath({ status: "running", daemonEpoch: 3 }, 3), []);
   });
 
   it("projects committed Lead context activity into the signal plane", () => {
@@ -349,7 +374,7 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
 
       assert.equal(recovered.providerSessions[0]?.lifecycleState, "failed");
       assert.equal(recovered.agentSeats[0]?.lifecycleState, "failed");
-      assert.equal(recovered.revision, 2);
+      assert.equal(recovered.revision, 3);
     }),
   );
 
@@ -456,13 +481,15 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
 
       yield* daemon.restart;
 
-      assert.ok(
-        dispatched.some(
-          (command) =>
-            command.type === "supervised.run.transition" &&
-            command.runId === "run-interrupted" &&
-            command.status === "recovering",
-        ),
+      assert.deepEqual(
+        dispatched
+          .filter(
+            (command) =>
+              command.type === "supervised.run.transition" &&
+              command.runId === "run-interrupted",
+          )
+          .map((command) => command.status),
+        ["recovering", "running"],
       );
       yield* sql`DELETE FROM projection_projects WHERE project_id = 'project-1'`;
     }),
@@ -635,7 +662,7 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
         dispatched.length = 0;
         const daemon = yield* SupervisedRuntimeDaemon;
         const repository = yield* SupervisedRuntimeRepository;
-        const basePolicyHash = `sha256:${"c".repeat(64)}` as const;
+        const basePolicyHash = SUPERVISED_BASE_POLICY_HASH;
         const patch = {
           id: "patch-daemon-rollback" as const,
           name: "Require evidence before completion",
@@ -667,10 +694,10 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
             successfulEvaluations: 0,
             evidenceRefs: [],
             lastEvaluationAt: null,
-            lastControlPlaneSequence: 1,
+            lastControlPlaneSequence: 0,
           },
           rollback: null,
-          lastControlPlaneSequence: 1,
+          lastControlPlaneSequence: 0,
           version: 1,
           revision: 4,
           createdBy: { kind: "seat" as const, actorId: "supervisor-1", seatId: "supervisor-1" as const },
@@ -916,6 +943,10 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
         runId: "run-rlm-daemon",
         taskId: "task-rlm-daemon",
         taskNodeId: null,
+        actorSeatId: "lead-rlm-daemon",
+        authorityReceiptId: "receipt-lead-rlm-daemon",
+        effectiveRole: "lead",
+        rootLeaseIds: ["root-lease-rlm-daemon"],
         rlmEpisodeId: episode.id,
         parentSessionId: role === "rlm_branch" ? "session-rlm-root" : null,
         peerSpecialtyId: null,
@@ -936,8 +967,12 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
           inputTokens: 0,
           outputTokens: 0,
           contextTokens: 0,
-          providerLimitTokens: 128_000,
-          contextUsagePercent: 0,
+          providerLimitTokens: null,
+          contextUsagePercent: null,
+        },
+        usageProvenance: {
+          inputOutputTokens: "unavailable",
+          contextWindow: "unavailable",
         },
         status: "queued",
         retryCount: 0,
@@ -966,7 +1001,7 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
           },
         });
       }
-      const branchThread = (id: string, answer: string) => ({
+      const branchThread = (id: string, answer: string, withTerminalSources = false) => ({
         id,
         modelSelection: { provider: "codex", model: "gpt-5.6-sol", options: { reasoningEffort: "high" } },
         runtimeMode: "full-access",
@@ -990,7 +1025,31 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
             updatedAt: "2026-08-09T01:00:02.000Z",
           },
         ],
-        activities: [],
+        activities: withTerminalSources
+          ? [
+              {
+                id: `${id}:context-event`,
+                tone: "info",
+                kind: "context-window.updated",
+                summary: "Context window updated",
+                payload: { usedTokens: 1_000, maxTokens: 128_000, usedPercent: 0.78125 },
+                turnId: `${id}:turn`,
+                createdAt: "2026-08-09T01:00:01.000Z",
+              },
+              {
+                id: `${id}:terminal-event`,
+                tone: "info",
+                kind: "turn.completed",
+                summary: "Turn completed",
+                payload: {
+                  state: "completed",
+                  modelUsage: { "gpt-5.6-sol": { inputTokens: 100, outputTokens: 25 } },
+                },
+                turnId: `${id}:turn`,
+                createdAt: "2026-08-09T01:00:02.000Z",
+              },
+            ]
+          : [],
         session: {
           status: "ready",
           lastError: null,
@@ -1011,6 +1070,34 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
 
       yield* daemon.reconcile;
 
+      assert.equal(
+        dispatched.some((command) => command.type === "supervised.evidence.publish"),
+        false,
+      );
+      assert.equal(
+        dispatched.some(
+          (command) =>
+            command.type === "supervised.model-session.upsert" &&
+            command.modelSession.status === "completed",
+        ),
+        false,
+      );
+      assert.equal(
+        dispatched.filter((command) => command.type === "thread.turn.start").length,
+        2,
+      );
+
+      threadDetails.set(
+        "thread-rlm-a",
+        branchThread("thread-rlm-a", "Visible evidence A.", true),
+      );
+      threadDetails.set(
+        "thread-rlm-b",
+        branchThread("thread-rlm-b", "Visible evidence B.", true),
+      );
+      dispatched.length = 0;
+      yield* daemon.reconcile;
+
       const evidenceCommands = dispatched.filter(
         (command) => command.type === "supervised.evidence.publish",
       );
@@ -1021,12 +1108,25 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
         (command) => command.type === "thread.turn.start" && command.threadId === "thread-rlm-root",
       );
       assert.equal(evidenceCommands.length, 2);
+      assert.ok(
+        evidenceCommands.every(
+          (command) =>
+            command.type !== "supervised.evidence.publish" ||
+            command.evidence.sourceEventIds.length > 0,
+        ),
+      );
       assert.equal(
         sessionCommands.filter(
           (command) =>
             command.type === "supervised.model-session.upsert" &&
             command.modelSession.role === "rlm_branch" &&
-            command.modelSession.status === "completed",
+            command.modelSession.status === "completed" &&
+            command.modelSession.actorSeatId === "lead-rlm-daemon" &&
+            command.modelSession.authorityReceiptId === "receipt-lead-rlm-daemon" &&
+            command.modelSession.effectiveRole === "lead" &&
+            command.modelSession.providerSessionId === null &&
+            command.modelSession.usageProvenance.inputOutputTokens === "provider_observed" &&
+            command.modelSession.usageProvenance.contextWindow === "provider_observed",
         ).length,
         2,
       );
@@ -1084,7 +1184,11 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
       }
       yield* applySupervisedDispatches(dispatched);
 
-      const completedRoot = branchThread("thread-rlm-root", "Root synthesis with evidence citations.");
+      const completedRoot = branchThread(
+        "thread-rlm-root",
+        "Root synthesis with evidence citations.",
+        true,
+      );
       threadDetails.set("thread-rlm-root", completedRoot);
       dispatched.length = 0;
       yield* daemon.reconcile;
@@ -1279,4 +1383,554 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
         assert.match(deadLetter.reason, /queue depth/);
       }),
     );
+});
+
+type ScenarioJReviewStatus = "accepted" | "rejected";
+
+const scenarioJReviewFact = (index: number, status: ScenarioJReviewStatus) => {
+  const resolvedAt = at(index);
+  const intervention = {
+    id: `intervention-review-${index}`,
+    roomId: "room-review",
+    requestedBy: {
+      kind: "seat" as const,
+      actorId: "supervisor-delivery",
+      seatId: "supervisor-delivery",
+    },
+    specialistThreadId: "thread-supervisor-delivery",
+    reason: `Review concern ${index}`,
+    material: true,
+    evidenceRefs: [`evidence-review-${index}`],
+    status: status === "rejected" ? ("rejected" as const) : ("reconciled" as const),
+    createdAt: at(index - 1),
+    updatedAt: resolvedAt,
+    revision: 1,
+  };
+  const reconciliation = {
+    id: `reconciliation-review-${index}`,
+    interventionId: intervention.id,
+    roomId: "room-review",
+    leadSeatId: "lead-review",
+    status,
+    taskNodeRevisionId: "revision-review",
+    reason: status === "rejected" ? "Evidence is incomplete." : null,
+    createdAt: at(index - 1),
+    resolvedAt,
+    revision: 1,
+  };
+  const event = {
+    sequence: index,
+    eventId: `event-review-committed-${index}`,
+    aggregateKind: "intervention",
+    aggregateId: intervention.id,
+    type: "supervised.intervention-reconciled",
+    payload: {
+      acceptedRevision: 1,
+      actor: { kind: "seat", actorId: "lead-review", seatId: "lead-review" },
+      intervention,
+      reconciliation,
+    },
+    occurredAt: resolvedAt,
+    commandId: `command-review-${index}`,
+    causationEventId: null,
+    correlationId: `command-review-${index}`,
+    metadata: { schemaVersion: "1.0.0" },
+  } as OrchestrationEvent;
+  return { event, intervention, reconciliation };
+};
+
+const scenarioJReadModelFor = (
+  facts: ReadonlyArray<ReturnType<typeof scenarioJReviewFact>>,
+): OrchestrationReadModel =>
+  ({
+    snapshotSequence: facts.length,
+    spaces: [{ id: "space-review" }],
+    projects: [{ id: "project-review", spaceId: "space-review" }],
+    threads: [
+      {
+        id: "thread-lead-review",
+        deletedAt: null,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+      },
+      {
+        id: "thread-supervisor-delivery",
+        deletedAt: null,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+      },
+    ],
+    supervised: {
+      ...emptySupervisedRuntimeSnapshot(at(0)),
+      rooms: [
+        {
+          id: "room-review",
+          projectId: "project-review",
+          title: "Review Room",
+          leadSeatId: "lead-review",
+          status: "active",
+          graphRevision: 7,
+          revision: 1,
+          createdAt: at(0),
+          updatedAt: at(0),
+        },
+      ],
+      tasks: [
+        {
+          id: "task-review",
+          roomId: "room-review",
+          title: "Review Task",
+          intent: "Exercise the committed review loop.",
+          acceptanceCriteria: ["Supervisor observes without acquiring Root."],
+          lifecycle: "review",
+          activeGraphRevision: 7,
+          revision: 1,
+          createdAt: at(0),
+          updatedAt: at(0),
+        },
+      ],
+      taskNodes: [
+        {
+          id: "node-review",
+          taskId: "task-review",
+          roomId: "room-review",
+          parentNodeId: null,
+          title: "Review Node",
+          description: null,
+          lifecycle: "review",
+          activeRevisionId: "revision-review",
+          graphRevision: 7,
+          revision: 1,
+          createdAt: at(0),
+          updatedAt: at(0),
+        },
+      ],
+      taskNodeRevisions: [
+        {
+          id: "revision-review",
+          taskNodeId: "node-review",
+          graphRevision: 7,
+          scope: "Review the durable change.",
+          acceptanceCriteria: ["Evidence is canonical."],
+          dependencyNodeIds: [],
+          evidenceRefs: [],
+          createdBy: { kind: "seat", actorId: "lead-review", seatId: "lead-review" },
+          createdAt: at(0),
+        },
+      ],
+      interventions: facts.map((fact) => fact.intervention),
+      reconciliations: facts.map((fact) => fact.reconciliation),
+    },
+    updatedAt: facts.at(-1)?.event.occurredAt ?? at(0),
+  }) as never;
+
+const scenarioJGovernanceSnapshot = () => {
+  const now = at(0);
+  const empty = emptySupervisedGovernanceSnapshot(now);
+  return {
+    ...empty,
+    workspaces: [
+      {
+        id: "workspace-review",
+        ownerNamespace: "owner",
+        title: "Review Workspace",
+        lifecycleState: "active",
+        revision: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ],
+    agentSeats: [
+      {
+        id: "lead-review",
+        workspaceId: "workspace-review",
+        roomIds: ["room-review"],
+        identityRole: "lead",
+        effectiveRole: "lead",
+        profileId: "profile-lead-review",
+        providerSessionId: null,
+        lifecycleState: "active",
+        workState: "idle",
+        authorityReceiptId: "receipt-lead-review",
+        threadId: "thread-lead-review",
+        projectId: "project-review",
+        profileSnapshotId: null,
+        predecessorThreadIds: [],
+        displayName: "Review Room Lead",
+        createdAt: now,
+        retainedAt: null,
+        retiredAt: null,
+        revision: 0,
+        updatedAt: now,
+      },
+      {
+        id: "supervisor-delivery",
+        workspaceId: "workspace-review",
+        roomIds: ["room-review"],
+        identityRole: "supervisor",
+        effectiveRole: "supervisor",
+        profileId: "profile-supervisor-delivery",
+        concern: "delivery",
+        providerSessionId: null,
+        lifecycleState: "active",
+        workState: "idle",
+        authorityReceiptId: "receipt-supervisor-delivery",
+        threadId: "thread-supervisor-delivery",
+        projectId: null,
+        profileSnapshotId: null,
+        predecessorThreadIds: [],
+        displayName: "Delivery Supervisor",
+        createdAt: now,
+        retainedAt: null,
+        retiredAt: null,
+        revision: 0,
+        updatedAt: now,
+      },
+    ],
+    authorityReceipts: [
+      {
+        id: "receipt-lead-review",
+        actorSeatId: "lead-review",
+        identityRole: "lead",
+        effectiveRole: "lead",
+        workspaceScopes: ["workspace-review"],
+        roomScopes: ["room-review"],
+        taskNodeScopes: [],
+        allowedCommands: [],
+        allowedTools: [],
+        rootLeaseIds: ["root-lease-review"],
+        mandateIds: [],
+        runPolicyRevision: 0,
+        issuedAt: now,
+        expiresAt: null,
+        revokedAt: null,
+      },
+      {
+        id: "receipt-supervisor-delivery",
+        actorSeatId: "supervisor-delivery",
+        identityRole: "supervisor",
+        effectiveRole: "supervisor",
+        workspaceScopes: ["workspace-review"],
+        roomScopes: ["room-review"],
+        taskNodeScopes: [],
+        allowedCommands: [],
+        allowedTools: [],
+        rootLeaseIds: [],
+        mandateIds: [],
+        runPolicyRevision: 0,
+        issuedAt: now,
+        expiresAt: null,
+        revokedAt: null,
+      },
+    ],
+    rootLeases: [
+      {
+        id: "root-lease-review",
+        workspaceId: "workspace-review",
+        roomId: "room-review",
+        holderSeatId: "lead-review",
+        status: "active",
+        acquiredUnderReceiptId: "receipt-lead-review",
+        predecessorLeaseId: null,
+        acquiredAt: now,
+        releasedAt: null,
+        expiresAt: null,
+        revision: 0,
+        updatedAt: now,
+      },
+    ],
+    orchestration: {
+      ...empty.orchestration,
+      missions: [
+        {
+          id: "mission-delivery-review",
+          supervisorSeatId: "supervisor-delivery",
+          brief: "Observe delivery review churn.",
+          focus: "delivery",
+          scope: [{ kind: "project", projectId: "project-review" }],
+          grants: ["lead.observe"],
+          endCondition: { kind: "manual" },
+          status: "active",
+          sourceMessageId: null,
+          createdAt: now,
+          updatedAt: now,
+          completedAt: null,
+          revision: 0,
+        },
+      ],
+    },
+  } as never;
+};
+
+const scenarioJCommittedEvents: OrchestrationEvent[] = [];
+const scenarioJDispatched: OrchestrationCommand[] = [];
+let scenarioJReadModel = scenarioJReadModelFor([]);
+
+const scenarioJEngineLayer = Layer.succeed(OrchestrationEngineService, {
+  dispatch: (command: OrchestrationCommand) =>
+    Effect.sync(() => {
+      scenarioJDispatched.push(command);
+      return { sequence: 10_000 + scenarioJDispatched.length };
+    }),
+  getReadModel: () => Effect.sync(() => scenarioJReadModel),
+  getEventHighWaterSequence: Effect.sync(
+    () => scenarioJCommittedEvents.at(-1)?.sequence ?? 0,
+  ),
+  readEventsThrough: (fromSequenceExclusive: number, throughSequenceInclusive: number) =>
+    Stream.fromIterable(
+      scenarioJCommittedEvents.filter(
+        (event) =>
+          event.sequence > fromSequenceExclusive && event.sequence <= throughSequenceInclusive,
+      ),
+    ),
+  streamDomainEvents: Stream.never,
+} as never);
+const scenarioJSnapshotQueryLayer = Layer.succeed(ProjectionSnapshotQuery, {
+  getSnapshot: () => Effect.sync(() => scenarioJReadModel),
+  getThreadDetailById: () => Effect.succeed(Option.none()),
+} as never);
+const scenarioJRepositoryLayer = SupervisedRuntimeRepositoryLive.pipe(
+  Layer.provideMerge(SqlitePersistenceMemory),
+);
+const scenarioJGovernanceRepositoryLayer = SupervisedGovernanceRepositoryLive.pipe(
+  Layer.provideMerge(SqlitePersistenceMemory),
+);
+const scenarioJDeliveryLayer = SupervisedSignalDeliveryLive.pipe(
+  Layer.provideMerge(scenarioJRepositoryLayer),
+  Layer.provideMerge(scenarioJGovernanceRepositoryLayer),
+  Layer.provideMerge(scenarioJEngineLayer),
+);
+const scenarioJDaemonLayer = SupervisedRuntimeDaemonLive.pipe(
+  Layer.provideMerge(scenarioJRepositoryLayer),
+  Layer.provideMerge(scenarioJGovernanceRepositoryLayer),
+  Layer.provideMerge(scenarioJDeliveryLayer),
+  Layer.provideMerge(scenarioJEngineLayer),
+  Layer.provideMerge(scenarioJSnapshotQueryLayer),
+);
+const scenarioJProductionLayer = it.layer(
+  Layer.mergeAll(
+    SqlitePersistenceMemory,
+    scenarioJRepositoryLayer,
+    scenarioJGovernanceRepositoryLayer,
+    scenarioJEngineLayer,
+    scenarioJSnapshotQueryLayer,
+    scenarioJDeliveryLayer,
+    scenarioJDaemonLayer,
+  ),
+);
+
+scenarioJProductionLayer("Scenario J committed review signal path", (it) => {
+  it("maps only canonical accepted and rejected review facts", () => {
+    const accepted = scenarioJReviewFact(1, "accepted");
+    const rejected = scenarioJReviewFact(2, "rejected");
+    const readModel = scenarioJReadModelFor([accepted, rejected]);
+
+    const completed = orchestrationReviewEvent(accepted.event, readModel);
+    const failed = orchestrationReviewEvent(rejected.event, readModel);
+    const humanCompleted = orchestrationReviewEvent(
+      {
+        ...accepted.event,
+        payload: {
+          ...accepted.event.payload,
+          actor: { kind: "user", actorId: "user-review" },
+        },
+      } as never,
+      readModel,
+    );
+    assert.equal(completed?.type, "ReviewCompleted");
+    assert.equal(failed?.type, "ReviewRejected");
+    assert.equal(humanCompleted?.payload.reviewerSeatId, "lead-review");
+    assert.deepEqual(completed?.payload, {
+      taskId: "task-review",
+      taskNodeId: "node-review",
+      graphRevision: 7,
+      roomId: "room-review",
+      leadSeatId: "lead-review",
+      reviewerSeatId: "lead-review",
+      rejectionReason: null,
+      evidenceRefs: ["evidence-review-1"],
+    });
+    assert.deepEqual(failed?.payload, {
+      taskId: "task-review",
+      taskNodeId: "node-review",
+      graphRevision: 7,
+      roomId: "room-review",
+      leadSeatId: "lead-review",
+      reviewerSeatId: "lead-review",
+      rejectionReason: "Evidence is incomplete.",
+      evidenceRefs: ["evidence-review-2"],
+    });
+    assert.equal(
+      orchestrationReviewEvent(
+        {
+          ...accepted.event,
+          payload: {
+            ...accepted.event.payload,
+            reconciliation: { ...accepted.reconciliation, status: "revised" },
+          },
+        } as never,
+        readModel,
+      ),
+      null,
+    );
+    assert.equal(orchestrationReviewEvent(accepted.event, scenarioJReadModelFor([])), null);
+  });
+
+  it.effect(
+    "wakes the distinct delivery Supervisor after four committed reviews without transferring Root or Lead authority",
+    () =>
+      Effect.gen(function* () {
+        scenarioJCommittedEvents.length = 0;
+        scenarioJDispatched.length = 0;
+        const facts = [
+          scenarioJReviewFact(1, "accepted"),
+          scenarioJReviewFact(2, "rejected"),
+          scenarioJReviewFact(3, "accepted"),
+          scenarioJReviewFact(4, "rejected"),
+        ];
+        scenarioJCommittedEvents.push(...facts.map((fact) => fact.event));
+        scenarioJReadModel = scenarioJReadModelFor(facts);
+
+        const daemon = yield* SupervisedRuntimeDaemon;
+        const repository = yield* SupervisedRuntimeRepository;
+        const governance = yield* SupervisedGovernanceRepository;
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`
+          INSERT INTO projection_projects (
+            project_id, kind, title, workspace_root, scripts_json, created_at, updated_at
+          ) VALUES (
+            'project-review', 'project', 'Review Project', '/tmp/project-review', '[]',
+            ${at(0)}, ${at(0)}
+          )
+        `;
+        yield* repository.replaceSnapshot(scenarioJReadModel.supervised);
+        yield* governance.replaceSnapshot(scenarioJGovernanceSnapshot());
+        const beforeGovernance = yield* governance.getSnapshot();
+        const beforeLeadReceipt = beforeGovernance.authorityReceipts.find(
+          (receipt) => receipt.actorSeatId === "lead-review",
+        );
+        const beforeSupervisorReceipt = beforeGovernance.authorityReceipts.find(
+          (receipt) => receipt.actorSeatId === "supervisor-delivery",
+        );
+
+        yield* daemon.reconcile;
+
+        const projectedEvents = yield* repository.listControlPlaneEvents({
+          afterSequence: 0,
+          limit: 100,
+        });
+        assert.deepEqual(
+          projectedEvents.map((event) => event.type),
+          ["ReviewCompleted", "ReviewRejected", "ReviewCompleted", "ReviewRejected"],
+        );
+        assert.ok(
+          projectedEvents.every((event) => {
+            const payload = event.payload as Record<string, unknown>;
+            return (
+              payload.roomId === "room-review" &&
+              payload.leadSeatId === "lead-review" &&
+              payload.reviewerSeatId === "lead-review" &&
+              Array.isArray(payload.evidenceRefs) &&
+              payload.evidenceRefs.length === 1
+            );
+          }),
+        );
+
+        let snapshot = yield* repository.getSnapshot({ includeDisabled: true });
+        const reviewSignals = snapshot.signals.filter(
+          (signal) => signal.kind === "ReviewLoopSuspected",
+        );
+        assert.equal(reviewSignals.length, 1);
+        assert.equal(reviewSignals[0]?.measuredValue, 4);
+        assert.deepEqual(reviewSignals[0]?.context, {
+          taskId: "task-review",
+          taskNodeId: "node-review",
+          roomId: "room-review",
+          leadSeatId: "lead-review",
+          graphRevision: 7,
+          reviewCount: 4,
+          reviewerSeatIds: ["lead-review"],
+          rejectionReasons: ["Evidence is incomplete.", "Evidence is incomplete."],
+          repeatedProblems: ["Evidence is incomplete."],
+          elapsedMs: 180_000,
+          costUsd: 0,
+          evidenceRefs: [
+            "evidence-review-1",
+            "evidence-review-2",
+            "evidence-review-3",
+            "evidence-review-4",
+          ],
+        });
+        const wake = scenarioJDispatched.find(
+          (command) => command.type === "thread.turn.start",
+        );
+        assert.equal(wake?.type, "thread.turn.start");
+        if (wake?.type !== "thread.turn.start") return;
+        assert.equal(wake.threadId, "thread-supervisor-delivery");
+        assert.notEqual(wake.threadId, "thread-lead-review");
+        assert.match(wake.message.text, /mission_id: mission-delivery-review/);
+        assert.match(wake.message.text, /grants no new authority/);
+        assert.equal(
+          scenarioJDispatched.filter((command) => command.type === "thread.turn.start").length,
+          1,
+        );
+
+        const fifth = scenarioJReviewFact(5, "accepted");
+        facts.push(fifth);
+        scenarioJCommittedEvents.push(fifth.event);
+        scenarioJReadModel = scenarioJReadModelFor(facts);
+        yield* daemon.reconcile;
+
+        snapshot = yield* repository.getSnapshot({ includeDisabled: true });
+        assert.equal(
+          snapshot.signals.filter((signal) => signal.kind === "ReviewLoopSuspected").length,
+          1,
+        );
+        assert.equal(
+          scenarioJDispatched.filter((command) => command.type === "thread.turn.start").length,
+          1,
+        );
+        const evaluation = yield* repository.getSubscriptionEvaluationState(
+          "builtin-review-loop-v1" as never,
+        );
+        const evaluationGroup = Object.values(evaluation.groups)[0];
+        assert.equal(evaluationGroup?.armed, false);
+        assert.equal(
+          Date.parse(evaluationGroup?.nextEligibleAt ?? "") -
+            Date.parse(reviewSignals[0]?.triggeredAt ?? ""),
+          600_000,
+        );
+
+        const afterGovernance = yield* governance.getSnapshot();
+        const supervisor = afterGovernance.agentSeats.find(
+          (seat) => seat.id === "supervisor-delivery",
+        );
+        assert.equal(supervisor?.identityRole, "supervisor");
+        assert.equal(supervisor?.effectiveRole, "supervisor");
+        assert.deepEqual(afterGovernance.rootLeases, beforeGovernance.rootLeases);
+        assert.deepEqual(
+          afterGovernance.authorityReceipts.find(
+            (receipt) => receipt.actorSeatId === "lead-review",
+          ),
+          beforeLeadReceipt,
+        );
+        assert.deepEqual(
+          afterGovernance.authorityReceipts.find(
+            (receipt) => receipt.actorSeatId === "supervisor-delivery",
+          ),
+          beforeSupervisorReceipt,
+        );
+        assert.deepEqual(beforeSupervisorReceipt?.rootLeaseIds, []);
+        assert.deepEqual(beforeLeadReceipt?.rootLeaseIds, ["root-lease-review"]);
+        assert.equal(
+          scenarioJReadModel.supervised.rooms.find((room) => room.id === "room-review")
+            ?.leadSeatId,
+          "lead-review",
+        );
+        assert.equal(
+          snapshot.audit.filter((entry) => entry.outcome === "supervisor_woken").length,
+          1,
+        );
+      }),
+  );
 });

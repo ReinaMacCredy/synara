@@ -134,7 +134,9 @@ export const ModelRoutingServiceLive = Layer.effect(
             (sameId.provider !== input.profile.provider ||
               sameId.model !== input.profile.model ||
               sameId.version !== input.profile.version)) ||
-          (current && input.profile.revision !== current.revision + 1)
+          (current
+            ? input.profile.revision !== current.revision + 1
+            : input.profile.revision !== 0)
         ) {
           return yield* Effect.fail(
             new ModelRoutingDomainError(
@@ -166,7 +168,9 @@ export const ModelRoutingServiceLive = Layer.effect(
           (current?.revision ?? null) !== input.expectedRevision ||
           (current && current.id !== input.profile.id) ||
           (sameId && sameId.userId !== input.profile.userId) ||
-          (current && input.profile.revision !== current.revision + 1)
+          (current
+            ? input.profile.revision !== current.revision + 1
+            : input.profile.revision !== 0)
         ) {
           return yield* Effect.fail(
             new ModelRoutingDomainError(

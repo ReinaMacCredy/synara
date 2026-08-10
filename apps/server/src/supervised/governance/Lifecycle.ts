@@ -407,7 +407,8 @@ export interface GovernanceRecoveryResult {
   readonly actions: ReadonlyArray<
     | { readonly kind: "resume_provider"; readonly providerSessionId: string }
     | { readonly kind: "resume_intervention"; readonly interventionId: string }
-    | { readonly kind: "reconcile_root_transfer"; readonly sagaId: string }
+    | { readonly kind: "reconcile_role_assumption"; readonly roleAssumptionId: string }
+    | { readonly kind: "reconcile_lead_replacement"; readonly leadReplacementId: string }
   >;
 }
 
@@ -445,7 +446,7 @@ export function recoverGovernanceSnapshot(
   );
   const roleAssumptions = snapshot.roleAssumptions.map((assumption) => {
     if (assumption.lifecycleState === "lease_transferred") {
-      actions.push({ kind: "reconcile_root_transfer", sagaId: assumption.id });
+      actions.push({ kind: "reconcile_role_assumption", roleAssumptionId: assumption.id });
       return assumption;
     }
     if (
@@ -464,7 +465,7 @@ export function recoverGovernanceSnapshot(
   });
   const leadReplacements = snapshot.leadReplacements.map((replacement) => {
     if (replacement.lifecycleState === "lease_transferred") {
-      actions.push({ kind: "reconcile_root_transfer", sagaId: replacement.id });
+      actions.push({ kind: "reconcile_lead_replacement", leadReplacementId: replacement.id });
       return replacement;
     }
     if (
@@ -552,10 +553,11 @@ export function settleGovernanceRecoveryActions(
       continue;
     }
 
-    const assumption = next.roleAssumptions.find(
-      (candidate) => candidate.id === action.sagaId,
-    );
-    if (assumption?.lifecycleState === "lease_transferred") {
+    if (action.kind === "reconcile_role_assumption") {
+      const assumption = next.roleAssumptions.find(
+        (candidate) => candidate.id === action.roleAssumptionId,
+      );
+      if (!assumption || assumption.lifecycleState !== "lease_transferred") continue;
       const reconciled = transitionRoleAssumption(
         assumption,
         assumption.operation === "assume" ? "topology_reconciled" : "released",
@@ -570,8 +572,9 @@ export function settleGovernanceRecoveryActions(
       };
       continue;
     }
+    if (action.kind !== "reconcile_lead_replacement") continue;
     const replacement = next.leadReplacements.find(
-      (candidate) => candidate.id === action.sagaId,
+      (candidate) => candidate.id === action.leadReplacementId,
     );
     if (replacement?.lifecycleState === "lease_transferred") {
       const reconciled = transitionLeadReplacement(replacement, "topology_reconciled", at);

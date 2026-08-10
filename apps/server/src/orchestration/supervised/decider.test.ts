@@ -8,17 +8,29 @@ import {
   type PeerSpecialty,
   type PluginInstallation,
   type Room,
+  type SupervisedActor,
   type SupervisedCommand,
+  type SupervisedDomainEvent,
   type SupervisedGovernanceSnapshot,
+  type SupervisedRuntimeSnapshot,
 } from "@synara/contracts";
 import { describe, it } from "@effect/vitest";
 import { Effect } from "effect";
 
 import { builtInSubscriptions } from "../../supervised/signal/BuiltInSubscriptions.ts";
+import { SUPERVISED_BASE_POLICY_HASH } from "../../supervised/runtime/HarnessPatchPolicy.ts";
+import {
+  applyHarnessPatchSandboxEvaluation,
+  awaitHarnessPatchApproval,
+  createHarnessPatchProposal,
+  recordHarnessPatchCanaryEvaluation,
+  startHarnessPatchCanary,
+} from "../../supervised/runtime/HarnessPatches.ts";
 import { decideSupervisedCommand } from "./decider.ts";
+import { projectSupervisedEvent } from "./projector.ts";
 
 const now = "2026-08-07T00:00:00.000Z";
-const hash = `sha256:${"a".repeat(64)}` as const;
+const hash = SUPERVISED_BASE_POLICY_HASH;
 const room: Room = {
   id: "room-1" as Room["id"],
   projectId: "project-1" as Room["projectId"],
@@ -564,6 +576,208 @@ describe("Supervised command authority", () => {
       assert.equal(denied._tag, "Failure");
     });
 
+    it("runs a Supervisor proposal through failed-canary rollback without mutating Root, Lead, or TaskNode authority", async () => {
+      const supervisorSeatId = "supervisor-patch";
+      const supervisorGovernance = governanceForSeat(supervisorSeatId, [
+        "supervised.patch.upsert",
+      ]);
+      const leadGovernance = governanceForSeat("lead-1", []);
+      const rootLeaseId = "lease-lead-root";
+      const leadReceipt = {
+        ...leadGovernance.authorityReceipts[0]!,
+        rootLeaseIds: [rootLeaseId as never],
+      };
+      const governance: SupervisedGovernanceSnapshot = {
+        ...supervisorGovernance,
+        agentSeats: [
+          supervisorGovernance.agentSeats[0]!,
+          leadGovernance.agentSeats[0]!,
+        ],
+        authorityReceipts: [supervisorGovernance.authorityReceipts[0]!, leadReceipt],
+        rootLeases: [
+          {
+            id: rootLeaseId as never,
+            workspaceId: "workspace-1" as never,
+            roomId: room.id,
+            holderSeatId: "lead-1" as never,
+            status: "active",
+            acquiredUnderReceiptId: leadReceipt.id,
+            predecessorLeaseId: null,
+            acquiredAt: now,
+            releasedAt: null,
+            expiresAt: null,
+            revision: 1,
+            updatedAt: now,
+          },
+        ],
+      };
+      const taskNode = {
+        id: "task-node-patch" as never,
+        taskId: "task-patch" as never,
+        roomId: room.id,
+        parentNodeId: null,
+        title: "Patch-observed task",
+        description: null,
+        lifecycle: "running" as const,
+        activeRevisionId: "task-node-revision-patch" as never,
+        graphRevision: 1,
+        revision: 1,
+        createdAt: now,
+        updatedAt: now,
+      };
+      const workClaim = {
+        id: "work-claim-patch" as never,
+        taskNodeId: taskNode.id,
+        taskNodeRevisionId: taskNode.activeRevisionId,
+        runId: "run-patch" as never,
+        ownerSeatId: "lead-1",
+        status: "active" as const,
+        acquiredAt: now,
+        expiresAt: "2026-08-08T00:00:00.000Z",
+        releasedAt: null,
+        revision: 0,
+      };
+      let state: SupervisedRuntimeSnapshot = {
+        ...emptySupervisedRuntimeSnapshot(now),
+        rooms: [room],
+        taskNodes: [taskNode],
+        workClaims: [workClaim],
+      };
+      const authorityView = () => ({
+        rootLeases: governance.rootLeases,
+        leadSeat: governance.agentSeats.find((seat) => seat.id === "lead-1"),
+        leadReceipt: governance.authorityReceipts.find((receipt) => receipt.id === leadReceipt.id),
+        taskNode: state.taskNodes.find((candidate) => candidate.id === taskNode.id),
+        workClaim: state.workClaims.find((candidate) => candidate.id === workClaim.id),
+      });
+      const authorityBefore = structuredClone(authorityView());
+      let commandSequence = 0;
+      let eventSequence = 0;
+      const upsertPatch = async (
+        patch: HarnessPatch,
+        actor: SupervisedActor,
+        authorityReceiptId?: string,
+      ) => {
+        const current = state.harnessPatches.find((candidate) => candidate.id === patch.id);
+        commandSequence += 1;
+        const event = await Effect.runPromise(
+          decideSupervisedCommand({
+            command: {
+              type: "supervised.patch.upsert",
+              commandId: `command-patch-${commandSequence}`,
+              aggregateId: patch.id,
+              expectedRevision: current?.revision ?? 0,
+              idempotencyKey: `patch-${commandSequence}`,
+              actor,
+              ...(authorityReceiptId
+                ? { authorityReceiptId: authorityReceiptId as never }
+                : {}),
+              patch,
+              createdAt: patch.updatedAt,
+            },
+            state,
+            governance,
+          }),
+        );
+        eventSequence += 1;
+        state = projectSupervisedEvent(state, {
+          ...event,
+          sequence: eventSequence,
+        } as SupervisedDomainEvent);
+      };
+
+      const supervisor: SupervisedActor = {
+        kind: "seat",
+        actorId: supervisorSeatId,
+        seatId: supervisorSeatId as never,
+      };
+      const daemon: SupervisedActor = {
+        kind: "daemon",
+        actorId: "supervised-runtime",
+      };
+      const owner: SupervisedActor = { kind: "user", actorId: "owner" };
+      const proposed = createHarnessPatchProposal({
+        id: "patch-supervisor-canary" as never,
+        name: "Preserve review evidence",
+        patchType: "evaluation",
+        scope: { kind: "room", roomId: room.id },
+        content: "Require durable review evidence without changing canonical ownership.",
+        observationEvidenceRefs: ["evidence-supervisor-friction" as never],
+        createdBy: supervisor,
+        createdAt: now,
+      });
+      await upsertPatch(
+        proposed,
+        supervisor,
+        supervisorGovernance.authorityReceipts[0]!.id,
+      );
+
+      const sandboxed: HarnessPatch = {
+        ...proposed,
+        status: "sandboxed",
+        revision: proposed.revision + 1,
+        updatedAt: "2026-08-07T00:01:00.000Z",
+      };
+      await upsertPatch(sandboxed, daemon);
+      const evaluated = applyHarnessPatchSandboxEvaluation(sandboxed, {
+        passed: true,
+        basePolicyHash: hash,
+        evidenceRefs: ["evidence-sandbox-passed" as never],
+        regressions: [],
+        evaluatedBy: daemon,
+        evaluatedAt: "2026-08-07T00:02:00.000Z",
+        eventId: "event-sandbox-passed" as never,
+        controlPlaneSequence: 1,
+      });
+      await upsertPatch(evaluated, daemon);
+      const awaitingApproval = awaitHarnessPatchApproval(
+        evaluated,
+        daemon,
+        "2026-08-07T00:03:00.000Z",
+      );
+      await upsertPatch(awaitingApproval, daemon);
+      assert.throws(
+        () =>
+          startHarnessPatchCanary(
+            awaitingApproval,
+            supervisor,
+            "2026-08-07T00:04:00.000Z",
+            1,
+          ),
+        /Only the Human may approve/,
+      );
+      const canary = startHarnessPatchCanary(
+        awaitingApproval,
+        owner,
+        "2026-08-07T00:04:00.000Z",
+        1,
+      );
+      await upsertPatch(canary, owner);
+      const rolledBack = recordHarnessPatchCanaryEvaluation(canary, {
+        passed: false,
+        basePolicyHash: hash,
+        evidenceRefs: ["evidence-canary-regression" as never],
+        regressions: ["Review evidence regressed"],
+        evaluatedBy: daemon,
+        evaluatedAt: "2026-08-07T00:05:00.000Z",
+        eventId: "event-canary-regression" as never,
+        controlPlaneSequence: 2,
+      });
+      await upsertPatch(rolledBack, daemon);
+
+      const retained = state.harnessPatches.find((patch) => patch.id === proposed.id)!;
+      assert.equal(retained.createdBy.kind, "seat");
+      assert.deepEqual(retained.observationEvidenceRefs, ["evidence-supervisor-friction"]);
+      assert.equal(retained.status, "rolled_back");
+      assert.equal(retained.rollback?.rolledBackBy.kind, "daemon");
+      assert.equal(retained.basePolicyHash, SUPERVISED_BASE_POLICY_HASH);
+      assert.deepEqual(
+        supervisorGovernance.authorityReceipts[0]!.rootLeaseIds,
+        [],
+      );
+      assert.deepEqual(structuredClone(authorityView()), authorityBefore);
+    });
+
   it("admits one bounded WorkClaim and rejects a competing active claim", async () => {
     const run = {
       id: "run-1",
@@ -1087,6 +1301,143 @@ describe("Supervised command authority", () => {
     );
     assert.equal(episodeEvent.payload.acceptedRevision, 5);
     assert.equal(episodeEvent.payload.rlmEpisode?.revision, 5);
+  });
+
+  it("keeps retained model-session authority lineage immutable", async () => {
+    const run = {
+      id: "run-model-lineage",
+      roomId: room.id,
+      taskId: "task-model-lineage",
+      taskNodeId: null,
+      taskNodeRevisionId: null,
+      ownerSeatId: "lead-1",
+      policyId: "policy-model-lineage",
+      status: "running",
+      attempt: 1,
+      daemonEpoch: 1,
+      startedAt: now,
+      lastProgressAt: now,
+      finishedAt: null,
+      revision: 1,
+      createdAt: now,
+      updatedAt: now,
+    } as never;
+    const episode = {
+      id: "episode-model-lineage",
+      runId: run.id,
+      rootModelSessionId: "session-model-lineage",
+      branchModelSessionIds: ["session-model-a", "session-model-b"],
+      branchCount: 2,
+    } as never;
+    const current = {
+      id: "session-model-lineage",
+      roomId: room.id,
+      runId: run.id,
+      taskId: run.taskId,
+      taskNodeId: null,
+      actorSeatId: "lead-1",
+      authorityReceiptId: "receipt-lead-1",
+      effectiveRole: "lead",
+      rootLeaseIds: ["root-lease-1"],
+      rlmEpisodeId: episode.id,
+      parentSessionId: null,
+      threadId: "thread-model-lineage",
+      role: "rlm_root",
+      revision: 0,
+    } as never;
+    const exit = await Effect.runPromise(
+      Effect.exit(
+        decideSupervisedCommand({
+          state: {
+            ...emptySupervisedRuntimeSnapshot(now),
+            rooms: [room],
+            runs: [run],
+            rlmEpisodes: [episode],
+            modelSessions: [current],
+          },
+          command: {
+            ...baseCommand,
+            type: "supervised.model-session.upsert",
+            commandId: "command-model-lineage",
+            actor: { kind: "daemon", actorId: "supervised-runtime" },
+            aggregateId: current.id,
+            expectedRevision: current.revision,
+            idempotencyKey: "model-lineage-mutation",
+            modelSession: {
+              ...current,
+              authorityReceiptId: "receipt-other",
+            },
+          } as never,
+        }),
+      ),
+    );
+
+    assert.equal(exit._tag, "Failure");
+    if (exit._tag === "Failure") {
+      assert.match(String(exit.cause), /authority lineage cannot change/i);
+    }
+  });
+
+  it("bounds epoch-scoped daemon restart commands to the ordinary Run recovery corridor", async () => {
+    const run = {
+      id: "run-restart",
+      roomId: room.id,
+      taskId: "task-restart",
+      taskNodeId: null,
+      taskNodeRevisionId: null,
+      ownerSeatId: "peer-restart",
+      policyId: "policy-restart",
+      status: "running",
+      attempt: 1,
+      daemonEpoch: 1,
+      startedAt: now,
+      lastProgressAt: now,
+      finishedAt: null,
+      revision: 3,
+      createdAt: now,
+      updatedAt: now,
+    } as const;
+    const state = {
+      ...emptySupervisedRuntimeSnapshot(now),
+      rooms: [room],
+      runs: [run],
+    };
+    const restartCommand = {
+      ...baseCommand,
+      type: "supervised.run.transition",
+      actor: { kind: "daemon", actorId: "daemon-restart" },
+      aggregateId: run.id,
+      expectedRevision: run.revision,
+      runId: run.id,
+      status: "interrupted",
+      reason: "Daemon restart recovery: running -> interrupted.",
+      daemonEpoch: 2,
+    } as SupervisedCommand;
+
+    const interrupted = await Effect.runPromise(
+      decideSupervisedCommand({ command: restartCommand, state }),
+    );
+    assert.equal(interrupted.payload.run?.status, "interrupted");
+    assert.equal(interrupted.payload.run?.daemonEpoch, 2);
+
+    const userEpoch = await Effect.runPromiseExit(
+      decideSupervisedCommand({
+        command: {
+          ...restartCommand,
+          actor: { kind: "user", actorId: "owner" },
+        },
+        state,
+      }),
+    );
+    assert.equal(userEpoch._tag, "Failure");
+
+    const outsideCorridor = await Effect.runPromiseExit(
+      decideSupervisedCommand({
+        command: { ...restartCommand, status: "reviewing" },
+        state,
+      }),
+    );
+    assert.equal(outsideCorridor._tag, "Failure");
   });
 
   it("publishes evidence only for an existing durable model session", async () => {

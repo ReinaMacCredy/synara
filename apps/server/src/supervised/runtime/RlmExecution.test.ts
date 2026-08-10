@@ -73,11 +73,26 @@ const thread = {
   proposedPlans: [],
   activities: [
     {
+      id: "activity:tool-started",
+      tone: "tool",
+      kind: "tool.started",
+      summary: "Search started",
+      payload: {
+        status: "running",
+        data: { toolCallId: "call:1", toolName: "search", input: { query: "RLM evidence" } },
+      },
+      turnId: "turn:branch",
+      createdAt: "2026-08-09T00:00:00.500Z",
+    },
+    {
       id: "activity:tool",
       tone: "tool",
       kind: "tool.completed",
       summary: "Search completed",
-      payload: { status: "completed", data: { toolUseId: "call:1", toolName: "search" } },
+      payload: {
+        status: "completed",
+        data: { toolCallId: "call:1", toolName: "search", output: "Retained source" },
+      },
       turnId: "turn:branch",
       createdAt: "2026-08-09T00:00:01.000Z",
     },
@@ -98,6 +113,7 @@ const thread = {
       payload: {
         modelUsage: { "gpt-5.6-sol": { inputTokens: 100, outputTokens: 50 } },
         totalCostUsd: 0.02,
+        detail: "Turn completed",
       },
       turnId: "turn:branch",
       createdAt: "2026-08-09T00:00:02.000Z",
@@ -122,9 +138,11 @@ describe("real RLM execution evidence", () => {
     assert.equal(result.status, "completed");
     assert.equal(result.response, "The branch produced retained evidence.");
     assert.equal(result.providerCallId, "turn:branch");
+    assert.equal(result.terminalSourceEventId, "activity:turn");
     assert.equal(result.durationMs, 2_000);
     assert.equal(result.costUsd, 0.02);
-    assert.deepEqual(result.sourceEventIds, ["activity:tool", "activity:turn"]);
+    assert.equal(result.error, null);
+    assert.deepEqual(result.sourceEventIds, ["activity:tool", "activity:context", "activity:turn"]);
     assert.deepEqual(result.usage, {
       inputTokens: 100,
       outputTokens: 50,
@@ -132,11 +150,94 @@ describe("real RLM execution evidence", () => {
       providerLimitTokens: 128_000,
       contextUsagePercent: 9.375,
     });
-    assert.equal(result.items.some((item) => item.type === "tool_result"), true);
+    assert.deepEqual(result.usageProvenance, {
+      inputOutputTokens: "provider_observed",
+      contextWindow: "provider_observed",
+    });
+    const toolCalls = result.items.filter((item) => item.type === "tool_call");
+    const toolResults = result.items.filter((item) => item.type === "tool_result");
+    assert.equal(toolCalls.length, 1);
+    assert.equal(toolCalls[0]?.callId, "call:1");
+    assert.equal(toolCalls[0]?.status, "completed");
+    assert.equal(toolResults.length, 1);
+    assert.equal(toolResults[0]?.outputSummary, "Retained source");
     assert.equal(
       result.items.some((item) => item.type === "message" && item.reasoningSummary !== null),
       false,
     );
+  });
+
+  it("retains a terminal provider error and never emits an invalid duration", () => {
+    const result = extractRlmThreadResult({
+      ...thread,
+      latestTurn: {
+        ...thread.latestTurn!,
+        state: "error",
+        requestedAt: "not-a-date",
+        completedAt: "also-not-a-date",
+      },
+      activities: [
+        {
+          id: "activity:failed-turn",
+          tone: "error",
+          kind: "turn.completed",
+          summary: "Turn failed",
+          payload: { state: "failed", errorMessage: "Provider capacity exhausted" },
+          turnId: "turn:branch",
+          createdAt: "2026-08-09T00:00:02.000Z",
+        },
+      ],
+      session: { ...thread.session!, status: "error", lastError: null },
+    } as OrchestrationThread);
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.error, "Provider capacity exhausted");
+    assert.equal(result.durationMs, null);
+    assert.equal(result.terminalSourceEventId, "activity:failed-turn");
+    assert.deepEqual(result.sourceEventIds, ["activity:failed-turn"]);
+    assert.deepEqual(result.usageProvenance, {
+      inputOutputTokens: "unavailable",
+      contextWindow: "unavailable",
+    });
+  });
+
+  it("keeps provider usage and receipt lineage unavailable when projection has no source events", () => {
+    const result = extractRlmThreadResult({
+      ...thread,
+      activities: [],
+    } as OrchestrationThread);
+
+    assert.equal(result.status, "completed");
+    assert.equal(result.response, "The branch produced retained evidence.");
+    assert.equal(result.terminalSourceEventId, null);
+    assert.deepEqual(result.sourceEventIds, []);
+    assert.deepEqual(result.usage, {
+      inputTokens: 0,
+      outputTokens: 0,
+      contextTokens: 0,
+      providerLimitTokens: null,
+      contextUsagePercent: null,
+    });
+    assert.deepEqual(result.usageProvenance, {
+      inputOutputTokens: "unavailable",
+      contextWindow: "unavailable",
+    });
+  });
+
+  it("keeps repeated provider call ids distinct across retry turns", () => {
+    const repeatedCall = {
+      ...thread.activities[1]!,
+      id: "activity:prior-tool",
+      turnId: "turn:prior-attempt",
+      createdAt: "2026-08-08T23:59:59.000Z",
+    };
+    const result = extractRlmThreadResult({
+      ...thread,
+      activities: [repeatedCall, ...thread.activities],
+    } as OrchestrationThread);
+
+    assert.equal(result.items.filter((item) => item.type === "tool_call").length, 2);
+    assert.equal(result.items.filter((item) => item.type === "tool_result").length, 2);
   });
 
   it("builds a synthesis prompt with explicit session and evidence lineage", () => {

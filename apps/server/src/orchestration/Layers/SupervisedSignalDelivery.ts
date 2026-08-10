@@ -11,12 +11,16 @@ import {
   RunPolicyId,
   SupervisedCommand,
   type DerivedSignal,
+  type AgentSeat,
   type MetricSample,
+  type OrchestrationReadModel,
   type PluginInstallation,
   type RunPolicy,
   type SubscriptionDefinition,
   type SubscriptionDelivery,
+  type SupervisedGovernanceSnapshot,
   type SupervisedRuntimeSnapshot,
+  type SupervisionMission,
 } from "@synara/contracts";
 import { Effect, Layer, Schema } from "effect";
 
@@ -32,6 +36,7 @@ import {
   type RunResourceUsage,
 } from "../../supervised/runtime/RunPolicy.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import { activeMissionsCoveringLead } from "../supervised/missionScope.ts";
 import {
   SupervisedSignalDelivery,
   SupervisedSignalDeliveryError,
@@ -168,6 +173,182 @@ function leadWakeText(
     `evidence_snapshot: ${JSON.stringify(signal.context).slice(0, 12_000)}`,
     "Assess root cause within your existing concern and scope. This wake grants no new authority.",
     "Use only allowed typed commands; Lead Room-local integration and acceptance authority is unchanged.",
+    "</synara_supervised_signal>",
+  ].join("\n");
+}
+
+interface SignalLeadContext {
+  readonly id: string;
+  readonly projectId: NonNullable<AgentSeat["projectId"]>;
+  readonly roomId: string;
+}
+
+interface SupervisorRecipient {
+  readonly seat: AgentSeat;
+  readonly thread: OrchestrationReadModel["threads"][number];
+  readonly mission: SupervisionMission;
+  readonly lead: SignalLeadContext;
+  readonly selection: "concern" | "primary";
+}
+
+type SupervisorRecipientResolution =
+  | { readonly ok: true; readonly recipient: SupervisorRecipient }
+  | { readonly ok: false; readonly reason: string };
+
+const normalized = (value: string | undefined | null) => value?.trim().toLowerCase() ?? null;
+
+function signalLeadContext(input: {
+  readonly signal: DerivedSignal;
+  readonly governance: SupervisedGovernanceSnapshot;
+  readonly readModel: OrchestrationReadModel;
+}): SignalLeadContext | null {
+  const contextRoomId = input.signal.context.roomId;
+  const roomId =
+    typeof contextRoomId === "string"
+      ? contextRoomId
+      : input.signal.scope.kind === "room"
+        ? input.signal.scope.roomId
+        : null;
+  if (roomId === null) return null;
+  const room = input.readModel.supervised.rooms.find(
+    (candidate) => candidate.id === roomId && candidate.status === "active",
+  );
+  if (!room) return null;
+  const contextLeadSeatId = input.signal.context.leadSeatId;
+  const leadSeatId =
+    typeof contextLeadSeatId === "string" ? contextLeadSeatId : room.leadSeatId;
+  if (leadSeatId !== room.leadSeatId) return null;
+  const lead = input.governance.agentSeats.find(
+    (candidate) =>
+      candidate.id === leadSeatId &&
+      candidate.identityRole === "lead" &&
+      candidate.effectiveRole === "lead" &&
+      candidate.lifecycleState === "active" &&
+      candidate.projectId !== null &&
+      candidate.roomIds.includes(room.id),
+  );
+  if (!lead || lead.projectId === null) return null;
+  const rootLease = input.governance.rootLeases.find(
+    (candidate) => candidate.roomId === room.id && candidate.status === "active",
+  );
+  if (!rootLease || rootLease.holderSeatId !== lead.id) return null;
+  const leadReceipt = input.governance.authorityReceipts.find(
+    (candidate) =>
+      candidate.id === lead.authorityReceiptId &&
+      candidate.actorSeatId === lead.id &&
+      candidate.identityRole === "lead" &&
+      candidate.effectiveRole === "lead" &&
+      candidate.revokedAt === null &&
+      (candidate.expiresAt === null || candidate.expiresAt > input.signal.triggeredAt) &&
+      candidate.roomScopes.includes(room.id) &&
+      candidate.rootLeaseIds.includes(rootLease.id),
+  );
+  if (!leadReceipt) return null;
+  return { id: lead.id, projectId: lead.projectId, roomId: room.id };
+}
+
+function resolveSupervisorRecipient(input: {
+  readonly concern: string;
+  readonly signal: DerivedSignal;
+  readonly governance: SupervisedGovernanceSnapshot;
+  readonly readModel: OrchestrationReadModel;
+}): SupervisorRecipientResolution {
+  const lead = signalLeadContext(input);
+  if (!lead) {
+    return {
+      ok: false,
+      reason: "The signal does not resolve to the active Root-holding Lead of an active Room.",
+    };
+  }
+  const missions = activeMissionsCoveringLead({
+    missions: input.governance.orchestration.missions,
+    lead,
+    projects: input.readModel.projects,
+  })
+    .filter((mission) => mission.grants.includes("lead.observe"))
+    .sort((left, right) => left.id.localeCompare(right.id));
+  const candidates = input.governance.agentSeats.flatMap((seat) => {
+    if (
+      seat.identityRole !== "supervisor" ||
+      seat.effectiveRole !== "supervisor" ||
+      seat.lifecycleState !== "active" ||
+      seat.threadId === null
+    ) {
+      return [];
+    }
+    const receipt = input.governance.authorityReceipts.find(
+      (candidate) =>
+        candidate.id === seat.authorityReceiptId &&
+        candidate.actorSeatId === seat.id &&
+        candidate.identityRole === "supervisor" &&
+        candidate.effectiveRole === "supervisor" &&
+        candidate.revokedAt === null &&
+        (candidate.expiresAt === null || candidate.expiresAt > input.signal.triggeredAt) &&
+        candidate.roomScopes.includes(lead.roomId) &&
+        candidate.rootLeaseIds.length === 0,
+    );
+    if (!receipt) return [];
+    const mission = missions.find((candidate) => candidate.supervisorSeatId === seat.id);
+    if (!mission) return [];
+    const thread = input.readModel.threads.find(
+      (candidate) => candidate.id === seat.threadId && candidate.deletedAt === null,
+    );
+    return thread ? [{ seat, thread, mission }] : [];
+  });
+  const concern = normalized(input.concern);
+  const exact = candidates.filter((candidate) => normalized(candidate.seat.concern) === concern);
+  if (exact.length === 1) {
+    return { ok: true, recipient: { ...exact[0]!, lead, selection: "concern" } };
+  }
+  if (exact.length > 1) {
+    return {
+      ok: false,
+      reason: `Multiple active '${input.concern}' Supervisors cover the signal scope.`,
+    };
+  }
+  const primary = candidates.filter(
+    (candidate) =>
+      normalized(candidate.seat.concern) === "primary" ||
+      normalized(candidate.seat.displayName) === "primary supervisor",
+  );
+  const fallback =
+    primary.length > 0
+      ? primary
+      : candidates.filter((candidate) => normalized(candidate.seat.concern) === null);
+  if (fallback.length === 1) {
+    return { ok: true, recipient: { ...fallback[0]!, lead, selection: "primary" } };
+  }
+  return {
+    ok: false,
+    reason:
+      fallback.length === 0
+        ? `No active '${input.concern}' or Primary Supervisor mission covers the signal scope.`
+        : "Multiple active Primary Supervisor candidates cover the signal scope.",
+  };
+}
+
+function supervisorWakeText(
+  subscription: SubscriptionDefinition,
+  signal: DerivedSignal,
+  recipient: SupervisorRecipient,
+): string {
+  return [
+    "<synara_supervised_signal>",
+    "This is a durable bounded Signal Plane wake, not a Human instruction.",
+    `subscription_id: ${subscription.id}`,
+    `signal_id: ${signal.id}`,
+    `signal_kind: ${signal.kind}`,
+    `supervisor_seat_id: ${recipient.seat.id}`,
+    `mission_id: ${recipient.mission.id}`,
+    `affected_lead_seat_id: ${recipient.lead.id}`,
+    `affected_room_id: ${recipient.lead.roomId}`,
+    `measured_value: ${signal.measuredValue}`,
+    `threshold: ${signal.threshold.operator} ${signal.threshold.value}`,
+    `scope: ${JSON.stringify(signal.scope)}`,
+    `source_event_ids: ${signal.sourceEventIds.join(",")}`,
+    `evidence_snapshot: ${JSON.stringify(signal.context).slice(0, 12_000)}`,
+    "Assess root cause only within the active mission concern and scope. This wake grants no new authority.",
+    "The Room Root lease and Lead integration and acceptance authority remain unchanged.",
     "</synara_supervised_signal>",
   ].join("\n");
 }
@@ -532,6 +713,69 @@ export const makeSupervisedSignalDelivery = Effect.gen(function* () {
     });
   });
 
+  const deliverToSupervisor = Effect.fnUntraced(function* (input: {
+    readonly subscription: SubscriptionDefinition;
+    readonly signal: DerivedSignal;
+    readonly delivery: SubscriptionDelivery;
+  }) {
+    if (input.subscription.destination.kind !== "concern") return;
+    if (input.delivery.replay && input.delivery.replayBehavior !== "idempotent_actions") {
+      yield* appendAudit({ ...input, outcome: "replay_observed", detail: { wakeSuppressed: true } });
+      return;
+    }
+    const [readModel, governance] = yield* Effect.all([
+      engine.getReadModel(),
+      governanceRepository.getSnapshot(),
+    ]);
+    const resolution = resolveSupervisorRecipient({
+      concern: input.subscription.destination.concern,
+      signal: input.signal,
+      governance,
+      readModel,
+    });
+    if (!resolution.ok) {
+      yield* appendAudit({
+        ...input,
+        outcome: "delivery_unresolved",
+        detail: {
+          providerWake: false,
+          concern: input.subscription.destination.concern,
+          reason: resolution.reason,
+        },
+      });
+      return yield* Effect.fail(deliveryFailure(resolution.reason));
+    }
+    const recipient = resolution.recipient;
+    yield* engine.dispatch({
+      type: "thread.turn.start",
+      commandId: CommandId.makeUnsafe(stableId("command:signal-wake", input.delivery.id)),
+      threadId: recipient.seat.threadId!,
+      message: {
+        messageId: MessageId.makeUnsafe(stableId("signal-wake", input.delivery.id)),
+        role: "user",
+        text: supervisorWakeText(input.subscription, input.signal, recipient),
+        attachments: [],
+      },
+      dispatchMode: "queue",
+      dispatchOrigin: "automation",
+      runtimeMode: recipient.thread.runtimeMode,
+      interactionMode: recipient.thread.interactionMode,
+      createdAt: input.delivery.updatedAt,
+    });
+    yield* appendAudit({
+      ...input,
+      outcome: "supervisor_woken",
+      detail: {
+        supervisorSeatId: recipient.seat.id,
+        supervisorThreadId: recipient.seat.threadId,
+        missionId: recipient.mission.id,
+        affectedLeadSeatId: recipient.lead.id,
+        affectedRoomId: recipient.lead.roomId,
+        selection: recipient.selection,
+      },
+    });
+  });
+
   const deliverToLead = Effect.fnUntraced(function* (input: {
     readonly subscription: SubscriptionDefinition;
     readonly signal: DerivedSignal;
@@ -549,10 +793,6 @@ export const makeSupervisedSignalDelivery = Effect.gen(function* () {
         ? input.subscription.destination.leadSeatId
         : (input.subscription.ownerLeadSeatId ??
           (typeof contextLeadSeatId === "string" ? contextLeadSeatId : null));
-    const concern =
-      input.subscription.destination.kind === "concern"
-        ? input.subscription.destination.concern.toLowerCase()
-        : input.subscription.concern.toLowerCase();
     const seat = governance.agentSeats.find(
       (candidate) =>
         candidate.identityRole === "lead" &&
@@ -567,14 +807,15 @@ export const makeSupervisedSignalDelivery = Effect.gen(function* () {
     if (!seat || !thread) {
       yield* appendAudit({
         ...input,
-        outcome: "concern_inbox_delivered",
+        outcome: "delivery_unresolved",
         detail: {
           providerWake: false,
-          concern,
           reason: "No active matching Lead seat within the signal scope.",
         },
       });
-      return;
+      return yield* Effect.fail(
+        deliveryFailure("No active matching Lead seat within the signal scope."),
+      );
     }
     yield* engine.dispatch({
       type: "thread.turn.start",
@@ -605,11 +846,12 @@ export const makeSupervisedSignalDelivery = Effect.gen(function* () {
         yield* deliverToPlugin(input);
         return;
       }
-      if (
-        input.subscription.destination.kind === "lead_seat" ||
-        input.subscription.destination.kind === "concern"
-      ) {
+      if (input.subscription.destination.kind === "lead_seat") {
         yield* deliverToLead(input);
+        return;
+      }
+      if (input.subscription.destination.kind === "concern") {
+        yield* deliverToSupervisor(input);
         return;
       }
       yield* appendAudit({ ...input, outcome: "delivered" });

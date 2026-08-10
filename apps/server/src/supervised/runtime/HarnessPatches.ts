@@ -5,6 +5,12 @@ import type {
   SupervisedActor,
 } from "@synara/contracts";
 
+import {
+  assertHarnessPatchUsesCurrentBasePolicy,
+  isCurrentSupervisedBasePolicyHash,
+  SUPERVISED_BASE_POLICY_HASH,
+} from "./HarnessPatchPolicy.ts";
+
 export interface HarnessPatchEvaluation {
   readonly passed: boolean;
   readonly basePolicyHash: HarnessPatch["basePolicyHash"];
@@ -18,7 +24,7 @@ export interface HarnessPatchEvaluation {
 
 const transitions: Readonly<Record<HarnessPatch["status"], ReadonlySet<HarnessPatch["status"]>>> = {
   observed: new Set(["proposed", "rejected", "revoked"]),
-  proposed: new Set(["sandboxed", "rejected", "revoked"]),
+  proposed: new Set(["proposed", "sandboxed", "rejected", "revoked"]),
   sandboxed: new Set(["sandboxed", "evaluated", "failed", "rejected", "revoked"]),
   evaluated: new Set(["awaiting_approval", "failed", "rejected", "revoked"]),
   awaiting_approval: new Set(["canary", "rejected", "revoked"]),
@@ -36,6 +42,18 @@ const actorEquals = (left: SupervisedActor, right: SupervisedActor) =>
 const requireHuman = (actor: SupervisedActor, action: string) => {
   if (actor.kind !== "user") throw new Error(`Only the Human may ${action}.`);
 };
+
+const uniqueEvidenceRefs = (evidenceRefs: ReadonlyArray<EvidenceId>) => [
+  ...new Set(evidenceRefs),
+];
+
+function assertObservationEvidenceContinuity(current: HarnessPatch, next: HarnessPatch) {
+  for (const evidenceRef of current.observationEvidenceRefs) {
+    if (!next.observationEvidenceRefs.includes(evidenceRef)) {
+      throw new Error("Harness Patch observation evidence is append-only.");
+    }
+  }
+}
 
 function assertImmutablePatchIdentity(current: HarnessPatch, next: HarnessPatch) {
   if (
@@ -56,9 +74,10 @@ function assertReceiptContinuity(current: HarnessPatch, next: HarnessPatch) {
   if (next.lastControlPlaneSequence < current.lastControlPlaneSequence) {
     throw new Error("Harness Patch control-plane cursor cannot move backwards.");
   }
-  for (const evidenceRef of current.observationEvidenceRefs) {
-    if (!next.observationEvidenceRefs.includes(evidenceRef)) {
-      throw new Error("Harness Patch observation evidence is append-only.");
+  assertObservationEvidenceContinuity(current, next);
+  for (const evidenceRef of current.evaluationEvidenceRefs) {
+    if (!next.evaluationEvidenceRefs.includes(evidenceRef)) {
+      throw new Error("Harness Patch evaluation evidence is append-only.");
     }
   }
   if (
@@ -72,6 +91,12 @@ function assertReceiptContinuity(current: HarnessPatch, next: HarnessPatch) {
   }
   if (current.rollback && JSON.stringify(current.rollback) !== JSON.stringify(next.rollback)) {
     throw new Error("Harness Patch rollback receipt is immutable.");
+  }
+  if (current.activatedBy && !actorEquals(current.activatedBy, next.activatedBy!)) {
+    throw new Error("Harness Patch activation receipt is immutable.");
+  }
+  if (current.canary && !next.canary) {
+    throw new Error("Harness Patch canary receipt is immutable.");
   }
   if (current.canary && next.canary) {
     if (
@@ -92,6 +117,16 @@ function assertReceiptContinuity(current: HarnessPatch, next: HarnessPatch) {
 }
 
 function assertLifecycleEvidence(patch: HarnessPatch) {
+  assertHarnessPatchUsesCurrentBasePolicy(patch);
+  if (patch.name.trim().length === 0 || patch.content.trim().length === 0) {
+    throw new Error("A Harness Patch requires a name and reversible overlay content.");
+  }
+  if (
+    (patch.status === "observed" || patch.status === "proposed") &&
+    patch.observationEvidenceRefs.length === 0
+  ) {
+    throw new Error("A Harness Patch observation or proposal requires durable friction evidence.");
+  }
   if (
     ["evaluated", "awaiting_approval", "canary", "promoted"].includes(patch.status) &&
     (!patch.sandboxEvaluation?.passed ||
@@ -104,14 +139,26 @@ function assertLifecycleEvidence(patch: HarnessPatch) {
     );
   }
   if (["canary", "promoted"].includes(patch.status)) {
-    if (patch.approval?.approvedBy.kind !== "user" || !patch.canary || !patch.activatedBy) {
+    if (
+      patch.approval?.approvedBy.kind !== "user" ||
+      !patch.canary ||
+      patch.activatedBy?.kind !== "user" ||
+      patch.rollback
+    ) {
       throw new Error("Harness Patch canary requires explicit Human approval and durable canary state.");
     }
+  }
+  if (
+    patch.status === "canary" &&
+    patch.canary &&
+    patch.canary.observedFailures >= patch.canary.failureThreshold
+  ) {
+    throw new Error("A failed Harness Patch canary must roll back at its durable threshold.");
   }
   if (patch.status === "promoted" && (patch.canary?.successfulEvaluations ?? 0) < 1) {
     throw new Error("Harness Patch promotion requires at least one successful canary evaluation.");
   }
-  if (patch.status === "rolled_back" && !patch.rollback) {
+  if (patch.status === "rolled_back" && (!patch.rollback || !patch.canary)) {
     throw new Error("Harness Patch rollback requires a durable rollback receipt.");
   }
 }
@@ -144,21 +191,31 @@ export function validateHarnessPatchUpdate(
     ) {
       throw new Error("A new Harness Patch cannot contain evaluation, approval, canary, or rollback state.");
     }
+    assertLifecycleEvidence(next);
     return;
   }
 
   assertImmutablePatchIdentity(current, next);
+  assertHarnessPatchUsesCurrentBasePolicy(next);
   if (next.revision !== current.revision + 1) {
     throw new Error("Harness Patch revision must advance exactly once.");
   }
   const contentChanged = current.content !== next.content || current.name !== next.name;
-  if (contentChanged) {
+  const reopensTerminalAttempt =
+    next.status === "proposed" &&
+    (current.status === "failed" || current.status === "rolled_back");
+  const startsNewVersion = contentChanged || reopensTerminalAttempt;
+  if (startsNewVersion) {
     if (
       next.status !== "proposed" ||
       next.version !== current.version + 1 ||
       !["observed", "proposed", "failed", "rolled_back"].includes(current.status)
     ) {
-      throw new Error("Harness Patch content changes require a new proposed version.");
+      throw new Error("Harness Patch revisions require a new proposed content version.");
+    }
+    assertObservationEvidenceContinuity(current, next);
+    if (next.lastControlPlaneSequence < current.lastControlPlaneSequence) {
+      throw new Error("Harness Patch control-plane cursor cannot move backwards.");
     }
     if (
       next.evaluationEvidenceRefs.length > 0 ||
@@ -223,6 +280,78 @@ export function validateHarnessPatchUpdate(
   assertLifecycleEvidence(next);
 }
 
+export function createHarnessPatchProposal(input: {
+  readonly id: HarnessPatch["id"];
+  readonly name: HarnessPatch["name"];
+  readonly patchType: HarnessPatch["patchType"];
+  readonly scope: HarnessPatch["scope"];
+  readonly content: HarnessPatch["content"];
+  readonly observationEvidenceRefs: ReadonlyArray<EvidenceId>;
+  readonly createdBy: SupervisedActor;
+  readonly createdAt: string;
+}): HarnessPatch {
+  if (input.name.trim().length === 0 || input.content.trim().length === 0) {
+    throw new Error("A Harness Patch proposal requires a name and reversible overlay content.");
+  }
+  const patch: HarnessPatch = {
+    id: input.id,
+    name: input.name,
+    patchType: input.patchType,
+    scope: input.scope,
+    content: input.content,
+    basePolicyHash: SUPERVISED_BASE_POLICY_HASH,
+    status: "proposed",
+    observationEvidenceRefs: uniqueEvidenceRefs(input.observationEvidenceRefs),
+    evaluationEvidenceRefs: [],
+    sandboxEvaluation: null,
+    approval: null,
+    canary: null,
+    rollback: null,
+    lastControlPlaneSequence: 0,
+    version: 1,
+    revision: 0,
+    createdBy: input.createdBy,
+    activatedBy: null,
+    createdAt: input.createdAt,
+    updatedAt: input.createdAt,
+  };
+  validateHarnessPatchUpdate(null, patch, input.createdBy);
+  return patch;
+}
+
+export function reviseHarnessPatchProposal(
+  patch: HarnessPatch,
+  actor: SupervisedActor,
+  input: {
+    readonly name?: HarnessPatch["name"];
+    readonly content?: HarnessPatch["content"];
+    readonly observationEvidenceRefs?: ReadonlyArray<EvidenceId>;
+    readonly updatedAt: string;
+  },
+): HarnessPatch {
+  const next: HarnessPatch = {
+    ...patch,
+    name: input.name ?? patch.name,
+    content: input.content ?? patch.content,
+    status: "proposed",
+    observationEvidenceRefs: uniqueEvidenceRefs([
+      ...patch.observationEvidenceRefs,
+      ...(input.observationEvidenceRefs ?? []),
+    ]),
+    evaluationEvidenceRefs: [],
+    sandboxEvaluation: null,
+    approval: null,
+    canary: null,
+    rollback: null,
+    version: patch.version + 1,
+    revision: patch.revision + 1,
+    activatedBy: null,
+    updatedAt: input.updatedAt,
+  };
+  validateHarnessPatchUpdate(patch, next, actor);
+  return next;
+}
+
 export function applyHarnessPatchSandboxEvaluation(
   patch: HarnessPatch,
   evaluation: HarnessPatchEvaluation,
@@ -233,11 +362,17 @@ export function applyHarnessPatchSandboxEvaluation(
   if (patch.basePolicyHash !== evaluation.basePolicyHash) {
     throw new Error("Harness Patch evaluation does not match the immutable base policy hash.");
   }
+  if (!isCurrentSupervisedBasePolicyHash(evaluation.basePolicyHash)) {
+    throw new Error("Harness Patch evaluation must use the server-owned current base policy digest.");
+  }
+  if (evaluation.controlPlaneSequence <= patch.lastControlPlaneSequence) {
+    throw new Error("Harness Patch sandbox evaluation must advance the control-plane cursor.");
+  }
   if (evaluation.evidenceRefs.length === 0) {
     throw new Error("Harness Patch evaluation requires durable evidence.");
   }
   const passed = evaluation.passed && evaluation.regressions.length === 0;
-  return {
+  const next: HarnessPatch = {
     ...patch,
     status: passed ? "evaluated" : "failed",
     evaluationEvidenceRefs: [...evaluation.evidenceRefs],
@@ -255,6 +390,8 @@ export function applyHarnessPatchSandboxEvaluation(
     updatedAt: evaluation.evaluatedAt,
     revision: patch.revision + 1,
   };
+  validateHarnessPatchUpdate(patch, next, evaluation.evaluatedBy);
+  return next;
 }
 
 export function awaitHarnessPatchApproval(
@@ -293,7 +430,10 @@ export function startHarnessPatchCanary(
       successfulEvaluations: 0,
       evidenceRefs: [],
       lastEvaluationAt: null,
-      lastControlPlaneSequence: patch.sandboxEvaluation?.controlPlaneSequence ?? 0,
+      lastControlPlaneSequence: Math.max(
+        patch.lastControlPlaneSequence,
+        patch.sandboxEvaluation?.controlPlaneSequence ?? 0,
+      ),
     },
     rollback: null,
     activatedBy: actor,
@@ -314,7 +454,17 @@ export function recordHarnessPatchCanaryEvaluation(
   if (patch.basePolicyHash !== evaluation.basePolicyHash) {
     throw new Error("Harness Patch canary evaluation does not match the immutable base policy hash.");
   }
-  if (evaluation.controlPlaneSequence <= patch.canary.lastControlPlaneSequence) return patch;
+  if (!isCurrentSupervisedBasePolicyHash(evaluation.basePolicyHash)) {
+    throw new Error(
+      "Harness Patch canary evaluation must use the server-owned current base policy digest.",
+    );
+  }
+  if (
+    evaluation.controlPlaneSequence <=
+    Math.max(patch.lastControlPlaneSequence, patch.canary.lastControlPlaneSequence)
+  ) {
+    return patch;
+  }
   if (evaluation.evidenceRefs.length === 0) {
     throw new Error("Harness Patch canary evaluation requires durable evidence.");
   }
@@ -329,7 +479,7 @@ export function recordHarnessPatchCanaryEvaluation(
     lastControlPlaneSequence: evaluation.controlPlaneSequence,
   };
   const shouldRollback = observedFailures >= canary.failureThreshold;
-  return {
+  const next: HarnessPatch = {
     ...patch,
     status: shouldRollback ? "rolled_back" : "canary",
     canary,
@@ -345,6 +495,8 @@ export function recordHarnessPatchCanaryEvaluation(
     updatedAt: evaluation.evaluatedAt,
     revision: patch.revision + 1,
   };
+  validateHarnessPatchUpdate(patch, next, evaluation.evaluatedBy);
+  return next;
 }
 
 export function advanceHarnessPatchControlPlaneCursor(
@@ -387,14 +539,24 @@ export function mayPromoteHarnessPatch(input: {
   readonly evaluationScopeCreated: boolean;
 }): boolean {
   if (
-    input.patch.scope.kind === "project" &&
-    input.patch.scope.projectId === input.targetProjectId
+    input.actor.kind !== "user" ||
+    !input.explicitHumanApproval ||
+    input.patch.status !== "canary" ||
+    !isCurrentSupervisedBasePolicyHash(input.patch.basePolicyHash) ||
+    input.patch.sandboxEvaluation?.passed !== true ||
+    input.patch.sandboxEvaluation.regressions.length > 0 ||
+    input.patch.approval?.approvedBy.kind !== "user" ||
+    input.patch.activatedBy?.kind !== "user" ||
+    !input.patch.canary ||
+    input.patch.canary.successfulEvaluations < 1 ||
+    input.patch.canary.observedFailures >= input.patch.canary.failureThreshold
   ) {
-    return input.patch.approval?.approvedBy.kind === "user";
+    return false;
   }
-  return (
-    input.actor.kind === "user" && input.explicitHumanApproval && input.evaluationScopeCreated
-  );
+  const remainsInEvaluatedProject =
+    input.patch.scope.kind === "project" &&
+    input.patch.scope.projectId === input.targetProjectId;
+  return remainsInEvaluatedProject || input.evaluationScopeCreated;
 }
 
 export function revertHarnessPatch(
@@ -408,12 +570,15 @@ export function revertHarnessPatch(
     throw new Error("Only a promoted or canary Harness Patch can be rolled back.");
   }
   if (evidenceRefs.length === 0) throw new Error("Harness Patch rollback requires durable evidence.");
+  if (reason.trim().length === 0) {
+    throw new Error("Harness Patch rollback requires a durable reason.");
+  }
   const next: HarnessPatch = {
     ...patch,
     status: "rolled_back",
     rollback: {
       reason,
-      evidenceRefs: [...evidenceRefs],
+      evidenceRefs: uniqueEvidenceRefs(evidenceRefs),
       rolledBackBy: actor,
       rolledBackAt: at,
     },

@@ -128,6 +128,8 @@ import {
 } from "./supervised";
 import {
   GetSupervisedSettingsInput,
+  PutSupervisedModelCapabilityProfileInput,
+  PutSupervisedModelCapabilityProfileResult,
   PutSupervisedModelPreferencesInput,
   PutSupervisedModelPreferencesResult,
   SupervisedSettingsSnapshot,
@@ -302,6 +304,15 @@ export const WsOrchestrationPutSupervisedModelPreferencesRpc = Rpc.make(
   {
     payload: PutSupervisedModelPreferencesInput,
     success: PutSupervisedModelPreferencesResult,
+    error: WsRpcError,
+  },
+);
+
+export const WsOrchestrationPutSupervisedModelCapabilityProfileRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.putSupervisedModelCapabilityProfile,
+  {
+    payload: PutSupervisedModelCapabilityProfileInput,
+    success: PutSupervisedModelCapabilityProfileResult,
     error: WsRpcError,
   },
 );
@@ -1169,6 +1180,7 @@ type WsOrchestrationFeatureRpc =
   | typeof WsOrchestrationDispatchCommandRpc
   | typeof WsOrchestrationGetSupervisedRuntimeRpc
   | typeof WsOrchestrationGetSupervisedSettingsRpc
+  | typeof WsOrchestrationPutSupervisedModelCapabilityProfileRpc
   | typeof WsOrchestrationPutSupervisedModelPreferencesRpc
   | typeof WsOrchestrationUpdateSupervisedToolPolicyRpc
   | typeof WsOrchestrationTestSupervisedSubscriptionRpc
@@ -1205,6 +1217,7 @@ const WsOrchestrationFeatureRpcGroup: RpcGroup.RpcGroup<WsOrchestrationFeatureRp
   WsOrchestrationDispatchCommandRpc,
   WsOrchestrationGetSupervisedRuntimeRpc,
   WsOrchestrationGetSupervisedSettingsRpc,
+  WsOrchestrationPutSupervisedModelCapabilityProfileRpc,
   WsOrchestrationPutSupervisedModelPreferencesRpc,
   WsOrchestrationUpdateSupervisedToolPolicyRpc,
   WsOrchestrationTestSupervisedSubscriptionRpc,

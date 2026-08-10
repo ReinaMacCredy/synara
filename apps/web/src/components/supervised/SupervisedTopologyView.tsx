@@ -1,4 +1,7 @@
-import type { SupervisedRuntimeSnapshot } from "@synara/contracts";
+import type {
+  SupervisedGovernanceSnapshot,
+  SupervisedRuntimeSnapshot,
+} from "@synara/contracts";
 import { useQuery } from "@tanstack/react-query";
 import {
   Background,
@@ -35,21 +38,24 @@ import {
 } from "react";
 
 import { useTheme } from "~/hooks/useTheme";
-import { supervisedRuntimeQueryOptions } from "~/lib/supervisedRuntime";
+import { supervisedSettingsQueryOptions } from "~/lib/supervisedSettings";
 import { cn } from "~/lib/utils";
 import { GitBranchIcon, XIcon } from "~/lib/icons";
 
 import {
   supervisedRoomPeerSessions,
+  supervisedRoomRoot,
   supervisedRoomRuns,
+  type SupervisedRoomRootProjection,
 } from "./supervisedTopologyProjection";
 
 import "@xyflow/react/dist/style.css";
 
-type TopologyNodeKind = "runtime" | "policy" | "lead" | "peer" | "workspace";
+type TopologyNodeKind = "runtime" | "policy" | "root" | "peer" | "workspace";
 
 export type SupervisedTopologyOpenTarget =
   | { readonly kind: "runtime"; readonly sessionId: null }
+  | { readonly kind: "supervisor"; readonly sessionId: null }
   | { readonly kind: "lead"; readonly sessionId: null }
   | { readonly kind: "peer"; readonly sessionId: string };
 
@@ -98,28 +104,28 @@ const ROW_GAP = 24;
 const NODE_WIDTH = 220;
 const COL_GAP = 80;
 
-/** Demo-like short seat labels: `seat:lead-opus`, never full UUID. */
-function formatTopologySeatLabel(raw: string | null | undefined): {
+function formatTopologyRootLabel(root: SupervisedRoomRootProjection): {
   readonly title: string;
   readonly fullTitle: string;
 } {
-  if (raw == null || raw.trim().length === 0) {
-    return { title: "Unassigned Lead", fullTitle: "Unassigned Lead" };
+  if (root.resolution === "unresolved") {
+    return {
+      title: "Unresolved Room Root",
+      fullTitle: root.holderSeatId ?? "No live RootAuthorityLease",
+    };
   }
-  const full = String(raw).trim();
-  // Already human-ish: seat:lead-opus / lead-opus
-  if (/^seat:/i.test(full) || /^lead[-_]/i.test(full)) {
-    const short = full.length > 24 ? `${full.slice(0, 22)}…` : full;
-    return { title: short, fullTitle: full };
+  const displayName = root.displayName?.trim();
+  if (displayName) {
+    return {
+      title: displayName.length > 24 ? `${displayName.slice(0, 22)}…` : displayName,
+      fullTitle: root.holderSeatId,
+    };
   }
-  // UUID or uuid-like
-  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(full)) {
-    return { title: `lead · ${full.slice(0, 8)}`, fullTitle: full };
-  }
-  if (full.length > 22) {
-    return { title: `${full.slice(0, 20)}…`, fullTitle: full };
-  }
-  return { title: full, fullTitle: full };
+  const identityLabel = root.identityRole === "supervisor" ? "Supervisor" : "Lead";
+  return {
+    title: `${identityLabel} · ${root.holderSeatId.slice(0, 12)}`,
+    fullTitle: root.holderSeatId,
+  };
 }
 
 function formatTopologyTitle(raw: string, max = 22): {
@@ -135,7 +141,7 @@ function formatTopologyTitle(raw: string, max = 22): {
 function columnX(peerCount: number): {
   readonly runtime: number;
   readonly policy: number;
-  readonly lead: number;
+  readonly root: number;
   readonly peer: number;
   readonly workspace: number;
 } {
@@ -143,7 +149,7 @@ function columnX(peerCount: number): {
     return {
       runtime: 0,
       policy: 0,
-      lead: NODE_WIDTH + COL_GAP,
+      root: NODE_WIDTH + COL_GAP,
       peer: NODE_WIDTH + COL_GAP,
       workspace: (NODE_WIDTH + COL_GAP) * 2,
     };
@@ -151,7 +157,7 @@ function columnX(peerCount: number): {
   return {
     runtime: 0,
     policy: 0,
-    lead: NODE_WIDTH + COL_GAP,
+    root: NODE_WIDTH + COL_GAP,
     peer: (NODE_WIDTH + COL_GAP) * 2,
     workspace: (NODE_WIDTH + COL_GAP) * 3,
   };
@@ -159,6 +165,7 @@ function columnX(peerCount: number): {
 
 function buildRoomTopology(
   snapshot: SupervisedRuntimeSnapshot,
+  governance: SupervisedGovernanceSnapshot,
   roomId: string,
 ): RoomTopologyProjection | null {
   const room = snapshot.rooms.find((candidate) => candidate.id === roomId);
@@ -181,7 +188,12 @@ function buildRoomTopology(
     : 0;
   const peers = supervisedRoomPeerSessions(snapshot, roomId).slice(0, 4);
 
-  const leadLabel = formatTopologySeatLabel(room.leadSeatId);
+  const root = supervisedRoomRoot(governance, roomId);
+  const rootLabel = formatTopologyRootLabel(root);
+  const rootDetail =
+    root.resolution === "resolved"
+      ? `${root.roleLabel} · ${tasks.length} tasks · ${activeRunCount} active runs`
+      : `${root.reason.replaceAll("_", " ")} · ${tasks.length} tasks · ${activeRunCount} active runs`;
   const policyLabel = policy ? formatTopologyTitle(policy.name, 24) : null;
 
   const nodes: TopologyNode[] = [
@@ -208,14 +220,17 @@ function buildRoomTopology(
         ]
       : []),
     {
-      id: room.leadSeatId ?? "unassigned-lead",
-      kind: "lead",
-      eyebrow: "Lead",
-      title: leadLabel.title,
-      fullTitle: leadLabel.fullTitle,
-      detail: `${tasks.length} tasks · ${activeRunCount} active runs`,
-      status: room.status,
-      openTarget: { kind: "lead", sessionId: null },
+      id: root.holderSeatId ?? `unresolved-root-${room.id}`,
+      kind: "root",
+      eyebrow: "Room Root",
+      title: rootLabel.title,
+      fullTitle: rootLabel.fullTitle,
+      detail: rootDetail,
+      status: root.resolution === "resolved" ? root.leaseStatus : "unresolved",
+      ...(root.resolution === "resolved" &&
+      (root.conversationKind === "lead" || root.threadId !== null)
+        ? { openTarget: { kind: root.conversationKind, sessionId: null } }
+        : {}),
     },
     ...peers.map((session) => {
       const title = formatTopologyTitle(session.title, 22);
@@ -256,12 +271,16 @@ function buildRoomTopology(
 }
 
 function useRoomTopology(roomId: string) {
-  const query = useQuery(supervisedRuntimeQueryOptions());
+  const query = useQuery(supervisedSettingsQueryOptions());
+  const snapshot = query.data?.runtime;
   const projection = useMemo(
-    () => (query.data ? buildRoomTopology(query.data, roomId) : null),
+    () =>
+      query.data
+        ? buildRoomTopology(query.data.runtime, query.data.governance, roomId)
+        : null,
     [query.data, roomId],
   );
-  return { ...query, projection };
+  return { ...query, projection, snapshot };
 }
 
 function isHealthyStatus(status: string): boolean {
@@ -314,7 +333,7 @@ export function SupervisedTopologySidebar(props: {
                       ? "bg-[var(--color-background-button-secondary-hover)] text-foreground"
                       : "text-muted-foreground hover:bg-[var(--color-background-button-secondary-hover)] hover:text-foreground",
                     node.kind === "peer" && "pl-7",
-                    node.kind === "lead" && "pl-4",
+                    node.kind === "root" && "pl-4",
                   )}
                   onClick={() => props.onSelectNode(node.id)}
                 >
@@ -607,7 +626,7 @@ function buildTopologyFlowGraph(
 ): { readonly nodes: TopologyFlowNode[]; readonly edges: Edge[] } {
   const runtime = projection.nodes.find((node) => node.kind === "runtime");
   const policy = projection.nodes.find((node) => node.kind === "policy");
-  const lead = projection.nodes.find((node) => node.kind === "lead");
+  const root = projection.nodes.find((node) => node.kind === "root");
   const workspace = projection.nodes.find((node) => node.kind === "workspace");
   const peers = projection.nodes.filter((node) => node.kind === "peer");
   const col = columnX(peers.length);
@@ -640,13 +659,13 @@ function buildTopologyFlowGraph(
       draggable: false,
     });
   }
-  if (lead) {
+  if (root) {
     nodes.push({
-      id: lead.id,
+      id: root.id,
       type: "topology",
-      position: { x: col.lead, y: Math.max(0, stackMid - NODE_HEIGHT / 2) },
-      data: { ...lead, selected: selectedNodeId === lead.id },
-      selected: selectedNodeId === lead.id,
+      position: { x: col.root, y: Math.max(0, stackMid - NODE_HEIGHT / 2) },
+      data: { ...root, selected: selectedNodeId === root.id },
+      selected: selectedNodeId === root.id,
       draggable: false,
     });
   }
@@ -685,33 +704,33 @@ function buildTopologyFlowGraph(
   };
 
   const edges: Edge<TopologyEdgeData>[] = [];
-  if (runtime && lead) {
+  if (runtime && root) {
     edges.push({
       ...baseEdge,
-      id: `e-${runtime.id}-${lead.id}`,
+      id: `e-${runtime.id}-${root.id}`,
       source: runtime.id,
-      target: lead.id,
+      target: root.id,
       label: "governs",
       data: { labelOffsetX: 0, labelOffsetY: -14 },
     });
   }
-  if (policy && lead) {
+  if (policy && root) {
     edges.push({
       ...baseEdge,
-      id: `e-${policy.id}-${lead.id}`,
+      id: `e-${policy.id}-${root.id}`,
       source: policy.id,
-      target: lead.id,
+      target: root.id,
       label: "bounds",
-      // Policy sits below runtime → lead: shift chip off the vertical join.
+      // Policy sits below runtime → Root: shift chip off the vertical join.
       data: { labelOffsetX: 16, labelOffsetY: 0 },
     });
   }
   for (const peer of peers) {
-    if (lead) {
+    if (root) {
       edges.push({
         ...baseEdge,
-        id: `e-${lead.id}-${peer.id}`,
-        source: lead.id,
+        id: `e-${root.id}-${peer.id}`,
+        source: root.id,
         target: peer.id,
         label: "delegates",
         animated: peer.status === "running",
@@ -736,11 +755,11 @@ function buildTopologyFlowGraph(
       });
     }
   }
-  if (lead && workspace && peers.length === 0) {
+  if (root && workspace && peers.length === 0) {
     edges.push({
       ...baseEdge,
-      id: `e-${lead.id}-${workspace.id}`,
-      source: lead.id,
+      id: `e-${root.id}-${workspace.id}`,
+      source: root.id,
       target: workspace.id,
       label: "checkpoints",
       style: { stroke: palette.edgeQuiet, strokeWidth: 1.25, strokeDasharray: "5 4" },
@@ -757,7 +776,7 @@ function buildTopologyFlowGraph(
   return { nodes, edges };
 }
 
-/** Sparse room graphs (runtime/policy/lead/workspace ± few peers) should not zoom out to postage-stamp size. */
+/** Sparse room graphs (runtime/policy/root/workspace ± few peers) should not zoom out to postage-stamp size. */
 const SPARSE_NODE_COUNT = 6;
 const FIT_MIN_ZOOM_SPARSE = 0.9;
 const FIT_MIN_ZOOM_DENSE = 0.45;
@@ -792,6 +811,8 @@ function peekEnterLabel(kind: SupervisedTopologyOpenTarget["kind"]): string {
   switch (kind) {
     case "runtime":
       return "Open runtime activity";
+    case "supervisor":
+      return "Open Supervisor conversation";
     case "lead":
       return "Open Lead conversation";
     case "peer":
@@ -829,7 +850,7 @@ function buildPeekMeta(
         ["Fan-out", projection.policy ? String(projection.policy.maxFanOut) : "—"],
         ["Recursive calls", projection.policy ? String(projection.policy.maxRecursiveCalls) : "—"],
       ];
-    case "lead":
+    case "root":
       return [
         ["Status", node.status],
         ["Tasks", String(projection.taskCount)],
@@ -898,7 +919,7 @@ function buildPeekLiveLines(
         );
         push(
           "status",
-          `wall ${Math.round(projection.policy.maxWallTimeMs / 60_000)} min applied to lead seat`,
+          `wall ${Math.round(projection.policy.maxWallTimeMs / 60_000)} min applied to Room Root`,
         );
       } else {
         push("status", "No effective RunPolicy on this room.");
@@ -906,8 +927,8 @@ function buildPeekLiveLines(
       push("respond", "Policy is configuration — no process stream.");
       break;
     }
-    case "lead": {
-      push("status", `lead ${node.status} · ${projection.taskCount} tasks`);
+    case "root": {
+      push("status", `Room Root ${node.status} · ${projection.taskCount} tasks`);
       push("respond", node.detail);
       const runIds = new Set(projection.runIds);
       const scoped = (snapshot?.runs ?? [])
@@ -993,7 +1014,7 @@ function TopologyNodePeek(props: {
   readonly anchor: PeekAnchor;
   readonly onClose: () => void;
   readonly onEnter: (() => void) | null;
-  readonly onSelectParentLead: (() => void) | null;
+  readonly onSelectParentRoot: (() => void) | null;
 }) {
   const liveState = peekLiveState(props.node);
   const meta = buildPeekMeta(props.node, props.projection, props.snapshot);
@@ -1107,13 +1128,13 @@ function TopologyNodePeek(props: {
         >
           Copy id
         </button>
-        {props.onSelectParentLead ? (
+        {props.onSelectParentRoot ? (
           <button
             type="button"
             className="rounded-md border border-border/65 px-2.5 py-2 text-[11px] text-muted-foreground hover:text-foreground"
-            onClick={props.onSelectParentLead}
+            onClick={props.onSelectParentRoot}
           >
-            Open parent lead
+            Open parent Root
           </button>
         ) : null}
       </div>
@@ -1327,7 +1348,7 @@ export function SupervisedTopologyCanvas(props: {
     });
   }, [anchor, props.selectedNodeId, selectedNode?.id, query.dataUpdatedAt]);
 
-  const leadNode = projection?.nodes.find((node) => node.kind === "lead") ?? null;
+  const rootNode = projection?.nodes.find((node) => node.kind === "root") ?? null;
   const selectedOpenTarget = selectedNode?.openTarget ?? null;
 
   return (
@@ -1380,18 +1401,18 @@ export function SupervisedTopologyCanvas(props: {
             <TopologyNodePeek
               node={selectedNode}
               projection={projection}
-              snapshot={query.data}
+              snapshot={query.snapshot}
               anchor={anchor}
               onClose={() => props.onSelectNode(null)}
               onEnter={
                 selectedOpenTarget ? () => props.onOpenNode(selectedOpenTarget) : null
               }
-              onSelectParentLead={
-                selectedNode.kind === "peer" && leadNode
+              onSelectParentRoot={
+                selectedNode.kind === "peer" && rootNode
                   ? () => {
                       graphSelectRef.current = true;
                       placeDefault();
-                      props.onSelectNode(leadNode.id);
+                      props.onSelectNode(rootNode.id);
                     }
                   : null
               }
@@ -1408,8 +1429,8 @@ export function SupervisedTopologyCanvas(props: {
             {projection.contextRecordCount} context records · sequence {projection.contextSequence}
           </span>
           <span className="flex items-center gap-1.5">
-            <StatusDot status={query.data?.health.status ?? "stopped"} /> runtime{" "}
-            {query.data?.health.status}
+            <StatusDot status={query.snapshot?.health.status ?? "stopped"} /> runtime{" "}
+            {query.snapshot?.health.status}
           </span>
         </div>
       ) : null}

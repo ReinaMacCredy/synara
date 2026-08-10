@@ -184,6 +184,17 @@ export function startRlm(input: StartRlmInput) {
       );
     }
     const replayedRun = input.runtime.runs.find((candidate) => candidate.id === plannedRunId);
+    if (
+      replayedRun &&
+      (replayedRun.roomId !== input.room.id || replayedRun.ownerSeatId !== input.seat.id)
+    ) {
+      return yield* Effect.fail(
+        new RlmStartError(
+          "supervised_rlm_request_conflict",
+          "The durable RLM request key is already owned by another caller or Room.",
+        ),
+      );
+    }
     const policyRun = requestedExistingRun ?? replayedRun;
     const policy = policyRun
       ? input.runtime.runPolicies.find((candidate) => candidate.id === policyRun.policyId)
@@ -209,6 +220,8 @@ export function startRlm(input: StartRlmInput) {
     }
     if (
       input.room.projectId !== input.project.id ||
+      input.authorityReceipt.actorSeatId !== input.seat.id ||
+      input.seat.authorityReceiptId !== input.authorityReceipt.id ||
       !input.seat.roomIds.includes(input.room.id) ||
       !input.authorityReceipt.roomScopes.includes(input.room.id)
     ) {
@@ -375,6 +388,11 @@ export function startRlm(input: StartRlmInput) {
       ),
       threadId: ThreadId.makeUnsafe(stableId("rlm-branch", { requestKey, index })),
     }));
+    const hasCallerAuthorityLineage = (trace: ModelSessionTrace) =>
+      trace.actorSeatId === input.authorityReceipt.actorSeatId &&
+      trace.authorityReceiptId === input.authorityReceipt.id &&
+      trace.effectiveRole === input.authorityReceipt.effectiveRole &&
+      JSON.stringify(trace.rootLeaseIds) === JSON.stringify(input.authorityReceipt.rootLeaseIds);
     const contextFor = () =>
       buildContextView({
         workspace: contextWorkspace,
@@ -490,6 +508,10 @@ export function startRlm(input: StartRlmInput) {
         runId: run.id,
         taskId: task.id,
         taskNodeId: run.taskNodeId,
+        actorSeatId: input.authorityReceipt.actorSeatId,
+        authorityReceiptId: input.authorityReceipt.id,
+        effectiveRole: input.authorityReceipt.effectiveRole,
+        rootLeaseIds: [...input.authorityReceipt.rootLeaseIds],
         rlmEpisodeId: episode.id,
         parentSessionId: inputTrace.parentSessionId,
         peerSpecialtyId: null,
@@ -517,12 +539,13 @@ export function startRlm(input: StartRlmInput) {
         usage: {
           inputTokens: 0,
           outputTokens: 0,
-          contextTokens: context.view.estimatedTokens,
-          providerLimitTokens: context.view.providerLimitTokens,
-          contextUsagePercent:
-            context.view.providerLimitTokens === null
-              ? null
-              : (context.view.estimatedTokens / context.view.providerLimitTokens) * 100,
+          contextTokens: 0,
+          providerLimitTokens: null,
+          contextUsagePercent: null,
+        },
+        usageProvenance: {
+          inputOutputTokens: "unavailable",
+          contextWindow: "unavailable",
         },
         status: "queued",
         retryCount: 0,
@@ -538,6 +561,14 @@ export function startRlm(input: StartRlmInput) {
     const existingRootTrace = input.runtime.modelSessions.find(
       (candidate) => candidate.id === rootModelSessionId,
     );
+    if (existingRootTrace && !hasCallerAuthorityLineage(existingRootTrace)) {
+      return yield* Effect.fail(
+        new RlmStartError(
+          "supervised_rlm_request_conflict",
+          "The durable RLM request key is already bound to another authority lineage.",
+        ),
+      );
+    }
     if (!existingRootTrace) {
       yield* createThread(
         rootThreadId,
@@ -564,7 +595,17 @@ export function startRlm(input: StartRlmInput) {
       const existingBranchTrace = input.runtime.modelSessions.find(
         (candidate) => candidate.id === branch.modelSessionId,
       );
-      if (existingBranchTrace) continue;
+      if (existingBranchTrace) {
+        if (!hasCallerAuthorityLineage(existingBranchTrace)) {
+          return yield* Effect.fail(
+            new RlmStartError(
+              "supervised_rlm_request_conflict",
+              "The durable RLM request key is already bound to another authority lineage.",
+            ),
+          );
+        }
+        continue;
+      }
       const branchContext = contextFor();
       const fixedPrompt = [
         `RLM objective: ${boundedPromptSection(input.objective, 8_192)}`,

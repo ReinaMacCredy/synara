@@ -11,6 +11,7 @@ function makeSession(status: OrchestrationSession["status"]): OrchestrationSessi
     threadId: THREAD_ID,
     status,
     providerName: "codex",
+    providerSessionId: "native-provider-thread-1",
     runtimeMode: "approval-required",
     activeTurnId: null,
     lastError: status === "error" ? "runtime exploded" : null,
@@ -54,6 +55,7 @@ describe("deriveTurnStartSession", () => {
       threadId: THREAD_ID,
       status: "starting",
       providerName: "pi",
+      providerSessionId: null,
       runtimeMode: "full-access",
       activeTurnId: null,
       lastError: null,
@@ -65,6 +67,7 @@ describe("deriveTurnStartSession", () => {
     expect(derive(makeSession("ready"))).toMatchObject({
       status: "starting",
       providerName: "codex",
+      providerSessionId: "native-provider-thread-1",
       runtimeMode: "approval-required",
       activeTurnId: null,
       lastError: null,

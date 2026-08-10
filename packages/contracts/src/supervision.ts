@@ -14,6 +14,7 @@ import {
 
 const entityId = <Brand extends string>(brand: Brand) =>
   TrimmedNonEmptyString.pipe(Schema.brand(brand));
+const ShortText = TrimmedNonEmptyString.check(Schema.isMaxLength(512));
 
 export const ProfilePresetId = entityId("ProfilePresetId");
 export type ProfilePresetId = typeof ProfilePresetId.Type;
@@ -23,6 +24,8 @@ export const SupervisorSeatId = entityId("SupervisorSeatId");
 export type SupervisorSeatId = typeof SupervisorSeatId.Type;
 export const LeadSeatId = entityId("LeadSeatId");
 export type LeadSeatId = typeof LeadSeatId.Type;
+export const RootHolderSeatId = Schema.Union([LeadSeatId, SupervisorSeatId]);
+export type RootHolderSeatId = typeof RootHolderSeatId.Type;
 export const SupervisionMissionId = entityId("SupervisionMissionId");
 export type SupervisionMissionId = typeof SupervisionMissionId.Type;
 export const WorkflowDirectiveId = entityId("WorkflowDirectiveId");
@@ -111,6 +114,8 @@ export const SupervisorSeatStatus = Schema.Literals(["active", "queued", "rotati
 export const SupervisorSeat = Schema.Struct({
   id: SupervisorSeatId,
   name: TrimmedNonEmptyString,
+  concern: Schema.optional(ShortText),
+  isPrimary: Schema.optional(Schema.Boolean),
   activeThreadId: ThreadId,
   predecessorThreadIds: Schema.Array(ThreadId),
   profileSnapshotId: ProfileSnapshotId,
@@ -140,7 +145,7 @@ export type LeadSeat = typeof LeadSeat.Type;
 export const PeerBinding = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
-  leadSeatId: LeadSeatId,
+  leadSeatId: RootHolderSeatId,
   rootThreadId: ThreadId,
   profileSnapshotId: ProfileSnapshotId,
   status: Schema.Literals(["active", "archived"]),

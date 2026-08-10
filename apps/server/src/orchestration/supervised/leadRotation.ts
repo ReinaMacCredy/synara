@@ -7,7 +7,7 @@ const NEXT_STATES: Readonly<Record<LeadRotation["state"], ReadonlySet<LeadRotati
   validated: new Set(["switched", "failed"]),
   switched: new Set(["completed"]),
   completed: new Set(),
-  failed: new Set(),
+  failed: new Set(["frozen", "replacement_created", "validated"]),
 };
 
 export function mayAdvanceLeadRotation(

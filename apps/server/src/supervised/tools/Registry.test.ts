@@ -99,6 +99,15 @@ describe("Supervised intent tool registry", () => {
     if (!denied.allowed) assert.equal(denied.code, "supervised_tool_command_denied");
   });
 
+  it("keeps Supervisor notebook search read-only with no cursor command", () => {
+    const search = supervisedIntentToolRegistry.find(
+      (entry) => entry.id === "supervised.notebook.search",
+    );
+
+    assert.equal(search?.readOnly, true);
+    assert.deepEqual(search?.internalCommands, []);
+  });
+
   it("authorizes bounded work as an intervention without a Task claim", () => {
     const workAssignment = supervisedIntentToolRegistry.find(
       (entry) => entry.id === "supervised.work.assign",

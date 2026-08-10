@@ -1,14 +1,124 @@
-import { emptySupervisedRuntimeSnapshot } from "@synara/contracts";
+import {
+  emptySupervisedGovernanceSnapshot,
+  emptySupervisedRuntimeSnapshot,
+} from "@synara/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
   supervisedRoomPeerSessions,
+  supervisedRoomRoot,
   supervisedRoomRuns,
 } from "./supervisedTopologyProjection";
 
 const now = "2026-08-09T00:00:00.000Z";
 
 describe("supervised topology projection", () => {
+  it("projects an acting-root Supervisor from the canonical live Root lease", () => {
+    const governance = {
+      ...emptySupervisedGovernanceSnapshot(now),
+      agentSeats: [
+        {
+          id: "lead-previous",
+          identityRole: "lead",
+          effectiveRole: "lead",
+          displayName: "Previous Lead",
+        },
+        {
+          id: "lead-shaped-seat-id",
+          identityRole: "supervisor",
+          effectiveRole: "acting_root",
+          displayName: "Primary Supervisor",
+          threadId: "supervisor-root-thread",
+        },
+      ],
+      rootLeases: [
+        {
+          id: "lease-previous",
+          roomId: "room-a",
+          holderSeatId: "lead-previous",
+          status: "released",
+        },
+        {
+          id: "lease-acting-root",
+          roomId: "room-a",
+          holderSeatId: "lead-shaped-seat-id",
+          status: "active",
+        },
+      ],
+    } as never;
+
+    expect(supervisedRoomRoot(governance, "room-a")).toMatchObject({
+      resolution: "resolved",
+      holderSeatId: "lead-shaped-seat-id",
+      leaseId: "lease-acting-root",
+      identityRole: "supervisor",
+      roleLabel: "Supervisor acting as Root",
+      conversationKind: "supervisor",
+      threadId: "supervisor-root-thread",
+      displayName: "Primary Supervisor",
+    });
+  });
+
+  it("keeps a canonical Lead Root labeled and routed as Lead", () => {
+    const governance = {
+      ...emptySupervisedGovernanceSnapshot(now),
+      agentSeats: [
+        {
+          id: "lead-current",
+          identityRole: "lead",
+          effectiveRole: "lead",
+          displayName: "Room Lead",
+          threadId: "lead-root-thread",
+        },
+      ],
+      rootLeases: [
+        {
+          id: "lease-lead",
+          roomId: "room-a",
+          holderSeatId: "lead-current",
+          status: "active",
+        },
+      ],
+    } as never;
+
+    expect(supervisedRoomRoot(governance, "room-a")).toMatchObject({
+      resolution: "resolved",
+      holderSeatId: "lead-current",
+      identityRole: "lead",
+      roleLabel: "Lead",
+      conversationKind: "lead",
+      threadId: "lead-root-thread",
+    });
+  });
+
+  it("does not invent a Root identity when the canonical lease and seat disagree", () => {
+    const governance = {
+      ...emptySupervisedGovernanceSnapshot(now),
+      agentSeats: [
+        {
+          id: "supervisor-without-assumption",
+          identityRole: "supervisor",
+          effectiveRole: "supervisor",
+          displayName: "Primary Supervisor",
+        },
+      ],
+      rootLeases: [
+        {
+          id: "lease-inconsistent",
+          roomId: "room-a",
+          holderSeatId: "supervisor-without-assumption",
+          status: "active",
+        },
+      ],
+    } as never;
+
+    expect(supervisedRoomRoot(governance, "room-a")).toEqual({
+      resolution: "unresolved",
+      holderSeatId: "supervisor-without-assumption",
+      reason: "inconsistent_holder_role",
+    });
+  });
+
   it("keeps run activity scoped to the selected Room", () => {
     const snapshot = {
       ...emptySupervisedRuntimeSnapshot(now),

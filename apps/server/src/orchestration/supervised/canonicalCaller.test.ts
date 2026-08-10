@@ -92,6 +92,34 @@ describe("canonical Supervised caller resolution", () => {
     );
   });
 
+  it("keeps a draining Root authoritative only while its durable lease remains live", () => {
+    const drainingSeat = { ...seat, lifecycleState: "draining" as const };
+    const governance = {
+      ...emptySupervisedGovernanceSnapshot(now),
+      agentSeats: [drainingSeat],
+      authorityReceipts: [receipt],
+      rootLeases: [
+        {
+          holderSeatId: seat.id,
+          status: "active",
+        } as never,
+      ],
+    };
+
+    assert.equal(
+      resolveEffectiveCanonicalAuthority({ governance, seatId: seat.id, at: now })?.seat.id,
+      seat.id,
+    );
+    assert.equal(
+      resolveEffectiveCanonicalAuthority({
+        governance: { ...governance, rootLeases: [] },
+        seatId: seat.id,
+        at: now,
+      }),
+      undefined,
+    );
+  });
+
   it("inherits canonical authority through the supervised native RLM lineage", () => {
     const result = resolveProjectedSupervisedCallerForThread({
       governance: { ...emptySupervisedGovernanceSnapshot(now), agentSeats: [seat] },
