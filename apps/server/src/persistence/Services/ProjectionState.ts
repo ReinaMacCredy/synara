@@ -6,7 +6,7 @@
  *
  * @module ProjectionStateRepository
  */
-import { IsoDateTime, NonNegativeInt } from "@synara/contracts";
+import { IsoDateTime, NonNegativeInt } from "@veylen/contracts";
 import { Option, Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -61,4 +61,4 @@ export interface ProjectionStateRepositoryShape {
 export class ProjectionStateRepository extends ServiceMap.Service<
   ProjectionStateRepository,
   ProjectionStateRepositoryShape
->()("synara/persistence/Services/ProjectionState/ProjectionStateRepository") {}
+>()("veylen/persistence/Services/ProjectionState/ProjectionStateRepository") {}

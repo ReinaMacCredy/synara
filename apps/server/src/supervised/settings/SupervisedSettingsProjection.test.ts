@@ -10,7 +10,7 @@ import {
   type EffectiveAuthorityReceipt,
   type SupervisedToolInvocationReceipt,
   type SupervisedToolPolicy,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { describe, it } from "vitest";
 
 import type { HostToolDefinition } from "../../orchestration/hostTools/runtime.ts";

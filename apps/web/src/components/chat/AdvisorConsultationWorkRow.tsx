@@ -5,7 +5,7 @@
 // Layer: Web chat presentation component
 // Exports: AdvisorConsultationWorkRow
 
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@veylen/contracts";
 import { useEffect, useState } from "react";
 
 import {

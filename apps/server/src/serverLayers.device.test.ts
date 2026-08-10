@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Effect, Layer, ServiceMap } from "effect";
 
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@veylen/contracts";
 
 import { DeviceManager } from "./device/DeviceManager";
 import { FakeDeviceBackend } from "./device/FakeDeviceBackend";

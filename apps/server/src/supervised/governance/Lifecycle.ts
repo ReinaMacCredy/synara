@@ -9,7 +9,7 @@ import type {
   Room,
   RootAuthorityLeaseId,
   SupervisedGovernanceSnapshot,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 const liveRootStatuses = new Set(["active", "transferring", "releasing"]);
 

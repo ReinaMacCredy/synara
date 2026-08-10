@@ -36,12 +36,12 @@ import {
   type ServerVoiceTranscriptionResult,
   type UserInputQuestion,
   type AcceptedCrossModeHandoffV1,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
-import { prewarmChatGptVoiceTranscriptionConnection } from "@synara/shared/chatGptVoiceTranscription";
-import { getModelSelectionBooleanOptionValue, normalizeModelSlug } from "@synara/shared/model";
-import { decodeSubagentReceiverThreadIds } from "@synara/shared/subagents";
-import { prepareWindowsSafeProcess } from "@synara/shared/windowsProcess";
+import { prewarmChatGptVoiceTranscriptionConnection } from "@veylen/shared/chatGptVoiceTranscription";
+import { getModelSelectionBooleanOptionValue, normalizeModelSlug } from "@veylen/shared/model";
+import { decodeSubagentReceiverThreadIds } from "@veylen/shared/subagents";
+import { prepareWindowsSafeProcess } from "@veylen/shared/windowsProcess";
 import { Effect, Option, ServiceMap } from "effect";
 
 import {
@@ -53,9 +53,9 @@ import {
 } from "./provider/codexCliVersion";
 import {
   buildCodexMcpConfigToml,
-  SYNARA_AGENT_GATEWAY_TOKEN_ENV,
+  VEYLEN_AGENT_GATEWAY_TOKEN_ENV,
 } from "./agentGateway/mcpInjection.ts";
-import { SYNARA_GATEWAY_HARNESS_POLICY } from "./agentGateway/harnessPolicy.ts";
+import { VEYLEN_GATEWAY_HARNESS_POLICY } from "./agentGateway/harnessPolicy.ts";
 import { supervisedInstructionForSession } from "./orchestration/supervised/protocolV1.ts";
 import { codexProfileConfigArgs } from "./orchestration/supervised/profileResolver.ts";
 import type { HostToolRuntimeShape } from "./orchestration/Services/HostToolRuntime.ts";
@@ -454,7 +454,7 @@ const CODEX_BROWSER_TOOL_ROUTING_INSTRUCTIONS = `
 
 ## Browser tool routing
 
-Prefer Synara's built-in browser for browser work. It may continue in the background without changing the user's active chat. In code mode, call its MCP methods directly inside \`functions.exec\` with the exact \`tools.mcp__synara__browser_*\` prefix (for example, \`await tools.mcp__synara__browser_open({ url })\` and \`await tools.mcp__synara__browser_snapshot({})\`). The available suffixes are ${BROWSER_TOOL_NAMES.map((name) => `\`${name.slice("browser_".length)}\``).join(", ")}.
+Prefer Veylen's built-in browser for browser work. It may continue in the background without changing the user's active chat. In code mode, call its MCP methods directly inside \`functions.exec\` with the exact \`tools.mcp__veylen__browser_*\` prefix (for example, \`await tools.mcp__veylen__browser_open({ url })\` and \`await tools.mcp__veylen__browser_snapshot({})\`). The available suffixes are ${BROWSER_TOOL_NAMES.map((name) => `\`${name.slice("browser_".length)}\``).join(", ")}.
 
 For element actions, keep the \`snapshotId\` returned by the fresh snapshot and use the exact shapes \`browser_type({ target: { ref, snapshotId }, text })\`, \`browser_click({ target: { ref, snapshotId } })\`, and \`browser_press({ keys: ["Enter"] })\`. Wait for observable changes with \`browser_wait({ conditions: [{ kind: "url", glob: "*expected*" }] })\` or another published condition. Never pass a bare \`ref\` without its \`snapshotId\`.
 
@@ -471,9 +471,9 @@ export const CODEX_ADVISOR_DEVELOPER_INSTRUCTIONS = `
 
 ## Advisor consultation
 
-When material uncertainty blocks a sound answer or implementation decision, you may ask Synara Advisor for one second opinion via the gateway tool \`synara_consult_advisor\` (argument: \`question\`). Do not invoke Advisor for routine work, and never start a second consultation while one is still running.
+When material uncertainty blocks a sound answer or implementation decision, you may ask Veylen Advisor for one second opinion via the gateway tool \`veylen_consult_advisor\` (argument: \`question\`). Do not invoke Advisor for routine work, and never start a second consultation while one is still running.
 
-Do **not** use provider \`spawn_agent\` / collab spawn for Advisor. Synara creates the same durable consultation as the user tray (Settings default Advisor model, advice-only, approval-required). The tool blocks until advice is ready and returns it in the tool result. Treat the advice as non-binding input, expose the consultation honestly, and make the final decision yourself.`;
+Do **not** use provider \`spawn_agent\` / collab spawn for Advisor. Veylen creates the same durable consultation as the user tray (Settings default Advisor model, advice-only, approval-required). The tool blocks until advice is ready and returns it in the tool result. Treat the advice as non-binding input, expose the consultation honestly, and make the final decision yourself.`;
 
 export const CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS = `<collaboration_mode># Plan Mode (Conversational)
 
@@ -595,7 +595,7 @@ plan content should be human and agent digestible. The final plan must be plan-o
 Do not ask "should I proceed?" in the final output. The user can easily switch out of Plan mode and request implementation if you have included a \`<proposed_plan>\` block in your response. Alternatively, they can decide to stay in Plan mode and continue refining the plan.
 
 Only produce at most one \`<proposed_plan>\` block per turn, and only when you are presenting a complete spec.
-</collaboration_mode>${CODEX_ADVISOR_DEVELOPER_INSTRUCTIONS}${CODEX_BROWSER_TOOL_ROUTING_INSTRUCTIONS}\n\n${SYNARA_GATEWAY_HARNESS_POLICY}`;
+</collaboration_mode>${CODEX_ADVISOR_DEVELOPER_INSTRUCTIONS}${CODEX_BROWSER_TOOL_ROUTING_INSTRUCTIONS}\n\n${VEYLEN_GATEWAY_HARNESS_POLICY}`;
 
 export const CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS = `<collaboration_mode># Collaboration Mode: Default
 
@@ -610,9 +610,9 @@ The \`request_user_input\` tool is available in Default mode. Use it for a mater
 The tool list for the current turn is authoritative. Ignore earlier transcript claims that \`request_user_input\` is Plan-only, unavailable, disabled, or named \`ask_user_tool\`. When the user explicitly asks you to invoke \`request_user_input\` and the tool is present, invoke it instead of replying that the current mode blocks it.
 
 In Default mode, still prefer making reasonable assumptions and executing the user's request when the question is non-blocking. Do not turn routine implementation choices into approval gates.
-</collaboration_mode>${CODEX_ADVISOR_DEVELOPER_INSTRUCTIONS}${CODEX_BROWSER_TOOL_ROUTING_INSTRUCTIONS}\n\n${SYNARA_GATEWAY_HARNESS_POLICY}`;
+</collaboration_mode>${CODEX_ADVISOR_DEVELOPER_INSTRUCTIONS}${CODEX_BROWSER_TOOL_ROUTING_INSTRUCTIONS}\n\n${VEYLEN_GATEWAY_HARNESS_POLICY}`;
 
-// Maps Synara's simple runtime toggle to Codex thread-level permission overrides.
+// Maps Veylen's simple runtime toggle to Codex thread-level permission overrides.
 function mapCodexRuntimeMode(runtimeMode: RuntimeMode): {
   readonly approvalPolicy: CodexApprovalPolicy;
   readonly approvalsReviewer: CodexApprovalsReviewer;
@@ -721,7 +721,7 @@ const CODEX_ALWAYS_ALLOW_SESSION_TURN_OVERRIDES: CodexSessionApprovalOverride = 
   sandboxPolicy: { type: "dangerFullAccess" },
 };
 
-// Synara re-sends turn-level Codex permission overrides, so keep "always allow"
+// Veylen re-sends turn-level Codex permission overrides, so keep "always allow"
 // as live session state instead of relying on one native approval reply.
 function resolveCodexTurnOverrides(context: CodexSessionContext): {
   readonly approvalPolicy: CodexApprovalPolicy;
@@ -805,8 +805,8 @@ export function normalizeCodexModelSlug(
 export function buildCodexInitializeParams() {
   return {
     clientInfo: {
-      name: "synara_desktop",
-      title: "Synara Desktop",
+      name: "veylen_desktop",
+      title: "Veylen Desktop",
       version: "0.1.0",
     },
     capabilities: {
@@ -1033,7 +1033,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   private readonly modelCache = new Map<string, ProviderListModelsResult>();
 
   private runPromise: (effect: Effect.Effect<unknown, never>) => Promise<unknown>;
-  private readonly synaraSkillsDir: string | undefined;
+  private readonly veylenSkillsDir: string | undefined;
   private readonly agentGatewayMcp:
     | {
         readonly endpointUrl: () => string;
@@ -1046,7 +1046,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   constructor(
     services?: ServiceMap.ServiceMap<never>,
     options?: {
-      readonly synaraSkillsDir?: string;
+      readonly veylenSkillsDir?: string;
       readonly agentGatewayMcp?: {
         readonly endpointUrl: () => string;
         readonly acquireSessionLease: (threadId: ThreadId) => AgentGatewaySessionLease;
@@ -1058,7 +1058,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   ) {
     super();
     this.runPromise = services ? Effect.runPromiseWith(services) : Effect.runPromise;
-    this.synaraSkillsDir = options?.synaraSkillsDir;
+    this.veylenSkillsDir = options?.veylenSkillsDir;
     this.agentGatewayMcp = options?.agentGatewayMcp;
     this.hostToolRuntime = options?.hostToolRuntime;
     this.teardownProcessTree = options?.teardownProcessTree ?? teardownProviderProcessTree;
@@ -1079,25 +1079,25 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         : {}),
     });
     if (includeAgentGatewayMcp && gatewayBearerToken) {
-      env[SYNARA_AGENT_GATEWAY_TOKEN_ENV] = gatewayBearerToken;
+      env[VEYLEN_AGENT_GATEWAY_TOKEN_ENV] = gatewayBearerToken;
     }
     return env;
   }
 
-  // Registers `~/.synara/skills` as a codex skill root so portable skills are
+  // Registers `~/.veylen/skills` as a codex skill root so portable skills are
   // first-class: skills/list returns them and turn/start `skill` items inject
   // their instructions. Verified live: skill items with paths outside known
   // roots are silently ignored by codex app-server, so this call is required.
-  private async registerSynaraSkillsRoot(context: CodexSessionContext): Promise<void> {
-    if (!this.synaraSkillsDir) {
+  private async registerVeylenSkillsRoot(context: CodexSessionContext): Promise<void> {
+    if (!this.veylenSkillsDir) {
       return;
     }
     try {
       await this.sendRequest(context, "skills/extraRoots/set", {
-        extraRoots: [this.synaraSkillsDir],
+        extraRoots: [this.veylenSkillsDir],
       });
     } catch (error) {
-      // Older codex builds (< extra-roots support) keep working; Synara-only
+      // Older codex builds (< extra-roots support) keep working; Veylen-only
       // skills simply stay invisible to codex on those versions.
       log.warn("skills/extraRoots/set unavailable", { error });
     }
@@ -1144,7 +1144,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         input.nativeToolRuntime ?? (needsHostTools ? this.hostToolRuntime : undefined);
       const isNativeToolSession = nativeToolRuntime !== undefined;
       if (needsHostTools && !nativeToolRuntime) {
-        throw new Error("Native Synara tool runtime is unavailable.");
+        throw new Error("Native Veylen tool runtime is unavailable.");
       }
 
       const codexOptions = readCodexProviderOptions(input);
@@ -1158,7 +1158,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           : {}),
         ...(codexHomePath ? { homePath: codexHomePath } : {}),
       });
-      // Native-tool Codex sessions skip remote Synara MCP; host tools are dynamicTools.
+      // Native-tool Codex sessions skip remote Veylen MCP; host tools are dynamicTools.
       gatewaySessionLease = isNativeToolSession
         ? undefined
         : this.agentGatewayMcp?.acquireSessionLease(threadId);
@@ -1216,7 +1216,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       await this.sendRequest(context, "initialize", buildCodexInitializeParams());
 
       await this.writeMessage(context, { method: "initialized" });
-      await this.registerSynaraSkillsRoot(context);
+      await this.registerVeylenSkillsRoot(context);
       // Model discovery is lazy and cached by listModels(). Keeping model/list
       // out of this serial cold-start path avoids an otherwise unused request
       // with its own 20-second deadline.
@@ -2028,7 +2028,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
       await this.sendRequest(context, "initialize", buildCodexInitializeParams());
       await this.writeMessage(context, { method: "initialized" });
-      await this.registerSynaraSkillsRoot(context);
+      await this.registerVeylenSkillsRoot(context);
       try {
         const accountReadResponse = await this.sendRequest(context, "account/read", {});
         context.account = readCodexAccountSnapshot(accountReadResponse);
@@ -2926,7 +2926,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     try {
       await this.sendRequest(context, "initialize", buildCodexInitializeParams());
       await this.writeMessage(context, { method: "initialized" });
-      await this.registerSynaraSkillsRoot(context);
+      await this.registerVeylenSkillsRoot(context);
       try {
         const accountReadResponse = await this.sendRequest(context, "account/read", {});
         context.account = readCodexAccountSnapshot(accountReadResponse);
@@ -3614,7 +3614,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         return;
       }
 
-      const detail = "Codex asked a question Synara could not render, so it was declined.";
+      const detail = "Codex asked a question Veylen could not render, so it was declined.";
       this.emitErrorEvent(context, "item/tool/requestUserInput/unrenderable", detail);
       await this.writeMessage(context, {
         id: request.id,

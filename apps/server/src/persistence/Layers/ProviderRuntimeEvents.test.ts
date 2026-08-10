@@ -4,7 +4,7 @@ import {
   ThreadId,
   TurnId,
   type ProviderRuntimeEvent,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -241,13 +241,13 @@ layer("ProviderRuntimeEventRepository", (it) => {
       assert.deepStrictEqual(persisted.event.payload, oversized.payload);
       const compactedRaw = rows[0]?.event.raw?.payload as
         | {
-            readonly synaraTruncated?: unknown;
+            readonly veylenTruncated?: unknown;
             readonly reason?: unknown;
             readonly originalBytes?: unknown;
           }
         | undefined;
       assert.deepInclude(compactedRaw, {
-        synaraTruncated: true,
+        veylenTruncated: true,
         reason: "provider runtime event exceeded the durable journal size limit",
       });
       assert.isNumber(compactedRaw?.originalBytes);

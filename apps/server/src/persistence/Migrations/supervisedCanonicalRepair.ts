@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 
-import { ProfilePresetId, type ProfilePreset, type RoomRole } from "@synara/contracts";
+import { ProfilePresetId, type ProfilePreset, type RoomRole } from "@veylen/contracts";
 import { Effect } from "effect";
 import type * as SqlClient from "effect/unstable/sql/SqlClient";
 

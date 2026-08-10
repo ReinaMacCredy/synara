@@ -8,7 +8,7 @@ import {
   type SupervisedOrchestrationSnapshot,
   type ThreadId,
   type TurnId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 import type {
   ChatMessage,

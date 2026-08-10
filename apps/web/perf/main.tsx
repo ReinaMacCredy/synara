@@ -1,6 +1,6 @@
 import "../src/index.css";
 
-import { MessageId, TurnId } from "@synara/contracts";
+import { MessageId, TurnId } from "@veylen/contracts";
 import type { LegendListRef } from "@legendapp/list/react";
 import {
   Profiler,
@@ -40,7 +40,7 @@ type PerfSnapshot = {
 
 declare global {
   interface Window {
-    __synaraPerf: {
+    __veylenPerf: {
       appendStreamingChunks: (count?: number) => Promise<FrameReport>;
       resetMetrics: () => void;
       scrollCycle: (cycles?: number) => Promise<FrameReport>;
@@ -301,7 +301,7 @@ function PerformanceHarness() {
   }, []);
 
   useEffect(() => {
-    window.__synaraPerf = {
+    window.__veylenPerf = {
       appendStreamingChunks,
       resetMetrics,
       scrollCycle,
@@ -311,7 +311,7 @@ function PerformanceHarness() {
 
   return (
     <main className="flex h-screen min-h-0 w-screen bg-background text-foreground">
-      <Profiler id="synara-transcript-perf" onRender={handleRender}>
+      <Profiler id="veylen-transcript-perf" onRender={handleRender}>
         <ChatTranscriptPane
           activeThreadId="perf-thread"
           activeTurnId={working ? TurnId.makeUnsafe("perf-turn-streaming") : null}

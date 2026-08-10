@@ -4,7 +4,7 @@ import type {
   SupervisedGovernanceSnapshot,
   OrchestrationThread,
   ThreadId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 export interface ProjectedSupervisedCaller {
   readonly role: "supervisor" | "lead" | "peer";

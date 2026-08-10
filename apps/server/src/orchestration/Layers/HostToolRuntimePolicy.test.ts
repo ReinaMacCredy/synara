@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
-import type { SupervisedToolPolicy } from "@synara/contracts";
+import type { SupervisedToolPolicy } from "@veylen/contracts";
 
 import { evaluateSupervisedToolPolicy } from "./HostToolRuntime.ts";
 

@@ -8,7 +8,7 @@ import {
   type LeadSeat,
   type SupervisedGovernanceDomainEvent,
   type WorkflowDirective,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 import { missionScopeExpands } from "./governanceInvariants.ts";
 import { emptySupervisedGovernanceDecisionState } from "./governanceState.ts";

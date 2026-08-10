@@ -1,4 +1,4 @@
-import type { HandoffCapsuleItemV1 } from "@synara/contracts";
+import type { HandoffCapsuleItemV1 } from "@veylen/contracts";
 import { Effect } from "effect";
 
 import type { HostToolRuntimeShape } from "../orchestration/Services/HostToolRuntime.ts";

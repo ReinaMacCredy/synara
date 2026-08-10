@@ -4,7 +4,7 @@ import {
   TaskDependencyEdgeId,
   TaskProcessId,
   type TaskProcessGraphProjection,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { describe, expect, it } from "vitest";
 
 import { buildDependencyLayout, buildDependencyWaves } from "./ProcessGraph";

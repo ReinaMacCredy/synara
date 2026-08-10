@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 export const HANDOFF_CORE_INSTRUCTION_VERSION = 1 as const;
 
-export const HANDOFF_CORE_INSTRUCTION = `You are Synara's one-shot Handoff Agent.
+export const HANDOFF_CORE_INSTRUCTION = `You are Veylen's one-shot Handoff Agent.
 Create a compact, evidence-bound continuation packet for another coding-agent thread.
 
 Rules:

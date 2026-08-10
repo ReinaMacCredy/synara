@@ -7,7 +7,7 @@ import {
   type SupervisedSystemTool,
   type SupervisedToolPolicyState,
   type UserModelPreferenceProfile as UserModelPreferenceProfileType,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { Schema } from "effect";
 import { useEffect, useMemo, useState } from "react";
@@ -286,7 +286,7 @@ function ModelsPanel({
         <SettingsSectionShell title="Governed model catalog">
           {profiles.length === 0 ? (
             <SettingsEmptyState>
-              No durable capability profiles have been recorded. Synara will not invent ratings or
+              No durable capability profiles have been recorded. Veylen will not invent ratings or
               routing candidates.
             </SettingsEmptyState>
           ) : (
@@ -761,7 +761,7 @@ function ModelsPanel({
         <SettingsSectionShell title="Why this model was selected">
           {snapshot.governance.modelSelectionReceipts.length === 0 ? (
             <SettingsEmptyState>
-              No durable selection receipt exists yet. Synara will show explanations only after a
+              No durable selection receipt exists yet. Veylen will show explanations only after a
               real routing decision.
             </SettingsEmptyState>
           ) : (

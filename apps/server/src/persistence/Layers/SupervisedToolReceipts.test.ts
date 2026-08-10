@@ -5,7 +5,7 @@ import {
   EffectiveAuthorityReceiptId,
   SupervisedToolInvocationReceiptId,
   type SupervisedToolInvocationReceipt,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Effect, Layer, Option } from "effect";
 
 import { SupervisedToolReceiptRepository } from "../Services/SupervisedToolReceipts.ts";

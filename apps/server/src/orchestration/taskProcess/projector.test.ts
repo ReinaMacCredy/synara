@@ -1,4 +1,4 @@
-import type { TaskProcessDomainEvent } from "@synara/contracts";
+import type { TaskProcessDomainEvent } from "@veylen/contracts";
 import { describe, expect, it } from "vitest";
 
 import { replayTaskProcessEvents } from "./projector.ts";

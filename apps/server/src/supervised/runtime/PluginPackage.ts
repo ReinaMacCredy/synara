@@ -3,7 +3,7 @@ import { lstat, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { PluginManifest, type SupervisedPluginInspection } from "@synara/contracts";
+import { PluginManifest, type SupervisedPluginInspection } from "@veylen/contracts";
 import { Schema } from "effect";
 
 const MAX_MANIFEST_BYTES = 1_048_576;
@@ -31,13 +31,13 @@ export async function loadVerifiedSupervisedPluginPackage(requestedDirectory: st
   if (!directoryStat.isDirectory())
     throw new Error("The selected plugin package is not a directory.");
 
-  const manifestPath = path.join(directory, "synara-plugin.json");
+  const manifestPath = path.join(directory, "veylen-plugin.json");
   const manifestText = await readBoundedRegularFile(manifestPath, MAX_MANIFEST_BYTES);
   let unknownManifest: unknown;
   try {
     unknownManifest = JSON.parse(manifestText);
   } catch (cause) {
-    throw new Error("synara-plugin.json is not valid JSON.", { cause });
+    throw new Error("veylen-plugin.json is not valid JSON.", { cause });
   }
   const claimedManifest = Schema.decodeUnknownSync(PluginManifest)(unknownManifest);
   let handlerSource = "";

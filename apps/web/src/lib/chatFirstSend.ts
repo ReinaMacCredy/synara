@@ -1,5 +1,5 @@
-import { DEFAULT_MODEL_BY_PROVIDER, type ModelSelection } from "@synara/contracts";
-import { workspaceRootsEqual } from "@synara/shared/threadWorkspace";
+import { DEFAULT_MODEL_BY_PROVIDER, type ModelSelection } from "@veylen/contracts";
+import { workspaceRootsEqual } from "@veylen/shared/threadWorkspace";
 
 import type { Project } from "../types";
 import { buildChatWorkspaceFolderPath } from "./chatWorkspaceFolders";

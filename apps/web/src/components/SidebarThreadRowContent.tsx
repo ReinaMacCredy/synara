@@ -4,9 +4,9 @@
 
 import { useMemo, type ReactNode } from "react";
 
-import { isGenericChatThreadTitle } from "@synara/shared/chatThreads";
-import { isAdvisorIdentity } from "@synara/shared/advisor";
-import { pluralize } from "@synara/shared/text";
+import { isGenericChatThreadTitle } from "@veylen/shared/chatThreads";
+import { isAdvisorIdentity } from "@veylen/shared/advisor";
+import { pluralize } from "@veylen/shared/text";
 
 import { createThreadSelector } from "../storeSelectors";
 import { useStore } from "../store";

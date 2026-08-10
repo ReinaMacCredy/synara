@@ -17,8 +17,8 @@ import {
   TerminalSessionSnapshot,
   TerminalSessionStatus,
   TerminalWriteInput,
-} from "@synara/contracts";
-import type { TerminalActivityState, TerminalCliKind } from "@synara/shared/terminalThreads";
+} from "@veylen/contracts";
+import type { TerminalActivityState, TerminalCliKind } from "@veylen/shared/terminalThreads";
 import { PtyProcess } from "./PTY";
 import { Effect, Schema, ServiceMap } from "effect";
 import type { TerminalModeReplayTracker } from "../terminalModeReplay";
@@ -185,5 +185,5 @@ export interface TerminalManagerShape {
  * TerminalManager - Service tag for terminal session orchestration.
  */
 export class TerminalManager extends ServiceMap.Service<TerminalManager, TerminalManagerShape>()(
-  "synara/terminal/Services/Manager/TerminalManager",
+  "veylen/terminal/Services/Manager/TerminalManager",
 ) {}

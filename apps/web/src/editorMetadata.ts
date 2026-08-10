@@ -3,8 +3,8 @@
 // Layer: Web UI metadata
 // Exports: editor option builders used by the chat header and open-in picker.
 
-import { EDITORS, type EditorId } from "@synara/contracts";
-import { EDITOR_ICON_ROUTE_PATH } from "@synara/shared/editorIcons";
+import { EDITORS, type EditorId } from "@veylen/contracts";
+import { EDITOR_ICON_ROUTE_PATH } from "@veylen/shared/editorIcons";
 import { createElement, useState } from "react";
 import type { Icon } from "./components/Icons";
 import {

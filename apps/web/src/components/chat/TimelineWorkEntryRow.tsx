@@ -3,7 +3,7 @@
 // Layer: Web chat presentation component
 // Exports: TimelineWorkEntryRow, EditedFileRowContent, prefersCompactWorkEntryRow
 
-import type { ThreadId, TurnId } from "@synara/contracts";
+import type { ThreadId, TurnId } from "@veylen/contracts";
 import { BookOpen, Globe, Images, Pencil, Search, SquareTerminal, Wrench } from "lucide-react";
 import {
   createElement,
@@ -51,7 +51,7 @@ import ChatMarkdown from "../ChatMarkdown";
 import { DiffStatLabel } from "./DiffStatLabel";
 import { type ExpandedImagePreview } from "./ExpandedImagePreview";
 import { LinkChipIcon } from "../LinkChipIcon";
-import { SynaraLogo } from "../SynaraLogo";
+import { VeylenLogo } from "../VeylenLogo";
 import { normalizeCompactToolLabel } from "./MessagesTimeline.logic";
 import { formatToolCallDetailLabel, isSummarizableToolCallEntry } from "./toolCallGroup.logic";
 import { ToolCallDetailsContent } from "./ToolCallDetailsDialog";
@@ -65,13 +65,13 @@ import {
 } from "../../lib/toolArgumentSummary";
 import {
   deriveFriendlyCommandTarget,
-  deriveSynaraMcpToolTitle,
+  deriveVeylenMcpToolTitle,
   extractWebFetchUrl,
-  isSynaraBrowserToolCall,
+  isVeylenBrowserToolCall,
   normalizeToolTextForComparison,
   resolveCommandVisualKind,
-  sanitizeSynaraMcpToolPreview,
-  type SynaraMcpToolStatus,
+  sanitizeVeylenMcpToolPreview,
+  type VeylenMcpToolStatus,
 } from "../../lib/toolCallLabel";
 import {
   formatLiveActivityMeta,
@@ -95,8 +95,8 @@ const EMPTY_FILE_DIFF_STATS: ReadonlyMap<string, { additions: number; deletions:
 type TimelineWorkEntry = WorkLogEntry;
 
 const AgentTaskIcon: LucideIcon = (props) => <BotIcon {...props} />;
-const SynaraToolIcon: LucideIcon = ({ className, ...props }) => (
-  <SynaraLogo {...props} className={cn("text-current", className)} />
+const VeylenToolIcon: LucideIcon = ({ className, ...props }) => (
+  <VeylenLogo {...props} className={cn("text-current", className)} />
 );
 const ToolWrenchIcon: LucideIcon = (props) => <Wrench {...props} strokeWidth={2} />;
 const ToolReadIcon: LucideIcon = (props) => <BookOpen {...props} strokeWidth={2} />;
@@ -284,8 +284,8 @@ export function renderWorkEntryIcon(Icon: LucideIcon, className: string): ReactE
 // row, which borrows its first entry's icon.
 export function workEntryLeftIcon(workEntry: TimelineWorkEntry): LucideIcon {
   if (isGitHubMcpToolCall(workEntry)) return GitHubIcon;
-  if (isSynaraBrowserWorkEntry(workEntry)) return GlobeIcon;
-  if (isSynaraToolCall(workEntry)) return SynaraToolIcon;
+  if (isVeylenBrowserWorkEntry(workEntry)) return GlobeIcon;
+  if (isVeylenToolCall(workEntry)) return VeylenToolIcon;
   if (workEntry.itemType === "mcp_tool_call") return McpIcon;
   return workEntryIcon(workEntry);
 }
@@ -295,20 +295,20 @@ function isGitHubMcpToolCall(workEntry: TimelineWorkEntry): boolean {
   return Boolean(toolName?.startsWith("mcp__codex_apps__github"));
 }
 
-// Synara's own agent-gateway tools (synara_list_threads, synara_create_thread,
-// ...) get the Synara mark instead of the generic MCP glyph. Providers report
-// the call differently: Claude prefixes the MCP server (mcp__synara__*), ACP
-// agents surface the bare tool name (synara_*), and Codex reports server/tool
-// pairs that the label humanizer renders as "Synara: ...".
-function toolWorkEntryStatus(workEntry: TimelineWorkEntry): SynaraMcpToolStatus {
+// Veylen's own agent-gateway tools (veylen_list_threads, veylen_create_thread,
+// ...) get the Veylen mark instead of the generic MCP glyph. Providers report
+// the call differently: Claude prefixes the MCP server (mcp__veylen__*), ACP
+// agents surface the bare tool name (veylen_*), and Codex reports server/tool
+// pairs that the label humanizer renders as "Veylen: ...".
+function toolWorkEntryStatus(workEntry: TimelineWorkEntry): VeylenMcpToolStatus {
   if (workEntry.toolStatus) return workEntry.toolStatus;
   return workEntry.activityKind !== undefined && workEntry.activityKind !== "tool.completed"
     ? "running"
     : "completed";
 }
 
-function isSynaraBrowserWorkEntry(workEntry: TimelineWorkEntry): boolean {
-  return isSynaraBrowserToolCall({
+function isVeylenBrowserWorkEntry(workEntry: TimelineWorkEntry): boolean {
+  return isVeylenBrowserToolCall({
     toolName: workEntry.toolName,
     title: workEntry.toolTitle,
     fallbackLabel: workEntry.label,
@@ -316,9 +316,9 @@ function isSynaraBrowserWorkEntry(workEntry: TimelineWorkEntry): boolean {
   });
 }
 
-function isSynaraToolCall(workEntry: TimelineWorkEntry): boolean {
+function isVeylenToolCall(workEntry: TimelineWorkEntry): boolean {
   return (
-    deriveSynaraMcpToolTitle({
+    deriveVeylenMcpToolTitle({
       toolName: workEntry.toolName,
       title: workEntry.toolTitle,
       fallbackLabel: workEntry.label,
@@ -361,14 +361,14 @@ function capitalizePhrase(value: string): string {
 }
 
 function toolWorkEntryHeading(workEntry: TimelineWorkEntry): string {
-  const synaraTitle = deriveSynaraMcpToolTitle({
+  const veylenTitle = deriveVeylenMcpToolTitle({
     toolName: workEntry.toolName,
     title: workEntry.toolTitle,
     fallbackLabel: workEntry.label,
     status: toolWorkEntryStatus(workEntry),
   });
-  if (synaraTitle) {
-    return synaraTitle;
+  if (veylenTitle) {
+    return veylenTitle;
   }
   if (!workEntry.toolTitle) {
     return capitalizePhrase(normalizeCompactToolLabel(workEntry.label));
@@ -488,31 +488,31 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
   // Standard tool rows keep one discoverable left glyph. Codex status rows
   // deliberately skip it and reuse only the shared tool-label typography.
   const isGitHubToolRow = isGitHubMcpToolCall(workEntry);
-  const isSynaraBrowserToolRow = !isGitHubToolRow && isSynaraBrowserWorkEntry(workEntry);
-  const isSynaraToolRow =
-    !isGitHubToolRow && !isSynaraBrowserToolRow && isSynaraToolCall(workEntry);
+  const isVeylenBrowserToolRow = !isGitHubToolRow && isVeylenBrowserWorkEntry(workEntry);
+  const isVeylenToolRow =
+    !isGitHubToolRow && !isVeylenBrowserToolRow && isVeylenToolCall(workEntry);
   const isMcpToolRow =
     workEntry.itemType === "mcp_tool_call" &&
     !isGitHubToolRow &&
-    !isSynaraBrowserToolRow &&
-    !isSynaraToolRow;
+    !isVeylenBrowserToolRow &&
+    !isVeylenToolRow;
   const LeftIcon = workEntryLeftIcon(workEntry);
   const leftIconKind = webFetchUrl
     ? "web-fetch"
     : isGitHubToolRow || EntryIcon === GitHubIcon
       ? "github"
-      : isSynaraBrowserToolRow
+      : isVeylenBrowserToolRow
         ? "browser"
-        : isSynaraToolRow
-          ? "synara"
+        : isVeylenToolRow
+          ? "veylen"
           : isMcpToolRow
             ? "mcp"
             : undefined;
   const heading = toolWorkEntryHeading(workEntry);
   const rawPreview = workEntryPreview(workEntry);
   const preview =
-    isSynaraBrowserToolRow || isSynaraToolRow
-      ? sanitizeSynaraMcpToolPreview({
+    isVeylenBrowserToolRow || isVeylenToolRow
+      ? sanitizeVeylenMcpToolPreview({
           preview: rawPreview,
           heading,
           status: toolWorkEntryStatus(workEntry),

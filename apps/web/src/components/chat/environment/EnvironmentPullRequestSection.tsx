@@ -9,8 +9,8 @@ import type {
   GitPullRequestComment,
   ProjectId,
   ThreadId,
-} from "@synara/contracts";
-import { parseGitHubRepositoryNameWithOwnerFromPullRequestUrl } from "@synara/shared/githubRepository";
+} from "@veylen/contracts";
+import { parseGitHubRepositoryNameWithOwnerFromPullRequestUrl } from "@veylen/shared/githubRepository";
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 

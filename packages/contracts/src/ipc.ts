@@ -550,7 +550,7 @@ export interface DesktopWindowState {
 export const DesktopAppIcon = Schema.Literals(["default", "icon"]);
 export type DesktopAppIcon = typeof DesktopAppIcon.Type;
 
-export interface SynaraStorageSnapshot {
+export interface VeylenStorageSnapshot {
   readonly version: 1;
   readonly exportedAt: string;
   readonly entries: Readonly<Record<string, string>>;
@@ -620,7 +620,7 @@ export interface DesktopBridge {
     onState: (listener: (state: DesktopAppSnapState) => void) => () => void;
   };
   storageMigration: {
-    readSnapshot: () => SynaraStorageSnapshot | null;
+    readSnapshot: () => VeylenStorageSnapshot | null;
     acknowledgeSnapshot: () => Promise<void>;
   };
   server?: {

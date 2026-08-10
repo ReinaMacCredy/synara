@@ -5,7 +5,7 @@ import type {
   ModelSelection,
   NativeApi,
   ProviderStartOptions,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { mutationOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
 import { ensureNativeApi } from "../nativeApi";
 
@@ -732,7 +732,7 @@ export function gitRemoveWorktreeMutationOptions(input: { queryClient: QueryClie
       const api = ensureNativeApi();
       if (!cwd) throw new Error("Git worktree removal is unavailable.");
       // Every UI removal retires a thread-scoped managed worktree, so its
-      // temporary synara/* branch (if any) is reclaimed with it.
+      // temporary veylen/* branch (if any) is reclaimed with it.
       return api.git.removeWorktree({ cwd, path, force, reclaimTemporaryBranch: true });
     },
     mutationKey: ["git", "mutation", "remove-worktree"] as const,

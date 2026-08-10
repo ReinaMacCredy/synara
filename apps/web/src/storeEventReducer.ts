@@ -6,21 +6,21 @@ import {
   type OrchestrationEvent,
   type OrchestrationPendingInteraction,
   type ThreadId,
-} from "@synara/contracts";
-import { resolveThreadBranchRegressionGuard } from "@synara/shared/git";
+} from "@veylen/contracts";
+import { resolveThreadBranchRegressionGuard } from "@veylen/shared/git";
 import {
   addPinnedMessage,
   removePinnedMessage,
   setPinnedMessageDone,
   setPinnedMessageLabel,
-} from "@synara/shared/pinnedMessages";
-import { isPendingInteractionResponseClaimable } from "@synara/shared/pendingInteractions";
+} from "@veylen/shared/pinnedMessages";
+import { isPendingInteractionResponseClaimable } from "@veylen/shared/pendingInteractions";
 import {
   addThreadMarker,
   removeThreadMarker,
   setThreadMarkerDone,
   setThreadMarkerLabel,
-} from "@synara/shared/threadMarkers";
+} from "@veylen/shared/threadMarkers";
 
 import { isSessionRunningTurn } from "./session-logic";
 import {
@@ -70,7 +70,7 @@ export type ApplyOrchestrationEventOptions = {
   updateSidebarSummary?: boolean;
 };
 
-type ReadModelThread = import("@synara/contracts").OrchestrationReadModel["threads"][number];
+type ReadModelThread = import("@veylen/contracts").OrchestrationReadModel["threads"][number];
 
 const THREAD_SUMMARY_ACTIVITY_KINDS = new Set([
   "approval.requested",
@@ -757,7 +757,7 @@ function applyOrchestrationEvent(
   options?: ApplyOrchestrationEventOptions,
 ): AppState {
   switch (event.type) {
-    // TODO(synara): Remove legacy supervision event cases on or after 2027-08-09 once
+    // TODO(veylen): Remove legacy supervision event cases on or after 2027-08-09 once
     // every supported database has replayed migration 108.
     case "supervision.profile-created":
     case "supervision.profile-updated":

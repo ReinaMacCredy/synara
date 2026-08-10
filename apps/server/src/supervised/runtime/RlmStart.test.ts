@@ -15,7 +15,7 @@ import {
   type SupervisedGovernanceSnapshot,
   type SupervisedRuntimeSnapshot,
   type Task,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 import { builtInRunPolicy } from "../signal/BuiltInSubscriptions.ts";
 import { decideSupervisedCommand } from "../../orchestration/supervised/decider.ts";

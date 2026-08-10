@@ -45,7 +45,7 @@ async function stopChild(child: ChildProcessWithoutNullStreams): Promise<void> {
 
 describe("agent gateway stdio proxy", () => {
   it("forwards cancellation immediately and lets a later ping bypass a hung request", async () => {
-    const stateDir = mkdtempSync(join(tmpdir(), "synara-stdio-proxy-"));
+    const stateDir = mkdtempSync(join(tmpdir(), "veylen-stdio-proxy-"));
     const slowStarted = deferred<void>();
     const duplicateStarted = deferred<void>();
     const slowAborted = deferred<void>();
@@ -109,8 +109,8 @@ describe("agent gateway stdio proxy", () => {
       child = spawn(process.execPath, [scriptPath], {
         env: {
           ...process.env,
-          SYNARA_AGENT_GATEWAY_URL: `http://127.0.0.1:${address.port}/mcp`,
-          SYNARA_AGENT_GATEWAY_TOKEN: "test-token",
+          VEYLEN_AGENT_GATEWAY_URL: `http://127.0.0.1:${address.port}/mcp`,
+          VEYLEN_AGENT_GATEWAY_TOKEN: "test-token",
         },
         stdio: ["pipe", "pipe", "pipe"],
       });
@@ -189,7 +189,7 @@ describe("agent gateway stdio proxy", () => {
   });
 
   it("exchanges an ambient one-shot bootstrap and keeps the bearer inside the proxy", async () => {
-    const stateDir = mkdtempSync(join(tmpdir(), "synara-stdio-bootstrap-"));
+    const stateDir = mkdtempSync(join(tmpdir(), "veylen-stdio-bootstrap-"));
     const bootstrapStarted = deferred<void>();
     let bootstrapExchanges = 0;
     let forwardedRequests = 0;
@@ -236,8 +236,8 @@ describe("agent gateway stdio proxy", () => {
       );
       const providerEnvironment = {
         PATH: process.env.PATH,
-        SYNARA_AGENT_GATEWAY_URL: `http://127.0.0.1:${address.port}/mcp`,
-        SYNARA_AGENT_GATEWAY_BOOTSTRAP_TOKEN: "one-shot-bootstrap",
+        VEYLEN_AGENT_GATEWAY_URL: `http://127.0.0.1:${address.port}/mcp`,
+        VEYLEN_AGENT_GATEWAY_BOOTSTRAP_TOKEN: "one-shot-bootstrap",
       };
       child = spawn(process.execPath, [scriptPath], {
         env: providerEnvironment,
@@ -267,9 +267,9 @@ describe("agent gateway stdio proxy", () => {
           process.execPath,
           [
             "-e",
-            `const url = process.env.SYNARA_AGENT_GATEWAY_URL + "/bootstrap";
-             fetch(url, { method: "POST", headers: { Authorization: "Bearer " + process.env.SYNARA_AGENT_GATEWAY_BOOTSTRAP_TOKEN } })
-               .then((response) => process.stdout.write(JSON.stringify({ status: response.status, bearer: process.env.SYNARA_AGENT_GATEWAY_TOKEN ?? null })))
+            `const url = process.env.VEYLEN_AGENT_GATEWAY_URL + "/bootstrap";
+             fetch(url, { method: "POST", headers: { Authorization: "Bearer " + process.env.VEYLEN_AGENT_GATEWAY_BOOTSTRAP_TOKEN } })
+               .then((response) => process.stdout.write(JSON.stringify({ status: response.status, bearer: process.env.VEYLEN_AGENT_GATEWAY_TOKEN ?? null })))
                .catch((error) => { console.error(error); process.exitCode = 1; });`,
           ],
           { env: providerEnvironment, stdio: ["ignore", "pipe", "pipe"] },
@@ -310,7 +310,7 @@ describe("agent gateway stdio proxy", () => {
   });
 
   it("aborts a hung eager bootstrap when stdin closes", async () => {
-    const stateDir = mkdtempSync(join(tmpdir(), "synara-stdio-bootstrap-abort-"));
+    const stateDir = mkdtempSync(join(tmpdir(), "veylen-stdio-bootstrap-abort-"));
     const bootstrapStarted = deferred<void>();
     let server: Server | undefined;
     let child: ChildProcessWithoutNullStreams | undefined;
@@ -337,8 +337,8 @@ describe("agent gateway stdio proxy", () => {
       child = spawn(process.execPath, [scriptPath], {
         env: {
           PATH: process.env.PATH,
-          SYNARA_AGENT_GATEWAY_URL: `http://127.0.0.1:${address.port}/mcp`,
-          SYNARA_AGENT_GATEWAY_BOOTSTRAP_TOKEN: "hung-bootstrap",
+          VEYLEN_AGENT_GATEWAY_URL: `http://127.0.0.1:${address.port}/mcp`,
+          VEYLEN_AGENT_GATEWAY_BOOTSTRAP_TOKEN: "hung-bootstrap",
         },
         stdio: ["pipe", "pipe", "pipe"],
       });

@@ -12,7 +12,7 @@ import {
 
 describe("Advisor consultation contract", () => {
   it("round-trips questions without confusing prompt-shaped user text for metadata", () => {
-    const question = 'Should we keep the line "SYNARA_ADVISOR_QUESTION_JSON:" in the parser?';
+    const question = 'Should we keep the line "VEYLEN_ADVISOR_QUESTION_JSON:" in the parser?';
     const prompt = buildAdvisorConsultationPrompt(question);
 
     expect(prompt).toContain(ADVISOR_CONSULTATION_MARKER);
@@ -37,7 +37,7 @@ describe("Advisor consultation contract", () => {
 
   it("defaults missing origin lines to user for legacy consultations", () => {
     const legacy = `${ADVISOR_CONSULTATION_MARKER}
-SYNARA_ADVISOR_QUESTION_JSON: "Legacy question?"
+VEYLEN_ADVISOR_QUESTION_JSON: "Legacy question?"
 
 You are Advisor.`;
     expect(extractAdvisorConsultationOrigin(legacy)).toBe("user");

@@ -2,14 +2,14 @@
 // Purpose: Build and parse bounded Advisor consultations for pending user-input options.
 // Layer: Web chat state utility
 
-import type { UserInputQuestion } from "@synara/contracts";
+import type { UserInputQuestion } from "@veylen/contracts";
 
 import {
   getPendingUserInputOptionNote,
   type PendingUserInputDraftAnswer,
 } from "./pendingUserInput";
 
-export const PENDING_USER_INPUT_ADVISOR_MARKER = "SYNARA_PENDING_USER_INPUT_ADVISOR_V1";
+export const PENDING_USER_INPUT_ADVISOR_MARKER = "VEYLEN_PENDING_USER_INPUT_ADVISOR_V1";
 
 export interface PendingUserInputAdvisorRecommendation {
   optionLabel: string;

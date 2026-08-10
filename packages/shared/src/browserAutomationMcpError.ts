@@ -2,7 +2,7 @@ import {
   BrowserAutomationError,
   BrowserMcpToolErrorEnvelope,
   utf8ByteLength,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Schema } from "effect";
 
 import { stableJsonStringify, type BrowserToolDefinition } from "./browserAutomationCatalogue";
@@ -74,7 +74,7 @@ function readBrowserMcpErrorText(result: unknown): string | null {
 
 export function encodeBrowserMcpToolError(error: unknown): BrowserMcpToolErrorResult {
   const decoded = Schema.decodeUnknownSync(BrowserAutomationError)(error);
-  const text = stableJsonStringify({ type: "synara_browser_error", version: 1, error: decoded });
+  const text = stableJsonStringify({ type: "veylen_browser_error", version: 1, error: decoded });
   if (utf8ByteLength(text) > MAX_ERROR_TEXT_BYTES) {
     throw new RangeError("Browser MCP error envelope exceeds 8 KiB");
   }

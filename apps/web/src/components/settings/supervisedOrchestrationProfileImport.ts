@@ -4,7 +4,7 @@ import type {
   ProfileRuntimeConfig,
   ProfileSandboxMode,
   RoomRole,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { parse as parseToml } from "smol-toml";
 
 export const MAX_PROFILE_IMPORT_BYTES = 1024 * 1024;
@@ -27,7 +27,7 @@ const PROVIDERS = new Set<ProfileProviderKind>([
   "pi",
 ]);
 const ROLES = new Set(["lead", "peer", "specialist"]);
-// TODO(synara): Remove the legacy Specialist import alias on or after 2027-08-09
+// TODO(veylen): Remove the legacy Specialist import alias on or after 2027-08-09
 // once profile exports from before the canonical Peer cutover are no longer supported.
 const PEER_ROLE: RoomRole = "peer";
 const SANDBOXES = new Set<ProfileSandboxMode>([

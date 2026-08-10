@@ -3,7 +3,7 @@ import type {
   ModelTranscriptItem,
   RlmEpisode,
   SupervisedRuntimeSnapshot,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import type { ReactNode } from "react";
 
 import { isPeerModelSessionRole } from "~/lib/supervisedOrchestration";

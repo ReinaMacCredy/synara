@@ -4,7 +4,7 @@ import type {
   ProjectTaskProjection,
   TaskBlocker,
   TaskProcessGraphProjection,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { useState } from "react";
 
 import { ThreadActivityGlyph, type ThreadActivityState } from "~/components/ThreadActivityGlyph";

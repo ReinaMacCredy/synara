@@ -1,4 +1,4 @@
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@veylen/contracts";
 import { describe, expect, it } from "vitest";
 
 import { collectActiveTerminalThreadIds } from "./terminalStateCleanup";

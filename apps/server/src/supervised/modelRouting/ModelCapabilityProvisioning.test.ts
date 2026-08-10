@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
-import { ModelCapabilityProfile, type ModelCapabilityProfile as Profile } from "@synara/contracts";
+import { ModelCapabilityProfile, type ModelCapabilityProfile as Profile } from "@veylen/contracts";
 import { Schema } from "effect";
 
 import {

@@ -14,7 +14,7 @@ import {
   type OrchestrationThread,
   type OrchestrationThreadShell,
   type ThreadHandoffImportedMessage,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import {
   ADVISOR_NICKNAME,
   ADVISOR_ROLE,
@@ -22,7 +22,7 @@ import {
   extractAdvisorConsultationQuestion,
   isAdvisorIdentity,
   type AdvisorOrigin,
-} from "@synara/shared/advisor";
+} from "@veylen/shared/advisor";
 import { Effect, Option } from "effect";
 
 import type { OrchestrationEngineShape } from "../orchestration/Services/OrchestrationEngine.ts";
@@ -105,9 +105,9 @@ export function makeAgentGatewayAdvisorTools(input: {
     requiredCapability: "thread:write",
     requiresActiveTurn: true,
     definition: {
-      name: "synara_consult_advisor",
+      name: "veylen_consult_advisor",
       description:
-        "Ask Synara Advisor for a bounded second opinion when material uncertainty blocks a sound decision. Creates the same durable Advisor consultation as the user tray (Settings default Advisor model, advice-only, approval-required). Blocks until advice is ready or the consultation fails. Do not use provider spawn_agent for Advisor. One running consultation per parent task.",
+        "Ask Veylen Advisor for a bounded second opinion when material uncertainty blocks a sound decision. Creates the same durable Advisor consultation as the user tray (Settings default Advisor model, advice-only, approval-required). Blocks until advice is ready or the consultation fails. Do not use provider spawn_agent for Advisor. One running consultation per parent task.",
       inputSchema: {
         type: "object",
         properties: {

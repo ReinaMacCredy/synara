@@ -41,7 +41,7 @@ import type {
   DesktopTheme,
   DesktopUpdateActionResult,
   DesktopUpdateState,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import {
   autoUpdater,
   BaseUpdater,
@@ -49,19 +49,20 @@ import {
   type UpdateDownloadedEvent,
 } from "electron-updater";
 
-import type { ContextMenuItem } from "@synara/contracts";
-import { isKeyboardShortcutsHelpChord } from "@synara/shared/browserShortcuts";
-import { getMacTrafficLightPosition } from "@synara/shared/desktopChrome";
-import { DEVICE_HELPER_SOURCE_DIR_ENV } from "@synara/shared/deviceHelperCache";
+import type { ContextMenuItem } from "@veylen/contracts";
+import { isKeyboardShortcutsHelpChord } from "@veylen/shared/browserShortcuts";
+import { getMacTrafficLightPosition } from "@veylen/shared/desktopChrome";
+import { DEVICE_HELPER_SOURCE_DIR_ENV } from "@veylen/shared/deviceHelperCache";
 import {
-  SYNARA_DESKTOP_UPDATE_CHANNEL,
-  resolveSynaraDesktopFlavor,
-  synaraDesktopIdentity,
-} from "@synara/shared/desktopIdentity";
-import { NetService } from "@synara/shared/Net";
-import { applyShellEnvironmentHydrationMarker } from "@synara/shared/shell";
-import { RotatingFileSink } from "@synara/shared/logging";
-import { ensureStaticSnapshot, findAsarArchivePath } from "@synara/shared/staticSnapshot";
+  VEYLEN_DESKTOP_UPDATE_CHANNEL,
+  resolveVeylenDesktopFlavor,
+  veylenDesktopIdentity,
+} from "@veylen/shared/desktopIdentity";
+import { NetService } from "@veylen/shared/Net";
+import { applyLegacyEnvironmentAliases } from "@veylen/shared/veylenHome";
+import { applyShellEnvironmentHydrationMarker } from "@veylen/shared/shell";
+import { RotatingFileSink } from "@veylen/shared/logging";
+import { ensureStaticSnapshot, findAsarArchivePath } from "@veylen/shared/staticSnapshot";
 import { isBackendReadinessAborted, waitForHttpReady } from "./backendReadiness";
 import { resolveBackendNodeArgs } from "./backendNodeOptions";
 import {
@@ -199,7 +200,7 @@ import {
 } from "./browserIpc";
 import {
   BrowserHostPipeServer,
-  SYNARA_BROWSER_HOST_PIPE_PATH,
+  VEYLEN_BROWSER_HOST_PIPE_PATH,
   resolveBrowserHostPipeBackendEnv,
 } from "./browserUsePipeServer";
 import { normalizeDesktopWsUrl, resolveDesktopWsUrlFromEnv } from "./desktopWsBridge";
@@ -216,9 +217,9 @@ import {
   writeDesktopWindowState,
 } from "./windowState";
 import {
-  acknowledgeSynaraStorageSnapshot,
-  readSynaraStorageSnapshot,
-  resolveSynaraStorageSnapshotPath,
+  acknowledgeVeylenStorageSnapshot,
+  readVeylenStorageSnapshot,
+  resolveVeylenStorageSnapshotPath,
 } from "./desktopStorageMigration";
 import { DESKTOP_IPC_CHANNELS } from "./ipcChannels";
 import { DesktopAppSnapManager } from "./appSnapManager";
@@ -231,6 +232,8 @@ import {
   sendAppSnapState,
 } from "./appSnapIpc";
 
+applyLegacyEnvironmentAliases();
+
 // Capture the real archive identity before any explicit app.asar lookup. Static
 // snapshotting and the runtime watcher both use this same generation as their
 // baseline, so a replacement during startup cannot silently become "normal."
@@ -242,7 +245,7 @@ const startupBundleIdentity = captureStartupBundleIdentity();
 // The reads a few lines below decide where this install's data lives, and two of them
 // depend on what this probe brings in: `resolveUserDataPath()` takes the Electron profile
 // directory from XDG_CONFIG_HOME on Linux, which the login-shell probe captures, and
-// `BASE_DIR` prefers SYNARA_HOME, which the Windows registry read hydrates whenever the
+// `BASE_DIR` prefers VEYLEN_HOME, which the Windows registry read hydrates whenever the
 // user set it persistently. Resolving either against an unhydrated environment would
 // silently relocate an existing user's profile and data directory.
 // (The probe also carries PATH, SSH_AUTH_SOCK and HOMEBREW_* for later provider spawns.
@@ -252,13 +255,13 @@ const shellEnvironmentSync = syncShellEnvironment();
 const IPC = DESKTOP_IPC_CHANNELS;
 const MAX_CLIPBOARD_IMAGE_DATA_URL_LENGTH = 16 * 1024 * 1024;
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
-const desktopFlavor = resolveSynaraDesktopFlavor({
+const desktopFlavor = resolveVeylenDesktopFlavor({
   isDevelopment,
-  requestedFlavor: process.env.SYNARA_DESKTOP_FLAVOR,
+  requestedFlavor: process.env.VEYLEN_DESKTOP_FLAVOR,
 });
-const desktopIdentity = synaraDesktopIdentity(desktopFlavor);
+const desktopIdentity = veylenDesktopIdentity(desktopFlavor);
 const BASE_DIR =
-  process.env.SYNARA_HOME?.trim() ||
+  process.env.VEYLEN_HOME?.trim() ||
   Path.join(OS.homedir(), desktopIdentity.defaultHomeDirectoryName);
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
 const DESKTOP_WINDOW_STATE_PATH = Path.join(STATE_DIR, "desktop-window-state.json");
@@ -305,14 +308,14 @@ const UPDATE_CHECK_REASON_MIGRATION_RECOVERY = "migration recovery";
 const UPDATE_INSTALL_MARKER_FILE_NAME = "pending-update-install.json";
 const BACKEND_FORCE_KILL_DELAY_MS = 8_000;
 const BACKEND_SHUTDOWN_TIMEOUT_MS = 10_000;
-const BACKEND_MAX_OLD_SPACE_ENV_KEYS = ["SYNARA_BACKEND_MAX_OLD_SPACE_MB"] as const;
+const BACKEND_MAX_OLD_SPACE_ENV_KEYS = ["VEYLEN_BACKEND_MAX_OLD_SPACE_MB"] as const;
 const DESKTOP_UPDATE_ALLOW_PRERELEASE = false;
 const BROWSER_PERF_SAMPLE_INTERVAL_MS = 5_000;
 const DESKTOP_MENU_ZOOM_FACTOR_STEP = 1.1;
 const DESKTOP_MENU_MIN_ZOOM_FACTOR = 0.25;
 const DESKTOP_MENU_MAX_ZOOM_FACTOR = 5;
-const SYNARA_BROWSER_LABEL = "Synara browser";
-const browserPerfLoggingEnabled = process.env.SYNARA_BROWSER_PERF === "1";
+const VEYLEN_BROWSER_LABEL = "Veylen browser";
+const browserPerfLoggingEnabled = process.env.VEYLEN_BROWSER_PERF === "1";
 
 type DesktopUpdateErrorContext = DesktopUpdateState["errorContext"];
 
@@ -417,7 +420,7 @@ function startBrowserPerformanceLogging(): void {
         name: metric.name,
       }));
 
-    console.info(`[${SYNARA_BROWSER_LABEL} perf]`, {
+    console.info(`[${VEYLEN_BROWSER_LABEL} perf]`, {
       ...snapshot.counters,
       trackedProcessIds: snapshot.trackedProcessIds,
       processes: processMetrics,
@@ -427,7 +430,7 @@ function startBrowserPerformanceLogging(): void {
 }
 
 async function ensureBrowserHostPipeServer(): Promise<void> {
-  if (browserHostPipeServer || !SYNARA_BROWSER_HOST_PIPE_PATH) {
+  if (browserHostPipeServer || !VEYLEN_BROWSER_HOST_PIPE_PATH) {
     return;
   }
   const server = new BrowserHostPipeServer(browserManager, {
@@ -599,7 +602,7 @@ async function reserveBackendEndpoint(reason: string): Promise<void> {
   );
   backendHttpUrl = `http://127.0.0.1:${backendPort}`;
   backendWsUrl = `ws://127.0.0.1:${backendPort}/?token=${encodeURIComponent(backendAuthToken)}`;
-  process.env.SYNARA_DESKTOP_WS_URL = backendWsUrl;
+  process.env.VEYLEN_DESKTOP_WS_URL = backendWsUrl;
   writeDesktopLogHeader(`${reason} resolved backend endpoint port=${backendPort}`);
 }
 
@@ -1022,21 +1025,21 @@ function resolveEmbeddedCommitHash(): string | null {
 
   try {
     const raw = FS.readFileSync(packageJsonPath, "utf8");
-    const parsed = JSON.parse(raw) as { synaraCommitHash?: unknown };
-    return normalizeCommitHash(parsed.synaraCommitHash);
+    const parsed = JSON.parse(raw) as { veylenCommitHash?: unknown };
+    return normalizeCommitHash(parsed.veylenCommitHash);
   } catch {
     return null;
   }
 }
 
-declare const __SYNARA_WINDOWS_UPDATER_PUBLISHER__: string;
+declare const __VEYLEN_WINDOWS_UPDATER_PUBLISHER__: string;
 
 function resolveEmbeddedWindowsPublisherSubjects(): string[] {
   if (!app.isPackaged || process.platform !== "win32") {
     return [];
   }
 
-  const subject = __SYNARA_WINDOWS_UPDATER_PUBLISHER__.trim();
+  const subject = __VEYLEN_WINDOWS_UPDATER_PUBLISHER__.trim();
   return subject ? [subject] : [];
 }
 
@@ -1045,7 +1048,7 @@ function resolveAboutCommitHash(): string | null {
     return aboutCommitHashCache;
   }
 
-  const envCommitHash = normalizeCommitHash(process.env.SYNARA_COMMIT_HASH);
+  const envCommitHash = normalizeCommitHash(process.env.VEYLEN_COMMIT_HASH);
   if (envCommitHash) {
     aboutCommitHashCache = envCommitHash;
     return aboutCommitHashCache;
@@ -1111,7 +1114,7 @@ async function handleDesktopMigrationRecovery(): Promise<DesktopMigrationRecover
     requiresRecovery: () => requiresDesktopMigrationRecovery(paths),
     markerRemains: () => hasPendingDesktopMigrationRecovery(paths),
     choose: async ({ previousFailure }) => {
-      // The user is here because Synara cannot open its database, so the
+      // The user is here because Veylen cannot open its database, so the
       // in-app update button is unreachable by definition. A newer build is
       // often the actual fix, and this dialog is the only surface left to
       // offer it from: installing it in place when the updater can reach the
@@ -1138,15 +1141,15 @@ async function handleDesktopMigrationRecovery(): Promise<DesktopMigrationRecover
       ];
       if (canInstallUpdate) {
         choices.push({
-          label: "Update Synara and restart",
-          detail: "install the newest Synara release, which may already contain the fix",
+          label: "Update Veylen and restart",
+          detail: "install the newest Veylen release, which may already contain the fix",
           decision: "install-update",
         });
       }
       if (releaseUrl !== null) {
         choices.push({
           label: "Download latest release",
-          detail: `${canInstallUpdate ? "download that release" : "download the latest Synara release"} in a browser`,
+          detail: `${canInstallUpdate ? "download that release" : "download the latest Veylen release"} in a browser`,
           decision: "open-release-page",
         });
       }
@@ -1161,16 +1164,16 @@ async function handleDesktopMigrationRecovery(): Promise<DesktopMigrationRecover
         type: previousFailure === null ? "warning" : "error",
         title:
           previousFailure === null
-            ? "Synara needs to recover its database"
+            ? "Veylen needs to recover its database"
             : restoreFailed
               ? "Migration recovery failed"
-              : "Synara could not update itself",
+              : "Veylen could not update itself",
         message:
           previousFailure === null
-            ? "Synara stopped a database migration before it could finish safely."
+            ? "Veylen stopped a database migration before it could finish safely."
             : restoreFailed
               ? "The saved database backup could not be restored."
-              : "The newest Synara release could not be installed.",
+              : "The newest Veylen release could not be installed.",
         detail: `${previousFailure === null ? "" : `${previousFailure.message}\n\n`}You can ${options}. No provider or chat process will start until recovery succeeds.`,
         buttons: choices.map((choice) => choice.label),
         defaultId: 0,
@@ -1254,7 +1257,7 @@ let servedStaticRootCache: ServedStaticRoot | null | undefined;
 // being replaced beneath the running app (Electron caches the header per process,
 // so every later read returns bytes from the wrong offsets). Extract the client
 // to a per-archive snapshot on real disk and serve that instead — both for the
-// synara:// protocol here and, via SYNARA_STATIC_DIR, for the backend's HTTP static
+// veylen:// protocol here and, via VEYLEN_STATIC_DIR, for the backend's HTTP static
 // route. Memoized so one app run serves one coherent asset generation.
 function resolveServedStaticRoot(): ServedStaticRoot | null {
   if (servedStaticRootCache === undefined) {
@@ -1345,7 +1348,7 @@ function handleFatalStartupError(stage: string, error: unknown): void {
   console.error(`[desktop] fatal startup error (${stage})`, error);
   if (!isQuitting) {
     isQuitting = true;
-    dialog.showErrorBox("Synara failed to start", `Stage: ${stage}\n${message}${detail}`);
+    dialog.showErrorBox("Veylen failed to start", `Stage: ${stage}\n${message}${detail}`);
   }
   if (process.platform === "win32") {
     requestGracefulAppQuit(`fatal startup (${stage})`);
@@ -1467,7 +1470,7 @@ function adjustWindowZoomFromMenu(multiplier: number): void {
 // A configured app-update.yml (or the mock-updates flag) is the prerequisite for any
 // auto-update activity; centralized so the menu and the enable check stay in lockstep.
 function hasConfiguredUpdateFeed(): boolean {
-  return readAppUpdateYml() !== null || Boolean(process.env.SYNARA_DESKTOP_MOCK_UPDATES);
+  return readAppUpdateYml() !== null || Boolean(process.env.VEYLEN_DESKTOP_MOCK_UPDATES);
 }
 
 function resolveAutoUpdateDisabledReason(): string | null {
@@ -1477,7 +1480,7 @@ function resolveAutoUpdateDisabledReason(): string | null {
     platform: process.platform,
     appImage: process.env.APPIMAGE,
     disabledByEnv:
-      desktopIdentity.usesScriptedUpdates || process.env.SYNARA_DISABLE_AUTO_UPDATE === "1",
+      desktopIdentity.usesScriptedUpdates || process.env.VEYLEN_DISABLE_AUTO_UPDATE === "1",
     hasUpdateFeedConfig: hasConfiguredUpdateFeed(),
   });
 }
@@ -1509,14 +1512,14 @@ async function checkForUpdatesFromMenu(): Promise<void> {
     void dialog.showMessageBox({
       type: "info",
       title: "You're up to date!",
-      message: `Synara ${updateState.currentVersion} is currently the newest version available.`,
+      message: `Veylen ${updateState.currentVersion} is currently the newest version available.`,
       buttons: ["OK"],
     });
   } else if (updateState.status === "downloading" || updateState.status === "available") {
     void dialog.showMessageBox({
       type: "info",
       title: "Update found",
-      message: "Synara is preparing the update in the background.",
+      message: "Veylen is preparing the update in the background.",
       buttons: ["OK"],
     });
   } else if (updateState.status === "downloaded") {
@@ -1686,16 +1689,16 @@ function resolveNotificationIconPath(): string | null {
     return null;
   }
   if (process.platform === "win32") {
-    return resolveResourcePath("synara.png") ?? resolveIconPath("ico");
+    return resolveResourcePath("veylen.png") ?? resolveIconPath("ico");
   }
-  return resolveResourcePath("synara.png") ?? resolveIconPath("png");
+  return resolveResourcePath("veylen.png") ?? resolveIconPath("png");
 }
 
 function resolveAppSnapHelperPath(): string {
   if (app.isPackaged) {
-    return Path.resolve(process.resourcesPath, "..", "Helpers", "synara-appsnap-helper");
+    return Path.resolve(process.resourcesPath, "..", "Helpers", "veylen-appsnap-helper");
   }
-  return Path.resolve(__dirname, "..", ".electron-runtime", "appsnap", "synara-appsnap-helper");
+  return Path.resolve(__dirname, "..", ".electron-runtime", "appsnap", "veylen-appsnap-helper");
 }
 
 function ensureMainWindowForAppSnap(): BrowserWindow | null {
@@ -1862,7 +1865,7 @@ function showDesktopNotification(input: {
  * Resolve the Electron userData directory path.
  *
  * Electron derives the default userData path from `productName` in
- * package.json. We override it to a clean lowercase Synara name.
+ * package.json. We override it to a clean lowercase Veylen name.
  */
 function resolveUserDataPath(): string {
   const appDataBase = resolveDesktopAppDataBase();
@@ -1875,13 +1878,13 @@ function resolveUserDataPath(): string {
 function repairBrowserProfileBeforeElectronReady(userDataPath: string): void {
   const browserProfileRepair = repairBrowserProfileFromBridgeManifest(userDataPath);
   if (browserProfileRepair.status === "repaired") {
-    console.info("[desktop] Completed Synara browser profile bridge repair", {
+    console.info("[desktop] Completed Veylen browser profile bridge repair", {
       sourcePath: browserProfileRepair.sourcePath,
       targetPath: browserProfileRepair.targetPath,
       copiedEntries: browserProfileRepair.copiedEntries,
     });
   } else if (browserProfileRepair.status === "repair-failed") {
-    console.warn("[desktop] Failed to complete Synara browser profile bridge repair", {
+    console.warn("[desktop] Failed to complete Veylen browser profile bridge repair", {
       sourcePath: browserProfileRepair.sourcePath,
       targetPath: browserProfileRepair.targetPath,
       error: browserProfileRepair.error,
@@ -2075,11 +2078,11 @@ function restartAfterStartupBundleSwap(error: BundleChangedDuringStartupError): 
   void dialog
     .showMessageBox({
       type: "warning",
-      title: "Synara needs to restart",
-      message: "Synara changed while it was opening.",
+      title: "Veylen needs to restart",
+      message: "Veylen changed while it was opening.",
       detail:
-        "The current process cannot safely read the replaced application bundle. Restart Synara to finish opening with one consistent version.",
-      buttons: ["Restart Synara"],
+        "The current process cannot safely read the replaced application bundle. Restart Veylen to finish opening with one consistent version.",
+      buttons: ["Restart Veylen"],
       defaultId: 0,
     })
     .catch(() => undefined)
@@ -2091,7 +2094,7 @@ function restartAfterStartupBundleSwap(error: BundleChangedDuringStartupError): 
 
 // Electron caches the asar header per process, so once app.asar changes on disk
 // (updater retry racing a relaunch, a reinstall, a build copied over the bundle)
-// every archive read in this process — the synara:// protocol, the backend's static
+// every archive read in this process — the veylen:// protocol, the backend's static
 // files, lazily-loaded renderer chunks — resolves to stale offsets and silently
 // returns the wrong bytes. Detect the swap and offer a restart; continuing is
 // never safe.
@@ -2131,8 +2134,8 @@ function startBundleSwapWatcher(): void {
     void dialog
       .showMessageBox({
         type: "warning",
-        title: "Synara was replaced on disk",
-        message: "The installed Synara app changed while it was running.",
+        title: "Veylen was replaced on disk",
+        message: "The installed Veylen app changed while it was running.",
         detail:
           "The interface keeps running from a safeguarded copy, but parts of the app loaded later can still read the replaced file. Restart now to pick up the new version safely.",
         buttons: ["Restart Now", "Later"],
@@ -2301,7 +2304,7 @@ function processInstallMarkerOnStartup(): void {
   }
 
   automaticUpdateActivitySuppressed = true;
-  const message = `Synara restarted, but update ${marker.toVersion} was not installed. Try again.`;
+  const message = `Veylen restarted, but update ${marker.toVersion} was not installed. Try again.`;
   setUpdateState(
     reduceDesktopUpdateStateOnInstallRestartFailure(
       updateState,
@@ -2731,7 +2734,7 @@ async function installLatestUpdateForMigrationRecovery(): Promise<string | null>
   }
 
   if (updateState.status === "up-to-date") {
-    return `Synara ${app.getVersion()} is already the newest release, so updating cannot repair this database.`;
+    return `Veylen ${app.getVersion()} is already the newest release, so updating cannot repair this database.`;
   }
   if (updateState.status !== "downloaded") {
     return updateState.message ?? "The update could not be downloaded.";
@@ -2948,8 +2951,8 @@ function configureAutoUpdater(): void {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
   // The dedicated channel keeps the permanent compatibility release on the
-  // default feed while Synara versions advance independently.
-  autoUpdater.channel = SYNARA_DESKTOP_UPDATE_CHANNEL;
+  // default feed while Veylen versions advance independently.
+  autoUpdater.channel = VEYLEN_DESKTOP_UPDATE_CHANNEL;
   autoUpdater.allowPrerelease = DESKTOP_UPDATE_ALLOW_PRERELEASE;
   autoUpdater.allowDowngrade = false;
   // Match electron-updater's native GitHub provider path; the packaged
@@ -3095,7 +3098,7 @@ function configureAutoUpdater(): void {
 
   scheduleUpdatePoll();
 }
-// Builds process-local Node args so provider/tool children do not inherit Synara's heap guard.
+// Builds process-local Node args so provider/tool children do not inherit Veylen's heap guard.
 function backendNodeArgs(): string[] {
   const configuredMaxOldSpaceMb =
     BACKEND_MAX_OLD_SPACE_ENV_KEYS.map((key) => process.env[key]).find(
@@ -3113,21 +3116,21 @@ function backendEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     ...resolveBrowserHostPipeBackendEnv(
       process.env,
-      browserHostPipeServer ? SYNARA_BROWSER_HOST_PIPE_PATH : null,
+      browserHostPipeServer ? VEYLEN_BROWSER_HOST_PIPE_PATH : null,
       browserHostPipeServer ? DESKTOP_BROWSER_HOST_CAPABILITY_FD : null,
     ),
     // Point the backend's HTTP static route at the same swap-immune snapshot the
-    // synara:// protocol serves, so both surfaces survive app.asar being replaced.
-    ...(servedStaticRoot?.snapshotted ? { SYNARA_STATIC_DIR: servedStaticRoot.dir } : {}),
+    // veylen:// protocol serves, so both surfaces survive app.asar being replaced.
+    ...(servedStaticRoot?.snapshotted ? { VEYLEN_STATIC_DIR: servedStaticRoot.dir } : {}),
     ...(app.isPackaged
       ? { [DEVICE_HELPER_SOURCE_DIR_ENV]: Path.join(process.resourcesPath, "device-helper") }
       : {}),
-    SYNARA_MODE: "desktop",
-    SYNARA_NO_BROWSER: "1",
-    SYNARA_PORT: String(backendPort),
-    SYNARA_HOME: BASE_DIR,
-    SYNARA_AUTH_TOKEN: backendAuthToken,
-    SYNARA_DESKTOP_SHUTDOWN_TOKEN: DESKTOP_BACKEND_SHUTDOWN_TOKEN,
+    VEYLEN_MODE: "desktop",
+    VEYLEN_NO_BROWSER: "1",
+    VEYLEN_PORT: String(backendPort),
+    VEYLEN_HOME: BASE_DIR,
+    VEYLEN_AUTH_TOKEN: backendAuthToken,
+    VEYLEN_DESKTOP_SHUTDOWN_TOKEN: DESKTOP_BACKEND_SHUTDOWN_TOKEN,
   };
   // The backend runs the same login-shell probe at startup and does not begin listening
   // until it returns, so an unmarked child serializes a second ~1s hydration behind ours.
@@ -3195,7 +3198,7 @@ function backendFailureDialogDetail(reason: string): string {
   const cause = summary.length > 0 ? summary : reason;
   return [
     cause,
-    "Synara paused automatic restarts so a failing backend can't keep respawning in the background.",
+    "Veylen paused automatic restarts so a failing backend can't keep respawning in the background.",
     `Log file:\n${Path.join(LOG_DIR, BACKEND_LOG_FILE_NAME)}`,
   ].join("\n\n");
 }
@@ -3224,8 +3227,8 @@ function presentBackendStartupGiveUp(reason: string): void {
     for (;;) {
       const result = await dialog.showMessageBox({
         type: "error",
-        title: "Synara's backend didn't start",
-        message: `Synara's backend failed to start ${BACKEND_MAX_CONSECUTIVE_START_FAILURES} times in a row.`,
+        title: "Veylen's backend didn't start",
+        message: `Veylen's backend failed to start ${BACKEND_MAX_CONSECUTIVE_START_FAILURES} times in a row.`,
         detail,
         buttons: ["Try again", "Open logs", "Quit"],
         defaultId: 0,
@@ -3263,10 +3266,10 @@ function handleBackendStartupBlock(block: BackendStartupBlock): void {
     if (block.kind === "migration-recovery-required") {
       const result = await dialog.showMessageBox({
         type: "warning",
-        title: "Synara needs to recover its database",
+        title: "Veylen needs to recover its database",
         message: "A database migration did not finish safely.",
         detail:
-          "Restart Synara to open the verified backup recovery flow. Provider and chat processes will remain stopped until recovery completes.",
+          "Restart Veylen to open the verified backup recovery flow. Provider and chat processes will remain stopped until recovery completes.",
         buttons: ["Restart and recover", "Quit"],
         defaultId: 0,
         cancelId: 1,
@@ -3283,13 +3286,13 @@ function handleBackendStartupBlock(block: BackendStartupBlock): void {
 
     const processDetail =
       block.ownerPid === null
-        ? "Another Synara server is already using this database."
-        : `Another Synara server (process ${block.ownerPid}) is already using this database.`;
+        ? "Another Veylen server is already using this database."
+        : `Another Veylen server (process ${block.ownerPid}) is already using this database.`;
     const result = await dialog.showMessageBox({
       type: "warning",
-      title: "Synara is already running elsewhere",
-      message: "Your local Synara data is in use by another process.",
-      detail: `${processDetail}\n\nStop the other Synara app or development server, then try again. Your data has not been changed.`,
+      title: "Veylen is already running elsewhere",
+      message: "Your local Veylen data is in use by another process.",
+      detail: `${processDetail}\n\nStop the other Veylen app or development server, then try again. Your data has not been changed.`,
       buttons: ["Try again", "Quit"],
       defaultId: 0,
       cancelId: 1,
@@ -3377,7 +3380,7 @@ function startBackend(trigger: BackendStartTrigger = "lifecycle"): void {
     env: {
       ...backendEnv(),
       ELECTRON_RUN_AS_NODE: "1",
-      SYNARA_SERVER_ENTRY: backendEntry,
+      VEYLEN_SERVER_ENTRY: backendEntry,
     },
     // Keep output piped in every environment so startup blockers and readiness
     // are observable even when packaged log setup is unavailable. The fourth
@@ -3612,16 +3615,16 @@ function requestGracefulAppQuit(reason: string): void {
 }
 
 function registerIpcHandlers(): void {
-  const storageSnapshotPath = resolveSynaraStorageSnapshotPath(app.getPath("userData"));
+  const storageSnapshotPath = resolveVeylenStorageSnapshotPath(app.getPath("userData"));
 
   ipcMain.removeAllListeners(IPC.storageMigration.read);
   ipcMain.on(IPC.storageMigration.read, (event: IpcMainEvent) => {
-    event.returnValue = readSynaraStorageSnapshot(storageSnapshotPath);
+    event.returnValue = readVeylenStorageSnapshot(storageSnapshotPath);
   });
 
   ipcMain.removeHandler(IPC.storageMigration.acknowledge);
   ipcMain.handle(IPC.storageMigration.acknowledge, async () => {
-    await acknowledgeSynaraStorageSnapshot(storageSnapshotPath);
+    await acknowledgeVeylenStorageSnapshot(storageSnapshotPath);
   });
 
   ipcMain.removeAllListeners(IPC.wsUrl);
@@ -3987,7 +3990,7 @@ function getTitleBarOptions(): BrowserWindowConstructorOptions {
   }
   return {
     titleBarStyle: "hiddenInset",
-    // Derived from the shared chat-surface header geometry (@synara/shared/desktopChrome)
+    // Derived from the shared chat-surface header geometry (@veylen/shared/desktopChrome)
     // so the native lights and the renderer's leading toggle/arrow controls always share
     // the same vertical center. Tune the height/radius there, never the raw px here.
     trafficLightPosition: getMacTrafficLightPosition(),
@@ -4233,13 +4236,13 @@ function presentRendererCrashRecovery(
 
   const message =
     response.cause === "reload-budget-exhausted"
-      ? `Synara's window crashed ${response.crashes} times in a row.`
-      : "Synara's window stopped unexpectedly.";
+      ? `Veylen's window crashed ${response.crashes} times in a row.`
+      : "Veylen's window stopped unexpectedly.";
   const detail = [
     `The window's renderer process exited (${reason}).`,
     response.cause === "reload-budget-exhausted"
-      ? "Synara paused automatic reloads so a repeating crash can't keep reloading in the background."
-      : "This exit reason repeats on reload, so Synara did not retry automatically.",
+      ? "Veylen paused automatic reloads so a repeating crash can't keep reloading in the background."
+      : "This exit reason repeats on reload, so Veylen did not retry automatically.",
     `Log file:\n${Path.join(LOG_DIR, DESKTOP_LOG_FILE_NAME)}`,
   ].join("\n\n");
 
@@ -4247,7 +4250,7 @@ function presentRendererCrashRecovery(
     for (;;) {
       const result = await dialog.showMessageBox({
         type: "error",
-        title: "Synara's window stopped",
+        title: "Veylen's window stopped",
         message,
         detail,
         buttons: ["Reload", "Open logs", "Quit"],
@@ -4293,7 +4296,7 @@ function configureMediaPermissions(): void {
     },
     {
       // Browser pages are untrusted web origins. They must never inherit the
-      // microphone grant used by Synara's own voice-composer renderer.
+      // microphone grant used by Veylen's own voice-composer renderer.
       targetSession: session.fromPartition(BROWSER_SESSION_PARTITION),
       trustedRequester: () => null,
     },
@@ -4381,7 +4384,7 @@ async function bootstrap(): Promise<void> {
   try {
     await ensureBrowserHostPipeServer();
   } catch (error) {
-    console.warn("[Synara browser] Failed to start browser host pipe", error);
+    console.warn("[Veylen browser] Failed to start browser host pipe", error);
   }
   startBackend();
   writeDesktopLogHeader("bootstrap backend start requested");

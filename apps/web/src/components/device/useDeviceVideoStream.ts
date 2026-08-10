@@ -4,8 +4,8 @@
 // Exports: useDeviceVideoStream
 // Depends on: DevicePanel.logic frame gate, deviceFrameSource transport
 
-import type { DeviceUdid } from "@synara/contracts";
-import type { DeviceFrame } from "@synara/shared/deviceFrame";
+import type { DeviceUdid } from "@veylen/contracts";
+import type { DeviceFrame } from "@veylen/shared/deviceFrame";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -177,7 +177,7 @@ export function useDeviceVideoStream(input: {
     const configureDecoder = (frame: DeviceFrame) => {
       const codec = avcCodecStringFromConfig(frame.payload);
       if (!codec) {
-        failStream("The simulator stream sent parameters Synara could not read.");
+        failStream("The simulator stream sent parameters Veylen could not read.");
         return;
       }
       teardownDecoder();
@@ -283,7 +283,7 @@ export function useDeviceVideoStream(input: {
         kind: "error",
         message:
           reason === "decode-failed"
-            ? "The simulator stream sent a frame Synara could not read."
+            ? "The simulator stream sent a frame Veylen could not read."
             : "The simulator stream disconnected.",
       });
     };

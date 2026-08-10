@@ -8,7 +8,7 @@ import {
   type ProviderKind,
   type ServerProviderStatus,
   type ServerSettings,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 export const PROVIDER_UPDATE_INITIAL_REFRESH_DELAY_MS = 10_000;
 export const PROVIDER_UPDATE_REFRESH_INTERVAL_MS = 60 * 60 * 1_000;
@@ -76,7 +76,7 @@ export function isProviderUpdateActive(provider: ServerProviderStatus): boolean 
   return provider.updateState?.status === "queued" || provider.updateState?.status === "running";
 }
 
-// A provider whose latest version Synara cannot look up (self-updating CLIs such as
+// A provider whose latest version Veylen cannot look up (self-updating CLIs such as
 // `cursor-agent`) is permanently "unknown". Treating that as an update prompt made its
 // row nag forever, so those providers get the update offered as a manual action instead.
 export function isProviderLatestVersionKnowable(provider: ServerProviderStatus): boolean {
@@ -92,7 +92,7 @@ export function shouldOfferProviderUpdateAction(provider: ServerProviderStatus):
   );
 }
 
-// Header affordance: reserved for providers Synara can actually assert are outdated.
+// Header affordance: reserved for providers Veylen can actually assert are outdated.
 export function shouldPromptProviderUpdate(provider: ServerProviderStatus): boolean {
   return shouldOfferProviderUpdateAction(provider) && isProviderLatestVersionKnowable(provider);
 }

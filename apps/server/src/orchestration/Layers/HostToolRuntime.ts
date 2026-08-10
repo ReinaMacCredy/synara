@@ -4,7 +4,7 @@ import {
   SupervisedToolInvocationReceiptId,
   type SupervisedToolPolicy,
   type SupervisedToolInvocationReceipt,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Effect, Layer, Option } from "effect";
 
 import { makeHandoffDestinationTools } from "../../handoff/handoffDestinationToolRegistry.ts";

@@ -4,8 +4,8 @@ import type {
   SupervisedDomainEvent,
   SupervisedGovernanceSnapshot,
   SupervisedRuntimeSnapshot,
-} from "@synara/contracts";
-import { EventId } from "@synara/contracts";
+} from "@veylen/contracts";
+import { EventId } from "@veylen/contracts";
 import { Effect } from "effect";
 
 import { OrchestrationCommandInvariantError } from "../Errors.ts";

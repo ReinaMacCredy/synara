@@ -1,4 +1,4 @@
-import { ThreadId, type BrowserCssSelector } from "@synara/contracts";
+import { ThreadId, type BrowserCssSelector } from "@veylen/contracts";
 import type { WebContents } from "electron";
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
@@ -43,7 +43,7 @@ const createRuntime = (state: TargetState): BrowserAutomationVisibleRuntime => {
       ) {
         return { result: { value: { count: state.count ?? 1, generation: 0 } } };
       }
-      if (expression.includes("globalThis.__synaraBrowserAutomationV1.currentTarget")) {
+      if (expression.includes("globalThis.__veylenBrowserAutomationV1.currentTarget")) {
         return { result: { objectId: "target-1", type: "object", subtype: "node" } };
       }
       return {

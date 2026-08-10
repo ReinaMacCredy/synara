@@ -5,12 +5,12 @@ import type {
   OrchestrationEvent,
   OrchestrationReadModel,
   OrchestrationThread,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import {
   ControlPlaneEvent,
   emptySupervisedGovernanceSnapshot,
   emptySupervisedRuntimeSnapshot,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { it } from "@effect/vitest";
 import { Effect, Layer, Option, Schema, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";

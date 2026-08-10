@@ -1,4 +1,4 @@
-import { type ThreadId } from "@synara/contracts";
+import { type ThreadId } from "@veylen/contracts";
 import { useCallback, useEffect, useState } from "react";
 
 import { resolveTerminalNewAction } from "../../lib/terminalNewAction";

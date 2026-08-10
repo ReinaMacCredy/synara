@@ -47,7 +47,7 @@ describe("codexDynamicToolResponse", () => {
 
     expect(JSON.parse(response.contentItems[0]!.text)).toMatchObject({
       sequence: 42,
-      _synaraReceipt: {
+      _veylenReceipt: {
         toolId: "supervised.topology.read",
         state: "accepted",
       },

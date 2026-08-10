@@ -9,7 +9,7 @@ import type {
   SubscriptionEvaluationState,
   SubscriptionEvaluationWindowSample,
   ThresholdSpec,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 const MAX_EVALUATION_GROUPS = 10_000;
 

@@ -21,7 +21,7 @@ import {
   ThreadEnvironmentMode,
   ThreadId,
   TurnId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Option, Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -48,7 +48,7 @@ export const ProjectionThread = Schema.Struct({
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   creationSource: Schema.optional(
     Schema.NullOr(
-      Schema.Literals(["synara_mcp", "external_mcp", "provider_native", "supervised_native"]),
+      Schema.Literals(["veylen_mcp", "external_mcp", "provider_native", "supervised_native"]),
     ),
   ).pipe(Schema.withDecodingDefault(() => null)),
   sourceThreadId: Schema.optional(Schema.NullOr(ThreadId)).pipe(
@@ -144,4 +144,4 @@ export interface ProjectionThreadRepositoryShape {
 export class ProjectionThreadRepository extends ServiceMap.Service<
   ProjectionThreadRepository,
   ProjectionThreadRepositoryShape
->()("synara/persistence/Services/ProjectionThreads/ProjectionThreadRepository") {}
+>()("veylen/persistence/Services/ProjectionThreads/ProjectionThreadRepository") {}

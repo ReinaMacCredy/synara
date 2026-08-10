@@ -3,7 +3,7 @@
 // Layer: Web orchestration helper
 // Exports: Container-chat startup.
 
-import type { ProjectId, ThreadId } from "@synara/contracts";
+import type { ProjectId, ThreadId } from "@veylen/contracts";
 import type { NewThreadOptions } from "./threadBootstrap";
 
 export type StartContainerChatResult =

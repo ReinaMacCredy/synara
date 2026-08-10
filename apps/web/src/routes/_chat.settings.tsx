@@ -3,9 +3,9 @@
 // Layer: Route screen
 // Exports: Settings route component for `/settings`
 
-import { PROVIDER_DISPLAY_NAMES, type ProviderKind } from "@synara/contracts";
-import { PROVIDER_DESCRIPTORS } from "@synara/shared/providerMetadata";
-import { sameAppSnapShortcut } from "@synara/shared/appSnapShortcut";
+import { PROVIDER_DISPLAY_NAMES, type ProviderKind } from "@veylen/contracts";
+import { PROVIDER_DESCRIPTORS } from "@veylen/shared/providerMetadata";
+import { sameAppSnapShortcut } from "@veylen/shared/appSnapShortcut";
 import { createFileRoute, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 
@@ -645,7 +645,7 @@ function SettingsRouteView() {
         <SettingsSection title="App">
           <SettingsRow
             title="App icon"
-            description="Choose the icon Synara uses in the dock or taskbar."
+            description="Choose the icon Veylen uses in the dock or taskbar."
             resetAction={
               settings.desktopAppIcon !== defaults.desktopAppIcon ? (
                 <SettingResetButton

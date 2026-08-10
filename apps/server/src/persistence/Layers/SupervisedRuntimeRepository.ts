@@ -39,7 +39,7 @@ import {
   TaskNode,
   TaskNodeRevision,
   WorkClaim,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Effect, Layer, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 

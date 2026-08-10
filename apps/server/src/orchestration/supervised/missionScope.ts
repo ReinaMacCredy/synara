@@ -3,7 +3,7 @@ import type {
   OrchestrationProject,
   ProjectId,
   SupervisionMission,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 interface MissionLead {
   readonly id: string;

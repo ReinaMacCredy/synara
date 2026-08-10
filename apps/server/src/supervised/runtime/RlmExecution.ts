@@ -5,7 +5,7 @@ import type {
   ModelSessionTrace,
   ModelTranscriptItem,
   OrchestrationThread,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 const MAX_TRACE_TEXT = 32_768;
 const MAX_SYNTHESIS_PROMPT = 32_768;
@@ -324,7 +324,7 @@ export function buildRlmSynthesisPrompt(input: {
   }>;
 }): string {
   const header = [
-    "You are the root synthesis session for a Synara RLM episode.",
+    "You are the root synthesis session for a Veylen RLM episode.",
     "Synthesize only from the visible branch transcripts below. Preserve disagreements and cite branch evidence IDs for material claims. Do not claim hidden reasoning or unlisted evidence.",
     `Objective: ${bounded(input.objective, 2_048)}`,
   ].join("\n\n");

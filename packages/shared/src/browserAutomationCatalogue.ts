@@ -46,7 +46,7 @@ import {
   BrowserWaitInput,
   BrowserWaitOutput,
   type BrowserToolName,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Schema } from "effect";
 
 import { BROWSER_TOOL_TITLES } from "./browserAutomationPresentation";
@@ -108,7 +108,7 @@ export const DESTRUCTIVE_LOCAL = {
 } as const;
 
 const BROWSER_COMMON_AGENT_GUIDANCE =
-  "Controls only this thread's shared Synara browser runtime (same DOM, cookies and session), never chat or desktop. It may continue in the background when another chat is active; no approval prompt is required.";
+  "Controls only this thread's shared Veylen browser runtime (same DOM, cookies and session), never chat or desktop. It may continue in the background when another chat is active; no approval prompt is required.";
 const BROWSER_TAB_SCOPED_AGENT_GUIDANCE =
   " Omit tabId to use this provider session's assigned tab; only pass a tabId returned by browser_tabs/open in this thread scope.";
 const BROWSER_SNAPSHOT_TARGET_GUIDANCE =

@@ -3,7 +3,7 @@ import type {
   ProfileRuntimeConfig,
   ProfileSnapshot,
   ProfileSnapshotId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { createHash } from "node:crypto";
 
 const CODEX_PROFILE_FEATURE_KEYS = new Set(["multi_agent", "multi_agent_v2"]);

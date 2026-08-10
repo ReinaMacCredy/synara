@@ -1,4 +1,4 @@
-import { ThreadId, type OrchestrationThreadShell } from "@synara/contracts";
+import { ThreadId, type OrchestrationThreadShell } from "@veylen/contracts";
 import { Cause, Deferred, Effect, Exit, Fiber, Option } from "effect";
 
 import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -195,7 +195,7 @@ export function makeAgentGatewayMcpTransport(input: {
             return yield* Effect.fail(
               new GatewayToolError(
                 "caller_turn_inactive",
-                "This Synara write was rejected because this credential had no write authority for the exact active turn when the MCP request arrived.",
+                "This Veylen write was rejected because this credential had no write authority for the exact active turn when the MCP request arrived.",
                 {
                   callerThreadId,
                   latestTurnId: callerThread.value.latestTurn?.turnId ?? null,
@@ -207,7 +207,7 @@ export function makeAgentGatewayMcpTransport(input: {
             return yield* Effect.fail(
               new GatewayToolError(
                 "caller_session_inactive",
-                "This Synara write was rejected because its provider-session authority is no longer active.",
+                "This Veylen write was rejected because its provider-session authority is no longer active.",
                 { callerThreadId },
               ),
             );
@@ -219,7 +219,7 @@ export function makeAgentGatewayMcpTransport(input: {
                 (error) =>
                   new GatewayToolError(
                     "caller_turn_inactive",
-                    "This Synara write was rejected because the caller thread could no longer be verified.",
+                    "This Veylen write was rejected because the caller thread could no longer be verified.",
                     { callerThreadId, error: errorText(error) },
                   ),
               ),
@@ -231,7 +231,7 @@ export function makeAgentGatewayMcpTransport(input: {
             return yield* Effect.fail(
               new GatewayToolError(
                 "caller_turn_inactive",
-                "This Synara write was rejected because the turn that received this MCP request is no longer active. In-flight requests cannot inherit authority from a later turn.",
+                "This Veylen write was rejected because the turn that received this MCP request is no longer active. In-flight requests cannot inherit authority from a later turn.",
                 {
                   callerThreadId,
                   authorizedTurnId: callerWriteAuthority.turnId,

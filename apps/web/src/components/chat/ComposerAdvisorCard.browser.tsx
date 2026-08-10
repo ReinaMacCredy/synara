@@ -1,6 +1,6 @@
 import "../../index.css";
 
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@veylen/contracts";
 import { page } from "vitest/browser";
 import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
@@ -52,7 +52,7 @@ describe("ComposerAdvisorCard", () => {
     );
 
     await expect.element(page.getByText(pendingQuestion.question)).toBeVisible();
-    expect(mounted.container.textContent).not.toContain("SYNARA_PENDING_USER_INPUT_ADVISOR_V1");
+    expect(mounted.container.textContent).not.toContain("VEYLEN_PENDING_USER_INPUT_ADVISOR_V1");
     expect(mounted.container.textContent).not.toContain("Use in task");
     expect(onUseInTask).not.toHaveBeenCalled();
   });

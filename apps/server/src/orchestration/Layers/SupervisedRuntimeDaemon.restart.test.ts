@@ -7,7 +7,7 @@ import {
   SupervisedGovernanceSnapshot,
   emptySupervisedGovernanceSnapshot,
   type OrchestrationCommand,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { describe, it } from "vitest";
@@ -24,7 +24,7 @@ import { OrchestrationLayerLive } from "../runtimeLayer.ts";
 const now = "2026-08-10T00:00:00.000Z";
 
 const serverConfigLayer = ServerConfig.layerTest(process.cwd(), {
-  prefix: "synara-scenario-f-restart-test-",
+  prefix: "veylen-scenario-f-restart-test-",
 });
 
 async function createSystem() {

@@ -3,7 +3,7 @@ import type {
   ProjectId,
   RoomId,
   SubscriptionDefinition,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 

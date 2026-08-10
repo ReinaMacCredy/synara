@@ -2,7 +2,7 @@ import {
   DEVICE_FRAME_HEADER_FIXED_BYTES,
   DEVICE_FRAME_MAGIC,
   DEVICE_FRAME_VERSION,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { describe, expect, it } from "vitest";
 
 import {

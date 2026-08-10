@@ -16,7 +16,7 @@ import {
   type DeviceCapabilityId,
   type DeviceCapabilityStatus,
   type DeviceToolchain,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 /** Every capability, in the order the pane should list them. */
 export const DEVICE_CAPABILITY_IDS = [

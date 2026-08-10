@@ -8,9 +8,9 @@ import {
   type ServerConfig,
   type ServerProviderStatus,
   type WsCompatibilityError,
-} from "@synara/contracts";
-import { defaultTerminalTitleForCliKind } from "@synara/shared/terminalThreads";
-import { isThreadDetailEventFor } from "@synara/shared/threadDetailEvents";
+} from "@veylen/contracts";
+import { defaultTerminalTitleForCliKind } from "@veylen/shared/terminalThreads";
+import { isThreadDetailEventFor } from "@veylen/shared/threadDetailEvents";
 import {
   Outlet,
   createRootRouteWithContext,
@@ -283,16 +283,16 @@ function RootRouteView() {
 function TransportCompatibilityView({ issue }: { issue: WsCompatibilityError }) {
   const title =
     issue.action === "update-client"
-      ? "This Synara client needs an update."
+      ? "This Veylen client needs an update."
       : issue.action === "update-server"
-        ? "The Synara server needs an update."
-        : "Synara needs to reconnect with a matching build.";
+        ? "The Veylen server needs an update."
+        : "Veylen needs to reconnect with a matching build.";
   const guidance =
     issue.action === "update-client"
       ? "Update or reload this client, then reconnect."
       : issue.action === "update-server"
         ? "Update or restart the server, then reload this client."
-        : "Reload the app. If this repeats, restart Synara so the client and server use matching builds.";
+        : "Reload the app. If this repeats, restart Veylen so the client and server use matching builds.";
 
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-10 text-foreground sm:px-6">

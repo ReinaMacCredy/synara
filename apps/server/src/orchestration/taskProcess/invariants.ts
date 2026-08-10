@@ -3,7 +3,7 @@ import type {
   ProjectTaskLifecycle,
   TaskThreadBinding,
   ThreadId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 import type { TaskProcessAggregateState } from "./projector.ts";
 

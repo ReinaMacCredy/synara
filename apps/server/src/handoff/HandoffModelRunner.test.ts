@@ -1,4 +1,4 @@
-import { ProjectId, ThreadId, type HandoffCapsuleV1 } from "@synara/contracts";
+import { ProjectId, ThreadId, type HandoffCapsuleV1 } from "@veylen/contracts";
 import { describe, expect, it } from "vitest";
 
 import { buildHandoffTurnInput } from "./HandoffModelRunner.ts";
@@ -10,8 +10,8 @@ const capsule: HandoffCapsuleV1 = {
   sourceMode: "project",
   sourceProvider: "codex",
   projectId: ProjectId.makeUnsafe("project"),
-  projectTitle: "Synara",
-  workspaceRoot: "/tmp/synara",
+  projectTitle: "Veylen",
+  workspaceRoot: "/tmp/veylen",
   environment: { mode: "local", branch: "main", worktreePath: null },
   sourceCursor: 12,
   sourceDigest: "source-digest",

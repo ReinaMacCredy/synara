@@ -26,9 +26,9 @@ import { createReadStream } from "node:fs";
 import * as nodeFs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as nodePath from "node:path";
-import { isTemporaryWorktreeBranch } from "@synara/shared/git";
-import { parseGitHubRepositoryNameWithOwnerFromRemoteUrl } from "@synara/shared/githubRepository";
-import { decodeJsonResult } from "@synara/shared/schemaJson";
+import { isTemporaryWorktreeBranch } from "@veylen/shared/git";
+import { parseGitHubRepositoryNameWithOwnerFromRemoteUrl } from "@veylen/shared/githubRepository";
+import { decodeJsonResult } from "@veylen/shared/schemaJson";
 
 import { GitCheckoutDirtyWorktreeError, GitCommandError } from "../Errors.ts";
 import {
@@ -75,8 +75,8 @@ const WORKING_TREE_DIFF_TIMEOUT_MS = 15_000;
 const MAX_UNTRACKED_DIFF_CONCURRENCY = 4;
 const MAX_QUEUED_REPOSITORY_MUTATIONS = 64;
 const MOVE_AWARE_WORKING_TREE_STATUS_TIMEOUT_MS = 15_000;
-const AUTO_DETACHED_WORKTREE_DIRNAME = "synara";
-const WORKTREE_OWNERSHIP_MARKER = "synara-agent-gateway-owner.json";
+const AUTO_DETACHED_WORKTREE_DIRNAME = "veylen";
+const WORKTREE_OWNERSHIP_MARKER = "veylen-agent-gateway-owner.json";
 const WORKTREE_TRANSFER_MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
 const NON_REPOSITORY_STATUS_DETAILS = Object.freeze({
   isRepo: false,
@@ -387,7 +387,7 @@ const createTrace2Monitor = Effect.fn(function* (
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const traceFilePath = yield* fs.makeTempFileScoped({
-    prefix: `synara-git-trace2-${process.pid}-`,
+    prefix: `veylen-git-trace2-${process.pid}-`,
     suffix: ".json",
   });
   const hookStartByChildKey = new Map<string, { hookName: string; startedAtMs: number }>();
@@ -848,7 +848,7 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
           }
 
           const tempIndexDir = yield* fileSystem.makeTempDirectoryScoped({
-            prefix: `synara-git-status-index-${process.pid}-`,
+            prefix: `veylen-git-status-index-${process.pid}-`,
           });
           const tempIndexPath = nodePath.join(tempIndexDir, "index");
           yield* Effect.tryPromise(() =>
@@ -2335,7 +2335,7 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
         if (patch.length > 0) {
           yield* Effect.acquireUseRelease(
             Effect.tryPromise({
-              try: () => nodeFs.mkdtemp(nodePath.join(tmpdir(), "synara-worktree-patch-")),
+              try: () => nodeFs.mkdtemp(nodePath.join(tmpdir(), "veylen-worktree-patch-")),
               catch: (cause) =>
                 createGitCommandError(
                   "GitCore.copyCheckoutChanges",
@@ -2823,7 +2823,7 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
       Effect.gen(function* () {
         // Resolve the branch and its HEAD before removal: afterwards the
         // worktree checkout is gone and can no longer answer. Only temporary
-        // synara/* branches qualify for reclamation; detached HEADs and
+        // veylen/* branches qualify for reclamation; detached HEADs and
         // user-named branches resolve to null.
         const temporaryBranch = input.reclaimTemporaryBranch
           ? yield* executeGit(
@@ -3095,7 +3095,7 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
         yield* executeGit(
           "GitCore.stashAndCheckout.stashPush",
           input.cwd,
-          ["stash", "push", "-u", "-m", `synara: stash before switching to ${input.branch}`],
+          ["stash", "push", "-u", "-m", `veylen: stash before switching to ${input.branch}`],
           {
             timeoutMs: 30_000,
             fallbackErrorMessage: "git stash failed",

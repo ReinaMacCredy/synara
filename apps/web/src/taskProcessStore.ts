@@ -1,4 +1,4 @@
-import type { ProjectTaskId, TaskProcessId } from "@synara/contracts";
+import type { ProjectTaskId, TaskProcessId } from "@veylen/contracts";
 import { create } from "zustand";
 
 export type TaskProcessView = "board" | "graph";

@@ -3,10 +3,10 @@
 // Layer: Chat transcript UI
 // Exports: ForkContinuationDivider
 
-import { type ThreadId } from "@synara/contracts";
+import { type ThreadId } from "@veylen/contracts";
 import { memo } from "react";
 
-// Same Central `branch` glyph used for git/branch chrome across Synara
+// Same Central `branch` glyph used for git/branch chrome across Veylen
 // (ThreadHoverCard, GitActions, PR summary, command menu) — not a one-off asset.
 import { GitBranchIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";

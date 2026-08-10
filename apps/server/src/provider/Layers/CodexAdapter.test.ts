@@ -11,7 +11,7 @@ import {
   type ProviderUserInputAnswers,
   ThreadId,
   TurnId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { afterAll, it, vi } from "@effect/vitest";
 
@@ -477,7 +477,7 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         payload: {
           summary: "  Invalid MCP configuration  ",
           details: "url is not supported for stdio\n",
-          path: "  mcp_servers.synara  ",
+          path: "  mcp_servers.veylen  ",
         },
       } satisfies ProviderEvent);
 
@@ -492,7 +492,7 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       }
       assert.equal(firstEvent.value.payload.summary, "Invalid MCP configuration");
       assert.equal(firstEvent.value.payload.details, "url is not supported for stdio");
-      assert.equal(firstEvent.value.payload.path, "mcp_servers.synara");
+      assert.equal(firstEvent.value.payload.path, "mcp_servers.veylen");
     }),
   );
 

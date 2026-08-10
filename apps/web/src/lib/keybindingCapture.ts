@@ -1,4 +1,4 @@
-import type { KeybindingShortcut } from "@synara/contracts";
+import type { KeybindingShortcut } from "@veylen/contracts";
 
 import { isMacPlatform } from "~/lib/utils";
 

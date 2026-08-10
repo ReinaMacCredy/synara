@@ -2,7 +2,7 @@ import type {
   DerivedSignal,
   SubscriptionDefinition,
   SubscriptionDelivery,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -22,4 +22,4 @@ export interface SupervisedSignalDeliveryShape {
 export class SupervisedSignalDelivery extends ServiceMap.Service<
   SupervisedSignalDelivery,
   SupervisedSignalDeliveryShape
->()("synara/orchestration/Services/SupervisedSignalDelivery") {}
+>()("veylen/orchestration/Services/SupervisedSignalDelivery") {}

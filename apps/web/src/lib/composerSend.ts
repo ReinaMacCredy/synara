@@ -13,12 +13,12 @@ import {
   type ClaudeCodeEffort,
   type ProviderKind,
   type UploadChatAttachment,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import {
   ATTACHMENT_CANCEL_ROUTE_PATH,
   ATTACHMENT_UPLOAD_ROUTE_PATH,
-} from "@synara/shared/binaryTransfer";
-import { applyClaudePromptEffortPrefix, getModelCapabilities } from "@synara/shared/model";
+} from "@veylen/shared/binaryTransfer";
+import { applyClaudePromptEffortPrefix, getModelCapabilities } from "@veylen/shared/model";
 
 import {
   cloneComposerImageAttachment,
@@ -129,7 +129,7 @@ export async function prepareComposerImageAttachmentsFromFiles(input: {
       error =
         cause instanceof ComposerImagePreparationError
           ? cause.message
-          : `Synara could not prepare '${file.name || "image"}'.`;
+          : `Veylen could not prepare '${file.name || "image"}'.`;
     }
   }
 

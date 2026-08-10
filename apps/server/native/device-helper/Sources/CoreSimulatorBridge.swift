@@ -97,7 +97,7 @@ func loadPrivateFrameworks(
 
   // The HID bridge re-derives the SimulatorKit path; hand it the same directory
   // so an overridden DEVELOPER_DIR cannot pull the two out of agreement.
-  setenv("SYNARA_DEVELOPER_DIR", developerDirectory, 1)
+  setenv("VEYLEN_DEVELOPER_DIR", developerDirectory, 1)
 
   return PrivateFrameworkHandles(simulatorKit: simulatorKit)
 }

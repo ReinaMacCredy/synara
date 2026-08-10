@@ -1,5 +1,5 @@
-import { MessageId, ThreadId, TurnId } from "@synara/contracts";
-import { buildAdvisorConsultationPrompt } from "@synara/shared/advisor";
+import { MessageId, ThreadId, TurnId } from "@veylen/contracts";
+import { buildAdvisorConsultationPrompt } from "@veylen/shared/advisor";
 import { describe, expect, it } from "vitest";
 
 import type { Thread, ThreadShell } from "../types";

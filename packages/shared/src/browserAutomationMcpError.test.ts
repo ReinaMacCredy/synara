@@ -23,7 +23,7 @@ describe("browser MCP tool error codec", () => {
         {
           type: "text",
           text: stableJsonStringify({
-            type: "synara_browser_error",
+            type: "veylen_browser_error",
             version: 1,
             error: STALE_REFERENCE_ERROR,
           }),

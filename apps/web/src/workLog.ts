@@ -7,28 +7,28 @@ import {
   type ToolLifecycleItemType,
   type TurnId,
   type UserInputQuestion,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import {
   decodeSubagentAgentStates,
   extractSubagentIdentityHints,
   decodeSubagentReceiverAgents,
   decodeSubagentReceiverThreadIds,
-} from "@synara/shared/subagents";
+} from "@veylen/shared/subagents";
 import {
   approvalRequestKindFromRequestType,
   type ApprovalRequestKind,
-} from "@synara/shared/threadSummary";
-import { summarizeToolRawOutput } from "@synara/shared/toolOutputSummary";
-import { pluralize } from "@synara/shared/text";
-import { PROVIDER_DESCRIPTORS } from "@synara/shared/providerMetadata";
+} from "@veylen/shared/threadSummary";
+import { summarizeToolRawOutput } from "@veylen/shared/toolOutputSummary";
+import { pluralize } from "@veylen/shared/text";
+import { PROVIDER_DESCRIPTORS } from "@veylen/shared/providerMetadata";
 import { isAdvisorConsultationWorkEntry } from "./lib/advisorWorkEntry";
 import {
   deriveReadableToolTitle,
-  deriveSynaraMcpToolTitle,
+  deriveVeylenMcpToolTitle,
   isGenericToolTitle,
   normalizeCompactToolLabel,
   normalizeToolTextForComparison,
-  type SynaraMcpToolStatus,
+  type VeylenMcpToolStatus,
 } from "./lib/toolCallLabel";
 import { toolArgumentSummaryToolName } from "./lib/toolArgumentSummary";
 import {
@@ -62,7 +62,7 @@ export interface WorkLogEntry {
   toolTitle?: string;
   toolName?: string;
   toolCallId?: string;
-  toolStatus?: SynaraMcpToolStatus;
+  toolStatus?: VeylenMcpToolStatus;
   liveActivity?: WorkLogLiveActivity;
   toolDetails?: WorkLogToolDetails;
   itemType?: ToolLifecycleItemType;
@@ -70,7 +70,7 @@ export interface WorkLogEntry {
   subagents?: ReadonlyArray<WorkLogSubagent>;
   subagentAction?: WorkLogSubagentAction;
   automation?: WorkLogAutomation;
-  synaraThreadCreation?: WorkLogSynaraThreadCreation;
+  veylenThreadCreation?: WorkLogVeylenThreadCreation;
   userInputInteraction?: WorkLogUserInputInteraction;
   // Source activity kind, kept so the timeline can pick a kind-specific icon
   // (e.g. user-input.requested -> question glyph) instead of the generic
@@ -116,7 +116,7 @@ export interface WorkLogAutomation {
   proposalState?: "pending" | "accepted" | "dismissed";
 }
 
-export interface WorkLogSynaraCreatedThread {
+export interface WorkLogVeylenCreatedThread {
   threadId: string;
   title: string;
   provider: ProviderKind;
@@ -125,11 +125,11 @@ export interface WorkLogSynaraCreatedThread {
   status: string;
 }
 
-export interface WorkLogSynaraThreadCreation {
+export interface WorkLogVeylenThreadCreation {
   operationId: string;
   requestedCount: number;
   createdCount: number;
-  threads: ReadonlyArray<WorkLogSynaraCreatedThread>;
+  threads: ReadonlyArray<WorkLogVeylenCreatedThread>;
 }
 
 export interface WorkLogSubagent {
@@ -431,9 +431,9 @@ function extractWorkLogAutomation(
   };
 }
 
-function extractWorkLogSynaraThreadCreation(
+function extractWorkLogVeylenThreadCreation(
   payload: Record<string, unknown> | null,
-): WorkLogSynaraThreadCreation | null {
+): WorkLogVeylenThreadCreation | null {
   if (!payload) {
     return null;
   }
@@ -442,7 +442,7 @@ function extractWorkLogSynaraThreadCreation(
   if (!operationId || rawThreads.length === 0) {
     return null;
   }
-  const threads = rawThreads.flatMap((value): WorkLogSynaraCreatedThread[] => {
+  const threads = rawThreads.flatMap((value): WorkLogVeylenCreatedThread[] => {
     const thread = asRecord(value);
     const threadId = asTrimmedString(thread?.threadId);
     const title = asTrimmedString(thread?.title);
@@ -625,15 +625,15 @@ function toDerivedWorkLogEntry(
       entry.automation = automation;
     }
   }
-  if (activity.kind === "synara.threads.created") {
-    const synaraThreadCreation = extractWorkLogSynaraThreadCreation(payload);
-    if (synaraThreadCreation) {
-      entry.synaraThreadCreation = synaraThreadCreation;
+  if (activity.kind === "veylen.threads.created") {
+    const veylenThreadCreation = extractWorkLogVeylenThreadCreation(payload);
+    if (veylenThreadCreation) {
+      entry.veylenThreadCreation = veylenThreadCreation;
     }
   }
   const readableTitle =
     extractCollabActionTitle(payload) ??
-    deriveSynaraMcpToolTitle({
+    deriveVeylenMcpToolTitle({
       toolName,
       title: commandActionDisplay?.title ?? title,
       fallbackLabel: activity.summary,
@@ -722,7 +722,7 @@ function deriveProviderRuntimeReconciliationCollapseKey(
 function deriveToolLifecycleStatus(
   activityKind: OrchestrationThreadActivity["kind"],
   payload: Record<string, unknown> | null,
-): SynaraMcpToolStatus | undefined {
+): VeylenMcpToolStatus | undefined {
   if (!isRenderableToolLifecycleActivity(activityKind)) return undefined;
   if (isFailedToolLifecyclePayload(payload)) return "failed";
   if (isCancelledToolLifecyclePayload(payload)) return "cancelled";
@@ -1106,7 +1106,7 @@ function mergeDerivedWorkLogEntries(
     : (next.requestKind ?? previous.requestKind);
   const subagents = next.subagents ?? previous.subagents;
   const subagentAction = next.subagentAction ?? previous.subagentAction;
-  const synaraThreadCreation = next.synaraThreadCreation ?? previous.synaraThreadCreation;
+  const veylenThreadCreation = next.veylenThreadCreation ?? previous.veylenThreadCreation;
   const collapseKey = next.collapseKey ?? previous.collapseKey;
   const toolName = next.toolName ?? previous.toolName;
   const toolCallId = next.toolCallId ?? previous.toolCallId;
@@ -1135,7 +1135,7 @@ function mergeDerivedWorkLogEntries(
     ...(requestKind ? { requestKind } : {}),
     ...(subagents ? { subagents } : {}),
     ...(subagentAction ? { subagentAction } : {}),
-    ...(synaraThreadCreation ? { synaraThreadCreation } : {}),
+    ...(veylenThreadCreation ? { veylenThreadCreation } : {}),
     ...(collapseKey ? { collapseKey } : {}),
     ...(toolName ? { toolName } : {}),
     ...(toolCallId ? { toolCallId } : {}),

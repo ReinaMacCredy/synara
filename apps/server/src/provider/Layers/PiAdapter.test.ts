@@ -26,7 +26,7 @@ import {
   toPiProviderModelDescriptor,
 } from "./PiAdapter";
 
-describe("Pi native Synara gateway tools", () => {
+describe("Pi native Veylen gateway tools", () => {
   it("uses canonical MCP schemas and keeps same-cwd thread tokens distinct", async () => {
     const requests: Array<{ readonly token: string | null; readonly body: any }> = [];
     const fetch = async (_input: string | URL | Request, init?: RequestInit) => {
@@ -43,8 +43,8 @@ describe("Pi native Synara gateway tools", () => {
             ? {
                 tools: [
                   {
-                    name: "synara_list_threads",
-                    description: "List Synara threads.",
+                    name: "veylen_list_threads",
+                    description: "List Veylen threads.",
                     inputSchema: {
                       type: "object",
                       properties: { limit: { type: "number" } },
@@ -107,8 +107,8 @@ describe("Pi native Synara gateway tools", () => {
           result: {
             tools: [
               {
-                name: "synara_create_threads",
-                description: "Create Synara threads.",
+                name: "veylen_create_threads",
+                description: "Create Veylen threads.",
                 inputSchema: { type: "object", properties: {} },
               },
             ],
@@ -257,7 +257,7 @@ describe("getPiDiscoverableModels", () => {
   });
 
   it("isolates extension providers between sessions that share an agent directory", async () => {
-    const agentDir = mkdtempSync(path.join(tmpdir(), "synara-pi-runtime-isolation-"));
+    const agentDir = mkdtempSync(path.join(tmpdir(), "veylen-pi-runtime-isolation-"));
 
     try {
       const firstRuntime = await createPiModelRuntime(agentDir, { ModelRuntime });
@@ -290,7 +290,7 @@ describe("getPiDiscoverableModels", () => {
   });
 
   it("includes custom-provider models authenticated through auth.json semantics", async () => {
-    const agentDir = mkdtempSync(path.join(tmpdir(), "synara-pi-models-"));
+    const agentDir = mkdtempSync(path.join(tmpdir(), "veylen-pi-models-"));
     const modelsPath = path.join(agentDir, "models.json");
     const authPath = path.join(agentDir, "auth.json");
 
@@ -332,7 +332,7 @@ describe("getPiDiscoverableModels", () => {
   });
 
   it("restores Fable 5 and Opus 4.8 after an extension replaces the Anthropic catalog", async () => {
-    const agentDir = mkdtempSync(path.join(tmpdir(), "synara-pi-anthropic-"));
+    const agentDir = mkdtempSync(path.join(tmpdir(), "veylen-pi-anthropic-"));
     const modelsPath = path.join(agentDir, "models.json");
     const authPath = path.join(agentDir, "auth.json");
 

@@ -10,7 +10,7 @@ import {
   type ContextView,
   type ContextWorkspace,
   type SupervisedActor,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 const sameScope = (left: AuthorityScope, right: AuthorityScope) =>
   JSON.stringify(left) === JSON.stringify(right);

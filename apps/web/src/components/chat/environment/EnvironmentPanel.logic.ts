@@ -1,4 +1,4 @@
-import type { SessionProgressProjection } from "@synara/contracts";
+import type { SessionProgressProjection } from "@veylen/contracts";
 
 export function shouldRenderEnvironmentProgress(
   projection: SessionProgressProjection | null,

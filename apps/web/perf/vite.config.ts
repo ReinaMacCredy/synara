@@ -7,7 +7,7 @@ import appConfig from "../vite.config";
 export default mergeConfig(appConfig, {
   build: {
     emptyOutDir: true,
-    outDir: path.join(os.tmpdir(), "synara-perf-dist"),
+    outDir: path.join(os.tmpdir(), "veylen-perf-dist"),
     rollupOptions: {
       input: path.resolve(import.meta.dirname, "index.html"),
     },

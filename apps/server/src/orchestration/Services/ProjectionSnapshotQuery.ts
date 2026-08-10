@@ -24,7 +24,7 @@ import type {
   ThreadId,
   ThreadEnvironmentMode,
   TurnId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { ServiceMap } from "effect";
 import type { Effect, Option } from "effect";
 
@@ -269,4 +269,4 @@ export interface ProjectionSnapshotQueryShape {
 export class ProjectionSnapshotQuery extends ServiceMap.Service<
   ProjectionSnapshotQuery,
   ProjectionSnapshotQueryShape
->()("synara/orchestration/Services/ProjectionSnapshotQuery") {}
+>()("veylen/orchestration/Services/ProjectionSnapshotQuery") {}

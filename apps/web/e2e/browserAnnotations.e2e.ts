@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { BrowserAnnotationEvent, BrowserAnnotationTheme } from "@synara/contracts";
+import type { BrowserAnnotationEvent, BrowserAnnotationTheme } from "@veylen/contracts";
 import { _electron as electron, expect, test, type ElectronApplication } from "playwright/test";
 
 import { createBrowserMcpHarness } from "./fixtures/mcpBrowserHarness";
@@ -49,14 +49,14 @@ async function closeElectronApplication(application: ElectronApplication): Promi
 }
 
 test("a real Electron guest commits and reprojects a continuous annotation session", async () => {
-  const mainPath = process.env.SYNARA_E2E_ELECTRON_MAIN;
-  const annotationPreloadPath = process.env.SYNARA_E2E_BROWSER_ANNOTATION_PRELOAD;
+  const mainPath = process.env.VEYLEN_E2E_ELECTRON_MAIN;
+  const annotationPreloadPath = process.env.VEYLEN_E2E_BROWSER_ANNOTATION_PRELOAD;
   if (!mainPath || !annotationPreloadPath) {
     throw new Error("Electron annotation E2E bundles were not prepared.");
   }
 
   const site = await startVisibleBrowserFixtureSite();
-  const home = mkdtempSync(join(tmpdir(), "synara-browser-annotations-e2e-"));
+  const home = mkdtempSync(join(tmpdir(), "veylen-browser-annotations-e2e-"));
   const workspaceRoot = join(home, "workspace");
   mkdirSync(workspaceRoot);
   const pipePath = join(home, "browser-host.sock");
@@ -71,12 +71,12 @@ test("a real Electron guest commits and reprojects a continuous annotation sessi
     env: {
       ...process.env,
       HOME: home,
-      SYNARA_HOME: home,
-      SYNARA_BROWSER_HOST_PIPE_PATH: pipePath,
-      SYNARA_BROWSER_HOST_CAPABILITY: capability,
-      SYNARA_E2E_SHELL_PATH: shellPath,
-      SYNARA_E2E_THREAD_ID: threadId,
-      SYNARA_E2E_BROWSER_ANNOTATION_PRELOAD: annotationPreloadPath,
+      VEYLEN_HOME: home,
+      VEYLEN_BROWSER_HOST_PIPE_PATH: pipePath,
+      VEYLEN_BROWSER_HOST_CAPABILITY: capability,
+      VEYLEN_E2E_SHELL_PATH: shellPath,
+      VEYLEN_E2E_THREAD_ID: threadId,
+      VEYLEN_E2E_BROWSER_ANNOTATION_PRELOAD: annotationPreloadPath,
     },
   });
 
@@ -117,7 +117,7 @@ test("a real Electron guest commits and reprojects a continuous annotation sessi
         (_electron, input) => {
           const manager = (
             globalThis as typeof globalThis & {
-              __synaraVisibleBrowserE2E: {
+              __veylenVisibleBrowserE2E: {
                 browserManager: {
                   runtimes: Map<
                     string,
@@ -126,7 +126,7 @@ test("a real Electron guest commits and reprojects a continuous annotation sessi
                 };
               };
             }
-          ).__synaraVisibleBrowserE2E.browserManager;
+          ).__veylenVisibleBrowserE2E.browserManager;
           const runtime = manager.runtimes.get(`${input.threadId}:${input.tabId}`);
           if (!runtime) throw new Error("Expected the native annotation runtime to be live.");
           runtime.webContents.sendInputEvent(input.event);
@@ -138,13 +138,13 @@ test("a real Electron guest commits and reprojects a continuous annotation sessi
         (_electron, input) => {
           const manager = (
             globalThis as typeof globalThis & {
-              __synaraVisibleBrowserE2E: {
+              __veylenVisibleBrowserE2E: {
                 browserManager: {
                   runtimes: Map<string, { webContents: { insertText(text: string): void } }>;
                 };
               };
             }
-          ).__synaraVisibleBrowserE2E.browserManager;
+          ).__veylenVisibleBrowserE2E.browserManager;
           const runtime = manager.runtimes.get(`${input.threadId}:${input.tabId}`);
           if (!runtime) throw new Error("Expected the native annotation runtime to be live.");
           runtime.webContents.insertText(input.text);
@@ -197,7 +197,7 @@ test("a real Electron guest commits and reprojects a continuous annotation sessi
         (_electron, input) => {
           const fixture = (
             globalThis as typeof globalThis & {
-              __synaraVisibleBrowserE2E: {
+              __veylenVisibleBrowserE2E: {
                 browserManager: {
                   getVisibleAutomationRuntime(value: { threadId: string; tabId: string }): {
                     webContents: { executeJavaScript(script: string): Promise<unknown> };
@@ -205,7 +205,7 @@ test("a real Electron guest commits and reprojects a continuous annotation sessi
                 };
               };
             }
-          ).__synaraVisibleBrowserE2E;
+          ).__veylenVisibleBrowserE2E;
           return fixture.browserManager
             .getVisibleAutomationRuntime({ threadId: input.threadId, tabId: input.tabId })
             .webContents.executeJavaScript(input.script);
@@ -224,11 +224,11 @@ test("a real Electron guest commits and reprojects a continuous annotation sessi
         (_electron, input) => {
           const fixture = (
             globalThis as typeof globalThis & {
-              __synaraVisibleBrowserE2E: {
+              __veylenVisibleBrowserE2E: {
                 browserManager: Record<string, (value: unknown) => unknown>;
               };
             }
-          ).__synaraVisibleBrowserE2E;
+          ).__veylenVisibleBrowserE2E;
           return fixture.browserManager[input.method]?.(input.payload) ?? null;
         },
         { method, payload },
@@ -238,9 +238,9 @@ test("a real Electron guest commits and reprojects a continuous annotation sessi
       electronApp.evaluate(() => {
         const fixture = (
           globalThis as typeof globalThis & {
-            __synaraVisibleBrowserE2E: { annotationEvents: BrowserAnnotationEvent[] };
+            __veylenVisibleBrowserE2E: { annotationEvents: BrowserAnnotationEvent[] };
           }
-        ).__synaraVisibleBrowserE2E;
+        ).__veylenVisibleBrowserE2E;
         return fixture.annotationEvents;
       });
     const annotationEventKinds = async (): Promise<string[]> =>
@@ -273,7 +273,7 @@ test("a real Electron guest commits and reprojects a continuous annotation sessi
     // would highlight one element while the real pointer sat on another, and a
     // synthetic Enter would publish a half-typed comment.
     const spoofingReachedOverlayHost = await runInGuest(
-      "(() => { const host = document.querySelector('[data-synara-browser-annotations]'); document.dispatchEvent(new PointerEvent('pointermove', { clientX: 3, clientY: 3, bubbles: true })); document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); host?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); return host !== null; })()",
+      "(() => { const host = document.querySelector('[data-veylen-browser-annotations]'); document.dispatchEvent(new PointerEvent('pointermove', { clientX: 3, clientY: 3, bubbles: true })); document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); host?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); return host !== null; })()",
     );
     expect(spoofingReachedOverlayHost).toBe(true);
     const kindsAfterSpoofing = await annotationEventKinds();

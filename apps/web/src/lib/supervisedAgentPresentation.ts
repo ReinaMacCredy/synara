@@ -1,4 +1,4 @@
-import { ThreadId, type AgentSeat } from "@synara/contracts";
+import { ThreadId, type AgentSeat } from "@veylen/contracts";
 
 import type { SubagentStatusKind } from "./subagentPresentation";
 

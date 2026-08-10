@@ -3,7 +3,7 @@ import {
   TaskProcessId,
   type ProjectTask,
   type TaskDependencyEdge,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { describe, expect, it } from "vitest";
 
 import { graphHasCycle, validateDependencySet } from "./dependencyGraph.ts";

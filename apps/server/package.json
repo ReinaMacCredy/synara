@@ -1,15 +1,15 @@
 {
-  "name": "@synara/cli",
+  "name": "@veylen/cli",
   "version": "0.7.1",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Emanuele-web04/Synara.git",
+    "url": "git+https://github.com/ReinaMacCredy/Veylen.git",
     "directory": "apps/server"
   },
   "bin": {
-    "synara": "dist/index.mjs",
-    "synara-restore-migration-backup": "dist/restoreMigrationBackup.mjs"
+    "veylen": "dist/index.mjs",
+    "veylen-restore-migration-backup": "dist/restoreMigrationBackup.mjs"
   },
   "files": [
     "dist"
@@ -44,9 +44,9 @@
   "devDependencies": {
     "@effect/language-service": "catalog:",
     "@effect/vitest": "catalog:",
-    "@synara/contracts": "workspace:*",
-    "@synara/shared": "workspace:*",
-    "@synara/web": "workspace:*",
+    "@veylen/contracts": "workspace:*",
+    "@veylen/shared": "workspace:*",
+    "@veylen/web": "workspace:*",
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
     "@types/ws": "^8.5.13",

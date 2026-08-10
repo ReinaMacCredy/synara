@@ -7,7 +7,7 @@ import type {
   SupervisionDomainEvent,
   SupervisionMission,
   SupervisedOrchestrationSnapshot,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 import { buildModelSelection } from "../providerModelOptions";
 

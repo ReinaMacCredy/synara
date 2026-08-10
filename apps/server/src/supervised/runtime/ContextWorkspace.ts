@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rename, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 
-import type { BlobReference, ContextRecord, ContextWorkspace } from "@synara/contracts";
+import type { BlobReference, ContextRecord, ContextWorkspace } from "@veylen/contracts";
 
 export class ContextRevisionConflictError extends Error {
   readonly code = "context.revision_conflict";

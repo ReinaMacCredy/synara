@@ -2,7 +2,7 @@ import type {
   AcceptedCrossModeHandoffV1,
   HandoffCapsuleItemV1,
   HandoffSourceReadGrant,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Cause, Effect, Option } from "effect";
 
 import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";

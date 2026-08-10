@@ -1,5 +1,5 @@
-import type { ClientOrchestrationCommand, OrchestrationCommand } from "@synara/contracts";
-import { isWorkspaceRootWithin, workspaceRootsEqual } from "@synara/shared/threadWorkspace";
+import type { ClientOrchestrationCommand, OrchestrationCommand } from "@veylen/contracts";
+import { isWorkspaceRootWithin, workspaceRootsEqual } from "@veylen/shared/threadWorkspace";
 import type { FileSystem, Path } from "effect";
 import { Effect, Schedule } from "effect";
 

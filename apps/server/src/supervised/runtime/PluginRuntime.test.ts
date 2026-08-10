@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
 
-import type { ControlPlaneEvent, PluginInstallation, RunPolicy } from "@synara/contracts";
+import type { ControlPlaneEvent, PluginInstallation, RunPolicy } from "@veylen/contracts";
 
 import { GovernedPluginRuntime, type PluginKernelFactory } from "./PluginRuntime.ts";
 

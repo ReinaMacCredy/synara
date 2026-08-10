@@ -19,9 +19,9 @@ import {
 } from "./config";
 
 const tempDirs = new Set<string>();
-const originalSynaraStaticDir = process.env.SYNARA_STATIC_DIR;
+const originalVeylenStaticDir = process.env.VEYLEN_STATIC_DIR;
 
-function makeTempDir(prefix = "synara-config-test-"): string {
+function makeTempDir(prefix = "veylen-config-test-"): string {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   tempDirs.add(directory);
   return directory;
@@ -32,18 +32,18 @@ afterEach(() => {
     fs.rmSync(directory, { recursive: true, force: true });
   }
   tempDirs.clear();
-  if (originalSynaraStaticDir === undefined) {
-    delete process.env.SYNARA_STATIC_DIR;
+  if (originalVeylenStaticDir === undefined) {
+    delete process.env.VEYLEN_STATIC_DIR;
   } else {
-    process.env.SYNARA_STATIC_DIR = originalSynaraStaticDir;
+    process.env.VEYLEN_STATIC_DIR = originalVeylenStaticDir;
   }
 });
 
 describe("resolveStaticDir", () => {
-  it("uses the desktop static snapshot exposed through the Synara environment", async () => {
-    const snapshotDir = makeTempDir("synara-static-snapshot-test-");
-    fs.writeFileSync(path.join(snapshotDir, "index.html"), "<main>Synara</main>");
-    process.env.SYNARA_STATIC_DIR = snapshotDir;
+  it("uses the desktop static snapshot exposed through the Veylen environment", async () => {
+    const snapshotDir = makeTempDir("veylen-static-snapshot-test-");
+    fs.writeFileSync(path.join(snapshotDir, "index.html"), "<main>Veylen</main>");
+    process.env.VEYLEN_STATIC_DIR = snapshotDir;
 
     const resolved = await Effect.runPromise(
       resolveStaticDir().pipe(Effect.provide(NodeServices.layer)),
@@ -60,19 +60,19 @@ const runResolveCanonicalWorkspaceRoots = (input: {
   Effect.runPromise(resolveCanonicalWorkspaceRoots(input).pipe(Effect.provide(NodeServices.layer)));
 
 describe("resolveDefaultChatWorkspaceRoot", () => {
-  it("places the managed chat workspace under Documents/Synara on macOS and Linux", () => {
+  it("places the managed chat workspace under Documents/Veylen on macOS and Linux", () => {
     expect(
       resolveDefaultChatWorkspaceRoot({
         homeDir: "/Users/tester",
         platform: "darwin",
       }),
-    ).toBe("/Users/tester/Documents/Synara");
+    ).toBe("/Users/tester/Documents/Veylen");
     expect(
       resolveDefaultChatWorkspaceRoot({
         homeDir: "/home/tester",
         platform: "linux",
       }),
-    ).toBe("/home/tester/Documents/Synara");
+    ).toBe("/home/tester/Documents/Veylen");
   });
 
   it("uses Windows separators when deriving the managed chat workspace on Windows", () => {
@@ -81,7 +81,7 @@ describe("resolveDefaultChatWorkspaceRoot", () => {
         homeDir: "C:\\Users\\tester",
         platform: "win32",
       }),
-    ).toBe("C:\\Users\\tester\\Documents\\Synara");
+    ).toBe("C:\\Users\\tester\\Documents\\Veylen");
   });
 
   it("defaults to the current process platform when no platform is supplied", () => {
@@ -93,7 +93,7 @@ describe("resolveDefaultChatWorkspaceRoot", () => {
 
     try {
       expect(resolveDefaultChatWorkspaceRoot({ homeDir: "C:\\Users\\tester" })).toBe(
-        "C:\\Users\\tester\\Documents\\Synara",
+        "C:\\Users\\tester\\Documents\\Veylen",
       );
     } finally {
       Object.defineProperty(process, "platform", originalPlatformDescriptor!);
@@ -118,7 +118,7 @@ describe("resolveCanonicalWorkspaceRoots", () => {
     expect(result.homeDir).toBe(expectedHomeDir);
     // The chat workspace does not exist yet under the resolved home, so it must
     // be re-derived from the canonicalized home rather than the raw symlink.
-    expect(result.chatWorkspaceRoot).toBe(path.join(expectedHomeDir, "Documents", "Synara"));
+    expect(result.chatWorkspaceRoot).toBe(path.join(expectedHomeDir, "Documents", "Veylen"));
   });
 
   it("canonicalizes the nearest existing ancestor when the workspace root itself does not exist yet", async () => {
@@ -129,7 +129,7 @@ describe("resolveCanonicalWorkspaceRoots", () => {
     fs.mkdirSync(homeDir, { recursive: true });
     // Symlink ~/Documents to a real directory elsewhere, matching the bug
     // report scenario (e.g. iCloud-managed Documents on macOS). Neither
-    // Synara does not exist yet underneath it.
+    // Veylen does not exist yet underneath it.
     const symlinkedDocuments = path.join(homeDir, "Documents");
     fs.symlinkSync(realDocuments, symlinkedDocuments, "dir");
 
@@ -140,7 +140,7 @@ describe("resolveCanonicalWorkspaceRoots", () => {
 
     const expectedDocuments = fs.realpathSync(realDocuments);
     expect(result.homeDir).toBe(fs.realpathSync(homeDir));
-    expect(result.chatWorkspaceRoot).toBe(path.join(expectedDocuments, "Synara"));
+    expect(result.chatWorkspaceRoot).toBe(path.join(expectedDocuments, "Veylen"));
     expect(fs.existsSync(result.chatWorkspaceRoot)).toBe(false);
 
     // Once the lazily-created directory shows up on disk, realpath must agree

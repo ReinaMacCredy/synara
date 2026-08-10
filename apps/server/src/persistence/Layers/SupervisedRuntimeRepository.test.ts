@@ -9,7 +9,7 @@ import {
   SupervisedDomainEvent,
   SubscriptionDefinition,
   SubscriptionDelivery,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 import { SqlitePersistenceMemory } from "./Sqlite.ts";
 import { SupervisedRuntimeRepositoryLive } from "./SupervisedRuntimeRepository.ts";

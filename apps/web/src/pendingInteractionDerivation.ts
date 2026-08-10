@@ -4,12 +4,12 @@ import {
   type OrchestrationThreadActivity,
   type TurnId,
   type UserInputQuestion,
-} from "@synara/contracts";
-import { isPendingInteractionResponseClaimable } from "@synara/shared/pendingInteractions";
+} from "@veylen/contracts";
+import { isPendingInteractionResponseClaimable } from "@veylen/shared/pendingInteractions";
 import {
   approvalRequestKindFromRequestType,
   pendingRequestInstanceKey,
-} from "@synara/shared/threadSummary";
+} from "@veylen/shared/threadSummary";
 
 import { isStalePendingRequestFailureDetail } from "./lib/pendingInteraction";
 import { parseUserInputQuestions } from "./userInputActivity";

@@ -5,7 +5,7 @@ import {
   type HandoffCapsuleItemV1,
   type HandoffCapsuleV1,
   type HandoffRuntimeSelection,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 import { CodexAppServerManager } from "../codexAppServerManager.ts";
 import { HANDOFF_CORE_INSTRUCTION } from "./handoffCoreInstruction.ts";

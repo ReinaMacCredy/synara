@@ -11,7 +11,7 @@ import {
   SpaceId,
   TaskProcessId,
   ThreadId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 import { Effect, Layer, Option, Schema, Stream } from "effect";

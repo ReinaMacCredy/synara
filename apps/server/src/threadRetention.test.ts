@@ -9,7 +9,7 @@ import {
   type OrchestrationCommand,
   type OrchestrationReadModel,
   type OrchestrationShellSnapshot,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 

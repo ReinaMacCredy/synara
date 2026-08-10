@@ -1,4 +1,4 @@
-// This file mostly exists because we want dev mode to say "Synara (Dev)" instead of "electron"
+// This file mostly exists because we want dev mode to say "Veylen (Dev)" instead of "electron"
 
 import { spawnSync } from "node:child_process";
 import {
@@ -13,21 +13,21 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createRequire } from "node:module";
-import { resolveSynaraDesktopFlavor, synaraDesktopIdentity } from "@synara/shared/desktopIdentity";
+import { resolveVeylenDesktopFlavor, veylenDesktopIdentity } from "@veylen/shared/desktopIdentity";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
-const desktopFlavor = resolveSynaraDesktopFlavor({
+const desktopFlavor = resolveVeylenDesktopFlavor({
   isDevelopment,
-  requestedFlavor: process.env.SYNARA_DESKTOP_FLAVOR,
+  requestedFlavor: process.env.VEYLEN_DESKTOP_FLAVOR,
 });
-const desktopIdentity = synaraDesktopIdentity(desktopFlavor);
+const desktopIdentity = veylenDesktopIdentity(desktopFlavor);
 const APP_DISPLAY_NAME = desktopIdentity.displayName;
 const APP_BUNDLE_ID = desktopIdentity.bundleId;
 const LAUNCHER_VERSION = 2;
 const MICROPHONE_USAGE_DESCRIPTION =
-  "Synara needs microphone access so you can record voice notes and transcribe them into the chat composer.";
+  "Veylen needs microphone access so you can record voice notes and transcribe them into the chat composer.";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const desktopDir = resolve(__dirname, "..");

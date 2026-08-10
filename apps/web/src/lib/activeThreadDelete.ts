@@ -3,7 +3,7 @@
 // Layer: Web orchestration helper
 // Exports: deleteActiveThreadFromClient
 
-import type { ThreadId } from "@synara/contracts";
+import type { ThreadId } from "@veylen/contracts";
 
 import { toastManager } from "../components/ui/toast";
 import { readNativeApi } from "../nativeApi";

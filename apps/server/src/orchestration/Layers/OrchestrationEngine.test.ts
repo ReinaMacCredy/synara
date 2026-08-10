@@ -32,7 +32,7 @@ import {
   WorkClaimId,
   type OrchestrationCommand,
   type OrchestrationEvent,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Effect, Layer, ManagedRuntime, Option, Queue, Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
@@ -164,7 +164,7 @@ const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
 const asCheckpointRef = (value: string): CheckpointRef => CheckpointRef.makeUnsafe(value);
 
 const TestServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
-  prefix: "synara-orchestration-engine-test-",
+  prefix: "veylen-orchestration-engine-test-",
 });
 
 async function createOrchestrationSystem() {
@@ -798,7 +798,7 @@ describe("OrchestrationEngine", () => {
         threadId: ThreadId.makeUnsafe("thread-turn-diff"),
         turnId: asTurnId("turn-1"),
         completedAt: createdAt,
-        checkpointRef: asCheckpointRef("refs/synara/checkpoints/thread-turn-diff/turn/1"),
+        checkpointRef: asCheckpointRef("refs/veylen/checkpoints/thread-turn-diff/turn/1"),
         status: "ready",
         files: [],
         checkpointTurnCount: 1,
@@ -813,7 +813,7 @@ describe("OrchestrationEngine", () => {
       {
         turnId: asTurnId("turn-1"),
         checkpointTurnCount: 1,
-        checkpointRef: asCheckpointRef("refs/synara/checkpoints/thread-turn-diff/turn/1"),
+        checkpointRef: asCheckpointRef("refs/veylen/checkpoints/thread-turn-diff/turn/1"),
         status: "ready",
         files: [],
         assistantMessageId: null,

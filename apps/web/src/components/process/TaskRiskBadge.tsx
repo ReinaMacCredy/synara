@@ -1,4 +1,4 @@
-import type { ProjectTaskRisk } from "@synara/contracts";
+import type { ProjectTaskRisk } from "@veylen/contracts";
 
 import { cn } from "~/lib/utils";
 

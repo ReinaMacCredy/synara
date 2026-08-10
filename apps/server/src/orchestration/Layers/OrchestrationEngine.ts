@@ -3,7 +3,7 @@ import type {
   OrchestrationEvent,
   OrchestrationAggregateKind,
   OrchestrationReadModel,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import {
   OrchestrationCommand,
   TaskProcessCommand,
@@ -15,7 +15,7 @@ import {
   SupervisedGovernanceCommand,
   TaskNodeRevisionId,
   ThreadId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import {
   Cause,
   Deferred,
@@ -1213,7 +1213,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                       messageId,
                       role: "thread",
                       text: [
-                        "<synara_supervised_root_handoff>",
+                        "<veylen_supervised_root_handoff>",
                         JSON.stringify({
                           operation: "role.assume",
                           roomId: room.id,
@@ -1223,7 +1223,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                         }),
                         "The authenticated owner transferred the Room Root lease to the Supervisor.",
                         "Publish a concise durable checkpoint and handoff summary covering current work, risks, evidence, and the next safe action. Do not perform further Root mutations.",
-                        "</synara_supervised_root_handoff>",
+                        "</veylen_supervised_root_handoff>",
                       ].join("\n"),
                       attachments: [],
                     },
@@ -1489,7 +1489,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                           messageId,
                           role: "thread",
                           text: [
-                            "<synara_supervised_task_node_assignment>",
+                            "<veylen_supervised_task_node_assignment>",
                             JSON.stringify({
                               roomId: room.id,
                               taskId: task.id,
@@ -1504,7 +1504,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                             }),
                             "This is a durable TaskNode delegation. Root ownership remains with the current Root holder.",
                             "Call start_task_node_run before executing, then call publish_task_node_evidence with the retained Run id when the acceptance evidence is ready.",
-                            "</synara_supervised_task_node_assignment>",
+                            "</veylen_supervised_task_node_assignment>",
                           ].join("\n"),
                           attachments: [],
                         },
@@ -1794,7 +1794,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                               messageId,
                               role: "thread",
                               text: [
-                                "<synara_supervised_task_node_review>",
+                                "<veylen_supervised_task_node_review>",
                                 JSON.stringify({
                                   roomId: room.id,
                                   taskId: taskNode.taskId,
@@ -1806,7 +1806,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                                   summary: command.evidence.summary,
                                 }),
                                 "Root ownership remains with this Root holder. Review the evidence and call accept_task_node only if the acceptance criteria are satisfied.",
-                                "</synara_supervised_task_node_review>",
+                                "</veylen_supervised_task_node_review>",
                               ].join("\n"),
                               attachments: [],
                             },
@@ -2185,7 +2185,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                                     messageId,
                                     role: "thread",
                                     text: [
-                                      "<synara_supervised_assignment>",
+                                      "<veylen_supervised_assignment>",
                                       JSON.stringify({
                                         interventionId: command.intervention.id,
                                         roomId: command.roomId,
@@ -2197,7 +2197,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                                       }),
                                       "This is bounded work and does not transfer TaskNode or Root ownership.",
                                       "After completing the request, call publish_peer_evidence with this interventionId.",
-                                      "</synara_supervised_assignment>",
+                                      "</veylen_supervised_assignment>",
                                     ].join("\n"),
                                     attachments: [],
                                   },
@@ -2267,7 +2267,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                                       messageId,
                                       role: "thread",
                                       text: [
-                                        "<synara_supervised_peer_evidence>",
+                                        "<veylen_supervised_peer_evidence>",
                                         JSON.stringify({
                                           interventionId: intervention.id,
                                           roomId: intervention.roomId,
@@ -2279,7 +2279,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                                         intervention.material
                                           ? "Review the evidence and call reconcile_peer_intervention before changing canonical Room state."
                                           : "The bounded investigation made no canonical Room mutation; the intervention was reconciled without ownership changes.",
-                                        "</synara_supervised_peer_evidence>",
+                                        "</veylen_supervised_peer_evidence>",
                                       ].join("\n"),
                                       attachments: [],
                                     },
@@ -2997,7 +2997,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                     commandId: "repair-local-state",
                     commandType: ORCHESTRATION_WS_METHODS.repairState,
                     detail:
-                      "Projection repair failed and its staged backup could not be restored. Restart Synara before retrying repair.",
+                      "Projection repair failed and its staged backup could not be restored. Restart Veylen before retrying repair.",
                   }),
                 ),
               ),

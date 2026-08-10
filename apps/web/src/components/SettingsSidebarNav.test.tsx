@@ -123,7 +123,7 @@ describe("SettingsSidebarNav", () => {
     expect(markup).toContain("System tools");
     expect(markup).toContain("Archived chats");
     expect(markup).not.toContain(">App<");
-    expect(markup).not.toContain(">Synara<");
+    expect(markup).not.toContain(">Veylen<");
   });
 
   it("keeps every Supervised page in one canonical group", () => {

@@ -6,7 +6,7 @@ import type {
   GetTaskProcessSummaryResult,
   ListTaskProcessesInput,
   ListTaskProcessesResult,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -26,5 +26,5 @@ export interface TaskProcessQueryShape {
 }
 
 export class TaskProcessQuery extends ServiceMap.Service<TaskProcessQuery, TaskProcessQueryShape>()(
-  "synara/orchestration/Services/TaskProcessQuery",
+  "veylen/orchestration/Services/TaskProcessQuery",
 ) {}

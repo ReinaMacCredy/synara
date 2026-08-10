@@ -5,7 +5,7 @@ import {
   TaskProcessId,
   ThreadId,
   type SessionProgressProjection,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { useState } from "react";
 import { page } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";

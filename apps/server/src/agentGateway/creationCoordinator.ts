@@ -12,13 +12,13 @@ import {
   type OrchestrationThreadShell,
   type ProviderInteractionMode,
   type ProviderKind,
-  type SynaraCreateThreadsInput,
-  type SynaraCreateThreadsResult,
-} from "@synara/contracts";
-import { buildPromptThreadTitleFallback } from "@synara/shared/chatThreads";
-import { WORKTREE_BRANCH_PREFIX } from "@synara/shared/git";
-import { parseGitHubRepositoryNameWithOwnerFromPullRequestUrl } from "@synara/shared/githubRepository";
-import { runtimeModeEscalatesPrivilege } from "@synara/shared/runtimeMode";
+  type VeylenCreateThreadsInput,
+  type VeylenCreateThreadsResult,
+} from "@veylen/contracts";
+import { buildPromptThreadTitleFallback } from "@veylen/shared/chatThreads";
+import { WORKTREE_BRANCH_PREFIX } from "@veylen/shared/git";
+import { parseGitHubRepositoryNameWithOwnerFromPullRequestUrl } from "@veylen/shared/githubRepository";
+import { runtimeModeEscalatesPrivilege } from "@veylen/shared/runtimeMode";
 import { Cause, Effect, Option, Semaphore } from "effect";
 
 import type { ServerConfigShape } from "../config.ts";
@@ -252,7 +252,7 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
       return yield* Effect.fail(
         new GatewayToolError(
           "operation_failed",
-          "The original thread-creation operation is still in progress. Retry only with the same request id; Synara will not create replacement threads.",
+          "The original thread-creation operation is still in progress. Retry only with the same request id; Veylen will not create replacement threads.",
           { operationId, status: operation?.status ?? "missing" },
         ),
       );
@@ -261,7 +261,7 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
   const appendThreadCreationRecap = (input: {
     readonly callerThreadId: string;
     readonly callerTurnId: string;
-    readonly result: SynaraCreateThreadsResult;
+    readonly result: VeylenCreateThreadsResult;
   }) => {
     const marker = stableGatewayDigest({
       operationId: input.result.operationId,
@@ -277,10 +277,10 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
         activity: {
           id: EventId.makeUnsafe(`gateway:${marker}:threads-created-recap`),
           tone: "info",
-          kind: "synara.threads.created",
-          summary: `Created ${input.result.createdCount} Synara ${threadLabel}`,
+          kind: "veylen.threads.created",
+          summary: `Created ${input.result.createdCount} Veylen ${threadLabel}`,
           payload: {
-            source: "synara_mcp",
+            source: "veylen_mcp",
             operationId: input.result.operationId,
             requestId: input.result.requestId,
             requestedCount: input.result.requestedCount,
@@ -303,7 +303,7 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
       );
   };
 
-  const run = (input: typeof SynaraCreateThreadsInput.Type, context: GatewayCreationContext) => {
+  const run = (input: typeof VeylenCreateThreadsInput.Type, context: GatewayCreationContext) => {
     return Effect.gen(function* () {
       if (context.kind === "provider-session" && context.callerTurnId === null) {
         return yield* Effect.fail(
@@ -458,7 +458,7 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
       if (deprecatedBranchName) {
         return yield* Effect.fail(
           new ToolInputError(
-            '"branchName" is no longer supported for managed worktrees. Synara creates a managed temporary branch and renames it after the first prompt; create additional branches inside the new thread if needed.',
+            '"branchName" is no longer supported for managed worktrees. Veylen creates a managed temporary branch and renames it after the first prompt; create additional branches inside the new thread if needed.',
           ),
         );
       }
@@ -604,7 +604,7 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
             if (existsSync(plannedWorktreePath)) {
               return yield* Effect.fail(
                 new ToolInputError(
-                  `Worktree path "${plannedWorktreePath}" already exists. Synara will not reuse or remove a pre-existing path.`,
+                  `Worktree path "${plannedWorktreePath}" already exists. Veylen will not reuse or remove a pre-existing path.`,
                 ),
               );
             }
@@ -623,7 +623,7 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
             copyChangesFrom,
             // Deterministic like the planned path: an exact-plan retry must
             // resolve to the same branch, and recovery reclaims it by name.
-            // The 8-hex-digit token keeps it a temporary synara/* branch.
+            // The 8-hex-digit token keeps it a temporary veylen/* branch.
             newBranch:
               environment === "worktree"
                 ? `${WORKTREE_BRANCH_PREFIX}/${stableGatewayDigest({ operationId, index, resource: "worktree-branch" }, 8)}`
@@ -725,7 +725,7 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
                             worktree.branch === null
                               ? Effect.void
                               : // The branch is this operation's own deterministic
-                                // synara/* name and its worktree was just force-removed.
+                                // veylen/* name and its worktree was just force-removed.
                                 // A non-forced delete would fail whenever the pinned
                                 // ref is not merged into the root HEAD (e.g. PR heads),
                                 // stranding the name and blocking exact-plan retries.
@@ -824,7 +824,7 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
             });
             return new GatewayToolError(
               "operation_failed",
-              "Synara could not dispatch the exact creation plan and cleanup is still pending. The durable operation remains compensating and will never create replacements.",
+              "Veylen could not dispatch the exact creation plan and cleanup is still pending. The durable operation remains compensating and will never create replacements.",
               { operationId, ...failure, compensationPending: true },
             );
           }
@@ -860,13 +860,13 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
               );
             return new GatewayToolError(
               "operation_failed",
-              "Synara compensated the created resources but could not persist a terminal operation status. The operation remains compensating and will never create replacements.",
+              "Veylen compensated the created resources but could not persist a terminal operation status. The operation remains compensating and will never create replacements.",
               { operationId, ...failure, compensationPending: true },
             );
           }
           return new GatewayToolError(
             "operation_failed",
-            "Synara could not dispatch the exact creation plan. Created operation-owned resources were compensated; no replacements were created.",
+            "Veylen could not dispatch the exact creation plan. Created operation-owned resources were compensated; no replacements were created.",
             { operationId, ...failure },
           );
         });
@@ -1077,7 +1077,7 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
                       branch,
                       worktreePath,
                       creationSource:
-                        context.kind === "external-client" ? "external_mcp" : "synara_mcp",
+                        context.kind === "external-client" ? "external_mcp" : "veylen_mcp",
                       ...(context.kind === "provider-session"
                         ? {
                             sourceThreadId: ThreadId.makeUnsafe(context.callerThreadId),
@@ -1150,7 +1150,7 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
             createdCount: results.length,
             threadIds: results.map((entry) => entry.threadId),
             threads: results,
-          } satisfies SynaraCreateThreadsResult;
+          } satisfies VeylenCreateThreadsResult;
           // Once every deterministic dispatch succeeded, durable completion is
           // the commit point. A late client cancellation must not roll back a
           // fully-created operation or strand it between dispatching/completed.

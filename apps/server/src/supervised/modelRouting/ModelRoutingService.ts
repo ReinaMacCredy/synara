@@ -4,7 +4,7 @@ import {
   type ModelSelectionReceiptId,
   type ModelTelemetryAggregate,
   type UserModelPreferenceProfile,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Effect, Layer, ServiceMap } from "effect";
 
 import type { ProjectionRepositoryError } from "../../persistence/Errors.ts";
@@ -83,7 +83,7 @@ export interface ModelRoutingServiceShape {
 export class ModelRoutingService extends ServiceMap.Service<
   ModelRoutingService,
   ModelRoutingServiceShape
->()("synara/supervised/modelRouting/ModelRoutingService") {}
+>()("veylen/supervised/modelRouting/ModelRoutingService") {}
 
 const preferenceModelIds = (profile: UserModelPreferenceProfile): readonly string[] => [
   ...Object.keys(profile.ratings),

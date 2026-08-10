@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { it } from "@effect/vitest";
-import type { SupervisedToolPolicy } from "@synara/contracts";
+import type { SupervisedToolPolicy } from "@veylen/contracts";
 import { Effect, Layer, Option } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 

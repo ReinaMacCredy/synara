@@ -4,7 +4,7 @@ import type {
   MissionScope,
   SupervisedGovernanceActor,
   SupervisionMission,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 import type { SupervisedGovernanceDecisionState } from "./governanceState.ts";
 

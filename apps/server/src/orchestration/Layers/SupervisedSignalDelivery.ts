@@ -21,7 +21,7 @@ import {
   type SupervisedGovernanceSnapshot,
   type SupervisedRuntimeSnapshot,
   type SupervisionMission,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Effect, Layer, Schema } from "effect";
 
 import { SupervisedRuntimeRepository } from "../../persistence/Services/SupervisedRuntimeRepository.ts";
@@ -152,7 +152,7 @@ function signalEvent(signal: DerivedSignal, delivery: SubscriptionDelivery): Con
 
 function leadWakeText(subscription: SubscriptionDefinition, signal: DerivedSignal): string {
   return [
-    "<synara_supervised_signal>",
+    "<veylen_supervised_signal>",
     "This is a durable bounded Signal Plane wake, not a Human instruction.",
     `subscription_id: ${subscription.id}`,
     `signal_id: ${signal.id}`,
@@ -164,7 +164,7 @@ function leadWakeText(subscription: SubscriptionDefinition, signal: DerivedSigna
     `evidence_snapshot: ${JSON.stringify(signal.context).slice(0, 12_000)}`,
     "Assess root cause within your existing concern and scope. This wake grants no new authority.",
     "Use only allowed typed commands; Lead Room-local integration and acceptance authority is unchanged.",
-    "</synara_supervised_signal>",
+    "</veylen_supervised_signal>",
   ].join("\n");
 }
 
@@ -323,7 +323,7 @@ function supervisorWakeText(
   recipient: SupervisorRecipient,
 ): string {
   return [
-    "<synara_supervised_signal>",
+    "<veylen_supervised_signal>",
     "This is a durable bounded Signal Plane wake, not a Human instruction.",
     `subscription_id: ${subscription.id}`,
     `signal_id: ${signal.id}`,
@@ -339,7 +339,7 @@ function supervisorWakeText(
     `evidence_snapshot: ${JSON.stringify(signal.context).slice(0, 12_000)}`,
     "Assess root cause only within the active mission concern and scope. This wake grants no new authority.",
     "The Room Root lease and Lead integration and acceptance authority remain unchanged.",
-    "</synara_supervised_signal>",
+    "</veylen_supervised_signal>",
   ].join("\n");
 }
 

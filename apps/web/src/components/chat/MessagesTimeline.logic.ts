@@ -3,7 +3,7 @@
 // Layer: Web chat presentation helpers
 // Exports: row derivation, structural sharing, copy/timer helpers
 
-import { type MessageId, type TurnId } from "@synara/contracts";
+import { type MessageId, type TurnId } from "@veylen/contracts";
 import {
   hasTurnWorkspaceMutationEvidence,
   type TimelineEntry,
@@ -1059,9 +1059,9 @@ function workLogAutomationsEqual(a: WorkLogEntry["automation"], b: WorkLogEntry[
   );
 }
 
-function workLogSynaraThreadCreationsEqual(
-  a: WorkLogEntry["synaraThreadCreation"],
-  b: WorkLogEntry["synaraThreadCreation"],
+function workLogVeylenThreadCreationsEqual(
+  a: WorkLogEntry["veylenThreadCreation"],
+  b: WorkLogEntry["veylenThreadCreation"],
 ) {
   if (a === b) return true;
   if (!a || !b) return false;
@@ -1222,7 +1222,7 @@ function workLogEntryContentEqual(a: WorkLogEntry, b: WorkLogEntry): boolean {
     workLogSubagentActionsEqual(a.subagentAction, b.subagentAction) &&
     workLogSubagentsEqual(a.subagents, b.subagents) &&
     workLogAutomationsEqual(a.automation, b.automation) &&
-    workLogSynaraThreadCreationsEqual(a.synaraThreadCreation, b.synaraThreadCreation) &&
+    workLogVeylenThreadCreationsEqual(a.veylenThreadCreation, b.veylenThreadCreation) &&
     workLogLiveActivitiesEqual(a.liveActivity, b.liveActivity) &&
     workLogUserInputInteractionsEqual(a.userInputInteraction, b.userInputInteraction) &&
     workLogToolDetailsEqual(a.toolDetails, b.toolDetails)

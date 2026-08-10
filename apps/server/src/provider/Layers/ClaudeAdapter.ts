@@ -60,7 +60,7 @@ import {
   type ProviderListAgentsResult,
   type ProviderListModelsResult,
   getAgentMentionAliases,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import {
   applyClaudePromptEffortPrefix,
   getDefaultModel,
@@ -69,9 +69,9 @@ import {
   hasEffortLevel,
   resolveApiModelId,
   trimOrNull,
-} from "@synara/shared/model";
-import { buildClaudeSubagentPrompt } from "@synara/shared/agentMentions";
-import { prepareWindowsSafeProcess } from "@synara/shared/windowsProcess";
+} from "@veylen/shared/model";
+import { buildClaudeSubagentPrompt } from "@veylen/shared/agentMentions";
+import { prepareWindowsSafeProcess } from "@veylen/shared/windowsProcess";
 import {
   Cause,
   DateTime,
@@ -90,7 +90,7 @@ import {
 } from "effect";
 
 import { buildClaudeHostMcpServers } from "../claudeHostSdkMcp.ts";
-import { renderSynaraHarnessPolicy } from "../../agentGateway/harnessPolicy.ts";
+import { renderVeylenHarnessPolicy } from "../../agentGateway/harnessPolicy.ts";
 import { supervisedInstructionForSession } from "../../orchestration/supervised/protocolV1.ts";
 import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
 import { HostToolRuntime } from "../../orchestration/Services/HostToolRuntime.ts";
@@ -1019,7 +1019,7 @@ function toolLifecycleEventData(
 
 // Receiver identity for the shared subagent-thread machinery: ingestion spawns a
 // child thread per receiverThreadId on collab_agent_tool_call items and titles it
-// from these hints (see extractSubagentIdentityHints in @synara/shared/subagents).
+// from these hints (see extractSubagentIdentityHints in @veylen/shared/subagents).
 function subagentReceiverData(
   tool: Pick<ToolInFlight, "itemId" | "input">,
 ): Record<string, unknown> {
@@ -1086,20 +1086,20 @@ export const buildEmbeddedClaudeSystemPromptAppend = (
   supervisedContext?: ProviderSupervisedSessionContext | null,
 ) =>
   [
-    "You are running inside Synara, a coding app that embeds the Claude Agent SDK.",
+    "You are running inside Veylen, a coding app that embeds the Claude Agent SDK.",
     "Do not present the host app as Claude Code unless the user is explicitly asking about Claude Code.",
     "Treat the current working directory as the active workspace for the task.",
     "When the user asks about the current project, codebase, or repository, proactively inspect files in the current working directory before asking the user where to look.",
     "When spawning subagents, set the Agent tool's `model` parameter and pick reasoning effort by choosing a worker-<tier> subagent type (worker-low, worker-medium, worker-high, worker-xhigh).",
     "Honor explicit user instructions about a subagent's model or effort verbatim; otherwise match task complexity: mechanical work → haiku or worker-low, standard work → sonnet or worker-medium, hard reasoning → opus or fable with worker-high and above.",
-    "Provider-native subagents are provider-owned helpers, not standalone Synara supervised seats. They must not claim Synara authority or call governed Host tools outside their granted scope.",
-    renderSynaraHarnessPolicy({ gatewayControlAvailable }),
+    "Provider-native subagents are provider-owned helpers, not standalone Veylen supervised seats. They must not claim Veylen authority or call governed Host tools outside their granted scope.",
+    renderVeylenHarnessPolicy({ gatewayControlAvailable }),
     ...(supervisedContext ? [supervisedInstructionForSession(supervisedContext)] : []),
   ].join("\n");
 
 const CLAUDE_WORKER_EFFORT_TIERS = ["low", "medium", "high", "xhigh"] as const;
 const CLAUDE_WORKER_PROMPT =
-  "You are a provider-native general-purpose worker, not a standalone Synara supervised seat. Do not claim Synara authority or call governed Host tools outside your granted scope. Complete the assigned task end to end with the available tools, then return a concise report covering what you did, key findings, and any remaining risks.";
+  "You are a provider-native general-purpose worker, not a standalone Veylen supervised seat. Do not claim Veylen authority or call governed Host tools outside your granted scope. Complete the assigned task end to end with the available tools, then return a concise report covering what you did, key findings, and any remaining risks.";
 
 function claudeWorkerEffortFromSubagentType(subagentType: string): string | undefined {
   return (CLAUDE_WORKER_EFFORT_TIERS as readonly string[]).find(
@@ -1121,7 +1121,7 @@ function buildClaudeSdkSubagents(): Record<string, AgentDefinition> {
 
     agents[alias.agentName] = {
       description: alias.description,
-      prompt: `${alias.prompt}\n\nYou are a provider-native helper, not a standalone Synara supervised seat. Do not claim Synara authority or call governed Host tools outside your granted scope.`,
+      prompt: `${alias.prompt}\n\nYou are a provider-native helper, not a standalone Veylen supervised seat. Do not claim Veylen authority or call governed Host tools outside your granted scope.`,
       ...(alias.tools ? { tools: [...alias.tools] } : {}),
       ...(alias.disallowedTools ? { disallowedTools: [...alias.disallowedTools] } : {}),
       ...(alias.model ? { model: alias.model } : {}),
@@ -1738,7 +1738,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
     const fileSystem = yield* FileSystem.FileSystem;
     const serverConfig = yield* ServerConfig;
     // Optional so adapter tests can run without the gateway layer; when
-    // present, every session gets the synara_* MCP tools.
+    // present, every session gets the veylen_* MCP tools.
     const agentGatewayCredentials = Option.getOrUndefined(
       yield* Effect.serviceOption(AgentGatewayCredentials),
     );
@@ -4523,7 +4523,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               // native conversation only after the prompt is queued. Drop the
               // dead native ids before completing the turn so ProviderService
               // persists a cursor without `resume`; the next dispatch then
-              // starts a fresh Claude session and bootstraps Synara's retained
+              // starts a fresh Claude session and bootstraps Veylen's retained
               // transcript instead of replaying the same broken id forever.
               context.resumeSessionId = undefined;
               context.lastAssistantUuid = undefined;
@@ -5080,7 +5080,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               (input.runtimeMode === "full-access" ? "bypassPermissions" : undefined));
         const settings = {
           // Native 1M models otherwise compact near their full model limit. Keep
-          // Synara's safer 200k budget explicit unless the thread opts into 1M.
+          // Veylen's safer 200k budget explicit unless the thread opts into 1M.
           autoCompactEnabled: true,
           ...(requestedAutoCompactWindowTokens !== undefined
             ? { autoCompactWindow: requestedAutoCompactWindowTokens }

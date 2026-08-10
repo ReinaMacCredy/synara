@@ -10,7 +10,7 @@ import {
   type ProjectTaskProjection,
   type TaskProcess,
   type TaskProcessGraphProjection,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Effect, Layer, Option } from "effect";
 import { expect } from "vitest";
 

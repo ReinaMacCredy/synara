@@ -6,7 +6,7 @@ import path from "node:path";
 import { PassThrough } from "node:stream";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@veylen/contracts";
 import { Effect, Fiber, Layer, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -207,7 +207,7 @@ Claude Sonnet 5 (Thinking)
 
 describe("Antigravity CLI integration helpers", () => {
   it("rotates the gateway lease per print turn and rejects a retained prior bootstrap", async () => {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), "synara-antigravity-turn-lease-"));
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "veylen-antigravity-turn-lease-"));
     const liveTokens = new Set<string>();
     const bootstrapOwners = new Map<string, string>();
     const revokedTokens: string[] = [];
@@ -304,13 +304,13 @@ describe("Antigravity CLI integration helpers", () => {
           });
 
           yield* adapter.sendTurn({ threadId, input: "turn A", attachments: [] });
-          const bootstrapA = spawnedEnvironments[0]?.SYNARA_AGENT_GATEWAY_BOOTSTRAP_TOKEN;
+          const bootstrapA = spawnedEnvironments[0]?.VEYLEN_AGENT_GATEWAY_BOOTSTRAP_TOKEN;
           expect(bootstrapA).toBe("turn-bootstrap-1");
           yield* waitUntilReady;
           expect(revokedTokens).toEqual(["turn-session-1"]);
 
           yield* adapter.sendTurn({ threadId, input: "turn B", attachments: [] });
-          const bootstrapB = spawnedEnvironments[1]?.SYNARA_AGENT_GATEWAY_BOOTSTRAP_TOKEN;
+          const bootstrapB = spawnedEnvironments[1]?.VEYLEN_AGENT_GATEWAY_BOOTSTRAP_TOKEN;
           expect(bootstrapB).toBe("turn-bootstrap-2");
           expect(credentials.exchangeStdioBootstrapToken(bootstrapA!)).toBeNull();
           expect(credentials.exchangeStdioBootstrapToken(bootstrapB!)).toBe("turn-session-2");
@@ -337,10 +337,10 @@ describe("Antigravity CLI integration helpers", () => {
     }
   });
 
-  it("installs the generated Synara MCP plugin alongside the capture hooks", async () => {
-    const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), "synara-antigravity-home-test-"));
+  it("installs the generated Veylen MCP plugin alongside the capture hooks", async () => {
+    const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), "veylen-antigravity-home-test-"));
     const stdioProxy = {
-      command: "/Applications/Synara.app/Contents/MacOS/Synara",
+      command: "/Applications/Veylen.app/Contents/MacOS/Veylen",
       args: ["/state/agent-gateway-mcp-proxy.mjs"],
     };
     const invocations: Array<{
@@ -365,7 +365,7 @@ describe("Antigravity CLI integration helpers", () => {
         ".gemini",
         "antigravity-cli",
         "plugins",
-        "synara-capture",
+        "veylen-capture",
       );
       expect(invocations).toEqual([
         {
@@ -378,12 +378,12 @@ describe("Antigravity CLI integration helpers", () => {
         JSON.parse(await fs.readFile(path.join(pluginDir, "mcp_config.json"), "utf8")),
       ).toEqual({
         mcpServers: {
-          synara: {
+          veylen: {
             command: stdioProxy.command,
             args: stdioProxy.args,
             env: {
-              SYNARA_AGENT_GATEWAY_URL: "$SYNARA_AGENT_GATEWAY_URL",
-              SYNARA_AGENT_GATEWAY_BOOTSTRAP_TOKEN: "$SYNARA_AGENT_GATEWAY_BOOTSTRAP_TOKEN",
+              VEYLEN_AGENT_GATEWAY_URL: "$VEYLEN_AGENT_GATEWAY_URL",
+              VEYLEN_AGENT_GATEWAY_BOOTSTRAP_TOKEN: "$VEYLEN_AGENT_GATEWAY_BOOTSTRAP_TOKEN",
               ELECTRON_RUN_AS_NODE: "1",
             },
             disabled: false,
@@ -410,13 +410,13 @@ describe("Antigravity CLI integration helpers", () => {
         PATH: "/usr/bin",
         HOME: "/home/test",
         GEMINI_API_KEY: "gemini-key",
-        SYNARA_AGENT_GATEWAY_URL: "http://127.0.0.1:9999/stale",
-        SYNARA_AGENT_GATEWAY_TOKEN: "stale-token",
-        SYNARA_AUTH_TOKEN: "host-control-plane-token",
-        SYNARA_BROWSER_HOST_PIPE_PATH: "/tmp/desktop.sock",
-        SYNARA_BROWSER_USE_PIPE_PATH: "/tmp/legacy.sock",
-        SYNARA_BROWSER_HOST_CAPABILITY: "desktop-capability",
-        SYNARA_BROWSER_HOST_CAPABILITY_FD: "3",
+        VEYLEN_AGENT_GATEWAY_URL: "http://127.0.0.1:9999/stale",
+        VEYLEN_AGENT_GATEWAY_TOKEN: "stale-token",
+        VEYLEN_AUTH_TOKEN: "host-control-plane-token",
+        VEYLEN_BROWSER_HOST_PIPE_PATH: "/tmp/desktop.sock",
+        VEYLEN_BROWSER_USE_PIPE_PATH: "/tmp/legacy.sock",
+        VEYLEN_BROWSER_HOST_CAPABILITY: "desktop-capability",
+        VEYLEN_BROWSER_HOST_CAPABILITY_FD: "3",
         NODE_REPL_SANDBOX_ALLOWED_UNIX_SOCKETS: "/tmp/desktop.sock",
       },
     });
@@ -425,10 +425,10 @@ describe("Antigravity CLI integration helpers", () => {
       PATH: "/usr/bin",
       HOME: "/home/test",
       GEMINI_API_KEY: "gemini-key",
-      SYNARA_AGENT_GATEWAY_URL: "http://127.0.0.1:3773/mcp",
-      SYNARA_AGENT_GATEWAY_BOOTSTRAP_TOKEN: "thread-a-bootstrap",
-      SYNARA_ANTIGRAVITY_EVENTS: "/tmp/thread-a-hooks.ndjson",
-      SYNARA_ANTIGRAVITY_HOOK_DECISION: "allow",
+      VEYLEN_AGENT_GATEWAY_URL: "http://127.0.0.1:3773/mcp",
+      VEYLEN_AGENT_GATEWAY_BOOTSTRAP_TOKEN: "thread-a-bootstrap",
+      VEYLEN_ANTIGRAVITY_EVENTS: "/tmp/thread-a-hooks.ndjson",
+      VEYLEN_ANTIGRAVITY_HOOK_DECISION: "allow",
     });
   });
 
@@ -454,19 +454,19 @@ describe("Antigravity CLI integration helpers", () => {
       hasGatewaySessionLease: false,
     });
     expect(identityOnlyPrompt).not.toContain("browser_*");
-    expect(identityOnlyPrompt).toContain("Synara MCP control is unavailable");
+    expect(identityOnlyPrompt).toContain("Veylen MCP control is unavailable");
 
     const envWithoutLease = buildAntigravityTurnProcessEnvironment({
       eventFile: "/tmp/thread-b-hooks.ndjson",
       baseEnv: {
-        SYNARA_AGENT_GATEWAY_URL: "http://127.0.0.1:9999/stale",
-        SYNARA_AGENT_GATEWAY_TOKEN: "stale-token",
-        SYNARA_AGENT_GATEWAY_BOOTSTRAP_TOKEN: "stale-bootstrap",
+        VEYLEN_AGENT_GATEWAY_URL: "http://127.0.0.1:9999/stale",
+        VEYLEN_AGENT_GATEWAY_TOKEN: "stale-token",
+        VEYLEN_AGENT_GATEWAY_BOOTSTRAP_TOKEN: "stale-bootstrap",
       },
     });
-    expect(envWithoutLease.SYNARA_AGENT_GATEWAY_URL).toBeUndefined();
-    expect(envWithoutLease.SYNARA_AGENT_GATEWAY_TOKEN).toBeUndefined();
-    expect(envWithoutLease.SYNARA_AGENT_GATEWAY_BOOTSTRAP_TOKEN).toBeUndefined();
+    expect(envWithoutLease.VEYLEN_AGENT_GATEWAY_URL).toBeUndefined();
+    expect(envWithoutLease.VEYLEN_AGENT_GATEWAY_TOKEN).toBeUndefined();
+    expect(envWithoutLease.VEYLEN_AGENT_GATEWAY_BOOTSTRAP_TOKEN).toBeUndefined();
   });
 
   it("propagates the owning lifecycle generation into runtime events", () => {
@@ -486,9 +486,9 @@ describe("Antigravity CLI integration helpers", () => {
     });
   });
 
-  it("keeps the globally installed hook neutral outside Synara sessions", () => {
+  it("keeps the globally installed hook neutral outside Veylen sessions", () => {
     const command = buildAntigravityCaptureCommand(
-      "__synara_gui_must_not_launch__",
+      "__veylen_gui_must_not_launch__",
       "__capture_script_must_not_run__",
       "pre-tool",
     );
@@ -498,7 +498,7 @@ describe("Antigravity CLI integration helpers", () => {
       // while writing multi-megabyte stdin on macOS, which tests Node rather
       // than the hook's simple drain-and-return behavior.
       JSON.stringify({ payload: "x".repeat(32 * 1024) }),
-      { SYNARA_ANTIGRAVITY_EVENTS: "" },
+      { VEYLEN_ANTIGRAVITY_EVENTS: "" },
     );
 
     expect(result.error).toBeUndefined();
@@ -510,12 +510,12 @@ describe("Antigravity CLI integration helpers", () => {
 
     const postToolResult = runCaptureCommand(
       buildAntigravityCaptureCommand(
-        "__synara_gui_must_not_launch__",
+        "__veylen_gui_must_not_launch__",
         "__capture_script_must_not_run__",
         "post-tool",
       ),
       JSON.stringify({ payload: "x" }),
-      { SYNARA_ANTIGRAVITY_EVENTS: "" },
+      { VEYLEN_ANTIGRAVITY_EVENTS: "" },
     );
     expect(postToolResult.error).toBeUndefined();
     expect(postToolResult.status).toBe(0);
@@ -523,7 +523,7 @@ describe("Antigravity CLI integration helpers", () => {
   });
 
   it("answers pre-tool with a decision from the capture script when capture is inactive", async () => {
-    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "synara-antigravity-hook-test-"));
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "veylen-antigravity-hook-test-"));
     const scriptPath = path.join(directory, "capture.cjs");
     try {
       await fs.writeFile(scriptPath, hookScriptSource(), { mode: 0o700 });
@@ -531,7 +531,7 @@ describe("Antigravity CLI integration helpers", () => {
       // fallback is defense in depth for a caller that runs the script without
       // a capture target, and must answer PreToolUse with a decision too.
       const result = spawnSync(process.execPath, [scriptPath, "pre-tool"], {
-        env: { ...process.env, SYNARA_ANTIGRAVITY_EVENTS: "" },
+        env: { ...process.env, VEYLEN_ANTIGRAVITY_EVENTS: "" },
         input: JSON.stringify({ tool: "shell" }),
         encoding: "utf8",
         timeout: 5_000,
@@ -545,8 +545,8 @@ describe("Antigravity CLI integration helpers", () => {
     }
   });
 
-  it("runs the capture script for Synara-managed sessions", async () => {
-    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "synara-antigravity-hook-test-"));
+  it("runs the capture script for Veylen-managed sessions", async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "veylen-antigravity-hook-test-"));
     const scriptPath = path.join(directory, "capture.cjs");
     const eventPath = path.join(directory, "events.ndjson");
     try {
@@ -562,8 +562,8 @@ describe("Antigravity CLI integration helpers", () => {
         },
       });
       const result = runCaptureCommand(command, payload, {
-        SYNARA_ANTIGRAVITY_EVENTS: eventPath,
-        SYNARA_ANTIGRAVITY_HOOK_DECISION: "allow",
+        VEYLEN_ANTIGRAVITY_EVENTS: eventPath,
+        VEYLEN_ANTIGRAVITY_HOOK_DECISION: "allow",
       });
 
       expect(result.error).toBeUndefined();
@@ -579,26 +579,26 @@ describe("Antigravity CLI integration helpers", () => {
     }
   });
 
-  it("runs packaged Electron as Node only for Synara-managed sessions", () => {
+  it("runs packaged Electron as Node only for Veylen-managed sessions", () => {
     expect(
       buildAntigravityCaptureCommand(
-        "/Applications/Synara.app/Contents/MacOS/Synara",
-        "/tmp/synara-capture/capture.cjs",
+        "/Applications/Veylen.app/Contents/MacOS/Veylen",
+        "/tmp/veylen-capture/capture.cjs",
         "pre-tool",
         "darwin",
       ),
     ).toBe(
-      `if [ -z "\${SYNARA_ANTIGRAVITY_EVENTS:-}" ]; then cat >/dev/null 2>&1 || :; printf '%s\\n' '{"decision":"ask"}'; else ELECTRON_RUN_AS_NODE=1 '/Applications/Synara.app/Contents/MacOS/Synara' '/tmp/synara-capture/capture.cjs' 'pre-tool'; fi`,
+      `if [ -z "\${VEYLEN_ANTIGRAVITY_EVENTS:-}" ]; then cat >/dev/null 2>&1 || :; printf '%s\\n' '{"decision":"ask"}'; else ELECTRON_RUN_AS_NODE=1 '/Applications/Veylen.app/Contents/MacOS/Veylen' '/tmp/veylen-capture/capture.cjs' 'pre-tool'; fi`,
     );
     expect(
       buildAntigravityCaptureCommand(
-        String.raw`C:\Program Files\Synara\Synara.exe`,
+        String.raw`C:\Program Files\Veylen\Veylen.exe`,
         String.raw`C:\Users\test\.gemini\capture.cjs`,
         "pre-tool",
         "win32",
       ),
     ).toBe(
-      String.raw`if not defined SYNARA_ANTIGRAVITY_EVENTS (more >nul 2>nul & echo {"decision":"ask"}) else (set "ELECTRON_RUN_AS_NODE=1" && "C:\Program Files\Synara\Synara.exe" "C:\Users\test\.gemini\capture.cjs" "pre-tool")`,
+      String.raw`if not defined VEYLEN_ANTIGRAVITY_EVENTS (more >nul 2>nul & echo {"decision":"ask"}) else (set "ELECTRON_RUN_AS_NODE=1" && "C:\Program Files\Veylen\Veylen.exe" "C:\Users\test\.gemini\capture.cjs" "pre-tool")`,
     );
   });
 
@@ -612,7 +612,7 @@ describe("Antigravity CLI integration helpers", () => {
 
   it("marks every generated hook as a command hook", () => {
     expect(buildAntigravityHookConfig((event) => `capture ${event}`)).toEqual({
-      "synara-capture": {
+      "veylen-capture": {
         PreToolUse: [
           {
             matcher: "*",
@@ -633,7 +633,7 @@ describe("Antigravity CLI integration helpers", () => {
   });
 
   it("advances file offsets only past complete JSONL records", async () => {
-    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "synara-antigravity-test-"));
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "veylen-antigravity-test-"));
     const file = path.join(directory, "events.ndjson");
     try {
       await fs.writeFile(file, '{"first":true}\n{"second"');
@@ -649,7 +649,7 @@ describe("Antigravity CLI integration helpers", () => {
   });
 
   it("streams hook tool names and terminal states without arguments", async () => {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), "synara-antigravity-tool-events-"));
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "veylen-antigravity-tool-events-"));
     let eventFile: string | undefined;
     let child: ChildProcess | undefined;
     const spawnProcess = ((
@@ -657,7 +657,7 @@ describe("Antigravity CLI integration helpers", () => {
       _args: readonly string[],
       options: { readonly env?: NodeJS.ProcessEnv },
     ) => {
-      eventFile = options.env?.SYNARA_ANTIGRAVITY_EVENTS;
+      eventFile = options.env?.VEYLEN_ANTIGRAVITY_EVENTS;
       const spawned = new EventEmitter() as ChildProcess;
       Object.assign(spawned, {
         stdout: new PassThrough(),
@@ -791,13 +791,13 @@ describe("Antigravity CLI integration helpers", () => {
   // #465: an active Stop hook must not emit a non-standard decision that can
   // hang the print process after the assistant reply is already visible.
   it("answers stop hooks with a neutral allow-exit payload", async () => {
-    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "synara-antigravity-stop-hook-"));
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "veylen-antigravity-stop-hook-"));
     const scriptPath = path.join(directory, "capture.cjs");
     const eventPath = path.join(directory, "events.ndjson");
     try {
       await fs.writeFile(scriptPath, hookScriptSource(), { mode: 0o700 });
       const result = spawnSync(process.execPath, [scriptPath, "stop"], {
-        env: { ...process.env, SYNARA_ANTIGRAVITY_EVENTS: eventPath },
+        env: { ...process.env, VEYLEN_ANTIGRAVITY_EVENTS: eventPath },
         input: JSON.stringify({ stop: true }),
         encoding: "utf8",
         timeout: 5_000,
@@ -840,7 +840,7 @@ describe("Antigravity turn settle on cancel (#465)", () => {
   };
 
   it("unlocks Cancel without letting a late close settle the follow-up", async () => {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), "synara-antigravity-interrupt-hung-"));
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "veylen-antigravity-interrupt-hung-"));
     const children: ChildProcess[] = [];
     const spawnProcess = makeSpawnProcess(children);
 

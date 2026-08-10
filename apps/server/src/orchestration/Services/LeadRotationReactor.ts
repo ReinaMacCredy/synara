@@ -1,4 +1,4 @@
-import type { LeadRotationId, OrchestrationEvent } from "@synara/contracts";
+import type { LeadRotationId, OrchestrationEvent } from "@veylen/contracts";
 import { ServiceMap } from "effect";
 import type { Effect, Scope } from "effect";
 
@@ -12,4 +12,4 @@ export interface LeadRotationReactorShape {
 export class LeadRotationReactor extends ServiceMap.Service<
   LeadRotationReactor,
   LeadRotationReactorShape
->()("synara/orchestration/Services/LeadRotationReactor") {}
+>()("veylen/orchestration/Services/LeadRotationReactor") {}

@@ -8,7 +8,7 @@ import type {
   TaskProcessDomainEvent,
   TaskProgressEntry,
   TaskThreadBinding,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 import { deriveAllTaskProjections } from "./readiness.ts";
 

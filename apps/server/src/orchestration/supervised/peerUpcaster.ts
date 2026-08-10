@@ -4,7 +4,7 @@ import type {
   PeerSpecialty,
   PeerSpecialtySnapshot,
   SupervisedDomainEvent,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 const SUPERVISED_EVENT_SCHEMA_VERSION = "1.0.0";
 

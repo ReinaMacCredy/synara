@@ -1,4 +1,4 @@
-import type { ProfilePreset, SupervisedGovernanceDomainEvent } from "@synara/contracts";
+import type { ProfilePreset, SupervisedGovernanceDomainEvent } from "@veylen/contracts";
 
 import {
   emptySupervisedGovernanceDecisionState,

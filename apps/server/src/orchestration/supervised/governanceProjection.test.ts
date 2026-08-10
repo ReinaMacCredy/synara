@@ -8,7 +8,7 @@ import {
   ProfilePresetId,
   SupervisedGovernanceAggregateId,
   emptySupervisedOrchestrationSnapshot,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 import { decideSupervisedGovernanceCommand } from "./governanceDecider.ts";
 import { projectSupervisedGovernanceEvent } from "./governanceProjection.ts";

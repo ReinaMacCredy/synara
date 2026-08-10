@@ -1,4 +1,4 @@
-import type { RlmAdmissionMode, RlmAdmissionReceipt, RunPolicy } from "@synara/contracts";
+import type { RlmAdmissionMode, RlmAdmissionReceipt, RunPolicy } from "@veylen/contracts";
 
 export interface RlmAdmissionInput {
   readonly episodeId: RlmAdmissionReceipt["episodeId"];

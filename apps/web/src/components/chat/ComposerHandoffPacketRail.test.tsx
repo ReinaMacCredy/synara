@@ -1,4 +1,4 @@
-import { HandoffId, ProjectId, ThreadId, type HandoffDraftV1 } from "@synara/contracts";
+import { HandoffId, ProjectId, ThreadId, type HandoffDraftV1 } from "@veylen/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
@@ -16,8 +16,8 @@ const capsule = {
   sourceMode: "project" as const,
   sourceProvider: "codex" as const,
   projectId,
-  projectTitle: "Synara",
-  workspaceRoot: "/tmp/synara",
+  projectTitle: "Veylen",
+  workspaceRoot: "/tmp/veylen",
   environment: { mode: "local" as const, branch: "main", worktreePath: null },
   sourceCursor: 12,
   sourceDigest: "source-digest",

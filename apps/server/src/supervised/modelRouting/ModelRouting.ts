@@ -12,11 +12,11 @@ import {
   type RoomId,
   type RunPolicy,
   type ServerProviderStatus,
-  type SynaraProviderCatalog,
+  type VeylenProviderCatalog,
   type SupervisedWorkspaceId,
   type TaskNodeId,
   type UserModelPreferenceProfile,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 export const MODEL_TELEMETRY_MIN_SAMPLE_SIZE = 20;
 export const MODEL_TELEMETRY_MIN_CONFIDENCE = 0.8;
@@ -105,7 +105,7 @@ export interface ModelOutcomeInput {
 }
 
 export const providerAvailabilityFromCatalog = (
-  catalogs: readonly SynaraProviderCatalog[],
+  catalogs: readonly VeylenProviderCatalog[],
 ): Readonly<Record<string, boolean>> =>
   Object.fromEntries(
     catalogs.map((catalog) => [

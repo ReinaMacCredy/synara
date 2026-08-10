@@ -3,9 +3,9 @@
 // Layer: Settings UI components
 // Exports: WorktreesSettingsPanel, ArchivedSettingsPanel
 
-import type { ThreadId } from "@synara/contracts";
-import { pluralize } from "@synara/shared/text";
-import { collectSubagentDescendants } from "@synara/shared/threadHierarchy";
+import type { ThreadId } from "@veylen/contracts";
+import { pluralize } from "@veylen/shared/text";
+import { collectSubagentDescendants } from "@veylen/shared/threadHierarchy";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 

@@ -18,7 +18,7 @@
  *
  * @module device/uiTreeTargeting
  */
-import type { DeviceUiNode, DeviceUiPoint } from "@synara/contracts";
+import type { DeviceUiNode, DeviceUiPoint } from "@veylen/contracts";
 
 /** What the caller asked for. At least a label; role narrows an ambiguous one. */
 export interface DeviceUiTarget {
@@ -263,7 +263,7 @@ export function readTapRequest(input: {
     if (hasPoint) {
       throw new DeviceUiTargetError(
         "A tap takes either label (with optional role) or x and y, not both. " +
-          "Pass label alone to let Synara resolve the element's own tap point.",
+          "Pass label alone to let Veylen resolve the element's own tap point.",
       );
     }
     return { kind: "element", target: { label: input.label, role: input.role } };
@@ -271,7 +271,7 @@ export function readTapRequest(input: {
   if (!hasPoint) {
     throw new DeviceUiTargetError(
       "A tap needs either label (with optional role) or both x and y. " +
-        "Prefer label: Synara then resolves the element's own tap point from the accessibility tree.",
+        "Prefer label: Veylen then resolves the element's own tap point from the accessibility tree.",
     );
   }
   return { kind: "point", x: input.x as number, y: input.y as number };

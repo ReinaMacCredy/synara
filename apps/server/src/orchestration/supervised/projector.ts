@@ -1,4 +1,4 @@
-import type { SupervisedDomainEvent, SupervisedRuntimeSnapshot } from "@synara/contracts";
+import type { SupervisedDomainEvent, SupervisedRuntimeSnapshot } from "@veylen/contracts";
 
 import { upcastLegacyPeerEventV1 } from "./peerUpcaster.ts";
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { it } from "vitest";
 
-import { SupervisorNotebookEntry } from "@synara/contracts";
+import { SupervisorNotebookEntry } from "@veylen/contracts";
 import { Schema } from "effect";
 
 import { supervisorNotebookEntryByline } from "./SupervisedGovernanceSettingsPanel";

@@ -13,7 +13,7 @@ import {
   type SupervisedDomainEvent,
   type SupervisedGovernanceSnapshot,
   type SupervisedRuntimeSnapshot,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { describe, it } from "@effect/vitest";
 import { Effect } from "effect";
 

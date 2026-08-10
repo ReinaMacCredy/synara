@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { BROWSER_TOOL_NAMES } from "@synara/contracts";
+import { BROWSER_TOOL_NAMES } from "@veylen/contracts";
 import { _electron as electron, expect, test, type ElectronApplication } from "playwright/test";
 
 import { createBrowserMcpHarness } from "./fixtures/mcpBrowserHarness";
@@ -61,10 +61,10 @@ function targetByName(
 }
 
 test("production MCP controls one persistent Electron page across visibility changes", async () => {
-  const mainPath = process.env.SYNARA_E2E_ELECTRON_MAIN;
+  const mainPath = process.env.VEYLEN_E2E_ELECTRON_MAIN;
   if (!mainPath) throw new Error("Electron E2E main bundle was not prepared.");
   const site = await startVisibleBrowserFixtureSite();
-  const home = mkdtempSync(join(tmpdir(), "synara-visible-browser-e2e-"));
+  const home = mkdtempSync(join(tmpdir(), "veylen-visible-browser-e2e-"));
   const workspaceRoot = join(home, "workspace");
   mkdirSync(workspaceRoot);
   writeFileSync(join(workspaceRoot, "fixture-upload.txt"), "visible-browser-upload\n", "utf8");
@@ -82,11 +82,11 @@ test("production MCP controls one persistent Electron page across visibility cha
     env: {
       ...process.env,
       HOME: home,
-      SYNARA_HOME: home,
-      SYNARA_BROWSER_HOST_PIPE_PATH: pipePath,
-      SYNARA_BROWSER_HOST_CAPABILITY: capability,
-      SYNARA_E2E_SHELL_PATH: shellPath,
-      SYNARA_E2E_THREAD_ID: threadId,
+      VEYLEN_HOME: home,
+      VEYLEN_BROWSER_HOST_PIPE_PATH: pipePath,
+      VEYLEN_BROWSER_HOST_CAPABILITY: capability,
+      VEYLEN_E2E_SHELL_PATH: shellPath,
+      VEYLEN_E2E_THREAD_ID: threadId,
     },
   });
 
@@ -98,13 +98,13 @@ test("production MCP controls one persistent Electron page across visibility cha
         (_electron, input) => {
           const state = (
             globalThis as typeof globalThis & {
-              __synaraVisibleBrowserE2E: {
+              __veylenVisibleBrowserE2E: {
                 browserManager: {
                   runtimes: Map<string, { webContents: { id: number; getURL(): string } }>;
                 };
               };
             }
-          ).__synaraVisibleBrowserE2E;
+          ).__veylenVisibleBrowserE2E;
           const runtime = state.browserManager.runtimes.get(`${input.threadId}:${input.tabId}`);
           if (!runtime) throw new Error("Expected the native browser runtime to be live.");
           return { id: runtime.webContents.id, url: runtime.webContents.getURL() };
@@ -116,7 +116,7 @@ test("production MCP controls one persistent Electron page across visibility cha
         (_electron, input) => {
           const state = (
             globalThis as typeof globalThis & {
-              __synaraVisibleBrowserE2E: {
+              __veylenVisibleBrowserE2E: {
                 browserManager: {
                   runtimes: Map<
                     string,
@@ -125,7 +125,7 @@ test("production MCP controls one persistent Electron page across visibility cha
                 };
               };
             }
-          ).__synaraVisibleBrowserE2E;
+          ).__veylenVisibleBrowserE2E;
           const runtime = state.browserManager.runtimes.get(`${input.threadId}:${input.tabId}`);
           if (!runtime) throw new Error("Expected the native browser runtime to be live.");
           runtime.webContents.sendInputEvent(input.event);
@@ -165,9 +165,9 @@ test("production MCP controls one persistent Electron page across visibility cha
     await electronApp.evaluate(() => {
       (
         globalThis as typeof globalThis & {
-          __synaraVisibleBrowserE2E: { setPanelRevealEnabled(enabled: boolean): void };
+          __veylenVisibleBrowserE2E: { setPanelRevealEnabled(enabled: boolean): void };
         }
-      ).__synaraVisibleBrowserE2E.setPanelRevealEnabled(false);
+      ).__veylenVisibleBrowserE2E.setPanelRevealEnabled(false);
     });
     await mcp.call("browser_evaluate", {
       expression: `document.body.dataset.backgroundAgent = "continued"; true`,
@@ -182,9 +182,9 @@ test("production MCP controls one persistent Electron page across visibility cha
     await electronApp.evaluate(() => {
       (
         globalThis as typeof globalThis & {
-          __synaraVisibleBrowserE2E: { setPanelRevealEnabled(enabled: boolean): void };
+          __veylenVisibleBrowserE2E: { setPanelRevealEnabled(enabled: boolean): void };
         }
-      ).__synaraVisibleBrowserE2E.setPanelRevealEnabled(true);
+      ).__veylenVisibleBrowserE2E.setPanelRevealEnabled(true);
     });
 
     const navigated = await mcp.call("browser_navigate", {
@@ -778,9 +778,9 @@ test("production MCP controls one persistent Electron page across visibility cha
     const runtimeCount = await electronApp.evaluate(() => {
       const manager = (
         globalThis as typeof globalThis & {
-          __synaraVisibleBrowserE2E: { browserManager: { runtimes: Map<string, unknown> } };
+          __veylenVisibleBrowserE2E: { browserManager: { runtimes: Map<string, unknown> } };
         }
-      ).__synaraVisibleBrowserE2E.browserManager;
+      ).__veylenVisibleBrowserE2E.browserManager;
       return manager.runtimes.size;
     });
     expect(runtimeCount).toBe(0);

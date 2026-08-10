@@ -1,5 +1,5 @@
 {
-  "name": "@synara/shared",
+  "name": "@veylen/shared",
   "version": "0.0.0-alpha.1",
   "private": true,
   "type": "module",
@@ -40,9 +40,9 @@
       "types": "./src/loginShellEnvironment.ts",
       "import": "./src/loginShellEnvironment.ts"
     },
-    "./synaraHome": {
-      "types": "./src/synaraHome.ts",
-      "import": "./src/synaraHome.ts"
+    "./veylenHome": {
+      "types": "./src/veylenHome.ts",
+      "import": "./src/veylenHome.ts"
     },
     "./staticSnapshot": {
       "types": "./src/staticSnapshot.ts",
@@ -291,7 +291,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@synara/contracts": "workspace:*",
+    "@veylen/contracts": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

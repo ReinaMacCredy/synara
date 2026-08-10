@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it } from "vitest";
 
-import type { ContextRecord, ContextWorkspace } from "@synara/contracts";
+import type { ContextRecord, ContextWorkspace } from "@veylen/contracts";
 
 import {
   ContextRevisionConflictError,
@@ -49,7 +49,7 @@ describe("Durable Context Workspace", () => {
   });
 
   it("stores large payloads by content hash and verifies read integrity", async () => {
-    const directory = await mkdtemp(path.join(os.tmpdir(), "synara-context-"));
+    const directory = await mkdtemp(path.join(os.tmpdir(), "veylen-context-"));
     try {
       const store = createContextBlobStore(directory);
       const bytes = new TextEncoder().encode("durable evidence");

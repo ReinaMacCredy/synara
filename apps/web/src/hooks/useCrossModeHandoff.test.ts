@@ -1,4 +1,4 @@
-import { type HandoffPreparationSnapshot, ThreadId, type HandoffDraftV1 } from "@synara/contracts";
+import { type HandoffPreparationSnapshot, ThreadId, type HandoffDraftV1 } from "@veylen/contracts";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { useComposerDraftStore } from "../composerDraftStore";

@@ -12,7 +12,7 @@ import {
   type SupervisionMission,
   type SupervisorSeat,
   type WorkflowDirective,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 import { decideSupervisedGovernanceCommand } from "./governanceDecider.ts";
 import { projectSupervisedGovernanceDecisionEvent } from "./governanceProjector.ts";

@@ -1,4 +1,4 @@
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@veylen/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createDefaultWorkflowRunUiThreadState,

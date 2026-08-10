@@ -9,10 +9,10 @@ import {
   type PullRequestReviewRequestCountResult,
   type TaskProcessSummaryProjection,
   type ThreadId,
-} from "@synara/contracts";
-import { pluralize } from "@synara/shared/text";
-import { resolveThreadEnvironmentMode } from "@synara/shared/threadEnvironment";
-import { isWorkspaceRootWithin, workspaceRootsEqual } from "@synara/shared/threadWorkspace";
+} from "@veylen/contracts";
+import { pluralize } from "@veylen/shared/text";
+import { resolveThreadEnvironmentMode } from "@veylen/shared/threadEnvironment";
+import { isWorkspaceRootWithin, workspaceRootsEqual } from "@veylen/shared/threadWorkspace";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "../appSettings";
 import { resolveRestorableThreadRoute, type LastThreadRoute } from "../chatRouteRestore";
 import type { ChatMessage, Project, SidebarThreadSummary, Thread } from "../types";
@@ -46,7 +46,7 @@ export {
 
 export const THREAD_SELECTION_SAFE_SELECTOR = "[data-thread-item], [data-thread-selection-safe]";
 export const SIDEBAR_THREAD_PREWARM_LIMIT = 10;
-export const DEBUG_FEATURE_FLAGS_MENU_STORAGE_KEY = "synara:show-debug-feature-flags-menu";
+export const DEBUG_FEATURE_FLAGS_MENU_STORAGE_KEY = "veylen:show-debug-feature-flags-menu";
 export type SidebarNewThreadEnvMode = "local" | "worktree";
 export type SidebarView = "threads" | "supervised";
 export type SidebarActionBadge = {
@@ -131,7 +131,7 @@ export function pullRequestRepositoryConfigFingerprint(
  * Shared project roots can serve several threads, so their live Git status only belongs to a
  * thread when the checked-out branch matches the persisted thread branch. A materialized
  * worktree is thread-scoped, though, and coding agents may checkout or create a new branch
- * without going through Synara's branch picker. In that case the worktree's checked-out branch
+ * without going through Veylen's branch picker. In that case the worktree's checked-out branch
  * is authoritative even when the persisted branch metadata is stale.
  */
 export function shouldUseLivePullRequestForSidebarThread(input: {
@@ -238,7 +238,7 @@ export function resolveThreadProjectLabel(
   project: Pick<Project, "kind" | "name" | "folderName"> | null | undefined,
 ): string {
   if (!project || project.kind !== "project") {
-    return "Synara";
+    return "Veylen";
   }
   return nonEmptyDisplayValue(project.name) ?? project.folderName;
 }

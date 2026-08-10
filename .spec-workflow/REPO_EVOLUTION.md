@@ -10,17 +10,17 @@ implemented or shipped.
 
 ### Current purpose
 
-Repository documentation describes Synara as both a local-first desktop workspace
+Repository documentation describes Veylen as both a local-first desktop workspace
 for coding with the AI accounts a user already has and an MCP-native agent harness
-that lets supported in-app agents coordinate Synara tasks while Codex, Claude, and
+that lets supported in-app agents coordinate Veylen tasks while Codex, Claude, and
 other local MCP clients launch and follow scoped work (`README.md:1-12`).
 
 ### Current users and consumers
 
 - Developers using chats, terminals, browser previews, diffs, branches, provider
   sessions, worktrees, and handoffs in one local workspace (`README.md:16-23`).
-- Supported provider agents running inside Synara and external MCP-capable clients
-  connecting to Synara's scoped gateway (`README.md:3-8`).
+- Supported provider agents running inside Veylen and external MCP-capable clients
+  connecting to Veylen's scoped gateway (`README.md:3-8`).
 - Maintainers and release operators consuming the monorepo's build, package, and
   release tooling (`package.json:1-88`, `CHANGELOG.md:29-36`).
 
@@ -103,11 +103,11 @@ The current source and release record show a broad local agent workspace with:
 
 Status: LOCKED 2026-08-06 by owner decision.
 
-Synara is a local-first desktop workspace for agent work, with an MCP-native
-harness that lets supported agents inside Synara and external local MCP clients
+Veylen is a local-first desktop workspace for agent work, with an MCP-native
+harness that lets supported agents inside Veylen and external local MCP clients
 coordinate the same scoped work. Its value is keeping agent work observable,
 recoverable, and close to the user's repositories, providers, tools, and history
-without requiring a Synara-hosted workspace (`README.md:3-23`, `README.md:39-43`).
+without requiring a Veylen-hosted workspace (`README.md:3-23`, `README.md:39-43`).
 
 **Supervised Mode** is the durable multi-agent operating capability within that
 workspace and harness. It replaces the conceptual Orchestrator Mode with a
@@ -168,7 +168,7 @@ fabricated.
 
 #### OUT-NOW-002: Define and deliver selected Codex-app parity outcomes
 
-- Desired outcome: an owner-approved parity matrix identifies what Synara is
+- Desired outcome: an owner-approved parity matrix identifies what Veylen is
   missing relative to the named ChatGPT/Codex app baseline, and selected gaps are
   delivered as bounded outcomes rather than an unbounded imitation effort.
 - Evidence of completion: named baseline, selected feature set, per-feature
@@ -204,7 +204,7 @@ silently promoted or discarded.
 - Performance and reliability remain first-order constraints; behavior must stay
   predictable under load, session restart, reconnect, partial streams, and provider
   failure (`AGENTS.md:18-24`).
-- Synara remains local-first: repositories, chats, and history stay on the user's
+- Veylen remains local-first: repositories, chats, and history stay on the user's
   machine, while the selected provider receives only the session material needed
   for the chosen work (`README.md:39-43`).
 - Provider runtime state, orchestration state, and UI state must converge through
@@ -267,7 +267,7 @@ silently promoted or discarded.
   the product candidate.
 
 - **2026-08-07 — Supervised Mode target synthesized:** Owner decisions, current
-  Synara ownership/contracts, the approved interactive prototype, official Prime
+  Veylen ownership/contracts, the approved interactive prototype, official Prime
   Agent/RLM sources, owner-provided analyses, and preserved legacy assets were
   consolidated into one draft canonical SPEC and verification contract. The
   vision now names the governed Runtime/Lead/Specialist target, Room view, separate runtime Settings,

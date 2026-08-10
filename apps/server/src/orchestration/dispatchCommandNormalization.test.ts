@@ -11,7 +11,7 @@ import {
   type ClientOrchestrationCommand,
   ProjectId,
   ThreadId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Effect } from "effect";
 import type { FileSystem, Path } from "effect";
 import { describe, expect, it } from "vitest";
@@ -30,7 +30,7 @@ function projectCreateCommand(
     projectId: ProjectId.makeUnsafe("project-chat"),
     kind: "chat",
     title: "Chat",
-    workspaceRoot: "/Users/tester/Documents/Synara/2026-06-11/chat",
+    workspaceRoot: "/Users/tester/Documents/Veylen/2026-06-11/chat",
     createWorkspaceRootIfMissing: true,
     createdAt: "2026-06-11T21:30:43.000Z",
     ...overrides,
@@ -50,7 +50,7 @@ describe("makeDispatchCommandNormalizer", () => {
     const preparedRoots: string[] = [];
     const normalizer = makeDispatchCommandNormalizer<Error>({
       attachmentsDir: "/tmp/attachments",
-      chatWorkspaceRoot: "/Users/tester/Documents/Synara",
+      chatWorkspaceRoot: "/Users/tester/Documents/Veylen",
       fileSystem: {} as FileSystem.FileSystem,
       path: {} as Path.Path,
       canonicalizeProjectWorkspaceRoot: (workspaceRoot) => Effect.succeed(workspaceRoot),
@@ -69,14 +69,14 @@ describe("makeDispatchCommandNormalizer", () => {
     await runPrepareWorkspaceRoot(result);
 
     // Only after the caller explicitly runs the deferred effect does scaffolding happen.
-    expect(preparedRoots).toEqual(["/Users/tester/Documents/Synara/2026-06-11/chat"]);
+    expect(preparedRoots).toEqual(["/Users/tester/Documents/Veylen/2026-06-11/chat"]);
   });
 
   it("retries the deferred prepare effect on transient failures before succeeding", async () => {
     let callCount = 0;
     const normalizer = makeDispatchCommandNormalizer<Error>({
       attachmentsDir: "/tmp/attachments",
-      chatWorkspaceRoot: "/Users/tester/Documents/Synara",
+      chatWorkspaceRoot: "/Users/tester/Documents/Veylen",
       fileSystem: {} as FileSystem.FileSystem,
       path: {} as Path.Path,
       canonicalizeProjectWorkspaceRoot: (workspaceRoot) => Effect.succeed(workspaceRoot),
@@ -102,7 +102,7 @@ describe("makeDispatchCommandNormalizer", () => {
     const preparedRoots: string[] = [];
     const normalizer = makeDispatchCommandNormalizer<Error>({
       attachmentsDir: "/tmp/attachments",
-      chatWorkspaceRoot: "/Users/tester/Documents/Synara",
+      chatWorkspaceRoot: "/Users/tester/Documents/Veylen",
       fileSystem: {} as FileSystem.FileSystem,
       path: {} as Path.Path,
       canonicalizeProjectWorkspaceRoot: (workspaceRoot) => Effect.succeed(workspaceRoot),
@@ -115,14 +115,14 @@ describe("makeDispatchCommandNormalizer", () => {
     const result = await Effect.runPromise(normalizer({ command: projectCreateCommand() }));
     await runPrepareWorkspaceRoot(result);
 
-    expect(preparedRoots).toEqual(["/Users/tester/Documents/Synara/2026-06-11/chat"]);
+    expect(preparedRoots).toEqual(["/Users/tester/Documents/Veylen/2026-06-11/chat"]);
   });
 
   it("does not prepare ordinary projects or the chat workspace root itself", async () => {
     const preparedRoots: string[] = [];
     const normalizer = makeDispatchCommandNormalizer<Error>({
       attachmentsDir: "/tmp/attachments",
-      chatWorkspaceRoot: "/Users/tester/Documents/Synara",
+      chatWorkspaceRoot: "/Users/tester/Documents/Veylen",
       fileSystem: {} as FileSystem.FileSystem,
       path: {} as Path.Path,
       canonicalizeProjectWorkspaceRoot: (workspaceRoot) => Effect.succeed(workspaceRoot),
@@ -136,7 +136,7 @@ describe("makeDispatchCommandNormalizer", () => {
       normalizer({
         command: projectCreateCommand({
           kind: "project",
-          workspaceRoot: "/Users/tester/Documents/Synara/2026-06-11/app",
+          workspaceRoot: "/Users/tester/Documents/Veylen/2026-06-11/app",
         }),
       }),
     );
@@ -144,7 +144,7 @@ describe("makeDispatchCommandNormalizer", () => {
     const second = await Effect.runPromise(
       normalizer({
         command: projectCreateCommand({
-          workspaceRoot: "/Users/tester/Documents/Synara",
+          workspaceRoot: "/Users/tester/Documents/Veylen",
         }),
       }),
     );
@@ -154,7 +154,7 @@ describe("makeDispatchCommandNormalizer", () => {
   });
 
   it("defers binary attachment authority to the transactional managed ledger", async () => {
-    const attachmentsDir = fs.mkdtempSync(path.join(os.tmpdir(), "synara-dispatch-normalize-"));
+    const attachmentsDir = fs.mkdtempSync(path.join(os.tmpdir(), "veylen-dispatch-normalize-"));
     const validId = "thread-rollback-attachments-11111111-1111-4111-8111-111111111111";
     const validPath = path.join(attachmentsDir, `${validId}.png`);
     fs.writeFileSync(validPath, Buffer.from([1]));

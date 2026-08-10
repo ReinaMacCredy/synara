@@ -27,7 +27,7 @@ import {
   type RuntimeMode,
   type ThreadOriginEnvelope,
   TurnId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import {
   Cache,
   Cause,
@@ -46,20 +46,20 @@ import {
 import {
   buildPromptThreadTitleFallback,
   isGenericChatThreadTitle,
-} from "@synara/shared/chatThreads";
+} from "@veylen/shared/chatThreads";
 import {
   collectTailTurnIds,
   resolveTailUserMessageEditTarget,
-} from "@synara/shared/conversationEdit";
-import { isTemporaryWorktreeBranch, WORKTREE_BRANCH_PREFIX } from "@synara/shared/git";
-import { claudeSelectionRequiresRestart } from "@synara/shared/model";
-import { providerSupportsNativeTurnSteering } from "@synara/shared/providerMetadata";
+} from "@veylen/shared/conversationEdit";
+import { isTemporaryWorktreeBranch, WORKTREE_BRANCH_PREFIX } from "@veylen/shared/git";
+import { claudeSelectionRequiresRestart } from "@veylen/shared/model";
+import { providerSupportsNativeTurnSteering } from "@veylen/shared/providerMetadata";
 import {
   formatProviderDeliveryBlockDetail,
   PROVIDER_DELIVERY_BLOCK_SUMMARY,
-} from "@synara/shared/providerDeliveryBlock";
-import { buildStalePendingRequestFailureDetail } from "@synara/shared/threadSummary";
-import { resolveThreadWorkspaceState } from "@synara/shared/threadEnvironment";
+} from "@veylen/shared/providerDeliveryBlock";
+import { buildStalePendingRequestFailureDetail } from "@veylen/shared/threadSummary";
+import { resolveThreadWorkspaceState } from "@veylen/shared/threadEnvironment";
 
 import {
   checkpointRefForThreadMessageStart,
@@ -101,7 +101,7 @@ import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedA
 import { SupervisedGovernanceRepository } from "../../persistence/Services/SupervisedGovernanceRepository.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
-import { providerStartOptionsFromServerSettings } from "@synara/shared/serverSettings";
+import { providerStartOptionsFromServerSettings } from "@veylen/shared/serverSettings";
 import { clearWorkspaceIndexCache } from "../../workspaceEntries.ts";
 import {
   buildPriorTranscriptBootstrapText,
@@ -453,7 +453,7 @@ function buildGeneratedWorktreeBranchName(raw: string): string {
     .replace(/^refs\/heads\//, "")
     .replace(/['"`]/g, "");
 
-  const withoutPrefix = normalized.replace(/^synara\//, "");
+  const withoutPrefix = normalized.replace(/^veylen\//, "");
 
   const branchFragment = withoutPrefix
     .replace(/[^a-z0-9/_-]+/g, "-")
@@ -478,7 +478,7 @@ interface ProviderCommandReactorConfigShape {
 class ProviderCommandReactorConfig extends ServiceMap.Service<
   ProviderCommandReactorConfig,
   ProviderCommandReactorConfigShape
->()("synara/orchestration/Layers/ProviderCommandReactorConfig") {}
+>()("veylen/orchestration/Layers/ProviderCommandReactorConfig") {}
 
 const make = Effect.gen(function* () {
   const { commandEventTimeout } = yield* ProviderCommandReactorConfig;
@@ -1885,7 +1885,7 @@ const make = Effect.gen(function* () {
       ) =>
         Effect.gen(function* () {
           // Claude cannot continue from a missing native session; clear the
-          // dead cursor and replay once with Synara transcript context.
+          // dead cursor and replay once with Veylen transcript context.
           yield* clearStaleProviderResumeState({
             threadId: input.threadId,
             cause,
@@ -4247,7 +4247,7 @@ const make = Effect.gen(function* () {
                 threadId: blocker.threadId,
                 kind: "provider.turn.start.failed",
                 summary: "Previous messages were not sent",
-                detail: `Synara recovered an earlier provider failure, but ${skippedPromptCount} ${noun} skipped while the thread was blocked. Resend ${skippedPromptCount === 1 ? "it" : "them"} to continue.`,
+                detail: `Veylen recovered an earlier provider failure, but ${skippedPromptCount} ${noun} skipped while the thread was blocked. Resend ${skippedPromptCount === 1 ? "it" : "them"} to continue.`,
                 turnId: null,
                 createdAt,
               });

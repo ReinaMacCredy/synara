@@ -1,8 +1,8 @@
 # Keybindings
 
-Synara reads keybindings from:
+Veylen reads keybindings from:
 
-- `~/.synara/userdata/keybindings.json`
+- `~/.veylen/userdata/keybindings.json`
 
 The file must be a JSON array of rules:
 

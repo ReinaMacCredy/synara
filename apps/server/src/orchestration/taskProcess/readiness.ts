@@ -8,7 +8,7 @@ import type {
   TaskDependencyEdge,
   TaskProgressEntry,
   TaskThreadBinding,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 import { deriveExecutionHealth } from "./executionHealth.ts";
 

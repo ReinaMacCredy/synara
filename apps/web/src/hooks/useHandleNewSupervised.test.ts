@@ -1,4 +1,4 @@
-import { emptySupervisedRuntimeSnapshot, ProjectId, ThreadId } from "@synara/contracts";
+import { emptySupervisedRuntimeSnapshot, ProjectId, ThreadId } from "@veylen/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useComposerDraftStore } from "../composerDraftStore";

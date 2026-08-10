@@ -8,7 +8,7 @@ import {
   resolveTerminalVisualIdentity,
   type TerminalCliKind,
   type TerminalVisualState,
-} from "@synara/shared/terminalThreads";
+} from "@veylen/shared/terminalThreads";
 
 export interface RepresentativeTerminalVisualIdentity {
   terminalId: string;

@@ -8,8 +8,8 @@ import {
   type OrchestrationReadModel,
   type OrchestrationShellSnapshot,
   type ThreadId,
-} from "@synara/contracts";
-import { automationContinuationThreadId } from "@synara/shared/automationMode";
+} from "@veylen/contracts";
+import { automationContinuationThreadId } from "@veylen/shared/automationMode";
 import { Effect } from "effect";
 import { randomUUID } from "node:crypto";
 

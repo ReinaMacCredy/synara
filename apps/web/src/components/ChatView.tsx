@@ -44,35 +44,35 @@ import {
   OrchestrationThreadActivity,
   ProviderInteractionMode,
   RuntimeMode,
-} from "@synara/contracts";
-import { automationRequiresTargetThread } from "@synara/shared/automationMode";
-import { providerSupportsNativeTurnSteering } from "@synara/shared/providerMetadata";
-import { getModelCapabilities, normalizeModelSlug } from "@synara/shared/model";
+} from "@veylen/contracts";
+import { automationRequiresTargetThread } from "@veylen/shared/automationMode";
+import { providerSupportsNativeTurnSteering } from "@veylen/shared/providerMetadata";
+import { getModelCapabilities, normalizeModelSlug } from "@veylen/shared/model";
 import {
   resolveLatestTailUserMessageEditTarget,
   resolveTailUserMessageEditTarget,
-} from "@synara/shared/conversationEdit";
+} from "@veylen/shared/conversationEdit";
 import {
   ADVISOR_NICKNAME,
   ADVISOR_ROLE,
   buildAdvisorConsultationPrompt,
   isAdvisorIdentity,
-} from "@synara/shared/advisor";
-import { threadExportBlockedReason } from "@synara/shared/threadExport";
-import { pendingRequestInstanceKey } from "@synara/shared/threadSummary";
+} from "@veylen/shared/advisor";
+import { threadExportBlockedReason } from "@veylen/shared/threadExport";
+import { pendingRequestInstanceKey } from "@veylen/shared/threadSummary";
 import {
   buildPromptThreadTitleFallback,
   GENERIC_CHAT_THREAD_TITLE,
-} from "@synara/shared/chatThreads";
+} from "@veylen/shared/chatThreads";
 import {
   resolveThreadWorkspaceState,
   resolveThreadBranchSourceCwd,
   resolveThreadWorkspaceCwd as resolveSharedThreadWorkspaceCwd,
-} from "@synara/shared/threadEnvironment";
+} from "@veylen/shared/threadEnvironment";
 import {
   deriveAssociatedWorktreeMetadata,
   workspaceRootsEqual,
-} from "@synara/shared/threadWorkspace";
+} from "@veylen/shared/threadWorkspace";
 import {
   lazy,
   Suspense,
@@ -334,7 +334,7 @@ import {
   normalizeRuntimeModeForProvider,
   providerModelSupportsAutoRuntimeMode,
 } from "../lib/runtimeMode";
-import { SynaraLogo } from "./SynaraLogo";
+import { VeylenLogo } from "./VeylenLogo";
 import { ThreadWorktreeHandoffDialog } from "./ThreadWorktreeHandoffDialog";
 import {
   formatShortcutLabel,
@@ -1190,7 +1190,7 @@ function composerPromptStillMatchesRestoredQueuedDraft(
 
 // Builds an ephemeral transcript bubble for the conversational automation-setup
 // exchange. These never reach a provider and are not persisted; they render the
-// back-and-forth (user request, Synara's clarifying questions) inline like Codex.
+// back-and-forth (user request, Veylen's clarifying questions) inline like Codex.
 function makeAutomationSetupBubble(role: "user" | "assistant", text: string): ChatMessage {
   return {
     id: newMessageId(),
@@ -5035,7 +5035,7 @@ export default function ChatView({
             toastManager.add({
               type: "error",
               title: "Could not update access mode",
-              description: "Synara is not connected to the server.",
+              description: "Veylen is not connected to the server.",
             });
             return false;
           }
@@ -5455,7 +5455,7 @@ export default function ChatView({
         toastManager.add({
           type: "warning",
           title: "Select a unique phrase to mark it.",
-          description: "Try including a few more words so Synara can find the exact place.",
+          description: "Try including a few more words so Veylen can find the exact place.",
         });
         return;
       }
@@ -6958,7 +6958,7 @@ export default function ChatView({
                 type: "warning",
                 title: "Thread note not added",
                 description:
-                  "The automation was created, but Synara could not add the activity note.",
+                  "The automation was created, but Veylen could not add the activity note.",
               });
             }
           })();
@@ -6978,7 +6978,7 @@ export default function ChatView({
             type: "error",
             title: "Could not create automation",
             description:
-              error instanceof Error ? error.message : "Synara could not save the automation.",
+              error instanceof Error ? error.message : "Veylen could not save the automation.",
           });
           return false;
         })
@@ -7052,7 +7052,7 @@ export default function ChatView({
           toastManager.add({
             type: "error",
             title: "Could not create chat",
-            description: "Synara could not promote this draft before saving the automation.",
+            description: "Veylen could not promote this draft before saving the automation.",
           });
           return null;
         }
@@ -7079,7 +7079,7 @@ export default function ChatView({
           description:
             error instanceof Error
               ? error.message
-              : "Synara could not promote this draft before saving the automation.",
+              : "Veylen could not promote this draft before saving the automation.",
         });
         return null;
       }
@@ -9592,7 +9592,7 @@ export default function ChatView({
           settings.advisorCustomInstructions,
           // Pending-user-input questions carry their own marker inside the JSON
           // payload; stamp origin so UI can distinguish type 2 from type 1/3.
-          normalizedQuestion.includes("SYNARA_PENDING_USER_INPUT_ADVISOR_V1")
+          normalizedQuestion.includes("VEYLEN_PENDING_USER_INPUT_ADVISOR_V1")
             ? "pending-user-input"
             : "user",
         ),
@@ -12386,7 +12386,7 @@ export default function ChatView({
                       CHAT_COLUMN_FRAME_CLASS_NAME,
                     )}
                   >
-                    <SynaraLogo aria-label="Synara logo" className="size-10" />
+                    <VeylenLogo aria-label="Veylen logo" className="size-10" />
                     <h2
                       data-testid="empty-landing-heading"
                       className="text-[26px] font-normal leading-[1.15] tracking-[-0.015em] text-foreground/95 sm:text-[30px]"

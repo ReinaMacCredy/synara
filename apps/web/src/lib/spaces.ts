@@ -9,7 +9,7 @@ import {
   type ProjectId,
   type SpaceIconName,
   type SpaceId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 import type { Project } from "~/types";
 import { isHomeChatContainerProject } from "~/lib/chatProjects";

@@ -9,8 +9,8 @@ import {
   ThreadId,
   type ThreadMarker,
   type TurnId,
-} from "@synara/contracts";
-import { pluralize } from "@synara/shared/text";
+} from "@veylen/contracts";
+import { pluralize } from "@veylen/shared/text";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import {
   memo,
@@ -59,7 +59,7 @@ import {
 import { pinActionLabel } from "~/lib/pin";
 import { Button } from "../ui/button";
 import { CrossTaskOriginLabel, type CrossTaskOrigin } from "./CrossTaskOriginLabel";
-import { SynaraThreadCreationCard } from "./SynaraThreadCreationCard";
+import { VeylenThreadCreationCard } from "./VeylenThreadCreationCard";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { DiffStatLabel } from "./DiffStatLabel";
@@ -413,7 +413,7 @@ interface MessagesTimelineProps {
    * the anchored slide settles; ChatView's auto-follow re-snaps pause while set.
    */
   tailAnchorScrollInFlightRef?: RefObject<boolean> | undefined;
-  /** Provenance for a conversation created from another Synara task. */
+  /** Provenance for a conversation created from another Veylen task. */
   crossTaskOrigin?: CrossTaskOrigin | null;
   /** Marks the transcript as a temporary chat so user bubbles render the dashed primary outline. */
   isTemporaryThread?: boolean;
@@ -1152,9 +1152,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         (() => {
           const groupId = row.id;
           // Creation milestones are reserved for the end-of-turn recap card.
-          // The provider's actual Synara MCP tool rows remain visible here.
+          // The provider's actual Veylen MCP tool rows remain visible here.
           const groupedEntries = row.groupedEntries.filter(
-            (workEntry) => !workEntry.synaraThreadCreation,
+            (workEntry) => !workEntry.veylenThreadCreation,
           );
           if (groupedEntries.length === 0) {
             return null;
@@ -1360,7 +1360,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   )}
                 >
                   {/* Keep user-message chrome outside the bubble so the message reads as one simple block. */}
-                  {/* The cross-task origin label already attributes this turn to another Synara thread,
+                  {/* The cross-task origin label already attributes this turn to another Veylen thread,
                       so suppress the dispatch chip here to avoid a duplicate "Sent by …" marker. */}
                   {showCrossTaskOrigin ? null : (
                     <UserDispatchModeChip
@@ -1526,7 +1526,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           const messageMarkers =
             threadMarkersByMessageId.get(row.message.id) ?? EMPTY_MESSAGE_MARKERS;
           const buildWorkDisplay = (workEntries: WorkLogEntry[], workGroupId: string | null) => {
-            const displayEntries = workEntries.filter((entry) => !entry.synaraThreadCreation);
+            const displayEntries = workEntries.filter((entry) => !entry.veylenThreadCreation);
             const toolEntries = displayEntries.filter((entry) => entry.tone === "tool");
             const statusEntries = displayEntries.filter(
               (entry) =>
@@ -1645,11 +1645,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               item.kind === "work" ? [item.entry] : [],
             ),
           ];
-          const synaraThreadCreationRecaps = [
+          const veylenThreadCreationRecaps = [
             ...new Map(
               allTurnWorkEntries.flatMap((entry) =>
-                entry.synaraThreadCreation
-                  ? [[entry.synaraThreadCreation.operationId, entry.synaraThreadCreation] as const]
+                entry.veylenThreadCreation
+                  ? [[entry.veylenThreadCreation.operationId, entry.veylenThreadCreation] as const]
                   : [],
               ),
             ).values(),
@@ -1940,9 +1940,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   </div>
                 )}
                 {!row.assistantTurnInProgress && row.showAssistantCopyButton
-                  ? synaraThreadCreationRecaps.map((creation) => (
+                  ? veylenThreadCreationRecaps.map((creation) => (
                       <div key={creation.operationId} className="mt-2 mb-4">
-                        <SynaraThreadCreationCard
+                        <VeylenThreadCreationCard
                           creation={creation}
                           {...(onOpenThread
                             ? {
@@ -2165,7 +2165,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       {row.kind === "turn-activity" &&
         (() => {
           const detailItems = (row.collapsedTurnItems ?? []).filter(
-            (item) => item.kind !== "work" || !item.entry.synaraThreadCreation,
+            (item) => item.kind !== "work" || !item.entry.veylenThreadCreation,
           );
           const settleTransitionOpen = settleOpenByActivityId[row.id];
           // `true` = settle enter frame (full height, no enter motion).

@@ -14,13 +14,13 @@ describe("desktopWsBridge", () => {
     expect(normalizeDesktopWsUrl(null)).toBeNull();
   });
 
-  it("reads only the canonical Synara desktop URL environment value", () => {
+  it("reads only the canonical Veylen desktop URL environment value", () => {
     expect(
       resolveDesktopWsUrlFromEnv({
-        SYNARA_DESKTOP_WS_URL: "ws://127.0.0.1:6000/?token=synara",
+        VEYLEN_DESKTOP_WS_URL: "ws://127.0.0.1:6000/?token=veylen",
         UNRELATED_DESKTOP_WS_URL: "ws://127.0.0.1:5000/?token=ignored",
       }),
-    ).toBe("ws://127.0.0.1:6000/?token=synara");
+    ).toBe("ws://127.0.0.1:6000/?token=veylen");
     expect(
       resolveDesktopWsUrlFromEnv({
         UNRELATED_DESKTOP_WS_URL: "ws://127.0.0.1:5000/?token=ignored",

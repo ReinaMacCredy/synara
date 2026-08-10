@@ -1,7 +1,7 @@
 import {
   emptySupervisedGovernanceSnapshot,
   emptySupervisedRuntimeSnapshot,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { describe, expect, it } from "vitest";
 
 import {

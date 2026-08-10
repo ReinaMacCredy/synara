@@ -142,7 +142,7 @@ describe("browser JavaScript dialog handling", () => {
         debuggerInstance.commands.push({ method, params });
         if (
           method === "Runtime.evaluate" &&
-          String(params.expression ?? "") === "window.__synaraBlockingEvaluation"
+          String(params.expression ?? "") === "window.__veylenBlockingEvaluation"
         ) {
           await new Promise<void>((resolve) => {
             releaseEvaluation = resolve;
@@ -155,7 +155,7 @@ describe("browser JavaScript dialog handling", () => {
     const pending = withDialogHandling(
       runtime,
       () =>
-        evaluateInContext(runtime, "window.__synaraBlockingEvaluation", {
+        evaluateInContext(runtime, "window.__veylenBlockingEvaluation", {
           signal: controller.signal,
         }),
       controller.signal,

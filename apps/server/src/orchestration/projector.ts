@@ -1,4 +1,4 @@
-import type { OrchestrationEvent, OrchestrationReadModel, ThreadId } from "@synara/contracts";
+import type { OrchestrationEvent, OrchestrationReadModel, ThreadId } from "@veylen/contracts";
 import {
   OrchestrationCheckpointSummary,
   OrchestrationMessage,
@@ -9,19 +9,19 @@ import {
   SupervisedGovernanceDomainEvent,
   SupervisionDomainEvent,
   SupervisedDomainEvent,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import {
   addPinnedMessage,
   removePinnedMessage,
   setPinnedMessageDone,
   setPinnedMessageLabel,
-} from "@synara/shared/pinnedMessages";
+} from "@veylen/shared/pinnedMessages";
 import {
   addThreadMarker,
   removeThreadMarker,
   setThreadMarkerDone,
   setThreadMarkerLabel,
-} from "@synara/shared/threadMarkers";
+} from "@veylen/shared/threadMarkers";
 import { Effect, Schema } from "effect";
 
 import { toProjectorDecodeError, type OrchestrationProjectorDecodeError } from "./Errors.ts";

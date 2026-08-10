@@ -1,13 +1,13 @@
 // FILE: advisorConsultation.ts
 // Purpose: Derive durable Advisor UI state from projected child threads.
 
-import type { ThreadId } from "@synara/contracts";
+import type { ThreadId } from "@veylen/contracts";
 import {
   extractAdvisorConsultationOrigin,
   extractAdvisorConsultationQuestion,
   isAdvisorIdentity,
   type AdvisorOrigin,
-} from "@synara/shared/advisor";
+} from "@veylen/shared/advisor";
 
 import type { Thread, ThreadShell } from "../types";
 

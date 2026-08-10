@@ -12,7 +12,7 @@ export const supervisedSettingsQueryOptions = () =>
     queryKey: supervisedSettingsQueryKeys.snapshot(),
     queryFn: async () => {
       const api = readNativeApi();
-      if (!api) throw new Error("Synara server unavailable.");
+      if (!api) throw new Error("Veylen server unavailable.");
       return api.orchestration.getSupervisedSettings();
     },
     refetchInterval: 5_000,

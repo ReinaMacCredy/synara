@@ -1,4 +1,4 @@
-# SYN-47 — Synara Studio (head-to-toe implementation plan)
+# SYN-47 — Veylen Studio (head-to-toe implementation plan)
 
 > Execution target: **GPT‑5.5 @ xhigh via the Codex plugin.**
 > After Codex lands the functional implementation, a human/Claude pass does the **UI refinement**.
@@ -8,14 +8,14 @@
 
 ## 1. Goal (what we are building)
 
-Add a **"Studio"** experience to Synara that is a near-exact clone of the existing **Chats / Threads**
+Add a **"Studio"** experience to Veylen that is a near-exact clone of the existing **Chats / Threads**
 experience, exposed as a new segment in the sidebar's segmented picker (so it reads **`Threads | Studio`**).
 
 - Studio shows the **same folder selector** as Chats (`ProjectPicker`) and lists **studio-chats** grouped
   under folders, using the **same UI and logic** as Threads. Reuse, do not reinvent.
 - Studio chats are **normal AI threads** (full chat surface, any provider) — but their working directory is
-  rooted at **`~/Documents/Synara/Studio`**, so anything the agent writes lands there, e.g.
-  `~/Documents/Synara/Studio/Outbox/Content/2026-06-09_synara_local_dev_server_x_posts.md`.
+  rooted at **`~/Documents/Veylen/Studio`**, so anything the agent writes lands there, e.g.
+  `~/Documents/Veylen/Studio/Outbox/Content/2026-06-09_veylen_local_dev_server_x_posts.md`.
 - The Studio folder layout **mirrors how Claude lays out `~/Documents/Claude`** (structure only — we copy the
   shape, not the contents, and Studio is **not** connected to the Claude provider in any way).
 
@@ -23,7 +23,7 @@ experience, exposed as a new segment in the sidebar's segmented picker (so it re
 1. **Picker layout:** Add Studio as a new segment → `Threads | Studio`. **Do NOT remove the existing Workspace
    feature** — it stays gated by `showWorkspaceSection` (default `false`) exactly as today. With Workspace off
    (the default) the picker shows `Threads | Studio`. With Workspace also on it shows `Threads | Studio | Workspace`.
-2. **Folders:** Mirror `~/Documents/Claude/*` structure under `~/Documents/Synara/Studio`. Single shared
+2. **Folders:** Mirror `~/Documents/Claude/*` structure under `~/Documents/Veylen/Studio`. Single shared
    Studio root; all studio output accumulates under `Studio/Outbox/Content/`.
 3. **Provider:** Studio is **NOT** linked to Claude. New studio chats inherit the **global default provider**
    (same as a normal new chat). "Study how Claude does it" referred only to copying the folder structure.
@@ -34,7 +34,7 @@ experience, exposed as a new segment in the sidebar's segmented picker (so it re
 
 The codebase already has a "**home chat container**" pattern we copy almost verbatim:
 
-- A hidden project with `kind: "chat"` rooted at `chatWorkspaceRoot` (= `~/Documents/Synara`) acts as the
+- A hidden project with `kind: "chat"` rooted at `chatWorkspaceRoot` (= `~/Documents/Veylen`) acts as the
   backing container for all general chats. Created lazily by `ensureHomeChatProject`
   (`apps/web/src/lib/chatProjects.ts`). Identified by `isHomeChatContainerProject`.
 - General chats are just **threads** under that container.
@@ -43,7 +43,7 @@ The codebase already has a "**home chat container**" pattern we copy almost verb
 
 - Add `ProjectKind` value **`"studio"`**.
 - A hidden **Studio container** project (`kind: "studio"`) rooted at **`studioWorkspaceRoot`**
-  (= `~/Documents/Synara/Studio`). Lazily ensured by a new `ensureStudioProject`.
+  (= `~/Documents/Veylen/Studio`). Lazily ensured by a new `ensureStudioProject`.
 - Studio chats are **threads under the studio container**.
 - **A thread is a "Studio chat" iff its project's `kind === "studio"`.** This single discriminator drives
   sidebar routing/filtering, the active segment, and cwd resolution.
@@ -57,7 +57,7 @@ const projectCwd =
     : (project?.workspaceRoot ?? null);
 ```
 `kind: "studio"` falls into the `else` and returns `project.workspaceRoot` → studio threads get a **real cwd**
-of `~/Documents/Synara/Studio` with **no extra change** to this resolver. (Codex CLI/Claude SDK then run with
+of `~/Documents/Veylen/Studio` with **no extra change** to this resolver. (Codex CLI/Claude SDK then run with
 that cwd; outputs land under `Studio/Outbox/Content/…`.)
 
 > ⚠️ **Exhaustiveness:** grep every `kind === "chat"` and `kind === "project"` usage and decide per-site whether
@@ -79,7 +79,7 @@ Reference (the user's actual Claude tree):
 ```
 Create the equivalent under the Studio root the first time the Studio container is prepared:
 ```
-~/Documents/Synara/Studio/
+~/Documents/Veylen/Studio/
   Inbox/
   Context/
   Logs/
@@ -168,13 +168,13 @@ compiling. Run the full verification gate **once** at the end (see §6).
 ### Phase 2 — Shared (`packages/shared`)
 
 - No required change: `resolveThreadWorkspaceCwd` only special-cases `"chat"`. Confirm
-  `@synara/shared/threadWorkspace` helpers (`isWorkspaceRootWithin`, `workspaceRootsEqual`) are exported for
+  `@veylen/shared/threadWorkspace` helpers (`isWorkspaceRootWithin`, `workspaceRootsEqual`) are exported for
   reuse by the new web `studioProjects.ts` (they already are; used by `chatProjects.ts`).
 
 ### Phase 3 — Web state & helpers (`apps/web/src`)
 
 1. **`workspaceStore.ts`** — add `studioWorkspaceRoot: string | null` to state + a setter; extend
-   `setServerWorkspacePaths` to accept/store it. **Bump the persist key** (`synara:workspace-pages:v2` → `v3`)
+   `setServerWorkspacePaths` to accept/store it. **Bump the persist key** (`veylen:workspace-pages:v2` → `v3`)
    only if you add it to the persisted partialize set; prefer treating it as server-derived (non-persisted,
    same as `chatWorkspaceRoot`) and just populate from welcome/config — **no key bump needed**.
 2. **Populate it** wherever `chatWorkspaceRoot` is read from the server: `WorkspaceView.tsx` (~L87-109,
@@ -285,7 +285,7 @@ So a fresh studio draft shows the **same empty-state hero + `ProjectPicker`** as
 - The existing `ProjectPicker` render (~L8692) and `handleSelectWorkspaceRoot` are reused as-is. Picking an
   external folder in a studio chat behaves exactly like Chats (sets `worktreePath` → on first send may
   create/use a `kind:"project"` project). Default (no pick) keeps the chat in the Studio container rooted at
-  `~/Documents/Synara/Studio`.
+  `~/Documents/Veylen/Studio`.
 - Optional polish (leave for the UI-refinement pass): a Studio-specific empty-state heading/subcopy.
 
 ---
@@ -336,7 +336,7 @@ So a fresh studio draft shows the **same empty-state hero + `ProjectPicker`** as
 - **Manual smoke (for the UI-refinement pass / verify skill):**
   1. Sidebar shows `Threads | Studio`. Toggle `showStudioSection` off → Studio segment disappears + redirects.
   2. Click Studio → empty-state with `ProjectPicker` (same as Chats).
-  3. Start a studio chat, ask it to write a file → it appears under `~/Documents/Synara/Studio/Outbox/Content/…`.
+  3. Start a studio chat, ask it to write a file → it appears under `~/Documents/Veylen/Studio/Outbox/Content/…`.
   4. Studio chats appear only in the Studio segment, never in Threads or the footer Chats list.
   5. Existing Chats/Threads and Workspace behavior unchanged.
 
@@ -351,7 +351,7 @@ So a fresh studio draft shows the **same empty-state hero + `ProjectPicker`** as
   Threads, and (c) the footer "Chats" list. One shared partition helper prevents drift.
 - **Active segment while viewing a studio thread:** must derive from `activeProject?.kind === "studio"` (threads
   live on `/$threadId`), else the picker snaps back to "Threads".
-- **cwd correctness:** verify a studio thread's resolved cwd is `~/Documents/Synara/Studio` (not scratch/tmp).
+- **cwd correctness:** verify a studio thread's resolved cwd is `~/Documents/Veylen/Studio` (not scratch/tmp).
   This is the whole point — confirm via the manual smoke test #3.
 - **Scaffold idempotency:** `prepareStudioWorkspaceRoot` must be safe to call repeatedly (recursive mkdir,
   swallow "already exists").
@@ -377,7 +377,7 @@ So a fresh studio draft shows the **same empty-state hero + `ProjectPicker`** as
    correct labels and active-state.
 2. `showStudioSection` (default on) toggles the Studio segment; turning it off while on a studio surface
    redirects to Threads.
-3. A new studio chat is a real AI thread whose cwd is `~/Documents/Synara/Studio`; agent-written files land
+3. A new studio chat is a real AI thread whose cwd is `~/Documents/Veylen/Studio`; agent-written files land
    under `Studio/Outbox/Content/…`. The Studio folder tree mirrors `~/Documents/Claude` (structure only).
 4. Studio chats are listed only under the Studio segment (folder selector + grouped chats, same UI as Threads),
    never duplicated in Threads or footer Chats.

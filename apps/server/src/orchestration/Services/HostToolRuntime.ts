@@ -20,5 +20,5 @@ export interface HostToolRuntimeShape {
 }
 
 export class HostToolRuntime extends ServiceMap.Service<HostToolRuntime, HostToolRuntimeShape>()(
-  "synara/orchestration/Services/HostToolRuntime",
+  "veylen/orchestration/Services/HostToolRuntime",
 ) {}

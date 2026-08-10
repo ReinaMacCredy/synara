@@ -1,5 +1,5 @@
-import type { DeviceUdid, ThreadDeviceState } from "@synara/contracts";
-import { ThreadId } from "@synara/contracts";
+import type { DeviceUdid, ThreadDeviceState } from "@veylen/contracts";
+import { ThreadId } from "@veylen/contracts";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { selectThreadDeviceState, useDeviceStateStore } from "./deviceStateStore";

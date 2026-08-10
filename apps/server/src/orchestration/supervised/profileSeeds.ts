@@ -1,4 +1,4 @@
-import { ProfilePresetId, type ProfilePreset, type RoomRole } from "@synara/contracts";
+import { ProfilePresetId, type ProfilePreset, type RoomRole } from "@veylen/contracts";
 
 const at = new Date(0).toISOString();
 

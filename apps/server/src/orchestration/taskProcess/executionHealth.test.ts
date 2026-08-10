@@ -5,7 +5,7 @@ import {
   ThreadId,
   type ProjectTask,
   type TaskThreadBinding,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { describe, expect, it } from "vitest";
 
 import { deriveExecutionHealth } from "./executionHealth.ts";

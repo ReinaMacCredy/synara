@@ -6,7 +6,7 @@ import type {
   TaskProcessGraphProjection,
   TaskProgressEntry,
   ThreadId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { useMemo, useState } from "react";
 
 import { Button } from "~/components/ui/button";

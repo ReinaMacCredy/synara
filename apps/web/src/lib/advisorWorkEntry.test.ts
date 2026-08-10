@@ -1,7 +1,7 @@
 import {
   ADVISOR_CONSULTATION_MARKER,
   buildAdvisorConsultationPrompt,
-} from "@synara/shared/advisor";
+} from "@veylen/shared/advisor";
 import { describe, expect, it } from "vitest";
 
 import type { WorkLogEntry } from "../session-logic";
@@ -26,10 +26,10 @@ function makeEntry(overrides: Partial<WorkLogEntry> = {}): WorkLogEntry {
 }
 
 describe("advisorWorkEntry", () => {
-  it("detects the synara_consult_advisor gateway tool row", () => {
+  it("detects the veylen_consult_advisor gateway tool row", () => {
     const entry = makeEntry({
       itemType: "mcp_tool_call",
-      toolName: "synara_consult_advisor",
+      toolName: "veylen_consult_advisor",
       toolTitle: "Asking Advisor",
       toolStatus: "completed",
       detail: JSON.stringify({
@@ -64,7 +64,7 @@ describe("advisorWorkEntry", () => {
       extractAdvisorWorkEntryQuestion(
         makeEntry({
           itemType: "mcp_tool_call",
-          toolName: "synara_consult_advisor",
+          toolName: "veylen_consult_advisor",
           label: "Asking Advisor",
         }),
       ),
@@ -140,7 +140,7 @@ describe("advisorWorkEntry", () => {
       subagents: [
         {
           threadId: "provider-child",
-          resolvedThreadId: "synara-child",
+          resolvedThreadId: "veylen-child",
           nickname: "Advisor",
           role: "advisor",
           prompt: buildAdvisorConsultationPrompt("Ship tonight?"),
@@ -149,7 +149,7 @@ describe("advisorWorkEntry", () => {
     });
     expect(
       workEntryMatchesAdvisorConsultation(entry, {
-        threadId: "synara-child",
+        threadId: "veylen-child",
         question: "Ship tonight?",
       }),
     ).toBe(true);

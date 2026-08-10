@@ -8,7 +8,7 @@ import {
   type SupervisedGovernanceSnapshot,
   type SupervisionMission,
   type SupervisionWake,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Cause, Effect, Layer, Option, Semaphore, Stream } from "effect";
 
 import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
@@ -90,7 +90,7 @@ const eventLeadCandidates = (
 
 const wakeText = (wake: SupervisionWake, lead: CanonicalLeadView): string =>
   [
-    "<synara_supervised_wake>",
+    "<veylen_supervised_wake>",
     "This is a durable bounded Lead-event doorbell, not a human owner instruction.",
     `mission_id: ${wake.missionId}`,
     `lead_seat_id: ${lead.id}`,
@@ -103,7 +103,7 @@ const wakeText = (wake: SupervisionWake, lead: CanonicalLeadView): string =>
     ),
     "Read only the bounded Lead state needed to judge this episode. Do not poll, expand scope, or inspect Peer transcripts.",
     "Persist attributed advice only when a material correction is warranted.",
-    "</synara_supervised_wake>",
+    "</veylen_supervised_wake>",
   ].join("\n");
 
 export const makeSupervisedWakeReactor = Effect.gen(function* () {

@@ -11,7 +11,7 @@
  * session would render a picker that lies.
  */
 
-import type { ThreadDeviceState, ThreadId } from "@synara/contracts";
+import type { ThreadDeviceState, ThreadId } from "@veylen/contracts";
 import { create } from "zustand";
 
 interface DeviceStateStore {

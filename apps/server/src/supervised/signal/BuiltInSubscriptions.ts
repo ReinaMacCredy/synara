@@ -4,7 +4,7 @@ import {
   RunPolicy,
   SubscriptionDefinition,
   type SupervisedActor,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Schema } from "effect";
 
 const daemon: SupervisedActor = { kind: "daemon", actorId: "supervised-runtime" };

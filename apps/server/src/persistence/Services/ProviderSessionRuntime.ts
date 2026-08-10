@@ -10,7 +10,7 @@ import {
   ProviderSessionRuntimeStatus,
   RuntimeMode,
   ThreadId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Option, Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -79,4 +79,4 @@ export interface ProviderSessionRuntimeRepositoryShape {
 export class ProviderSessionRuntimeRepository extends ServiceMap.Service<
   ProviderSessionRuntimeRepository,
   ProviderSessionRuntimeRepositoryShape
->()("synara/persistence/Services/ProviderSessionRuntime/ProviderSessionRuntimeRepository") {}
+>()("veylen/persistence/Services/ProviderSessionRuntime/ProviderSessionRuntimeRepository") {}

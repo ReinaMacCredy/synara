@@ -3,8 +3,8 @@ import type {
   SupervisedGovernanceDomainEvent,
   WorkflowConflict,
   WorkflowDirective,
-} from "@synara/contracts";
-import { EventId, WorkflowConflictId } from "@synara/contracts";
+} from "@veylen/contracts";
+import { EventId, WorkflowConflictId } from "@veylen/contracts";
 import { Effect } from "effect";
 
 import { OrchestrationCommandInvariantError } from "../Errors.ts";

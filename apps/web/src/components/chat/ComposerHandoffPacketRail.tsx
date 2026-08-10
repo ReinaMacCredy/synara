@@ -1,4 +1,4 @@
-import type { HandoffDraftV1 } from "@synara/contracts";
+import type { HandoffDraftV1 } from "@veylen/contracts";
 import { useEffect, useState } from "react";
 
 import { CheckIcon, EllipsisIcon, Trash2 } from "../../lib/icons";

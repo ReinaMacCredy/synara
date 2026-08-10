@@ -6,7 +6,7 @@ import {
   type ProviderKind,
   type ServerSettings,
   type ThreadId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
@@ -105,7 +105,7 @@ export function HandoffAgentSettingsPanel({ active }: { active: boolean }) {
       <SettingsSection title="Handoff runtime">
         <SettingsRow
           title="Provider"
-          description="The one-shot agent that prepares cited handoff packets. Unsupported providers fail visibly; Synara never reroutes silently."
+          description="The one-shot agent that prepares cited handoff packets. Unsupported providers fail visibly; Veylen never reroutes silently."
           status={
             draft.provider === "codex"
               ? "Provider-native dynamic tools supported"
@@ -199,7 +199,7 @@ export function HandoffAgentSettingsPanel({ active }: { active: boolean }) {
           <label className="space-y-2 text-sm">
             <span className="font-medium">Custom guidance</span>
             <p className="text-sm leading-relaxed text-muted-foreground">
-              Added after Synara's versioned core handoff instruction and before the one-time
+              Added after Veylen's versioned core handoff instruction and before the one-time
               handoff prompt.
             </p>
             <Textarea

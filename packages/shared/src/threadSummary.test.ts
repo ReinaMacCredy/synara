@@ -6,7 +6,7 @@ import {
   OrchestrationProposedPlan,
   OrchestrationThreadActivity,
   TurnId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { describe, expect, it } from "vitest";
 
 import { approvalRequestKindFromRequestType, deriveThreadSummaryMetadata } from "./threadSummary";

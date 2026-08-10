@@ -15,8 +15,22 @@ const incorrectBundleDomain = characters(99, 111, 109, 46, 115, 121, 110, 97, 11
 const retiredFirstDisplayName = characters(84, 51, 67, 111, 100, 101);
 const retiredFirstSpacedDisplayName = `${characters(84, 51)} Code`;
 const retiredCompanyDisplayName = `${characters(84, 51)} ${characters(84, 111, 111, 108, 115)}`;
+const retiredImmediateUpstreamName = characters(83, 121, 110, 97, 114, 97);
+
+const approvedImmediateUpstreamCompatibilityPaths = new Set([
+  "packages/shared/src/veylenHome.ts",
+  "packages/shared/src/veylenHome.test.ts",
+  "apps/desktop/src/desktopStorageMigration.ts",
+  "apps/desktop/src/desktopStorageMigration.test.ts",
+  "apps/web/src/storageOriginMigration.ts",
+  "apps/web/src/storageOriginMigration.test.ts",
+]);
 
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const retiredImmediateUpstreamPattern = new RegExp(
+  escapeRegExp(retiredImmediateUpstreamName),
+  "i",
+);
 const joinedWithOptionalSeparator = (left: string, right: string): string =>
   `${escapeRegExp(left)}[\\s._/@:-]*${escapeRegExp(right)}`;
 
@@ -59,16 +73,16 @@ const approvedAttributions: readonly ApprovedAttribution[] = [
   {
     path: "README.md",
     markdownSection: "## Origins",
-    line: `Synara began as a clone of [${retiredFirstDisplayName}](https://github.com/pingdotgg/${retiredFirstName}), but it has since become a substantially different product with its own branding, packaging, release system, provider orchestration, desktop app behavior, and product direction.`,
+    line: `Veylen is an independent project maintained by Reina MacCredy. It began as a fork of [${retiredImmediateUpstreamName}](https://github.com/Emanuele-web04/${retiredImmediateUpstreamName}), which itself began as a clone of [${retiredFirstDisplayName}](https://github.com/pingdotgg/${retiredFirstName}). Veylen retains the upstream MIT notices and Git history while developing its own branding, packaging, release system, provider orchestration, desktop app behavior, and product direction.`,
   },
   {
     path: "CHANGELOG.md",
     markdownSection: "## 0.7.0 - 2026-08-05",
-    line: `**A review of the Synara codebase found an analytics configuration that came from the original ${retiredFirstSpacedDisplayName} codebase when Synara was created as a clone in March. We did not add it, and we have no access to the PostHog project receiving the events.**`,
+    line: `**A review of the Veylen codebase found an analytics configuration that came from the original ${retiredFirstSpacedDisplayName} codebase when Veylen was created as a clone in March. We did not add it, and we have no access to the PostHog project receiving the events.**`,
   },
   {
     path: "apps/web/src/whatsNew/entries.ts",
-    line: `"A review of the Synara codebase found an analytics configuration that came from the original ${retiredFirstSpacedDisplayName} codebase when Synara was created as a clone in March.",`,
+    line: `"A review of the Veylen codebase found an analytics configuration that came from the original ${retiredFirstSpacedDisplayName} codebase when Veylen was created as a clone in March.",`,
   },
 ];
 
@@ -102,8 +116,12 @@ export interface BrandIdentityBinaryFile {
   readonly contents: Uint8Array;
 }
 
-function containsForbiddenIdentity(value: string): boolean {
-  return forbiddenPatterns.some((pattern) => pattern.test(value));
+function containsForbiddenIdentity(path: string, value: string): boolean {
+  return (
+    forbiddenPatterns.some((pattern) => pattern.test(value)) ||
+    (!approvedImmediateUpstreamCompatibilityPaths.has(path) &&
+      retiredImmediateUpstreamPattern.test(value))
+  );
 }
 
 function findApprovedAttribution(
@@ -128,14 +146,14 @@ export function findBrandIdentityViolations(
 ): BrandIdentityViolation[] {
   const violations: BrandIdentityViolation[] = [];
   for (const file of files) {
-    if (containsForbiddenIdentity(file.path)) {
+    if (containsForbiddenIdentity(file.path, file.path)) {
       violations.push({ path: file.path, line: null, text: file.path });
     }
     const consumedAttributions = new Set<number>();
     let markdownSection: string | null = null;
     for (const [index, line] of file.contents.split(/\r?\n/).entries()) {
       if (/^#{1,2}\s+/.test(line)) markdownSection = line.trim();
-      if (!containsForbiddenIdentity(line)) continue;
+      if (!containsForbiddenIdentity(file.path, line)) continue;
       const approvedAttribution = findApprovedAttribution(
         file.path,
         line,
@@ -198,7 +216,7 @@ function main(): void {
     ...findVisualBrandAssetViolations(trackedFiles),
   ];
   if (violations.length === 0) {
-    console.log("Synara identity check passed.");
+    console.log("Veylen identity check passed.");
     return;
   }
 

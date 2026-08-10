@@ -2,7 +2,7 @@
 // Purpose: Pure grouping/sorting model for the sidebar Activity view (threads as tasks).
 // Exports: eligibility, status-group resolution, settle helpers, and the view-model builder.
 
-import type { ProjectId, ThreadId } from "@synara/contracts";
+import type { ProjectId, ThreadId } from "@veylen/contracts";
 
 import { formatRelativeTime } from "~/lib/relativeTime";
 import type { TimestampFormat } from "../appSettings";
@@ -352,7 +352,7 @@ export type ActivityScopeOption =
 
 /**
  * Scope menu entries: every real project with eligible activity, busiest first.
- * Project-less chats (chat/studio-kind containers) collapse into ONE "Synara"
+ * Project-less chats (chat/studio-kind containers) collapse into ONE "Veylen"
  * entry instead of one look-alike row per hidden container project.
  */
 export function collectActivityScopeOptions(

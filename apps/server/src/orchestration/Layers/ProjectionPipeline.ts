@@ -11,20 +11,20 @@ import {
   SupervisedGovernanceEventType,
   type OrchestrationEvent,
   type SupervisedGovernanceSnapshot,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import {
   addPinnedMessage,
   removePinnedMessage,
   setPinnedMessageDone,
   setPinnedMessageLabel,
-} from "@synara/shared/pinnedMessages";
+} from "@veylen/shared/pinnedMessages";
 import {
   addThreadMarker,
   removeThreadMarker,
   setThreadMarkerDone,
   setThreadMarkerLabel,
-} from "@synara/shared/threadMarkers";
-import { isStalePendingRequestFailureDetail } from "@synara/shared/threadSummary";
+} from "@veylen/shared/threadMarkers";
+import { isStalePendingRequestFailureDetail } from "@veylen/shared/threadSummary";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, FileSystem, Layer, Option, Path, Schema, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";

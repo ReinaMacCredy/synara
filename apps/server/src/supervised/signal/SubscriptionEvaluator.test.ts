@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
 
-import type { ControlPlaneEvent, SubscriptionDefinition } from "@synara/contracts";
+import type { ControlPlaneEvent, SubscriptionDefinition } from "@veylen/contracts";
 
 import {
   emptySubscriptionRuntimeState,

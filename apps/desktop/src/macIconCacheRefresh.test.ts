@@ -10,8 +10,8 @@ import {
 
 describe("resolveLaunchVersionRecordPath", () => {
   it("places the record file inside the userData directory", () => {
-    expect(resolveLaunchVersionRecordPath("/home/me/AppData/Synara")).toBe(
-      "/home/me/AppData/Synara/last-launch-version.json",
+    expect(resolveLaunchVersionRecordPath("/home/me/AppData/Veylen")).toBe(
+      "/home/me/AppData/Veylen/last-launch-version.json",
     );
   });
 });
@@ -58,17 +58,17 @@ describe("shouldRefreshIconCache", () => {
 describe("resolveMacAppBundlePath", () => {
   it("resolves the .app bundle from the Electron executable on macOS", () => {
     expect(
-      resolveMacAppBundlePath("/Applications/Synara.app/Contents/MacOS/Synara", "darwin"),
-    ).toBe("/Applications/Synara.app");
+      resolveMacAppBundlePath("/Applications/Veylen.app/Contents/MacOS/Veylen", "darwin"),
+    ).toBe("/Applications/Veylen.app");
   });
 
   it("returns null off macOS", () => {
     expect(
-      resolveMacAppBundlePath("/Applications/Synara.app/Contents/MacOS/Synara", "linux"),
+      resolveMacAppBundlePath("/Applications/Veylen.app/Contents/MacOS/Veylen", "linux"),
     ).toBeNull();
   });
 
   it("returns null when the executable is not inside a .app bundle", () => {
-    expect(resolveMacAppBundlePath("/usr/local/bin/synara", "darwin")).toBeNull();
+    expect(resolveMacAppBundlePath("/usr/local/bin/veylen", "darwin")).toBeNull();
   });
 });

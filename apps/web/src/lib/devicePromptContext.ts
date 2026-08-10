@@ -13,7 +13,7 @@ import type {
   NativeApi,
   ThreadDeviceState,
   ThreadId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 import type { ComposerImageAttachment } from "../composerDraftStore";
 import { prepareComposerImageAttachmentsFromFiles } from "./composerSend";
