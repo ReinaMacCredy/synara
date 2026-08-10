@@ -14,7 +14,7 @@ const record = (value: unknown): Record<string, unknown> | null =>
     : null;
 
 export function codexProfileConfigArgs(runtime: ProfileRuntimeConfig): string[] {
-  const options = runtime.providerOptions === undefined ? {} : record(runtime.providerOptions);
+  const options = runtime.providerOptions == null ? {} : record(runtime.providerOptions);
   if (options === null) {
     throw new Error("Codex profile provider options must be a JSON object.");
   }

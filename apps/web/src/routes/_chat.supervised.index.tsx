@@ -15,6 +15,7 @@ import {
 } from "~/components/chat/composerPickerStyles";
 import { ensureSupervisedDraft } from "~/hooks/useHandleNewSupervised";
 import { ensureHomeChatProject, isHomeChatContainerProject } from "~/lib/chatProjects";
+import { resolvePrimarySupervisorThreadId } from "~/lib/supervisedAgentPresentation";
 import { supervisedRuntimeQueryOptions } from "~/lib/supervisedRuntime";
 import { readNativeApi } from "~/nativeApi";
 import type { SplitViewPanePanelState } from "~/splitViewStore";
@@ -64,15 +65,7 @@ function SupervisedIndexRouteView() {
       isHomeChatContainerProject(project, { homeDir, chatWorkspaceRoot }),
     ) ?? null;
   const selectedProject = sourceProject ?? explicitProject ?? homeProject;
-  const primarySupervisorThreadId = selectedProject
-    ? (supervisedSeats.find(
-        (seat) =>
-          seat.projectId === selectedProject.id &&
-          seat.identityRole === "supervisor" &&
-          (seat.lifecycleState === "ready" || seat.lifecycleState === "active") &&
-          seat.threadId !== null,
-      )?.threadId ?? null)
-    : null;
+  const primarySupervisorThreadId = resolvePrimarySupervisorThreadId(supervisedSeats);
   const activeRoom = selectedProject
     ? (runtime.data?.rooms.find(
         (room) => room.projectId === selectedProject.id && room.status !== "archived",

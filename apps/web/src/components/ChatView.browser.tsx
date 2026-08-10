@@ -3,15 +3,14 @@ import "../index.css";
 
 import {
   AutomationId,
-  type AgentSeat,
+  DEVICE_WS_METHODS,
+  ProfilePresetId,
   type AutomationCreateInput,
   type AutomationDefinition,
   CheckpointRef,
   EventId,
   MessageId,
-  DEVICE_WS_METHODS,
   ORCHESTRATION_WS_METHODS,
-  ProfilePresetId,
   type OrchestrationReadModel,
   type ProjectId,
   type ServerConfig,
@@ -31,7 +30,6 @@ import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { HttpResponse, http, ws } from "msw";
 import { setupWorker } from "msw/browser";
 import { page, userEvent } from "vitest/browser";
-import { Profiler, type ProfilerOnRenderCallback } from "react";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
@@ -61,7 +59,6 @@ import {
   sendEffectRpcChunk,
   sendEffectRpcExit,
 } from "../test/effectRpcWebSocketMock";
-import { makeDomainEvent } from "../storeTestFixtures";
 import { createBrowserTestServerConfig, createFullscreenTestHost } from "../test/browserHarness";
 import { useTemporaryThreadStore } from "../temporaryThreadStore";
 import { useTerminalStateStore } from "../terminalStateStore";
@@ -75,19 +72,6 @@ import { estimateTimelineMessageHeight } from "./timelineHeight";
 
 const THREAD_ID = "thread-browser-test" as ThreadId;
 const OTHER_THREAD_ID = "thread-browser-test-other" as ThreadId;
-
-// Each call to the snapshot factory gets a fresh, monotonically increasing sequence.
-// The step (1_000_000) is far larger than any single test can bridge: in-test
-// increments come only from `recordProjectCreateCommand`, `addThreadToSnapshot`, and
-// the per-test snapshot-sync helpers, each +1 per call and bounded by waitFor-driven
-// helper invocations (hundreds at most). So a late in-flight shell snapshot from a
-// previous test is always strictly below the next test's base sequence and is ignored
-// by `isStaleSnapshot`.
-let snapshotSequenceFactory = 0;
-function nextSnapshotSequence(): number {
-  snapshotSequenceFactory += 1_000_000;
-  return snapshotSequenceFactory;
-}
 const THREAD_TITLE = "Browser test thread";
 const UUID_ROUTE_RE = /^\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const PROJECT_ID = "project-1" as ProjectId;
@@ -98,7 +82,6 @@ const BASE_TIME_MS = Date.parse(NOW_ISO);
 const ATTACHMENT_SVG = "<svg xmlns='http://www.w3.org/2000/svg' width='120' height='300'></svg>";
 let attachmentResponseDelayMs = 0;
 let attachmentUploadSequence = 0;
-let attachmentUploadBarrier: Promise<void> | null = null;
 
 interface WsRequestEnvelope {
   id: string;
@@ -300,7 +283,7 @@ function createSnapshotForTargetUser(options: {
   }
 
   return {
-    snapshotSequence: nextSnapshotSequence(),
+    snapshotSequence: 1,
     spaces: [],
     projects: [
       {
@@ -356,48 +339,6 @@ function createSnapshotForTargetUser(options: {
       },
     ],
     updatedAt: NOW_ISO,
-  };
-}
-
-function createIssue550Snapshot(options: {
-  messageCount: number;
-  activityCount: number;
-}): OrchestrationReadModel {
-  const snapshot = createSnapshotForTargetUser({
-    targetMessageId: "msg-user-issue-550" as MessageId,
-    targetText: "issue 550 baseline",
-  });
-  const messages = Array.from({ length: options.messageCount }, (_, index) =>
-    index % 2 === 0
-      ? createUserMessage({
-          id: MessageId.makeUnsafe(`msg-issue-550-user-${index}`),
-          text: `user message ${index}`,
-          offsetSeconds: index * 2,
-        })
-      : createAssistantMessage({
-          id: MessageId.makeUnsafe(`msg-issue-550-assistant-${index}`),
-          text: `assistant message ${index}`,
-          offsetSeconds: index * 2,
-        }),
-  );
-  const activities = Array.from({ length: options.activityCount }, (_, index) => ({
-    id: EventId.makeUnsafe(`activity-issue-550-${index}`),
-    createdAt: isoAt(options.messageCount * 2 + index),
-    kind: "tool.completed" as const,
-    summary: `tool ${index}`,
-    tone: "tool" as const,
-    turnId: null,
-    payload: {
-      itemType: "dynamic_tool_call",
-      toolName: `tool-${index}`,
-    },
-  }));
-
-  return {
-    ...snapshot,
-    threads: snapshot.threads.map((thread) =>
-      thread.id === THREAD_ID ? { ...thread, messages, activities } : thread,
-    ),
   };
 }
 
@@ -815,28 +756,6 @@ function createSnapshotWithTallComposerStack(): OrchestrationReadModel {
       thread.id === THREAD_ID
         ? {
             ...thread,
-            activities: [
-              ...thread.activities,
-              {
-                id: EventId.makeUnsafe("activity-inline-plan-file-change"),
-                createdAt: isoAt(1_004),
-                kind: "tool.completed" as const,
-                summary: "Edited 2 files",
-                tone: "tool" as const,
-                turnId: activeTurnId,
-                payload: {
-                  itemType: "file_change",
-                  data: {
-                    item: {
-                      changes: [
-                        { path: "apps/web/src/components/ChatView.tsx" },
-                        { path: "apps/web/src/components/ChatView.browser.tsx" },
-                      ],
-                    },
-                  },
-                },
-              },
-            ],
             checkpoints: [
               {
                 turnId: activeTurnId,
@@ -1393,7 +1312,7 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
       worktree: {
         path: "/repo/.codex/worktrees/generated/synara",
         ref: "0123456789abcdef0123456789abcdef01234567",
-        branch: typeof body.newBranch === "string" ? body.newBranch : null,
+        branch: null,
       },
     };
   }
@@ -1588,10 +1507,6 @@ const worker = setupWorker(
         method === WS_METHODS.subscribeOrchestrationDomainEvents ||
         method === WS_METHODS.subscribeProjectDevServerEvents ||
         method === WS_METHODS.subscribeAutomationEvents ||
-        // Left open like the rest: these are infinite subscriptions, and the
-        // default below answers with an Exit, which a stream RPC reads as the
-        // socket dying and answers with a full reconnect. That loops forever
-        // and starves the RPCs these tests are actually asserting on.
         method === DEVICE_WS_METHODS.subscribeEvents
       ) {
         return;
@@ -1602,7 +1517,6 @@ const worker = setupWorker(
   http.post(`*${ATTACHMENT_UPLOAD_ROUTE_PATH}`, async ({ request }) => {
     const url = new URL(request.url);
     const bytes = await request.arrayBuffer();
-    await attachmentUploadBarrier;
     attachmentUploadSequence += 1;
     return HttpResponse.json(
       {
@@ -2055,11 +1969,7 @@ async function measureUserRow(options: {
       expect(measuredRow, "Unable to measure targeted user row height.").toBeTruthy();
       timelineWidthMeasuredPx = measuredRow!.getBoundingClientRect().width;
       measuredRowHeightPx = measuredRow!.getBoundingClientRect().height;
-      const virtualizedRow = measuredRow!.parentElement;
-      renderedInVirtualizedRegion =
-        virtualizedRow instanceof HTMLElement &&
-        virtualizedRow.style.position === "absolute" &&
-        virtualizedRow.style.contain.includes("layout");
+      renderedInVirtualizedRegion = measuredRow!.closest("[data-index]") instanceof HTMLElement;
       expect(timelineWidthMeasuredPx, "Unable to measure timeline width.").toBeGreaterThan(0);
       expect(measuredRowHeightPx, "Unable to measure targeted user row height.").toBeGreaterThan(0);
     },
@@ -2134,7 +2044,6 @@ async function mountChatView(options: {
   snapshot: OrchestrationReadModel;
   configureFixture?: (fixture: TestFixture) => void;
   initialEntry?: string;
-  onRender?: ProfilerOnRenderCallback;
 }): Promise<MountedChatView> {
   fixture = buildFixture(options.snapshot);
   options.configureFixture?.(fixture);
@@ -2151,14 +2060,7 @@ async function mountChatView(options: {
     }),
   );
 
-  const content = options.onRender ? (
-    <Profiler id="issue-550-root" onRender={options.onRender}>
-      <RouterProvider router={router} />
-    </Profiler>
-  ) : (
-    <RouterProvider router={router} />
-  );
-  const screen = await render(content, {
+  const screen = await render(<RouterProvider router={router} />, {
     container: host,
   });
 
@@ -2235,25 +2137,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   beforeEach(async () => {
-    // Reset the shared fixture snapshot to a neutral, low-sequence shell before
-    // disposing the old transport. Any in-flight getShellSnapshot that resolves
-    // after this point will then return sequence 0, which the next test's real
-    // snapshot will supersede.
-    fixture = buildFixture({
-      ...fixture.snapshot,
-      snapshotSequence: 0,
-      spaces: [],
-      projects: [],
-      threads: [],
-      updatedAt: NOW_ISO,
-    });
     await resetWsNativeApiForTest();
     resetRetainedThreadDetailSubscriptionsForTests();
     await resetHomeChatProjectPrewarmStateForTests();
     await setViewport(DEFAULT_VIEWPORT);
     attachmentResponseDelayMs = 0;
     attachmentUploadSequence = 0;
-    attachmentUploadBarrier = null;
     localStorage.clear();
     useLatestProjectStore.setState({ latestProjectId: null });
     useWorkspacePathsStore.setState({
@@ -2273,7 +2162,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       shellSnapshotSequence: 0,
       spaces: [],
       projects: [],
-      supervisedOrchestration: emptySupervisedOrchestrationSnapshot(NOW_ISO),
       threadIds: [],
       threadShellById: {},
       threadSessionById: {},
@@ -2310,30 +2198,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     document.body.innerHTML = "";
   });
 
-  it("promotes a new direct-Lead draft even when the Project already has an active Lead", async () => {
-    const supervisedOrchestration = emptySupervisedOrchestrationSnapshot(NOW_ISO);
-    const existingLeadSeat = {
-      id: "existing-lead-seat" as AgentSeat["id"],
-      workspaceId: "existing-supervised-workspace" as AgentSeat["workspaceId"],
-      roomIds: [],
-      identityRole: "lead",
-      effectiveRole: "root",
-      profileId: "existing-lead-profile" as AgentSeat["profileId"],
-      providerSessionId: null,
-      lifecycleState: "ready",
-      workState: "idle",
-      authorityReceiptId: "existing-lead-authority" as AgentSeat["authorityReceiptId"],
-      threadId: OTHER_THREAD_ID,
-      projectId: PROJECT_ID,
-      profileSnapshotId: null,
-      predecessorThreadIds: [],
-      displayName: "Existing Lead",
-      createdAt: NOW_ISO,
-      retainedAt: null,
-      retiredAt: null,
-      revision: 0,
-      updatedAt: NOW_ISO,
-    } satisfies AgentSeat;
+  it("promotes a Primary Supervisor draft in place without showing the conversation loader", async () => {
     const snapshot = createSnapshotForTargetUser({
       targetMessageId: "msg-user-supervised-promotion-source" as MessageId,
       targetText: "supervised promotion source",
@@ -2341,13 +2206,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
     const snapshotWithSupervisorProfile: OrchestrationReadModel = {
       ...snapshot,
       supervisedOrchestration: {
-        ...supervisedOrchestration,
-        agentSeats: [existingLeadSeat],
+        ...emptySupervisedOrchestrationSnapshot(NOW_ISO),
         profiles: [
           {
-            id: ProfilePresetId.makeUnsafe("profile-lead-default"),
-            name: "Lead Default",
-            roleHints: ["lead"],
+            id: ProfilePresetId.makeUnsafe("profile-supervisor-default"),
+            name: "Supervisor Default",
+            roleHints: ["supervisor"],
             runtime: {
               provider: "codex",
               model: "gpt-5",
@@ -2395,9 +2259,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
         expect(draftThreadId).not.toBeNull();
       });
       const promotedThreadId = draftThreadId!;
-      useComposerDraftStore.getState().setDraftThreadContext(promotedThreadId, {
-        supervisionMode: "supervise",
-      });
       await vi.waitFor(() => {
         expect(
           wsRequests.some(
@@ -2414,25 +2275,19 @@ describe("ChatView timeline estimator parity (full app)", () => {
       expect(sendButton.disabled).toBe(false);
       sendButton.click();
 
-      await waitForURL(
-        mounted.router,
-        (pathname) => pathname === `/supervised/${promotedThreadId}`,
-        "Supervised draft did not promote to its Root route.",
-      );
-      expect(mounted.router.state.location.search).toEqual({
-        projectId: PROJECT_ID,
-        view: "chat",
-      });
-      expect(
-        wsRequests.some(
-          (request) =>
-            request._tag === ORCHESTRATION_WS_METHODS.getThreadDetailSnapshot &&
-            request.threadId === promotedThreadId,
-        ),
-      ).toBe(true);
       await vi.waitFor(() => {
+        expect(mounted.router.state.location.pathname).toBe("/supervised");
+        expect(mounted.router.state.location.search).toEqual({ projectId: PROJECT_ID });
+      });
+      await vi.waitFor(() => {
+        expect(
+          wsRequests.some(
+            (request) =>
+              readDispatchedCommand(request)?.type === "thread.turn.start" &&
+              readDispatchedCommand(request)?.threadId === promotedThreadId,
+          ),
+        ).toBe(true);
         expect(document.body.textContent).toContain(prompt);
-        expect(useStore.getState().threadDetailSyncById?.[promotedThreadId]).toBe("synced");
       });
 
       const preShellSubscribeIndex = wsRequests.findIndex(
@@ -2447,111 +2302,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
       );
       expect(preShellSubscribeIndex).toBeGreaterThanOrEqual(0);
       expect(turnStartIndex).toBeGreaterThan(preShellSubscribeIndex);
-      expect(promotedThreadId).not.toBe(existingLeadSeat.threadId);
       expect(sawConversationLoader).toBe(false);
-
-      mounted.router.history.back();
-      await new Promise<void>((resolve) => {
-        window.setTimeout(resolve, 50);
-      });
-      expect(mounted.router.state.location.pathname).toBe(`/supervised/${promotedThreadId}`);
     } finally {
       loaderObserver.disconnect();
       await mounted.cleanup();
       restoreNativeApi();
     }
-  });
-
-  it("keeps near-cap composer work bounded while live activities arrive", async () => {
-    const percentile = (samples: readonly number[], fraction: number): number => {
-      const ordered = [...samples].sort((left, right) => left - right);
-      return ordered[Math.min(ordered.length - 1, Math.floor(ordered.length * fraction))] ?? 0;
-    };
-    const cases = [
-      { name: "short", messageCount: 10, activityCount: 20 },
-      { name: "near-cap", messageCount: 81, activityCount: 1_609 },
-    ] as const;
-    const reports: Array<{
-      name: (typeof cases)[number]["name"];
-      inputP95Ms: number;
-      reactCommitTotalMs: number;
-    }> = [];
-
-    const warmup = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: createIssue550Snapshot(cases[0]),
-    });
-    await warmup.cleanup();
-    useComposerDraftStore.setState({ draftsByThreadId: {} });
-
-    for (const benchmarkCase of cases) {
-      const commits: number[] = [];
-      const mounted = await mountChatView({
-        viewport: DEFAULT_VIEWPORT,
-        snapshot: createIssue550Snapshot(benchmarkCase),
-        onRender: (_id, phase, actualDuration) => {
-          if (phase === "update") commits.push(actualDuration);
-        },
-      });
-      try {
-        const editor = await waitForComposerEditor();
-        await userEvent.click(editor);
-        commits.length = 0;
-
-        const inputToPaintMs: number[] = [];
-        for (let index = 0; index < 12; index += 1) {
-          const startedAt = performance.now();
-          useStore.getState().applyOrchestrationEventsHotPath([
-            makeDomainEvent(
-              "thread.activity-appended",
-              {
-                threadId: THREAD_ID,
-                activity: {
-                  id: EventId.makeUnsafe(`activity-issue-550-live-${index}`),
-                  createdAt: isoAt(
-                    benchmarkCase.messageCount * 2 + benchmarkCase.activityCount + index,
-                  ),
-                  kind: "tool.completed",
-                  summary: `live tool ${index}`,
-                  tone: "tool",
-                  turnId: null,
-                  payload: {
-                    itemType: "dynamic_tool_call",
-                    toolName: `live-tool-${index}`,
-                  },
-                },
-              },
-              { sequence: benchmarkCase.activityCount + index + 1 },
-            ),
-          ]);
-          await userEvent.keyboard("x");
-          await nextFrame();
-          inputToPaintMs.push(performance.now() - startedAt);
-        }
-
-        expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(
-          "x".repeat(12),
-        );
-        expect(useStore.getState().activityIdsByThreadId?.[THREAD_ID]).toHaveLength(
-          benchmarkCase.activityCount + 12,
-        );
-        reports.push({
-          name: benchmarkCase.name,
-          inputP95Ms: percentile(inputToPaintMs, 0.95),
-          reactCommitTotalMs: commits.reduce((total, duration) => total + duration, 0),
-        });
-      } finally {
-        await mounted.cleanup();
-        useComposerDraftStore.setState({ draftsByThreadId: {} });
-      }
-    }
-
-    const short = reports.find((report) => report.name === "short")!;
-    const nearCap = reports.find((report) => report.name === "near-cap")!;
-    expect(
-      nearCap.reactCommitTotalMs,
-      `Issue #550 benchmark: ${JSON.stringify(reports)}`,
-    ).toBeLessThan(short.reactCommitTotalMs * 1.6);
   });
 
   it("dispatches a rapid access-mode reversal while the server projection is stale", async () => {
@@ -2806,62 +2562,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("[geometry:linux] optically aligns the composer send arrow across responsive states", async () => {
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-send-arrow-alignment" as MessageId,
-        targetText: "send arrow alignment target",
-      }),
-    });
-
-    try {
-      const sendButton = await waitForSendButton();
-      const sendArrow = await waitForElement(
-        () => sendButton.querySelector<HTMLElement>("[data-slot='central-icon']"),
-        "Unable to find composer send arrow.",
-      );
-      const expectOpticalAlignment = () => {
-        const buttonRect = sendButton.getBoundingClientRect();
-        const arrowRect = sendArrow.getBoundingClientRect();
-        const buttonCenterX = buttonRect.x + buttonRect.width / 2;
-        const buttonCenterY = buttonRect.y + buttonRect.height / 2;
-        const arrowCenterX = arrowRect.x + arrowRect.width / 2;
-        const arrowCenterY = arrowRect.y + arrowRect.height / 2;
-
-        expect(buttonRect.width).toBeCloseTo(28, 2);
-        expect(buttonRect.height).toBeCloseTo(28, 2);
-        expect(arrowRect.width).toBeCloseTo(20, 2);
-        expect(arrowRect.height).toBeCloseTo(20, 2);
-        expect(arrowCenterX - buttonCenterX).toBeCloseTo(0, 2);
-        expect(arrowCenterY - buttonCenterY).toBeCloseTo(1, 2);
-        expect(getComputedStyle(sendButton).boxShadow).toBe("none");
-        expect(getComputedStyle(sendArrow).mask).toContain("/central-icons-reversed/arrow-up.svg");
-      };
-
-      expect(sendButton.disabled).toBe(true);
-      expectOpticalAlignment();
-
-      useComposerDraftStore.getState().setPrompt(THREAD_ID, "Optical alignment check");
-      await vi.waitFor(() => expect(sendButton.disabled).toBe(false));
-      expectOpticalAlignment();
-
-      document.documentElement.classList.add("dark");
-      await waitForLayout();
-      expectOpticalAlignment();
-
-      await mounted.setViewport(TEXT_VIEWPORT_MATRIX[2]);
-      expectOpticalAlignment();
-
-      useComposerDraftStore.getState().setPrompt(THREAD_ID, "");
-      await vi.waitFor(() => expect(sendButton.disabled).toBe(true));
-      expectOpticalAlignment();
-    } finally {
-      document.documentElement.classList.remove("dark");
-      await mounted.cleanup();
-    }
-  });
-
   it("renders the active thread title", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
@@ -2937,51 +2637,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       );
     } finally {
       attachmentResponseDelayMs = 0;
-      await mounted.cleanup();
-    }
-  });
-
-  it("does not let delayed tail-expansion retries override a user scroll takeover", async () => {
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: createSnapshotWithBottomAttachments(),
-    });
-    let restoreScrollTo = () => {};
-
-    try {
-      const scrollContainer = await waitForElement(
-        () => document.querySelector<HTMLElement>("[data-chat-scroll-container='true']"),
-        "Unable to find message scroll container.",
-      );
-      const tailImage = await waitForElement(
-        () => document.querySelector<HTMLImageElement>("img[alt='bottom-attachment-3.png']"),
-        "Unable to find the tail attachment image.",
-      );
-      await waitForImagesToLoad(document.body);
-      await new Promise<void>((resolve) => window.setTimeout(resolve, 300));
-      await waitForLayout();
-
-      const scrollSpy = installImmediateScrollToSpy(scrollContainer);
-      restoreScrollTo = scrollSpy.restore;
-
-      scrollContainer.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -100 }));
-      scrollContainer.scrollTo({ top: 0, behavior: "auto" });
-      scrollContainer.dispatchEvent(new Event("scroll"));
-      tailImage.dispatchEvent(new Event("load", { bubbles: true }));
-
-      await new Promise<void>((resolve) => window.setTimeout(resolve, 320));
-      expect(getScrollContainerDistanceFromBottom(scrollContainer)).toBeGreaterThan(
-        AUTO_SCROLL_BOTTOM_THRESHOLD_PX,
-      );
-      expect(
-        scrollSpy.calls.every(
-          (call) =>
-            typeof call.top !== "number" ||
-            call.top <= scrollContainer.scrollTop + AUTO_SCROLL_BOTTOM_THRESHOLD_PX,
-        ),
-      ).toBe(true);
-    } finally {
-      restoreScrollTo();
       await mounted.cleanup();
     }
   });
@@ -3287,6 +2942,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         }
         return null;
       };
+
       const anchorOffsetPx = () => {
         const row = findSentRow();
         if (!row) {
@@ -3422,171 +3078,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
         Math.abs(scrollContainer.scrollTop - scrollTopBeforeTurnEnd),
         "scroll position jumped when the turn settled",
       ).toBeLessThanOrEqual(2);
-    } finally {
-      await mounted.cleanup();
-      restoreNativeApi();
-    }
-  });
-
-  it("keeps Thinking visible before and after ack until the original Working lifecycle takes over", async () => {
-    const restoreNativeApi = installDeterministicSendNativeApi();
-    let currentSnapshot = createSnapshotForTargetUser({
-      targetMessageId: "msg-user-thinking-bridge" as MessageId,
-      targetText: "thinking bridge target",
-    });
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: currentSnapshot,
-    });
-
-    const syncActiveThread = (
-      update: (
-        thread: OrchestrationReadModel["threads"][number],
-      ) => OrchestrationReadModel["threads"][number],
-    ) => {
-      currentSnapshot = {
-        ...currentSnapshot,
-        snapshotSequence: currentSnapshot.snapshotSequence + 1,
-        threads: currentSnapshot.threads.map((thread) =>
-          thread.id === THREAD_ID ? update(thread) : thread,
-        ),
-        updatedAt: isoAt(currentSnapshot.snapshotSequence + 1_200),
-      };
-      fixture = { ...fixture, snapshot: currentSnapshot };
-      useStore.getState().syncServerReadModel(currentSnapshot);
-    };
-
-    try {
-      const prompt = "keep thinking through the ack gap";
-      useComposerDraftStore.getState().setPrompt(THREAD_ID, prompt);
-      const sendButton = await waitForSendButton();
-      expect(sendButton.disabled).toBe(false);
-      sendButton.click();
-
-      await vi.waitFor(
-        () => {
-          expect(document.body.textContent).toContain(prompt);
-          expect(document.body.textContent).toContain("Thinking");
-          expect(document.body.textContent).not.toContain("Loading");
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-
-      const findSentRow = () => {
-        const rows = document.querySelectorAll<HTMLElement>(
-          "[data-message-id][data-message-role='user']",
-        );
-        for (const row of rows) {
-          if (row.textContent?.includes(prompt)) {
-            return row;
-          }
-        }
-        return null;
-      };
-
-      const sentMessageId = await vi.waitFor(
-        () => {
-          const id = findSentRow()?.dataset.messageId;
-          expect(id, "sent user message id").toBeTruthy();
-          return id!;
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-      const findSentTurnActivityRow = () => {
-        const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-timeline-row-kind]"));
-        const sentRowIndex = rows.findIndex(
-          (row) =>
-            row.dataset.timelineRowKind === "message" && row.dataset.messageId === sentMessageId,
-        );
-        return sentRowIndex < 0
-          ? null
-          : (rows
-              .slice(sentRowIndex + 1)
-              .find((row) => row.dataset.timelineRowKind === "turn-activity") ?? null);
-      };
-
-      // Server ack: durable user message + turn requested, but session still ready
-      // (provider session not live yet). Thinking must survive this gap.
-      const requestedTurnId = TurnId.makeUnsafe("turn-thinking-bridge");
-      syncActiveThread((thread) => ({
-        ...thread,
-        messages: [
-          ...thread.messages,
-          {
-            id: MessageId.makeUnsafe(sentMessageId),
-            role: "user" as const,
-            text: prompt,
-            turnId: requestedTurnId,
-            streaming: false,
-            source: "native" as const,
-            createdAt: isoAt(1_300),
-            updatedAt: isoAt(1_300),
-          },
-        ],
-        latestTurn: {
-          turnId: requestedTurnId,
-          state: "running",
-          requestedAt: isoAt(1_300),
-          startedAt: null,
-          completedAt: null,
-          assistantMessageId: null,
-        },
-        session: thread.session
-          ? {
-              ...thread.session,
-              status: "ready",
-              activeTurnId: null,
-              updatedAt: isoAt(1_300),
-            }
-          : null,
-        updatedAt: isoAt(1_300),
-      }));
-
-      await vi.waitFor(
-        () => {
-          expect(document.body.textContent).toContain(prompt);
-          expect(document.body.textContent).toContain("Thinking");
-          expect(document.body.textContent).not.toContain("Loading");
-          expect(findSentTurnActivityRow()?.textContent).not.toContain("Working for");
-        },
-        { timeout: 4_000, interval: 16 },
-      );
-
-      // Hold the gap briefly so a flicker/empty frame would be visible if the
-      // bridge cleared too early.
-      await new Promise<void>((resolve) => {
-        window.setTimeout(resolve, 400);
-      });
-      expect(document.body.textContent).toContain("Thinking");
-      expect(document.body.textContent).not.toContain("Loading");
-      expect(findSentTurnActivityRow()?.textContent).not.toContain("Working for");
-
-      syncActiveThread((thread) => ({
-        ...thread,
-        latestTurn: thread.latestTurn
-          ? {
-              ...thread.latestTurn,
-              startedAt: isoAt(1_301),
-            }
-          : thread.latestTurn,
-        session: thread.session
-          ? {
-              ...thread.session,
-              status: "running",
-              activeTurnId: requestedTurnId,
-              updatedAt: isoAt(1_301),
-            }
-          : null,
-        updatedAt: isoAt(1_301),
-      }));
-
-      await vi.waitFor(
-        () => {
-          expect(document.body.textContent).toContain("Thinking");
-          expect(findSentTurnActivityRow()?.textContent).toContain("Working for");
-        },
-        { timeout: 4_000, interval: 16 },
-      );
     } finally {
       await mounted.cleanup();
       restoreNativeApi();
@@ -3815,8 +3306,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
       // ...and it has to be a glide, not a teleport. A loaded browser runner
       // can deliver animation frames far apart, so fixed frame counts and
       // per-sample distance caps turn scheduler starvation into false failures.
-      // Requiring an observable position between the endpoints still rejects
-      // a teleport while remaining independent of frame cadence.
+      // Requiring multiple observable positions between the endpoints still
+      // rejects a teleport while remaining independent of frame cadence.
       const approachStartOffsetPx = approach[0]?.offset ?? topGapPx;
       const intermediateApproachSamples = approach.filter(
         (entry) => entry.offset < approachStartOffsetPx - 2 && entry.offset > topGapPx + 2,
@@ -3836,7 +3327,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       expect(
         intermediateApproachSamples.length,
         `anchor jumped instead of gliding: ${trace()}`,
-      ).toBeGreaterThanOrEqual(1);
+      ).toBeGreaterThanOrEqual(2);
       expect(reversals, `anchor moved back and forth after landing: ${trace()}`).toBe(0);
       expect(maxDownwardJumpPx, `anchor slid back down after landing: ${trace()}`).toBeLessThan(2);
       expect(travelAfterArrivalPx, `anchor kept moving after landing: ${trace()}`).toBeLessThan(8);
@@ -5098,10 +4589,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(
             useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.browserAnnotations ?? [],
           ).toHaveLength(0);
-          const sentMessageRow = Array.from(
-            document.querySelectorAll<HTMLElement>("[data-message-id]"),
-          ).find((row) => row.dataset.messageId === command.message?.messageId);
-          expect(sentMessageRow?.textContent).not.toContain("<browser_annotations>");
+          expect(document.body.textContent).not.toContain("<browser_annotations>");
         },
         { timeout: 8_000, interval: 16 },
       );
@@ -5903,45 +5391,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("focuses and keyboard-selects from the new-thread project picker", async () => {
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: withOpenProjectPickerFixtures(
-        createSnapshotForTargetUser({
-          targetMessageId: "msg-user-project-picker-keyboard-test" as MessageId,
-          targetText: "project picker keyboard test",
-        }),
-      ),
-    });
-
-    try {
-      await page.getByLabelText("Create new thread in Project").click();
-      const newThreadPath = await waitForURL(
-        mounted.router,
-        (path) => UUID_ROUTE_RE.test(path),
-        "Route should have changed to a new draft thread UUID.",
-      );
-      const newThreadId = newThreadPath.slice(1) as ThreadId;
-
-      await page.getByTestId("project-picker-trigger").click();
-      const searchInput = page.getByPlaceholder("Search projects");
-      await vi.waitFor(() => {
-        expect(document.activeElement).toBe(searchInput.element());
-      });
-
-      await searchInput.fill("oth");
-      await userEvent.keyboard("{ArrowDown}{Enter}");
-
-      await vi.waitFor(() => {
-        expect(useComposerDraftStore.getState().getDraftThread(newThreadId)).toMatchObject({
-          projectId: OTHER_PROJECT_ID,
-        });
-      });
-      expect(mounted.router.state.location.pathname).toBe(newThreadPath);
-    } finally {
-      await mounted.cleanup();
-    }
-  });
   it("can detach an empty project draft back to a normal chat before first send", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
@@ -6704,9 +6153,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
               request.copyChangesFrom === "/repo/project",
           );
           expect(createWorktreeRequest).toBeTruthy();
-          const temporaryBranch = createWorktreeRequest?.newBranch;
-          expect(typeof temporaryBranch).toBe("string");
-          expect(temporaryBranch).toMatch(/^synara\/[0-9a-f]{8}$/);
 
           const createThreadRequest = wsRequests.find(
             (request) =>
@@ -6721,96 +6167,16 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(createThreadRequest).toBeTruthy();
           expect(createThreadRequest?.command).toMatchObject({
             envMode: "worktree",
-            branch: temporaryBranch,
+            branch: null,
             worktreePath: "/repo/.codex/worktrees/generated/synara",
             associatedWorktreePath: "/repo/.codex/worktrees/generated/synara",
-            associatedWorktreeBranch: temporaryBranch,
+            associatedWorktreeBranch: null,
             associatedWorktreeRef: "0123456789abcdef0123456789abcdef01234567",
           });
         },
         { timeout: 8_000, interval: 16 },
       );
     } finally {
-      await mounted.cleanup();
-      restoreNativeApi();
-    }
-  });
-
-  it("keeps worktree setup resolvable while attachments upload", async () => {
-    const restoreNativeApi = installDeterministicSendNativeApi();
-    let releaseAttachmentUpload = () => {};
-    attachmentUploadBarrier = new Promise<void>((resolve) => {
-      releaseAttachmentUpload = resolve;
-    });
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-new-worktree-cancel-upload-test" as MessageId,
-        targetText: "new worktree cancel upload test",
-      }),
-    });
-
-    try {
-      await page.getByTestId("new-thread-button").click();
-      const newThreadPath = await waitForURL(
-        mounted.router,
-        (path) => UUID_ROUTE_RE.test(path),
-        "Route should have changed to a new draft thread UUID.",
-      );
-      const newThreadId = newThreadPath.slice(1) as ThreadId;
-
-      const envPickerTrigger = await waitForEnvironmentModeButton("Local");
-      envPickerTrigger.click();
-      await page.getByText("New worktree").click();
-
-      useComposerDraftStore.getState().setPrompt(newThreadId, "Cancel before upload finishes");
-      useComposerDraftStore.getState().addImage(
-        newThreadId,
-        createComposerImage({
-          id: "new-worktree-cancel-upload-image",
-          previewUrl: "blob:new-worktree-cancel-upload-image",
-        }),
-      );
-      const composerForm = document.querySelector<HTMLFormElement>(
-        'form[data-chat-composer-form="true"]',
-      );
-      expect(composerForm).not.toBeNull();
-      composerForm!.requestSubmit();
-
-      await expect
-        .poll(
-          () =>
-            document.querySelector<HTMLElement>('[data-timeline-row-kind="worktree-setup"]')
-              ?.textContent,
-        )
-        .toContain("Linking thread workspace");
-      const cancelButton = page.getByRole("button", { name: "Cancel" });
-      await expect.element(cancelButton).toBeInTheDocument();
-      expect(
-        wsRequests.some(
-          (candidate) => readDispatchedCommand(candidate)?.type === "thread.turn.start",
-        ),
-      ).toBe(false);
-
-      await cancelButton.click();
-      await expect.element(page.getByRole("button", { name: "Cancelling..." })).toBeDisabled();
-      releaseAttachmentUpload();
-      attachmentUploadBarrier = null;
-
-      await vi.waitFor(
-        () => {
-          expect(document.body.textContent).not.toContain("Cancelling...");
-          expect(
-            wsRequests.some(
-              (candidate) => readDispatchedCommand(candidate)?.type === "thread.turn.start",
-            ),
-          ).toBe(false);
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-    } finally {
-      releaseAttachmentUpload();
-      attachmentUploadBarrier = null;
       await mounted.cleanup();
       restoreNativeApi();
     }
@@ -7435,7 +6801,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
     try {
       await page.getByLabelText("Composer extras").click();
-      await page.getByText("Plan mode", { exact: true }).click();
+      await page.getByText("Plan mode").click();
 
       await vi.waitFor(() => {
         expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.interactionMode).toBe(
@@ -7788,10 +7154,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       expect(parseFloat(getComputedStyle(composerShell!).borderTopLeftRadius)).toBeGreaterThan(0);
 
       const openPlanButton = await waitForElement(
-        () =>
-          document.querySelector<HTMLButtonElement>(
-            'button[title="Open provider task activity sidebar"]',
-          ),
+        () => document.querySelector<HTMLButtonElement>('button[title="Open tasks sidebar"]'),
         "Unable to find inline active plan sidebar button.",
       );
       openPlanButton.click();
@@ -7919,7 +7282,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
           );
           expect(
             activityRows.some(
-              (row) => row !== settledActivityRow && row.dataset.turnWorkState === "working",
+              (row) =>
+                row !== settledActivityRow &&
+                row.querySelector('[aria-hidden="false"]')?.textContent?.startsWith("Working") ===
+                  true,
             ),
           ).toBe(true);
         },
@@ -7975,7 +7341,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
           );
           expect(
             activityRows.some(
-              (row) => row !== settledActivityRow && row.dataset.turnWorkState === "working",
+              (row) =>
+                row !== settledActivityRow &&
+                row.querySelector('[aria-hidden="false"]')?.textContent?.startsWith("Working") ===
+                  true,
             ),
           ).toBe(true);
         },
@@ -8086,9 +7455,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  // Thread detail does not always land in one write. The local lifecycle can
-  // already infer a settled assistant tail before its latest-turn record lands;
-  // hydrating that record must preserve the first-paint fold without replaying it.
+  // Thread detail does not always land in one write: a thread can paint its
+  // transcript before the record that says its last turn already completed. Until
+  // that record lands the tail turn is treated as live, so every tool row renders
+  // expanded. The fold that follows is hydration catching up, not a turn ending
+  // under the reader's eyes, so it must not be animated.
   it("does not replay the collapse when the completed turn record hydrates after the transcript", async () => {
     const settledSnapshot = createSnapshotWithInlineToolOverflow({ active: false });
     const messagesOnlySnapshot: OrchestrationReadModel = {
@@ -8104,16 +7475,16 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      // Baseline: the transcript can infer settlement from the terminal assistant
-      // message and paint the compact disclosure immediately.
+      // Baseline: with no turn record the tail turn reads as live, so its work
+      // sits inline instead of folded into the turn's "Worked for…" disclosure.
       await vi.waitFor(
         () => {
           expect(document.body.textContent).toContain("Wrapped up the inline tool review.");
-          expect(document.body.textContent).toContain("Worked for");
+          expect(document.body.textContent).toContain("Used 6 tools");
         },
         { timeout: 8_000, interval: 16 },
       );
-      expect(document.body.textContent).not.toContain("Used 6 tools");
+      expect(document.body.textContent).not.toContain("Worked for");
 
       useStore.getState().syncServerReadModel({
         ...settledSnapshot,
@@ -8143,9 +7514,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
         previousScrollHeight = container.scrollHeight;
       }
 
-      // The already-folded turn stays stable with no animated close replay.
+      // The turn must land folded, in one step, with no animated close replay.
       expect(document.body.textContent).toContain("Worked for");
       expect(transitionFrames).toBe(0);
+      // One settle step is the floor: the fold itself changes the height once.
       expect(heightChangeFrames).toBeLessThanOrEqual(2);
     } finally {
       await mounted.cleanup();

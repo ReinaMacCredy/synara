@@ -11,5 +11,7 @@ describe("Supervised draft route", () => {
     expect(deferredChatView).toContain("supervisedMode");
     expect(source).not.toContain("ensureSupervisedRoom");
     expect(source).toContain("primarySupervisorThreadId");
+    expect(source).toContain("resolvePrimarySupervisorThreadId(supervisedSeats)");
+    expect(source).not.toContain("seat.projectId === selectedProject.id");
   });
 });

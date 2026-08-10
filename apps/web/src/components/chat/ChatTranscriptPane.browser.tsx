@@ -14,7 +14,6 @@ const EMPTY_WORK_GROUPS: Record<string, boolean> = {};
 const EMPTY_TURN_DIFFS = new Map();
 const EMPTY_REVERT_COUNTS = new Map();
 const NOOP = () => {};
-const ACCEPT_SELECTION = () => true;
 const TIMELINE_ENTRIES = [
   {
     id: "assistant-message-entry",
@@ -35,7 +34,7 @@ async function settleLayout(): Promise<void> {
   await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
 }
 
-function TranscriptPerfHarness(props: { onTranscriptRender: ProfilerOnRenderCallback }) {
+function TranscriptPerfHarness(props: { onTranscriptRender: () => void }) {
   const [composerValue, setComposerValue] = useState("");
   const composerImagesRef = useRef<readonly []>([]);
   const composerFilesRef = useRef<readonly []>([]);
@@ -58,7 +57,7 @@ function TranscriptPerfHarness(props: { onTranscriptRender: ProfilerOnRenderCall
     composerImagesRef,
     composerFilesRef,
     composerAssistantSelectionsRef,
-    addComposerAssistantSelectionToDraft: ACCEPT_SELECTION,
+    addComposerAssistantSelectionToDraft: () => true,
     scheduleComposerFocus: NOOP,
     onMessagesClickCaptureBase: NOOP,
     onMessagesPointerCancelBase: NOOP,
@@ -73,6 +72,10 @@ function TranscriptPerfHarness(props: { onTranscriptRender: ProfilerOnRenderCall
   const handleComposerChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setComposerValue(event.target.value);
   };
+  const handleTranscriptRender: ProfilerOnRenderCallback = () => {
+    props.onTranscriptRender();
+  };
+
   return (
     <div>
       <label htmlFor="composer-input">Composer</label>
@@ -82,7 +85,7 @@ function TranscriptPerfHarness(props: { onTranscriptRender: ProfilerOnRenderCall
         value={composerValue}
         onChange={handleComposerChange}
       />
-      <Profiler id="chat-transcript-pane" onRender={props.onTranscriptRender}>
+      <Profiler id="chat-transcript-pane" onRender={handleTranscriptRender}>
         <ChatTranscriptPane
           activeThreadId="thread-transcript-perf"
           activeTurnInProgress={false}
@@ -133,40 +136,29 @@ describe("ChatTranscriptPane", () => {
     document.body.innerHTML = "";
   });
 
-  it("does not perform transcript render work when only composer text changes", async () => {
-    const transcriptCommits: Array<{
-      phase: "mount" | "update" | "nested-update";
-      actualDuration: number;
-      baseDuration: number;
-    }> = [];
+  it("does not re-render the transcript subtree when only composer text changes", async () => {
+    let transcriptCommitCount = 0;
 
     const screen = await render(
       <TranscriptPerfHarness
-        onTranscriptRender={(_id, phase, actualDuration, baseDuration) => {
-          transcriptCommits.push({ phase, actualDuration, baseDuration });
+        onTranscriptRender={() => {
+          transcriptCommitCount += 1;
         }}
       />,
     );
     try {
       await vi.waitFor(() => {
-        expect(transcriptCommits.length).toBeGreaterThan(0);
+        expect(transcriptCommitCount).toBeGreaterThan(0);
       });
-      await settleLayout();
 
-      const baselineCommitCount = transcriptCommits.length;
+      const baselineCommitCount = transcriptCommitCount;
       await page.getByPlaceholder("Type composer text").fill("reply follow up");
 
       await vi.waitFor(() => {
         expect(screen.container.querySelector("#composer-input")).toHaveValue("reply follow up");
       });
 
-      const composerCommits = transcriptCommits.slice(baselineCommitCount);
-      expect(
-        composerCommits.every(
-          (commit) => commit.actualDuration <= Math.max(0.25, commit.baseDuration * 0.01),
-        ),
-        `Composer update performed transcript work: ${JSON.stringify(composerCommits)}`,
-      ).toBe(true);
+      expect(transcriptCommitCount).toBe(baselineCommitCount);
     } finally {
       await screen.unmount();
     }

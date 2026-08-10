@@ -158,7 +158,16 @@ export function validateProfileDraft(
   }
   if (!draft.model.trim()) errors.model = "Model is required.";
   try {
-    if (draft.providerOptions.trim()) JSON.parse(draft.providerOptions);
+    if (draft.providerOptions.trim()) {
+      const providerOptions: unknown = JSON.parse(draft.providerOptions);
+      if (
+        providerOptions === null ||
+        typeof providerOptions !== "object" ||
+        Array.isArray(providerOptions)
+      ) {
+        errors.providerOptions = "Provider options must be a JSON object.";
+      }
+    }
   } catch {
     errors.providerOptions = "Provider options must be valid JSON.";
   }
@@ -764,8 +773,8 @@ export function SupervisedOrchestrationSettingsPanel(props: { readonly active: b
   const refresh = async () => {
     const api = readNativeApi();
     if (!api) throw new Error("Synara server unavailable.");
-    const next = await api.orchestration.getSnapshot();
-    setSnapshot(next.supervisedOrchestration ?? shell);
+    const next = await api.orchestration.getSupervisedSettings();
+    setSnapshot(next.governance.orchestration);
     syncServerShellSnapshot(await api.orchestration.getShellSnapshot());
   };
 
@@ -775,8 +784,8 @@ export function SupervisedOrchestrationSettingsPanel(props: { readonly active: b
     void (async () => {
       const api = readNativeApi();
       if (!api) return;
-      const next = await api.orchestration.getSnapshot();
-      if (!cancelled) setSnapshot(next.supervisedOrchestration ?? shell);
+      const next = await api.orchestration.getSupervisedSettings();
+      if (!cancelled) setSnapshot(next.governance.orchestration);
     })().catch((cause: unknown) => {
       if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
     });

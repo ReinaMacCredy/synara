@@ -843,10 +843,7 @@ describe("deriveSupervisedComposerHierarchyItems", () => {
       projectId: "project-1",
     });
 
-    expect(rows.map((row) => row.threadId)).toEqual([
-      supervisor.threadId,
-      peer.threadId,
-    ]);
+    expect(rows.map((row) => row.threadId)).toEqual([supervisor.threadId, peer.threadId]);
     expect(rows[1]).toMatchObject({ statusLabel: "Running", statusKind: "running" });
   });
 

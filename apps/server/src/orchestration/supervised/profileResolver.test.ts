@@ -61,6 +61,14 @@ it.effect(
         "--disable",
         "multi_agent_v2",
       ]);
+      assert.deepEqual(codexProfileConfigArgs({ ...preset.runtime, providerOptions: null }), []);
+      assert.equal(
+        profileLaunchIssue({
+          ...preset,
+          runtime: { ...preset.runtime, providerOptions: null },
+        }),
+        null,
+      );
       assert.match(
         profileLaunchIssue({
           ...preset,

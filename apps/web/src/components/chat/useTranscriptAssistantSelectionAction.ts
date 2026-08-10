@@ -4,7 +4,6 @@
 
 import { PROVIDER_SEND_TURN_MAX_ATTACHMENTS } from "@synara/contracts";
 import {
-  useCallback,
   useEffect,
   useRef,
   useState,
@@ -94,122 +93,92 @@ export function useTranscriptAssistantSelectionAction(
     enabled && pendingActionState !== null && pendingActionState.threadId === threadId
       ? pendingActionState.action
       : null;
-  const setPendingTranscriptSelectionAction = useCallback(
-    (action: PendingTranscriptSelectionAction | null) =>
-      setPendingActionState(
-        action === null ? null : { threadId: pendingActionThreadIdRef.current, action },
-      ),
-    [],
-  );
+  const setPendingTranscriptSelectionAction = (action: PendingTranscriptSelectionAction | null) =>
+    setPendingActionState(
+      action === null ? null : { threadId: pendingActionThreadIdRef.current, action },
+    );
 
-  const dismissTranscriptSelectionAction = useCallback(() => {
+  const dismissTranscriptSelectionAction = () => {
     setPendingTranscriptSelectionAction(null);
-  }, [setPendingTranscriptSelectionAction]);
+  };
 
-  const onMessagesClickCapture: MouseEventHandler<HTMLDivElement> = useCallback(
-    (event) => {
-      dismissTranscriptSelectionAction();
-      onMessagesClickCaptureBase(event);
-    },
-    [dismissTranscriptSelectionAction, onMessagesClickCaptureBase],
-  );
+  const onMessagesClickCapture: MouseEventHandler<HTMLDivElement> = (event) => {
+    dismissTranscriptSelectionAction();
+    onMessagesClickCaptureBase(event);
+  };
 
-  const onMessagesPointerDown: PointerEventHandler<HTMLDivElement> = useCallback(
-    (event) => {
-      dismissTranscriptSelectionAction();
-      onMessagesPointerDownBase(event);
-    },
-    [dismissTranscriptSelectionAction, onMessagesPointerDownBase],
-  );
+  const onMessagesPointerDown: PointerEventHandler<HTMLDivElement> = (event) => {
+    dismissTranscriptSelectionAction();
+    onMessagesPointerDownBase(event);
+  };
 
-  const onMessagesPointerUp: PointerEventHandler<HTMLDivElement> = useCallback(
-    (event) => {
-      onMessagesPointerUpBase(event);
-    },
-    [onMessagesPointerUpBase],
-  );
+  const onMessagesPointerUp: PointerEventHandler<HTMLDivElement> = (event) => {
+    onMessagesPointerUpBase(event);
+  };
 
-  const onMessagesPointerCancel: PointerEventHandler<HTMLDivElement> = useCallback(
-    (event) => {
-      dismissTranscriptSelectionAction();
-      onMessagesPointerCancelBase(event);
-    },
-    [dismissTranscriptSelectionAction, onMessagesPointerCancelBase],
-  );
+  const onMessagesPointerCancel: PointerEventHandler<HTMLDivElement> = (event) => {
+    dismissTranscriptSelectionAction();
+    onMessagesPointerCancelBase(event);
+  };
 
-  const onMessagesScroll = useCallback(() => {
+  const onMessagesScroll = () => {
     dismissTranscriptSelectionAction();
     onMessagesScrollBase();
-  }, [dismissTranscriptSelectionAction, onMessagesScrollBase]);
+  };
 
-  const onMessagesWheel: WheelEventHandler<HTMLDivElement> = useCallback(
-    (event) => {
-      dismissTranscriptSelectionAction();
-      onMessagesWheelBase(event);
-    },
-    [dismissTranscriptSelectionAction, onMessagesWheelBase],
-  );
+  const onMessagesWheel: WheelEventHandler<HTMLDivElement> = (event) => {
+    dismissTranscriptSelectionAction();
+    onMessagesWheelBase(event);
+  };
 
-  const onMessagesTouchStart: TouchEventHandler<HTMLDivElement> = useCallback(
-    (event) => {
-      dismissTranscriptSelectionAction();
-      onMessagesTouchStartBase(event);
-    },
-    [dismissTranscriptSelectionAction, onMessagesTouchStartBase],
-  );
+  const onMessagesTouchStart: TouchEventHandler<HTMLDivElement> = (event) => {
+    dismissTranscriptSelectionAction();
+    onMessagesTouchStartBase(event);
+  };
 
-  const onMessagesTouchMove: TouchEventHandler<HTMLDivElement> = useCallback(
-    (event) => {
-      dismissTranscriptSelectionAction();
-      onMessagesTouchMoveBase(event);
-    },
-    [dismissTranscriptSelectionAction, onMessagesTouchMoveBase],
-  );
+  const onMessagesTouchMove: TouchEventHandler<HTMLDivElement> = (event) => {
+    dismissTranscriptSelectionAction();
+    onMessagesTouchMoveBase(event);
+  };
 
-  const onMessagesTouchEnd: TouchEventHandler<HTMLDivElement> = useCallback(
-    (event) => {
-      onMessagesTouchEndBase(event);
-    },
-    [onMessagesTouchEndBase],
-  );
+  const onMessagesTouchEnd: TouchEventHandler<HTMLDivElement> = (event) => {
+    onMessagesTouchEndBase(event);
+  };
 
-  const onMessagesMouseUp: MouseEventHandler<HTMLDivElement> = useCallback(
-    (event) => {
-      const container = event.currentTarget;
-      const clientX = event.clientX;
-      const clientY = event.clientY;
-      window.requestAnimationFrame(() => {
-        if (!enabled || !container) {
-          setPendingTranscriptSelectionAction(null);
-          return;
-        }
+  const onMessagesMouseUp: MouseEventHandler<HTMLDivElement> = (event) => {
+    const container = event.currentTarget;
+    const clientX = event.clientX;
+    const clientY = event.clientY;
+    window.requestAnimationFrame(() => {
+      if (!enabled || !container) {
+        setPendingTranscriptSelectionAction(null);
+        return;
+      }
 
-        const selectionState = readTranscriptAssistantSelection({ container });
-        if (
-          !selectionState ||
-          (canReferenceAssistantSelection &&
-            !canReferenceAssistantSelection(selectionState.selection))
-        ) {
-          setPendingTranscriptSelectionAction(null);
-          return;
-        }
+      const selectionState = readTranscriptAssistantSelection({ container });
+      if (
+        !selectionState ||
+        (canReferenceAssistantSelection &&
+          !canReferenceAssistantSelection(selectionState.selection))
+      ) {
+        setPendingTranscriptSelectionAction(null);
+        return;
+      }
 
-        const layout = resolveTranscriptSelectionActionLayout({
-          selectionRect: selectionState.selectionRect,
-          pointer: { x: clientX, y: clientY },
-        });
-        setPendingTranscriptSelectionAction({
-          selection: selectionState.selection,
-          left: layout.left,
-          top: layout.top,
-          placement: layout.placement,
-        });
+      const layout = resolveTranscriptSelectionActionLayout({
+        selectionRect: selectionState.selectionRect,
+        pointer: { x: clientX, y: clientY },
       });
-    },
-    [canReferenceAssistantSelection, enabled, setPendingTranscriptSelectionAction],
-  );
+      setPendingTranscriptSelectionAction({
+        selection: selectionState.selection,
+        left: layout.left,
+        top: layout.top,
+        placement: layout.placement,
+      });
+    });
+  };
 
-  const commitTranscriptAssistantSelection = useCallback(() => {
+  const commitTranscriptAssistantSelection = () => {
     const pendingSelection = pendingTranscriptSelectionAction;
     if (!pendingSelection) {
       return;
@@ -256,16 +225,7 @@ export function useTranscriptAssistantSelectionAction(
       window.getSelection()?.removeAllRanges();
       scheduleComposerFocus();
     }
-  }, [
-    addComposerAssistantSelectionToDraft,
-    canReferenceAssistantSelection,
-    composerAssistantSelectionsRef,
-    composerFilesRef,
-    composerImagesRef,
-    pendingTranscriptSelectionAction,
-    scheduleComposerFocus,
-    setPendingTranscriptSelectionAction,
-  ]);
+  };
 
   useEffect(() => {
     if (!pendingTranscriptSelectionAction) {

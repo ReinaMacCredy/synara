@@ -56,15 +56,6 @@ import { useDesktopTopBarWindowControlsGutterClassName } from "~/hooks/useDeskto
 export const RIGHT_DOCK_MIN_WIDTH = 26 * 16;
 export const RIGHT_DOCK_DEFAULT_WIDTH = "max(28rem, calc(50vw - 8rem))";
 
-// Pane kinds whose content has a natural width, opened at that size rather than
-// at the even split. The device pane frames a portrait phone, so its useful
-// width is whatever lets the phone reach full height: a ~19.5:9 chassis stays
-// height-bound well past 480px, and opening narrower only shrinks the device
-// while leaving empty space above and below it.
-const RIGHT_DOCK_PREFERRED_WIDTH: Partial<Record<RightDockPaneKind, number>> = {
-  device: 38 * 16,
-};
-
 interface RightDockProps {
   state: RightDockThreadState;
   minWidth: number;
@@ -198,7 +189,6 @@ export function RightDock(props: RightDockProps) {
   // freely; the next open re-centers the split.
   const contentRef = useRef<HTMLDivElement | null>(null);
   const minWidth = props.minWidth;
-  const activePaneKind = activePane?.kind ?? null;
   useEffect(() => {
     if (!props.state.open) {
       return;
@@ -208,15 +198,11 @@ export function RightDock(props: RightDockProps) {
     if (!wrapper || !shell) {
       return;
     }
-    // A phone-shaped pane has a natural width: half the shell leaves the device
-    // stranded in empty space, so kinds that render a fixed-aspect object open
-    // at their own comfortable size instead of the even split.
-    const preferredWidth = activePaneKind ? RIGHT_DOCK_PREFERRED_WIDTH[activePaneKind] : undefined;
-    const openWidth = preferredWidth ?? Math.round(shell.getBoundingClientRect().width / 2);
-    if (openWidth > 0) {
-      wrapper.style.setProperty("--sidebar-width", `${Math.max(minWidth, openWidth)}px`);
+    const halfWidth = Math.round(shell.getBoundingClientRect().width / 2);
+    if (halfWidth > 0) {
+      wrapper.style.setProperty("--sidebar-width", `${Math.max(minWidth, halfWidth)}px`);
     }
-  }, [props.state.open, minWidth, activePaneKind]);
+  }, [props.state.open, minWidth]);
   const renderedPanes = props.state.panes.filter(
     (pane) => pane.id === activePane?.id || keepMountedPaneIds.has(pane.id),
   );

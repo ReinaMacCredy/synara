@@ -26,14 +26,13 @@ import { cn } from "~/lib/utils";
 import { ELEVATED_HOVER_SURFACE_CLASS_NAME } from "~/surfaceStyles";
 import { FolderClosed } from "../FolderClosed";
 import { SpaceIcon } from "../SpaceIcon";
-import { PickerPanelShell } from "./PickerPanelShell";
 import { PickerTriggerButton } from "./PickerTriggerButton";
+import { PickerPanelShell } from "./PickerPanelShell";
 import {
   Combobox,
   ComboboxEmpty,
   ComboboxGroup,
   ComboboxGroupLabel,
-  ComboboxInput,
   ComboboxItem,
   ComboboxList,
   ComboboxPopup,
@@ -620,17 +619,9 @@ export const ProjectPicker = memo(function ProjectPicker({
       )}
       <ComboboxPopup align={align} side={side} className="p-0">
         <PickerPanelShell
-          searchInput={
-            <ComboboxInput
-              className="rounded-md border-border/60 bg-background shadow-none before:hidden has-focus-visible:border-neutral-500/15 has-focus-visible:ring-0 [&_input]:font-sans"
-              inputClassName="ring-0"
-              placeholder={searchPlaceholder}
-              showTrigger={false}
-              size="sm"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          }
+          searchPlaceholder={searchPlaceholder}
+          query={query}
+          onQueryChange={setQuery}
           footer={
             <>
               <button

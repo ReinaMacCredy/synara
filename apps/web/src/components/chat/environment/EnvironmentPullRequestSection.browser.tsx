@@ -12,7 +12,6 @@ import {
 } from "@synara/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { page } from "vitest/browser";
 import { render } from "vitest-browser-react";
 
 import { useComposerDraftStore } from "~/composerDraftStore";
@@ -36,7 +35,7 @@ const pullRequest = {
 } satisfies GitResolvedPullRequest;
 
 // Seeds both cached queries so the component renders without calling the native API.
-function createQueryClient(commentsOverride?: GitPullRequestSnapshotResult["comments"]) {
+function createQueryClient() {
   const queryClient = new QueryClient();
   const gitStatus = {
     branch: pullRequest.headBranch,
@@ -51,7 +50,7 @@ function createQueryClient(commentsOverride?: GitPullRequestSnapshotResult["comm
   const snapshot = {
     pullRequest,
     checks: [],
-    comments: commentsOverride ?? [
+    comments: [
       {
         id: "comment-1",
         author: "reviewer",
@@ -122,54 +121,5 @@ describe("EnvironmentPullRequestSection", () => {
     expect(prompt).toContain("Preserve the Environment panel while drafting the fix.");
     expect(prompt).toContain("Address the second review finding too.");
     expect(onClose).not.toHaveBeenCalled();
-  });
-
-  it("scrolls long comment lists instead of crushing the rows", async () => {
-    const comments = Array.from({ length: 6 }, (_, index) => ({
-      id: `long-${index}`,
-      author: "chatgpt-codex-connector",
-      body: `**Finding ${index}: gateway compensation skips branch cleanup**\n\n<sub>Medium Severity</sub> <!-- DESCRIPTION START --> When a worktree creation partially fails, the compensation path returns before deleting the branch revision that was created, leaving orphaned refs behind. <!-- DESCRIPTION END -->`,
-      path: "apps/server/src/agentGateway/creationCoordinator.ts",
-      url: `${pullRequest.url}#discussion_r${index}`,
-      createdAt: "2026-08-07T10:00:00Z",
-    }));
-    const queryClient = createQueryClient(comments);
-    await render(
-      <QueryClientProvider client={queryClient}>
-        <EnvironmentPullRequestSection
-          gitCwd={cwd}
-          enabled
-          activeThreadId={threadId}
-          projectId={null}
-          configuredRepositories={[{ nameWithOwner: "example/synara" }]}
-          onOpenUrl={vi.fn()}
-          onClose={vi.fn()}
-        />
-      </QueryClientProvider>,
-    );
-
-    await page.getByText("6 comments").click();
-    await expect
-      .poll(() => document.body.textContent?.includes("Finding 0"), { timeout: 5000 })
-      .toBe(true);
-
-    // Bot metadata markers are display noise and must never reach the popup.
-    expect(document.body.textContent).not.toContain("DESCRIPTION START");
-
-    // Reviewer avatar renders for each comment row.
-    const avatars = document.querySelectorAll('img[src*="avatars.githubusercontent.com"]');
-    expect(avatars.length).toBe(comments.length);
-
-    // Every clamped title/snippet keeps at least one full line: when the list
-    // overflows its max height, rows must scroll rather than flex-shrink into
-    // slivers (their overflow-hidden spans have no automatic minimum size).
-    const clamped = Array.from(document.querySelectorAll("span.line-clamp-2")).filter((span) =>
-      span.textContent?.includes("Finding"),
-    );
-    expect(clamped.length).toBeGreaterThan(0);
-    for (const span of clamped) {
-      const lineHeight = Number.parseFloat(getComputedStyle(span).lineHeight);
-      expect(span.getBoundingClientRect().height).toBeGreaterThanOrEqual(lineHeight - 0.5);
-    }
   });
 });

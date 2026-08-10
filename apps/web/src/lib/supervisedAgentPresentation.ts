@@ -1,4 +1,4 @@
-import type { AgentSeat } from "@synara/contracts";
+import { ThreadId, type AgentSeat } from "@synara/contracts";
 
 import type { SubagentStatusKind } from "./subagentPresentation";
 
@@ -72,4 +72,39 @@ export function compareSupervisedAgentSeats(left: AgentSeat, right: AgentSeat): 
       SUPERVISED_AGENT_ROLE_ORDER[right.identityRole] ||
     (left.displayName ?? left.id).localeCompare(right.displayName ?? right.id)
   );
+}
+
+const SUPERVISOR_CONVERSATION_LIFECYCLES = new Set<AgentSeat["lifecycleState"]>([
+  "requested",
+  "provisioning",
+  "bootstrapping",
+  "ready",
+  "active",
+  "draining",
+  "recovering",
+]);
+
+export function resolvePrimarySupervisorThreadId(seats: readonly AgentSeat[]): ThreadId | null {
+  const supervisors = seats.filter(
+    (seat) =>
+      seat.identityRole === "supervisor" &&
+      seat.threadId !== null &&
+      SUPERVISOR_CONVERSATION_LIFECYCLES.has(seat.lifecycleState),
+  );
+  return (
+    supervisors.find((seat) => seat.concern === "primary")?.threadId ??
+    supervisors[0]?.threadId ??
+    null
+  );
+}
+
+export function collectSupervisedConversationThreadIds(input: {
+  readonly roomIds: readonly string[];
+  readonly seats: readonly AgentSeat[];
+}): Set<ThreadId> {
+  const threadIds = new Set(input.roomIds.map((roomId) => ThreadId.makeUnsafe(roomId)));
+  for (const seat of input.seats) {
+    if (seat.threadId !== null) threadIds.add(seat.threadId);
+  }
+  return threadIds;
 }

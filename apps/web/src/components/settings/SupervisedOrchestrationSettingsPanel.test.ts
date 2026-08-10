@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { ProfilePresetId, type ProfilePreset } from "@synara/contracts";
 import { describe, expect, it } from "vitest";
 
@@ -29,6 +31,17 @@ const existingProfile = {
 } as ProfilePreset;
 
 describe("supervised orchestration profile editor", () => {
+  it("loads presets from the canonical durable Supervised settings snapshot", () => {
+    const source = readFileSync(
+      new URL("./SupervisedOrchestrationSettingsPanel.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("api.orchestration.getSupervisedSettings()");
+    expect(source).toContain("next.governance.orchestration");
+    expect(source).not.toContain("next.supervisedOrchestration ?? shell");
+  });
+
   it("reports required, duplicate-name, and JSON errors locally", () => {
     expect(
       validateProfileDraft({ ...EMPTY_DRAFT, name: "", model: "" }, [existingProfile]),
@@ -44,6 +57,12 @@ describe("supervised orchestration profile editor", () => {
     expect(
       validateProfileDraft({ ...EMPTY_DRAFT, providerOptions: '{ "enabled": true, }' }, []),
     ).toMatchObject({ providerOptions: "Provider options must be valid JSON." });
+
+    for (const providerOptions of ["null", "[]", '"invalid"', "false"]) {
+      expect(validateProfileDraft({ ...EMPTY_DRAFT, providerOptions }, [])).toMatchObject({
+        providerOptions: "Provider options must be a JSON object.",
+      });
+    }
   });
 
   it("enables saving only for a new or changed draft", () => {

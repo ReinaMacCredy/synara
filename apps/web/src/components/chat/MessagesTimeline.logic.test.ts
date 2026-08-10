@@ -301,7 +301,7 @@ describe("computeStableMessagesTimelineRows", () => {
       kind: "worktree-setup",
       id: "worktree-setup-row",
       open,
-      steps: [{ id: "create-worktree", label: "Creating worktree", status }],
+      steps: [{ id: "create-worktree", label: "Creating branch and worktree", status }],
     });
 
     const first = computeStableMessagesTimelineRows([makeRow("active", true)], emptyStableRows());
@@ -917,7 +917,7 @@ describe("deriveMessagesTimelineRows", () => {
       text: "A child reports a scoped change request.",
       createdAt,
       streaming: false,
-      source: "native",
+      source: "supervised",
     },
   });
 
@@ -1149,17 +1149,6 @@ describe("deriveMessagesTimelineRows", () => {
       state: "working",
       createdAt: null,
     });
-    expect(
-      deriveMessagesTimelineRows({
-        ...baseInput,
-        isWorking: true,
-        activeTurnInProgress: true,
-        activeTurnId: TurnId.makeUnsafe("t1"),
-        activeTurnStartedAt: null,
-        showReasoningStatus: false,
-        timelineEntries: [userEntry("u1", "2026-01-01T00:00:00Z")],
-      }).some((row) => row.kind === "reasoning-status"),
-    ).toBe(false);
     expect(started.find((row) => row.kind === "turn-activity")).toMatchObject({
       id: "turn-activity:u1",
       state: "working",
@@ -1450,8 +1439,7 @@ describe("deriveMessagesTimelineRows", () => {
 
   const worktreeSetupSnapshot = (): WorktreeSetupSnapshot => ({
     steps: [
-      { id: "create-branch", label: "Creating branch", status: "done" },
-      { id: "create-worktree", label: "Creating worktree", status: "done" },
+      { id: "create-worktree", label: "Creating branch and worktree", status: "done" },
       { id: "prepare-thread", label: "Linking thread workspace", status: "active" },
       { id: "start-session", label: "Starting session", status: "pending" },
     ],

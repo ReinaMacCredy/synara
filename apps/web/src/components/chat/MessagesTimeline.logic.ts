@@ -530,7 +530,6 @@ export function deriveMessagesTimelineRows(input: {
   activeTurnInProgress?: boolean;
   activeTurnId?: TurnId | null | undefined;
   activeTurnStartedAt: string | null;
-  showReasoningStatus?: boolean;
   turnDiffSummaryByAssistantMessageId: ReadonlyMap<MessageId, TurnDiffSummary>;
   revertTurnCountByUserMessageId: ReadonlyMap<MessageId, number>;
 }): MessagesTimelineRow[] {
@@ -733,8 +732,7 @@ export function deriveMessagesTimelineRows(input: {
 
   // Live lifecycle: one row is present from optimistic Send onward.
   // The provider start timestamp only updates its label; it never changes row
-  // topology. The optimistic Loading phase suppresses the separate Thinking
-  // narration until the durable turn acknowledgement arrives.
+  // topology or inserts a competing synthetic Thinking row.
   if (input.isWorking && !(input.worktreeSetup && input.worktreeSetupOpen)) {
     const insertIndex = findLiveTurnActivityInsertIndex(nextRows);
     const boundaryRow = nextRows[insertIndex - 1];
@@ -756,7 +754,6 @@ export function deriveMessagesTimelineRows(input: {
       });
     }
     if (
-      input.showReasoningStatus !== false &&
       !settledActivityAlreadyOwnsTurn &&
       (detachedActiveReasoningEntries.length > 0 || !hasActiveTurnContentAfterUser)
     ) {

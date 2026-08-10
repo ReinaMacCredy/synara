@@ -21,7 +21,6 @@ type TimelineEntries = ReturnType<typeof deriveTimelineEntries>;
 
 const VIEWPORT_HEIGHT_PX = 420;
 const BASE_BOTTOM_INSET_PX = 64;
-const COMPOSER_BOTTOM_INSET_PX = 27;
 // maintainScrollAtEnd re-sticks within its threshold rather than to the exact
 // pixel bottom; anything within this tolerance counts as following the tail.
 const AUTO_FOLLOW_TOLERANCE_PX = 96;
@@ -138,7 +137,6 @@ function TailAnchorTimeline({ handleRef }: { handleRef: { current: HarnessHandle
         listRef={listRef}
         tailAnchorMessageId={tailAnchorMessageId}
         followLiveOutput={followLiveOutput}
-        contentInsetBottomPx={COMPOSER_BOTTOM_INSET_PX}
         timelineEntries={entries}
         turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
