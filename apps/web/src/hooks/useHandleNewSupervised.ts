@@ -16,6 +16,7 @@ const SUPERVISED_HANDOFF_MESSAGE_LIMIT = 24;
 export interface EnsureSupervisedDraftInput {
   readonly project: Project;
   readonly sourceThread?: Thread | null;
+  readonly supervisionMode?: "orchestrate" | "supervise";
 }
 
 export function ensureSupervisedDraft(input: EnsureSupervisedDraftInput): ThreadId {
@@ -40,8 +41,10 @@ export function ensureSupervisedDraft(input: EnsureSupervisedDraftInput): Thread
     : null;
   const existing = drafts.getDraftThreadByProjectId(input.project.id, "supervised");
   if (existing) {
+    const existingDraft = drafts.draftThreadsByThreadId[existing.threadId];
     drafts.setDraftThreadContext(existing.threadId, {
-      supervisionMode: "supervise",
+      supervisionMode:
+        input.supervisionMode ?? existingDraft?.supervisionMode ?? "orchestrate",
       ...(stagedHandoff
         ? {
             supervisedSourceThreadId: stagedHandoff.sourceThreadId,
@@ -55,7 +58,7 @@ export function ensureSupervisedDraft(input: EnsureSupervisedDraftInput): Thread
   const threadId = newThreadId();
   drafts.setProjectDraftThreadId(input.project.id, threadId, {
     entryPoint: "supervised",
-    supervisionMode: "supervise",
+    supervisionMode: input.supervisionMode ?? "orchestrate",
     envMode: "local",
     branch: null,
     worktreePath: null,

@@ -46,11 +46,26 @@ describe("ensureSupervisedDraft", () => {
     expect(draft).toMatchObject({
       projectId: project.id,
       entryPoint: "supervised",
+      supervisionMode: "orchestrate",
       workingDirectory: project.cwd,
     });
     expect(
       useComposerDraftStore.getState().getDraftThreadByProjectId(project.id, "supervised"),
     ).toMatchObject({ threadId: firstThreadId, entryPoint: "supervised" });
+  });
+
+  it("preserves an explicitly staged direct-Lead handoff draft", () => {
+    const project = makeProject("project");
+    const threadId = ensureSupervisedDraft({
+      project,
+      supervisionMode: "supervise",
+    });
+
+    ensureSupervisedDraft({ project });
+
+    expect(
+      useComposerDraftStore.getState().draftThreadsByThreadId[threadId]?.supervisionMode,
+    ).toBe("supervise");
   });
 
   it("converges when room creation committed before its projection became readable", async () => {

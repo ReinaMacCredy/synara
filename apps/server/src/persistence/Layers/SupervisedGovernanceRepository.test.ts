@@ -239,7 +239,12 @@ testLayer("SupervisedGovernanceRepository", (it) => {
       assert.deepStrictEqual(orchestration.agentSeats, reloaded.agentSeats);
       assert.deepStrictEqual(
         orchestration.profiles.map((profile) => profile.id),
-        ["profile-lead-default", "profile-peer-implementer", "profile-peer-reviewer"],
+        [
+          "profile-lead-default",
+          "profile-peer-implementer",
+          "profile-peer-reviewer",
+          "profile-supervisor-default",
+        ],
       );
     }),
   );
@@ -351,6 +356,7 @@ testLayer("SupervisedGovernanceRepository", (it) => {
           customizedBuiltInProfile.id,
           "profile-lead-default",
           "profile-peer-reviewer",
+          "profile-supervisor-default",
         ],
       );
     }),

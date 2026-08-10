@@ -102,13 +102,16 @@ export function useCrossModeHandoff(input: {
     const destinationMode: HandoffConversationMode =
       input.sourceMode === "project" ? "supervised" : "project";
     const store = useComposerDraftStore.getState();
-      let destinationThreadId: ThreadId;
-      if (destinationMode === "supervised") {
-        destinationThreadId = ensureSupervisedDraft({ project: sourceProject });
-        await ensureSupervisedRoom({
-          threadId: destinationThreadId,
-          projectId: sourceProject.id,
-        });
+    let destinationThreadId: ThreadId;
+    if (destinationMode === "supervised") {
+      destinationThreadId = ensureSupervisedDraft({
+        project: sourceProject,
+        supervisionMode: "supervise",
+      });
+      await ensureSupervisedRoom({
+        threadId: destinationThreadId,
+        projectId: sourceProject.id,
+      });
     } else {
       destinationThreadId = newThreadId();
       store.registerDraftThread(destinationThreadId, {

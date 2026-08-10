@@ -10,6 +10,12 @@ import {
   ProfileSnapshotId,
   ProjectId,
   ProjectTaskId,
+  RoomId,
+  SupervisorSeatId,
+  SupervisionMissionId,
+  TaskId,
+  TaskNodeId,
+  TaskNodeRevisionId,
   TaskProcessId,
   TaskProgressEntryId,
   TaskThreadBindingId,
@@ -30,6 +36,7 @@ import {
   type OrchestrationEventStoreShape,
 } from "../../persistence/Services/OrchestrationEventStore.ts";
 import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedAttachments.ts";
+import { SupervisedGovernanceRepository } from "../../persistence/Services/SupervisedGovernanceRepository.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
@@ -147,9 +154,13 @@ async function createOrchestrationSystem() {
   const managedAttachmentRepository = await runtime.runPromise(
     Effect.service(ManagedAttachmentRepository),
   );
+  const supervisedGovernanceRepository = await runtime.runPromise(
+    Effect.service(SupervisedGovernanceRepository),
+  );
   return {
     engine,
     managedAttachmentRepository,
+    supervisedGovernanceRepository,
     run: <A, E>(effect: Effect.Effect<A, E>) => runtime.runPromise(effect),
     dispose: () => runtime.dispose(),
   };
@@ -1431,6 +1442,305 @@ describe("OrchestrationEngine", () => {
     );
     expect(sessionIndex).toBeGreaterThanOrEqual(0);
     expect(readyIndex).toBeGreaterThan(sessionIndex);
+    await system.dispose();
+  });
+
+  it("atomically lets Primary Supervisor create a Lead Room and its Lead create the first Task Graph", async () => {
+    const system = await createOrchestrationSystem();
+    const { engine, supervisedGovernanceRepository } = system;
+    const createdAt = "2026-08-10T01:00:00.000Z";
+    const projectId = ProjectId.makeUnsafe("project-supervisor-first-saga");
+    const supervisorThreadId = ThreadId.makeUnsafe("thread-primary-supervisor");
+    const supervisorSeatId = SupervisorSeatId.makeUnsafe("seat-primary-supervisor");
+    const supervisorPreset = DEFAULT_SUPERVISED_PROFILES.find((candidate) =>
+      candidate.roleHints.includes("supervisor"),
+    )!;
+    const supervisorProfileSnapshot = resolveProfilePreset({
+      preset: supervisorPreset,
+      snapshotId: ProfileSnapshotId.makeUnsafe("snapshot-primary-supervisor"),
+      createdAt,
+    });
+    await system.run(
+      engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.makeUnsafe("command-project-supervisor-first-saga"),
+        projectId,
+        title: "Supervisor-first saga",
+        workspaceRoot: "/tmp/project-supervisor-first-saga",
+        defaultModelSelection: { provider: "codex", model: "gpt-5.6-luna" },
+        createdAt,
+      }),
+    );
+    await system.run(
+      engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("command-bootstrap-primary-supervisor"),
+        threadId: supervisorThreadId,
+        message: {
+          messageId: MessageId.makeUnsafe("message-bootstrap-primary-supervisor"),
+          role: "user",
+          text: "Create the project Room and Task Graph.",
+          attachments: [],
+        },
+        runtimeMode: "full-access",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        threadBootstrap: {
+          projectId,
+          title: "Primary Supervisor",
+          modelSelection: { provider: "codex", model: "gpt-5.6-luna" },
+          runtimeMode: "full-access",
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          envMode: "local",
+          branch: null,
+          worktreePath: null,
+          workingDirectory: "/tmp/project-supervisor-first-saga",
+          createdAt,
+        },
+        supervisedBootstrap: {
+          kind: "supervisor",
+          profilePresetId: supervisorPreset.id,
+          profileSnapshot: supervisorProfileSnapshot,
+          supervisor: {
+            id: supervisorSeatId,
+            name: "Primary Supervisor",
+            activeThreadId: supervisorThreadId,
+            predecessorThreadIds: [],
+            profileSnapshotId: supervisorProfileSnapshot.id,
+            status: "active",
+            createdAt,
+            updatedAt: createdAt,
+            archivedAt: null,
+            revision: 0,
+          },
+          initialMission: {
+            id: SupervisionMissionId.makeUnsafe("mission-supervisor-first-saga"),
+            supervisorSeatId,
+            brief: "Create the project Room and Task Graph.",
+            focus: "Project bootstrap",
+            scope: [{ kind: "project", projectId }],
+            grants: ["lead.observe", "lead.advise"],
+            endCondition: { kind: "manual" },
+            status: "active",
+            sourceMessageId: MessageId.makeUnsafe("message-bootstrap-primary-supervisor"),
+            createdAt,
+            updatedAt: createdAt,
+            completedAt: null,
+            revision: 0,
+          },
+        },
+        createdAt,
+      }),
+    );
+
+    const governanceAfterSupervisor = await system.run(
+      supervisedGovernanceRepository.getSnapshot(),
+    );
+    const supervisorSeat = governanceAfterSupervisor.agentSeats.find(
+      (candidate) => candidate.id === supervisorSeatId,
+    )!;
+    expect(supervisorSeat.identityRole).toBe("supervisor");
+    expect(
+      governanceAfterSupervisor.authorityReceipts
+        .find((candidate) => candidate.id === supervisorSeat.authorityReceiptId)
+        ?.allowedCommands.includes("supervised.room.create"),
+    ).toBe(true);
+
+    const leadPreset = DEFAULT_SUPERVISED_PROFILES.find((candidate) =>
+      candidate.roleHints.includes("lead"),
+    )!;
+    const leadProfileSnapshot = resolveProfilePreset({
+      preset: leadPreset,
+      snapshotId: ProfileSnapshotId.makeUnsafe("snapshot-supervisor-created-lead"),
+      createdAt,
+    });
+    const leadSeatId = LeadSeatId.makeUnsafe("seat-supervisor-created-lead");
+    const leadThreadId = ThreadId.makeUnsafe("lead:supervisor-created");
+    const roomId = RoomId.makeUnsafe(leadThreadId);
+    await system.run(
+      engine.dispatch({
+        type: "supervised.lead.create",
+        commandId: CommandId.makeUnsafe("command-supervisor-create-lead-room"),
+        aggregateId: roomId,
+        actor: {
+          kind: "seat",
+          actorId: supervisorThreadId,
+          seatId: supervisorSeatId,
+        },
+        authorityReceiptId: supervisorSeat.authorityReceiptId,
+        expectedRevision: 0,
+        idempotencyKey: "supervisor-create-lead-room",
+        createdAt,
+        supervisorSeatId,
+        leadSeatId,
+        threadId: leadThreadId,
+        workingDirectory: "/tmp/project-supervisor-first-saga",
+        room: {
+          id: roomId,
+          projectId,
+          title: "Project Lead Room",
+          leadSeatId,
+          status: "active",
+          graphRevision: 0,
+          revision: 0,
+          createdAt,
+          updatedAt: createdAt,
+        },
+        profilePresetId: leadPreset.id,
+        profileSnapshot: leadProfileSnapshot,
+        initialPrompt: "Create the first durable Task Graph.",
+      }),
+    );
+
+    let readModel = await system.run(engine.getReadModel());
+    expect(readModel.threads.find((thread) => thread.id === leadThreadId)?.parentThreadId).toBe(
+      supervisorThreadId,
+    );
+    expect(readModel.supervised.rooms.find((room) => room.id === roomId)).toMatchObject({
+      projectId,
+      leadSeatId,
+      status: "active",
+      graphRevision: 0,
+    });
+    const governanceAfterLead = await system.run(
+      supervisedGovernanceRepository.getSnapshot(),
+    );
+    const leadSeat = governanceAfterLead.agentSeats.find(
+      (candidate) => candidate.id === leadSeatId,
+    )!;
+    const leadReceipt = governanceAfterLead.authorityReceipts.find(
+      (candidate) => candidate.id === leadSeat.authorityReceiptId,
+    )!;
+    expect(leadSeat.roomIds).toEqual([roomId]);
+    expect(leadReceipt.rootLeaseIds).toHaveLength(1);
+
+    const taskId = TaskId.makeUnsafe("task-supervisor-first");
+    const firstNodeId = TaskNodeId.makeUnsafe("node-supervisor-first-plan");
+    const secondNodeId = TaskNodeId.makeUnsafe("node-supervisor-first-verify");
+    const taskGraphActor = {
+      kind: "seat" as const,
+      actorId: leadThreadId,
+      seatId: leadSeatId,
+    };
+    await system.run(
+      engine.dispatch({
+        type: "supervised.task-graph.create",
+        commandId: CommandId.makeUnsafe("command-lead-create-task-graph"),
+        aggregateId: taskId,
+        actor: taskGraphActor,
+        authorityReceiptId: leadReceipt.id,
+        expectedRevision: 0,
+        idempotencyKey: "lead-create-task-graph",
+        createdAt,
+        task: {
+          id: taskId,
+          roomId,
+          title: "Deliver the outcome",
+          intent: "Implement and verify the requested outcome.",
+          acceptanceCriteria: ["The requested behavior is verified."],
+          lifecycle: "active",
+          activeGraphRevision: 1,
+          revision: 0,
+          createdAt,
+          updatedAt: createdAt,
+        },
+        nodes: [
+          {
+            taskNode: {
+              id: firstNodeId,
+              taskId,
+              roomId,
+              parentNodeId: null,
+              title: "Implement",
+              description: "Implement the bounded change.",
+              lifecycle: "ready",
+              activeRevisionId: TaskNodeRevisionId.makeUnsafe(
+                "revision-supervisor-first-plan",
+              ),
+              graphRevision: 1,
+              revision: 0,
+              createdAt,
+              updatedAt: createdAt,
+            },
+            taskNodeRevision: {
+              id: TaskNodeRevisionId.makeUnsafe("revision-supervisor-first-plan"),
+              taskNodeId: firstNodeId,
+              graphRevision: 1,
+              scope: "Implement the bounded change.",
+              acceptanceCriteria: ["Implementation is complete."],
+              dependencyNodeIds: [],
+              evidenceRefs: [],
+              createdBy: taskGraphActor,
+              createdAt,
+            },
+          },
+          {
+            taskNode: {
+              id: secondNodeId,
+              taskId,
+              roomId,
+              parentNodeId: null,
+              title: "Verify",
+              description: "Verify the observable behavior.",
+              lifecycle: "planned",
+              activeRevisionId: TaskNodeRevisionId.makeUnsafe(
+                "revision-supervisor-first-verify",
+              ),
+              graphRevision: 1,
+              revision: 0,
+              createdAt,
+              updatedAt: createdAt,
+            },
+            taskNodeRevision: {
+              id: TaskNodeRevisionId.makeUnsafe("revision-supervisor-first-verify"),
+              taskNodeId: secondNodeId,
+              graphRevision: 1,
+              scope: "Verify the observable behavior.",
+              acceptanceCriteria: ["Evidence is retained."],
+              dependencyNodeIds: [firstNodeId],
+              evidenceRefs: [],
+              createdBy: taskGraphActor,
+              createdAt,
+            },
+          },
+        ],
+      }),
+    );
+
+    readModel = await system.run(engine.getReadModel());
+    expect(readModel.supervised.rooms.find((room) => room.id === roomId)?.graphRevision).toBe(1);
+    expect(readModel.supervised.tasks.find((task) => task.id === taskId)).toMatchObject({
+      roomId,
+      activeGraphRevision: 1,
+    });
+    expect(
+      readModel.supervised.taskNodes.filter((node) => node.taskId === taskId),
+    ).toHaveLength(2);
+    const events = await system.run(
+      Stream.runCollect(engine.readEvents(0)).pipe(
+        Effect.map((chunk): OrchestrationEvent[] => Array.from(chunk)),
+      ),
+    );
+    expect(
+      events
+        .filter((event) => event.commandId === "command-supervisor-create-lead-room")
+        .map((event) => event.type),
+    ).toEqual([
+      "thread.created",
+      "supervised.lead-enrolled",
+      "supervised.room-created",
+      "thread.message-sent",
+      "thread.turn-start-requested",
+    ]);
+    expect(
+      events
+        .filter((event) => event.commandId === "command-lead-create-task-graph")
+        .map((event) => event.type),
+    ).toEqual([
+      "supervised.room-updated",
+      "supervised.task-created",
+      "supervised.task-node-committed",
+      "supervised.task-node-committed",
+    ]);
     await system.dispose();
   });
 

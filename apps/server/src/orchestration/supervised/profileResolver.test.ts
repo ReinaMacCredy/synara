@@ -13,7 +13,13 @@ it.effect("seeds Lead and Peer Codex presets with independent judgment law", () 
   Effect.sync(() => {
     assert.deepEqual(
       DEFAULT_SUPERVISED_PROFILES.map((profile) => profile.name),
-      ["Lead Default", "Peer Implementer", "Peer Reviewer"],
+      ["Lead Default", "Peer Implementer", "Peer Reviewer", "Supervisor Default"],
+    );
+    assert.equal(
+      DEFAULT_SUPERVISED_PROFILES.filter((profile) =>
+        profile.roleHints.includes("supervisor"),
+      ).length,
+      1,
     );
     assert.ok(
       DEFAULT_SUPERVISED_PROFILES.filter((profile) => profile.roleHints.includes("peer")).every(

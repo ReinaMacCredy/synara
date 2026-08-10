@@ -79,6 +79,38 @@ const requireMissionSupervisorActor = (
     : reject(command, "The active mission Supervisor thread is required for this operation.");
 };
 
+const requireLeadEnrollmentActor = (
+  command: Extract<SupervisedGovernanceCommand, { readonly type: "supervised.lead.enroll" }>,
+  state: SupervisedGovernanceDecisionState,
+) => {
+  if (isHumanOrigin(command.actor)) return Effect.void;
+  if (command.actor.kind !== "thread" || command.actor.threadId === undefined) {
+    return reject(command, "The active Primary Supervisor thread is required to enroll a Lead.");
+  }
+  const supervisor = state.supervisors.find(
+    (candidate) =>
+      candidate.status === "active" && candidate.activeThreadId === command.actor.threadId,
+  );
+  const mission = supervisor
+    ? state.missions.find(
+        (candidate) =>
+          candidate.supervisorSeatId === supervisor.id &&
+          candidate.status === "active" &&
+          candidate.scope.some(
+            (scope) =>
+              scope.kind === "all_projects" ||
+              (scope.kind === "project" && scope.projectId === command.lead.projectId),
+          ),
+      )
+    : undefined;
+  return mission
+    ? Effect.void
+    : reject(
+        command,
+        "An active Primary Supervisor mission for the Lead Project is required.",
+      );
+};
+
 export const decideSupervisedGovernanceCommand = Effect.fn(
   "decideSupervisedGovernanceCommand",
 )(function* (input: {
@@ -210,7 +242,7 @@ export const decideSupervisedGovernanceCommand = Effect.fn(
       );
     }
     case "supervised.lead.enroll": {
-      yield* requireHuman(command);
+      yield* requireLeadEnrollmentActor(command, state);
       if (activeLeadForProject(state, command.lead.projectId) !== null) {
         return yield* reject(command, "Project already has an active Lead seat.");
       }

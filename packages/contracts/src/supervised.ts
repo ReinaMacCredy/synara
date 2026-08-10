@@ -10,7 +10,12 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas";
-import { LeadSeatId, ProfilePresetId, ProfileSnapshot } from "./supervision";
+import {
+  LeadSeatId,
+  ProfilePresetId,
+  ProfileSnapshot,
+  SupervisorSeatId,
+} from "./supervision";
 
 const id = <Brand extends string>(brand: Brand) => TrimmedNonEmptyString.pipe(Schema.brand(brand));
 const ShortText = TrimmedNonEmptyString.check(Schema.isMaxLength(512));
@@ -93,7 +98,7 @@ export type DeadLetterId = typeof DeadLetterId.Type;
 export const SupervisedActor = Schema.Struct({
   kind: Schema.Literals(["user", "seat", "daemon", "plugin", "kernel", "migration"]),
   actorId: TrimmedNonEmptyString,
-  seatId: Schema.optional(Schema.Union([LeadSeatId, ThreadId])),
+  seatId: Schema.optional(Schema.Union([SupervisorSeatId, LeadSeatId, ThreadId])),
 });
 export type SupervisedActor = typeof SupervisedActor.Type;
 
@@ -1188,10 +1193,36 @@ const CommandBase = {
   createdAt: IsoDateTime,
 } as const;
 
+export const SupervisedTaskGraphNode = Schema.Struct({
+  taskNode: TaskNode,
+  taskNodeRevision: TaskNodeRevision,
+});
+export type SupervisedTaskGraphNode = typeof SupervisedTaskGraphNode.Type;
+
 export const SupervisedCommand = Schema.Union([
   Schema.Struct({ ...CommandBase, type: Schema.Literal("supervised.room.create"), room: Room }),
   Schema.Struct({ ...CommandBase, type: Schema.Literal("supervised.room.update"), room: Room }),
   Schema.Struct({ ...CommandBase, type: Schema.Literal("supervised.task.create"), task: Task }),
+  Schema.Struct({
+    ...CommandBase,
+    type: Schema.Literal("supervised.lead.create"),
+    supervisorSeatId: SupervisorSeatId,
+    leadSeatId: LeadSeatId,
+    threadId: ThreadId,
+    workingDirectory: TrimmedNonEmptyString,
+    room: Room,
+    profilePresetId: ProfilePresetId,
+    profileSnapshot: Schema.optional(ProfileSnapshot),
+    initialPrompt: Schema.optional(BoundedText),
+  }),
+  Schema.Struct({
+    ...CommandBase,
+    type: Schema.Literal("supervised.task-graph.create"),
+    task: Task,
+    nodes: Schema.Array(SupervisedTaskGraphNode)
+      .check(Schema.isMinLength(1))
+      .check(Schema.isMaxLength(256)),
+  }),
   Schema.Struct({
     ...CommandBase,
     type: Schema.Literal("supervised.task-node.commit"),

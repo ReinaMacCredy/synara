@@ -262,7 +262,10 @@ const makeReceipt = (input: {
     ...(input.role === "lead"
       ? [
           "supervised.peer.create",
+          "supervised.room.update",
           "supervised.task.create",
+          "supervised.task-node.commit",
+          "supervised.task-graph.create",
           "supervised.run.request",
           "supervised.run.transition",
           "supervised.context.workspace-upsert",
@@ -273,6 +276,8 @@ const makeReceipt = (input: {
         ]
       : input.role === "supervisor"
         ? [
+            "supervised.room.create",
+            "supervised.lead.create",
             "supervised.context.workspace-upsert",
             "supervised.context.append",
             "supervised.rlm.upsert",

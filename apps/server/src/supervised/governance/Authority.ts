@@ -7,6 +7,7 @@ import type {
 const rootOwnedCommands = new Set<SupervisedCommand["type"]>([
   "supervised.room.update",
   "supervised.task.create",
+  "supervised.task-graph.create",
   "supervised.peer.create",
   "supervised.compaction.request",
   "supervised.handoff.request",
@@ -20,7 +21,11 @@ function commandRoomId(
     case "supervised.room.create":
     case "supervised.room.update":
       return command.room.id;
+    case "supervised.lead.create":
+      return command.room.id;
     case "supervised.task.create":
+      return command.task.roomId;
+    case "supervised.task-graph.create":
       return command.task.roomId;
     case "supervised.task-node.commit":
       return command.taskNode.roomId;
@@ -117,7 +122,14 @@ export function validateSupervisedSeatAuthority(input: {
   }
 
   const roomId = commandRoomId(command, runtime);
-  if (roomId !== null && !receipt.roomScopes.includes(roomId as never)) {
+  const createsSupervisorRoom =
+    seat.identityRole === "supervisor" &&
+    (command.type === "supervised.room.create" || command.type === "supervised.lead.create");
+  if (
+    roomId !== null &&
+    !createsSupervisorRoom &&
+    !receipt.roomScopes.includes(roomId as never)
+  ) {
     return "The authority receipt does not cover the command Room.";
   }
   if (roomId !== null && rootOwnedCommands.has(command.type)) {

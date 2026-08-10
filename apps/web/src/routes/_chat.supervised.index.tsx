@@ -1,4 +1,5 @@
 import { type ProjectId, type ThreadId } from "@synara/contracts";
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 
@@ -12,11 +13,9 @@ import {
   CHAT_MAIN_CONTENT_SURFACE_CLASS_NAME,
   CHAT_MAIN_VIEWPORT_SHELL_CLASS_NAME,
 } from "~/components/chat/composerPickerStyles";
-import {
-  ensureSupervisedDraft,
-  ensureSupervisedRoom,
-} from "~/hooks/useHandleNewSupervised";
+import { ensureSupervisedDraft } from "~/hooks/useHandleNewSupervised";
 import { ensureHomeChatProject, isHomeChatContainerProject } from "~/lib/chatProjects";
+import { supervisedRuntimeQueryOptions } from "~/lib/supervisedRuntime";
 import { readNativeApi } from "~/nativeApi";
 import type { SplitViewPanePanelState } from "~/splitViewStore";
 import { useStore } from "~/store";
@@ -42,6 +41,8 @@ function SupervisedIndexRouteView() {
   const search = Route.useSearch();
   const projects = useStore((store) => store.projects);
   const threads = useStore(useMemo(() => createAllThreadsSelector(), []));
+  const supervisedSeats = useStore((store) => store.supervisedOrchestration.agentSeats);
+  const runtime = useQuery(supervisedRuntimeQueryOptions());
   const homeDir = useWorkspacePathsStore((state) => state.homeDir);
   const chatWorkspaceRoot = useWorkspacePathsStore((state) => state.chatWorkspaceRoot);
   const [preparationError, setPreparationError] = useState<string | null>(null);
@@ -63,6 +64,18 @@ function SupervisedIndexRouteView() {
       isHomeChatContainerProject(project, { homeDir, chatWorkspaceRoot }),
     ) ?? null;
   const selectedProject = sourceProject ?? explicitProject ?? homeProject;
+  const primarySupervisorThreadId =
+    supervisedSeats.find(
+      (seat) =>
+        seat.identityRole === "supervisor" &&
+        (seat.lifecycleState === "ready" || seat.lifecycleState === "active") &&
+        seat.threadId !== null,
+    )?.threadId ?? null;
+  const activeRoom = selectedProject
+    ? (runtime.data?.rooms.find(
+        (room) => room.projectId === selectedProject.id && room.status !== "archived",
+      ) ?? null)
+    : null;
   const [draftThreadId, setDraftThreadId] = useState<ThreadId | null>(null);
 
   useEffect(() => {
@@ -86,6 +99,10 @@ function SupervisedIndexRouteView() {
   }, [chatWorkspaceRoot, explicitProject, homeDir, homeProject, sourceProject]);
 
   useEffect(() => {
+    if (primarySupervisorThreadId) {
+      setDraftThreadId(primarySupervisorThreadId);
+      return;
+    }
     if (!selectedProject) {
       setDraftThreadId(null);
       return;
@@ -94,7 +111,6 @@ function SupervisedIndexRouteView() {
     setPreparationError(null);
     void (async () => {
       const threadId = ensureSupervisedDraft({ project: selectedProject, sourceThread });
-      await ensureSupervisedRoom({ threadId, projectId: selectedProject.id });
       if (!cancelled) setDraftThreadId(threadId);
     })().catch((error: unknown) => {
       if (!cancelled) {
@@ -105,12 +121,14 @@ function SupervisedIndexRouteView() {
     return () => {
       cancelled = true;
     };
-  }, [selectedProject, sourceThread]);
+  }, [primarySupervisorThreadId, selectedProject, sourceThread]);
 
   if (!selectedProject || !draftThreadId) {
     return (
       <RouteInsetSurface>
-        <PanelStateMessage>{preparationError ?? "Preparing a Lead Room draft…"}</PanelStateMessage>
+        <PanelStateMessage>
+          {preparationError ?? "Preparing the Primary Supervisor…"}
+        </PanelStateMessage>
       </RouteInsetSurface>
     );
   }
@@ -130,16 +148,20 @@ function SupervisedIndexRouteView() {
           onToggleBrowser={noopChatSurfaceAction}
           onOpenBrowserUrl={noopChatSurfaceAction}
           onOpenTurnDiff={noopChatSurfaceAction}
-          viewModeAction={{
-            label: "Room view",
-            active: false,
-            onClick: () =>
-              void navigate({
-                to: "/supervised/$roomId",
-                params: { roomId: draftThreadId },
-                search: { projectId: selectedProject.id },
-              }),
-          }}
+          viewModeAction={
+            activeRoom
+              ? {
+                  label: "Room view",
+                  active: false,
+                  onClick: () =>
+                    void navigate({
+                      to: "/supervised/$roomId",
+                      params: { roomId: activeRoom.id },
+                      search: { projectId: selectedProject.id },
+                    }),
+                }
+              : null
+          }
         />
       </RouteInsetSurface>
     </div>

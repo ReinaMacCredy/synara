@@ -18,4 +18,19 @@ describe("Supervised host tool metadata", () => {
     assert.ok(!names.includes("create_specialist"));
     assert.ok(!names.some((name) => name.includes("supervision")));
   });
+
+  it("exposes typed Supervisor Lead-Room and Lead Task-Graph mutations", () => {
+    const tools = makeSupervisedTools({} as never);
+    const createLeadRoom = tools.find(
+      (tool) => tool.definition.name === "create_lead_room",
+    );
+    const createTaskGraph = tools.find(
+      (tool) => tool.definition.name === "create_task_graph",
+    );
+
+    assert.equal(createLeadRoom?.definition.supervised?.toolId, "supervised.agent.create");
+    assert.equal(createTaskGraph?.definition.supervised?.toolId, "supervised.task.delegate");
+    assert.equal(createLeadRoom?.definition.readOnly, false);
+    assert.equal(createTaskGraph?.definition.readOnly, false);
+  });
 });

@@ -140,6 +140,74 @@ it.effect("decodes atomic Lead first-send bootstrap on a client turn", () =>
   }),
 );
 
+it.effect("decodes atomic Primary Supervisor first-send bootstrap on a client turn", () =>
+  Effect.gen(function* () {
+    const command = yield* Schema.decodeUnknownEffect(ClientOrchestrationCommand)({
+      type: "thread.turn.start",
+      commandId: "first-send-supervisor",
+      threadId: "primary-supervisor-thread",
+      message: {
+        messageId: "message-supervisor-first",
+        role: "user",
+        text: "Coordinate this Project",
+        attachments: [],
+      },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      threadBootstrap: {
+        projectId: "project-tech",
+        title: "Primary Supervisor",
+        modelSelection: { provider: "codex", model: "gpt-5.6-luna" },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        envMode: "local",
+        branch: null,
+        worktreePath: null,
+        workingDirectory: "/tmp/project-tech",
+        createdAt: now,
+      },
+      supervisedBootstrap: {
+        kind: "supervisor",
+        profilePresetId: "profile-supervisor-default",
+        supervisor: {
+          id: "supervisor-primary",
+          name: "Primary Supervisor",
+          activeThreadId: "primary-supervisor-thread",
+          predecessorThreadIds: [],
+          profileSnapshotId: "snapshot-supervisor-primary",
+          status: "active",
+          createdAt: now,
+          updatedAt: now,
+          archivedAt: null,
+          revision: 0,
+        },
+        initialMission: {
+          id: "mission-supervisor-first",
+          supervisorSeatId: "supervisor-primary",
+          brief: "Coordinate this Project",
+          focus: "Project outcome",
+          scope: [{ kind: "project", projectId: "project-tech" }],
+          grants: ["lead.observe", "lead.advise"],
+          endCondition: { kind: "manual" },
+          status: "active",
+          sourceMessageId: "message-supervisor-first",
+          createdAt: now,
+          updatedAt: now,
+          completedAt: null,
+          revision: 0,
+        },
+      },
+      createdAt: now,
+    });
+    assert.equal(command.type, "thread.turn.start");
+    assert.equal(command.supervisedBootstrap?.kind, "supervisor");
+    if (command.supervisedBootstrap?.kind === "supervisor") {
+      assert.equal(command.supervisedBootstrap.supervisor.name, "Primary Supervisor");
+      assert.equal(command.supervisedBootstrap.initialMission.scope[0]?.kind, "project");
+    }
+  }),
+);
+
 it.effect("decodes server-only queue and rotation lifecycle commands", () =>
   Effect.gen(function* () {
     const command = yield* Schema.decodeUnknownEffect(SupervisedGovernanceCommand)({

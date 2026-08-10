@@ -10,12 +10,16 @@ import {
   MissionScopeList,
   ProfileSnapshotId,
   PeerSpecialtyId,
+  RoomId,
   SupervisorNotebookEntryId,
   SupervisorNotebookEntryKind,
   SupervisionAdviceId,
   SupervisedGovernanceAggregateId,
   SupervisionMissionId,
   SupervisorSeatId,
+  TaskId,
+  TaskNodeId,
+  TaskNodeRevisionId,
   ThreadId,
   WorkflowDirectiveId,
   type OrchestrationReadModel,
@@ -87,6 +91,14 @@ const stringArrayArg = (args: Record<string, unknown>, key: string): ReadonlyArr
     throw new HostToolError("supervised_tool_input_invalid", `${key} must be an array of non-empty strings.`);
   }
   return value.map((entry) => (entry as string).trim());
+};
+
+const optionalStringArrayArg = (
+  args: Record<string, unknown>,
+  key: string,
+): ReadonlyArray<string> => {
+  if (args[key] === undefined) return [];
+  return stringArrayArg(args, key);
 };
 
 const decode = <S extends Schema.Top>(schema: S, value: unknown, label: string): S["Type"] => {
@@ -814,6 +826,391 @@ export function makeSupervisedTools(
             replacementProfileSnapshot,
           });
           return hostToolSuccess({ sequence: receipt.sequence, rotation });
+        }),
+    },
+  );
+
+  const createLeadRoom = entry(
+    {
+      name: "create_lead_room",
+      displayName: "Create Lead Room",
+      description:
+        "Atomically create a Project Lead Room, provision its active Lead, and start the Lead with an explicit bounded prompt.",
+      inputSchema: objectSchema(
+        {
+          projectId: { type: "string" },
+          leadProfilePresetId: { type: "string" },
+          title: { type: "string", maxLength: 512 },
+          initialPrompt: { type: "string", maxLength: 32_768 },
+        },
+        ["title", "initialPrompt"],
+      ),
+      readOnly: false,
+      providerSupport: { codex: "native", claude: "unsupported" },
+      supervised: {
+        toolId: "supervised.agent.create",
+        schemaVersion: "1.0.0",
+      },
+    },
+    {
+      visible: (_state, role) => role === "supervisor",
+      execute: (args, context) =>
+        Effect.gen(function* () {
+          yield* context.assertCallerTurnActive();
+          const { state, authority } = yield* loadAuthority(context.callerThreadId);
+          if (authority.role !== "supervisor") {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_supervisor_required",
+                "Only the active Primary Supervisor may create a Lead Room.",
+              ),
+            );
+          }
+          const requestedProjectId = optionalStringArg(args, "projectId");
+          const eligibleProjects = state.projects.filter(
+            (project) =>
+              project.kind === "project" &&
+              project.deletedAt === null &&
+              authority.missions.some(
+                (mission) =>
+                  mission.status === "active" &&
+                  mission.scope.some(
+                    (scope) =>
+                      scope.kind === "all_projects" ||
+                      (scope.kind === "project" && scope.projectId === project.id),
+                  ),
+              ),
+          );
+          const project = requestedProjectId
+            ? eligibleProjects.find((candidate) => candidate.id === requestedProjectId)
+            : eligibleProjects.length === 1
+              ? eligibleProjects[0]
+              : undefined;
+          if (!project) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_project_scope_required",
+                requestedProjectId
+                  ? "The requested Project is outside the active Supervisor mission scope."
+                  : "Specify projectId when the active Supervisor missions cover more than one Project.",
+              ),
+            );
+          }
+          if (
+            state.leads.some(
+              (candidate) =>
+                candidate.projectId === project.id && candidate.status !== "archived",
+            )
+          ) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_lead_exists",
+                "The Project already has a live Lead seat.",
+              ),
+            );
+          }
+          const requestedPresetId = optionalStringArg(args, "leadProfilePresetId");
+          const preset = state.orchestration.profiles.find(
+            (candidate) =>
+              candidate.archivedAt === null &&
+              candidate.roleHints.includes("lead") &&
+              (requestedPresetId === null || candidate.id === requestedPresetId),
+          );
+          if (!preset) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_profile_missing",
+                "An active Lead profile preset is required.",
+              ),
+            );
+          }
+          const launchIssue = profileLaunchIssue(preset);
+          if (launchIssue !== null) {
+            return yield* Effect.fail(
+              new HostToolError("supervised_profile_unsupported", launchIssue),
+            );
+          }
+          const supervisorSeat = state.governance.agentSeats.find(
+            (candidate) =>
+              candidate.id === authority.supervisorSeatId &&
+              candidate.identityRole === "supervisor" &&
+              candidate.threadId === authority.callerThreadId,
+          );
+          if (!supervisorSeat) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_authority_unavailable",
+                "The Primary Supervisor has no durable authority receipt.",
+              ),
+            );
+          }
+          const createdAt = new Date().toISOString();
+          const leadSeatId = LeadSeatId.makeUnsafe(randomUUID());
+          const threadId = ThreadId.makeUnsafe(`lead:${randomUUID()}`);
+          const roomId = RoomId.makeUnsafe(threadId);
+          const profileSnapshot = resolveProfilePreset({
+            preset,
+            snapshotId: ProfileSnapshotId.makeUnsafe(randomUUID()),
+            createdAt,
+          });
+          const receipt = yield* dispatch({
+            type: "supervised.lead.create",
+            commandId: CommandId.makeUnsafe(randomUUID()),
+            aggregateId: roomId,
+            actor: {
+              kind: "seat",
+              actorId: context.callerThreadId,
+              seatId: SupervisorSeatId.makeUnsafe(supervisorSeat.id),
+            },
+            authorityReceiptId: supervisorSeat.authorityReceiptId,
+            expectedRevision: 0,
+            idempotencyKey: `lead-create:${roomId}`,
+            createdAt,
+            supervisorSeatId: SupervisorSeatId.makeUnsafe(supervisorSeat.id),
+            leadSeatId,
+            threadId,
+            workingDirectory: project.workspaceRoot,
+            room: {
+              id: roomId,
+              projectId: project.id,
+              title: stringArg(args, "title"),
+              leadSeatId,
+              status: "active",
+              graphRevision: 0,
+              revision: 0,
+              createdAt,
+              updatedAt: createdAt,
+            },
+            profilePresetId: preset.id,
+            profileSnapshot,
+            initialPrompt: stringArg(args, "initialPrompt"),
+          });
+          return hostToolSuccess({
+            sequence: receipt.sequence,
+            projectId: project.id,
+            roomId,
+            leadSeatId,
+            threadId,
+          });
+        }),
+    },
+  );
+
+  const createTaskGraph = entry(
+    {
+      name: "create_task_graph",
+      displayName: "Create Task Graph",
+      description:
+        "Atomically create the first durable Task Graph for the current Lead Room. Dependencies reference node keys from the same request.",
+      inputSchema: objectSchema(
+        {
+          title: { type: "string", maxLength: 512 },
+          intent: { type: "string", maxLength: 32_768 },
+          acceptanceCriteria: {
+            type: "array",
+            items: { type: "string", maxLength: 32_768 },
+            maxItems: 128,
+          },
+          nodes: {
+            type: "array",
+            minItems: 1,
+            maxItems: 256,
+            items: objectSchema(
+              {
+                key: { type: "string", maxLength: 128 },
+                title: { type: "string", maxLength: 512 },
+                scope: { type: "string", maxLength: 32_768 },
+                acceptanceCriteria: {
+                  type: "array",
+                  items: { type: "string", maxLength: 32_768 },
+                  maxItems: 128,
+                },
+                dependsOn: {
+                  type: "array",
+                  items: { type: "string", maxLength: 128 },
+                  maxItems: 256,
+                },
+              },
+              ["key", "title", "scope", "acceptanceCriteria"],
+            ),
+          },
+        },
+        ["title", "intent", "acceptanceCriteria", "nodes"],
+      ),
+      readOnly: false,
+      providerSupport: { codex: "native", claude: "unsupported" },
+      supervised: {
+        toolId: "supervised.task.delegate",
+        schemaVersion: "1.0.0",
+      },
+    },
+    {
+      visible: (_state, role) => role === "lead",
+      execute: (args, context) =>
+        Effect.gen(function* () {
+          yield* context.assertCallerTurnActive();
+          const { state, authority } = yield* loadAuthority(context.callerThreadId);
+          if (authority.role !== "lead") {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_lead_required",
+                "Only the active Room Lead may create its Task Graph.",
+              ),
+            );
+          }
+          const lead = state.leads.find(
+            (candidate) =>
+              candidate.id === authority.leadSeatId &&
+              candidate.activeThreadId === authority.callerThreadId &&
+              candidate.status === "active",
+          );
+          const room = state.supervised.rooms.find(
+            (candidate) =>
+              candidate.leadSeatId === authority.leadSeatId && candidate.status === "active",
+          );
+          const leadSeat = state.governance.agentSeats.find(
+            (candidate) =>
+              candidate.id === authority.leadSeatId &&
+              candidate.identityRole === "lead" &&
+              candidate.threadId === authority.callerThreadId,
+          );
+          if (!lead || !room || !leadSeat) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_room_unavailable",
+                "The active Lead Room and durable Root authority must exist.",
+              ),
+            );
+          }
+          if (state.supervised.tasks.some((candidate) => candidate.roomId === room.id)) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_task_graph_exists",
+                "This Room already has a Task Graph; use typed Task Graph revisions instead.",
+              ),
+            );
+          }
+          if (!Array.isArray(args.nodes) || args.nodes.length === 0 || args.nodes.length > 256) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_tool_input_invalid",
+                "nodes must contain between 1 and 256 TaskNode definitions.",
+              ),
+            );
+          }
+          const nodeSpecs = args.nodes.map((value, index) => {
+            if (value === null || typeof value !== "object" || Array.isArray(value)) {
+              throw new HostToolError(
+                "supervised_tool_input_invalid",
+                `nodes[${index}] must be an object.`,
+              );
+            }
+            const node = value as Record<string, unknown>;
+            return {
+              key: stringArg(node, "key"),
+              title: stringArg(node, "title"),
+              scope: stringArg(node, "scope"),
+              acceptanceCriteria: stringArrayArg(node, "acceptanceCriteria"),
+              dependsOn: optionalStringArrayArg(node, "dependsOn"),
+            };
+          });
+          const nodeKeys = new Set(nodeSpecs.map((node) => node.key));
+          if (nodeKeys.size !== nodeSpecs.length) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_tool_input_invalid",
+                "TaskNode keys must be unique.",
+              ),
+            );
+          }
+          for (const node of nodeSpecs) {
+            if (node.dependsOn.some((dependency) => !nodeKeys.has(dependency))) {
+              return yield* Effect.fail(
+                new HostToolError(
+                  "supervised_tool_input_invalid",
+                  `TaskNode '${node.key}' references an unknown dependency key.`,
+                ),
+              );
+            }
+          }
+          const createdAt = new Date().toISOString();
+          const taskId = TaskId.makeUnsafe(randomUUID());
+          const graphRevision = room.graphRevision + 1;
+          const actor = {
+            kind: "seat" as const,
+            actorId: context.callerThreadId,
+            seatId: LeadSeatId.makeUnsafe(leadSeat.id),
+          };
+          const nodeIdsByKey = new Map(
+            nodeSpecs.map((node) => [node.key, TaskNodeId.makeUnsafe(randomUUID())]),
+          );
+          const nodes = nodeSpecs.map((node) => {
+            const taskNodeId = nodeIdsByKey.get(node.key)!;
+            const revisionId = TaskNodeRevisionId.makeUnsafe(randomUUID());
+            const dependencyNodeIds = node.dependsOn.map(
+              (dependency) => nodeIdsByKey.get(dependency)!,
+            );
+            return {
+              taskNode: {
+                id: taskNodeId,
+                taskId,
+                roomId: room.id,
+                parentNodeId: null,
+                title: node.title,
+                description: node.scope,
+                lifecycle: dependencyNodeIds.length === 0 ? ("ready" as const) : ("planned" as const),
+                activeRevisionId: revisionId,
+                graphRevision,
+                revision: 0,
+                createdAt,
+                updatedAt: createdAt,
+              },
+              taskNodeRevision: {
+                id: revisionId,
+                taskNodeId,
+                graphRevision,
+                scope: node.scope,
+                acceptanceCriteria: [...node.acceptanceCriteria],
+                dependencyNodeIds,
+                evidenceRefs: [],
+                createdBy: actor,
+                createdAt,
+              },
+            };
+          });
+          const receipt = yield* dispatch({
+            type: "supervised.task-graph.create",
+            commandId: CommandId.makeUnsafe(randomUUID()),
+            aggregateId: taskId,
+            actor,
+            authorityReceiptId: leadSeat.authorityReceiptId,
+            expectedRevision: 0,
+            idempotencyKey: `task-graph-create:${taskId}`,
+            createdAt,
+            task: {
+              id: taskId,
+              roomId: room.id,
+              title: stringArg(args, "title"),
+              intent: stringArg(args, "intent"),
+              acceptanceCriteria: [...stringArrayArg(args, "acceptanceCriteria")],
+              lifecycle: "active",
+              activeGraphRevision: graphRevision,
+              revision: 0,
+              createdAt,
+              updatedAt: createdAt,
+            },
+            nodes,
+          });
+          return hostToolSuccess({
+            sequence: receipt.sequence,
+            roomId: room.id,
+            taskId,
+            graphRevision,
+            nodes: nodeSpecs.map((node) => ({
+              key: node.key,
+              taskNodeId: nodeIdsByKey.get(node.key)!,
+            })),
+          });
         }),
     },
   );
@@ -1745,6 +2142,8 @@ export function makeSupervisedTools(
     applyWorkflow,
     revokeWorkflow,
     requestReplacement,
+    createLeadRoom,
+    createTaskGraph,
     createPeer,
     startRlmExecution,
     searchSupervisorNotebook,

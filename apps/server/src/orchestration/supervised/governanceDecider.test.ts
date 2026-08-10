@@ -158,6 +158,53 @@ it.effect("enforces one active Lead per Project without restricting ordinary Roo
   }),
 );
 
+it.effect("lets the active Primary Supervisor enroll a Lead only inside mission scope", () =>
+  Effect.gen(function* () {
+    const scopedState = { ...state, leads: [] };
+    const enrolled = yield* decideSupervisedGovernanceCommand({
+      state: scopedState,
+      command: {
+        ...base,
+        type: "supervised.lead.enroll",
+        actor: {
+          kind: "thread",
+          actorId: supervisor.activeThreadId,
+          threadId: supervisor.activeThreadId,
+        },
+        expectedRevision: 0,
+        profilePresetId: "profile-default" as never,
+        profileSnapshot: snapshotProfile,
+        lead,
+      },
+    });
+    assert.equal(Array.isArray(enrolled), false);
+    if (!Array.isArray(enrolled)) assert.equal(enrolled.type, "supervised.lead-enrolled");
+
+    const outsideScope = yield* Effect.exit(
+      decideSupervisedGovernanceCommand({
+        state: scopedState,
+        command: {
+          ...base,
+          type: "supervised.lead.enroll",
+          actor: {
+            kind: "thread",
+            actorId: supervisor.activeThreadId,
+            threadId: supervisor.activeThreadId,
+          },
+          expectedRevision: 0,
+          profilePresetId: "profile-default" as never,
+          profileSnapshot: snapshotProfile,
+          lead: { ...lead, projectId: "project-outside-mission" as never },
+        },
+      }),
+    );
+    assert.equal(outsideScope._tag, "Failure");
+    if (outsideScope._tag === "Failure") {
+      assert.match(String(outsideScope.cause), /active Primary Supervisor mission/i);
+    }
+  }),
+);
+
 it.effect("denies non-human scope expansion while allowing a bounded mission completion", () =>
   Effect.gen(function* () {
     const expandExit = yield* Effect.exit(

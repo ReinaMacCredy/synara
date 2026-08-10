@@ -65,6 +65,43 @@ function requireHuman(command: SupervisedCommand, detail: string) {
   return command.actor.kind === "user" ? Effect.void : reject(command, detail);
 }
 
+function supervisorCanCreateRoom(
+  command: Extract<SupervisedCommand, { readonly type: "supervised.room.create" }>,
+  governance: SupervisedGovernanceSnapshot | undefined,
+): boolean {
+  if (command.actor.kind !== "seat" || command.actor.seatId === undefined || !governance) {
+    return false;
+  }
+  const seat = governance.agentSeats.find(
+    (candidate) =>
+      candidate.id === command.actor.seatId &&
+      candidate.identityRole === "supervisor" &&
+      (candidate.lifecycleState === "ready" || candidate.lifecycleState === "active") &&
+      candidate.threadId === command.actor.actorId,
+  );
+  const lead = governance.agentSeats.find(
+    (candidate) =>
+      candidate.id === command.room.leadSeatId &&
+      candidate.identityRole === "lead" &&
+      candidate.projectId === command.room.projectId &&
+      (candidate.lifecycleState === "ready" || candidate.lifecycleState === "active"),
+  );
+  return Boolean(
+    seat &&
+      lead &&
+      governance.orchestration.missions.some(
+        (mission) =>
+          mission.supervisorSeatId === seat.id &&
+          mission.status === "active" &&
+          mission.scope.some(
+            (scope) =>
+              scope.kind === "all_projects" ||
+              (scope.kind === "project" && scope.projectId === command.room.projectId),
+          ),
+      ),
+  );
+}
+
 function validatePluginInstallation(
   command: Extract<
     SupervisedCommand,
@@ -187,7 +224,11 @@ function commandRoomId(command: SupervisedCommand): string | null {
     case "supervised.room.create":
     case "supervised.room.update":
       return command.room.id;
+    case "supervised.lead.create":
+      return command.room.id;
     case "supervised.task.create":
+      return command.task.roomId;
+    case "supervised.task-graph.create":
       return command.task.roomId;
     case "supervised.task-node.commit":
       return command.taskNode.roomId;
@@ -294,11 +335,24 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
   yield* requirePluginAuthority(command, state);
   switch (command.type) {
     case "supervised.room.create": {
-      yield* requireHumanOrMatchingSeat(
-        command,
-        [command.room.leadSeatId],
-        "Only the Human or assigned Lead may create this Room.",
-      );
+      const supervisorCreationAuthorized = supervisorCanCreateRoom(command, input.governance);
+      if (!supervisorCreationAuthorized) {
+        yield* requireHumanOrMatchingSeat(
+          command,
+          [command.room.leadSeatId],
+          "Only the Human, assigned Lead, or scoped Primary Supervisor may create this Room.",
+        );
+      }
+      if (
+        command.actor.kind === "seat" &&
+        supervisorCreationAuthorized &&
+        (command.room.leadSeatId === null || command.room.status !== "active")
+      ) {
+        return yield* reject(
+          command,
+          "A Supervisor-created Room must bind its active Lead atomically.",
+        );
+      }
       const current = state.rooms.find((room) => room.id === command.room.id);
       if (current) return yield* reject(command, "Room already exists.");
       yield* requireRevision(command, null);
@@ -373,6 +427,9 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
         task: command.task,
       });
     }
+    case "supervised.lead.create":
+    case "supervised.task-graph.create":
+      return yield* reject(command, "This command must execute through its orchestration saga.");
     case "supervised.task-node.commit": {
       yield* requireHumanOrMatchingSeat(
         command,

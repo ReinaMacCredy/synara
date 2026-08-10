@@ -7,6 +7,8 @@ import {
   MessageId,
   LeadSeatId,
   ProfileSnapshotId,
+  SupervisorSeatId,
+  SupervisionMissionId,
   type ModelSelection,
   type NativeApi,
   type OrchestrationShellSnapshot,
@@ -1398,6 +1400,10 @@ export default function ChatView({
   const isThreadTemporary = draftThread?.isTemporary === true || hasTemporaryThreadMarker;
   const supervisedOrchestration = useStore((store) => store.supervisedOrchestration);
   const supervisedSeats = supervisedOrchestration.agentSeats;
+  const supervisorSeats = useMemo(
+    () => supervisedSeats.filter((seat) => seat.identityRole === "supervisor"),
+    [supervisedSeats],
+  );
   const leadSeats = useMemo(
     () => supervisedSeats.filter((seat) => seat.identityRole === "lead"),
     [supervisedSeats],
@@ -1910,19 +1916,29 @@ export default function ChatView({
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const isSupervisedRoomDraft = isLocalDraftThread && draftThread?.entryPoint === "supervised";
   const supervisionDraftMode = draftThread?.supervisionMode ?? "orchestrate";
+  const supervisionDraftRole = supervisionDraftMode === "supervise" ? "lead" : "supervisor";
+  const supervisionProfilesForDraft = useMemo(
+    () =>
+      supervisedOrchestration.profiles.filter(
+        (profile) =>
+          profile.archivedAt === null && profile.roleHints.includes(supervisionDraftRole),
+      ),
+    [supervisedOrchestration.profiles, supervisionDraftRole],
+  );
   const selectedSupervisionProfile = useMemo(() => {
-    const activeProfiles = supervisedOrchestration.profiles.filter(
-      (profile) => profile.archivedAt === null,
-    );
     return (
-      activeProfiles.find((profile) => profile.id === draftThread?.profilePresetId) ??
-      activeProfiles.find((profile) => profile.roleHints.includes("lead")) ??
-      activeProfiles[0] ??
+      supervisionProfilesForDraft.find(
+        (profile) => profile.id === draftThread?.profilePresetId,
+      ) ??
+      supervisionProfilesForDraft[0] ??
       null
     );
-  }, [draftThread?.profilePresetId, supervisedOrchestration.profiles]);
+  }, [draftThread?.profilePresetId, supervisionProfilesForDraft]);
   const durableSupervisionRole = useMemo(() => {
     if (!isServerThread || !supervisedMode) return null;
+    if (supervisorSeats.some((seat) => seat.threadId === threadId)) {
+      return "Supervisor" as const;
+    }
     if (
       leadSeats.some((seat) => seat.threadId === threadId)
     ) {
@@ -1935,10 +1951,11 @@ export default function ChatView({
     ) {
       return "Peer" as const;
     }
-    return "Lead" as const;
+    return null;
   }, [
     isServerThread,
     supervisedMode,
+    supervisorSeats,
     leadSeats,
     peerSeats,
     threadId,
@@ -1946,6 +1963,7 @@ export default function ChatView({
   const durableSupervisionProfileSnapshot = useMemo(() => {
     if (!isServerThread || !supervisedMode) return null;
     const seat =
+      supervisorSeats.find((candidate) => candidate.threadId === threadId) ??
       leadSeats.find((candidate) => candidate.threadId === threadId) ??
       peerSeats.find((candidate) => candidate.threadId === threadId) ??
       null;
@@ -1957,6 +1975,7 @@ export default function ChatView({
   }, [
     isServerThread,
     supervisedMode,
+    supervisorSeats,
     leadSeats,
     peerSeats,
     supervisedOrchestration.profileSnapshots,
@@ -7728,8 +7747,13 @@ export default function ChatView({
       }
     }
     const promoteToLead = isSupervisedRoomDraft && supervisionDraftMode === "supervise";
-    const supervisionProfileForSend = promoteToLead ? selectedSupervisionProfile : null;
-    if (promoteToLead && supervisionProfileForSend === null) {
+    const promoteToSupervisor =
+      isSupervisedRoomDraft && supervisionDraftMode === "orchestrate";
+    const promoteToSupervisedSeat = promoteToLead || promoteToSupervisor;
+    const supervisionProfileForSend = promoteToSupervisedSeat
+      ? selectedSupervisionProfile
+      : null;
+    if (promoteToSupervisedSeat && supervisionProfileForSend === null) {
       setStoreThreadError(activeThread.id, "Choose an active Supervised profile before sending.");
       return false;
     }
@@ -8209,6 +8233,9 @@ export default function ChatView({
     const promotedLeadSeatId = promoteToLead
       ? (draftThread?.leadSeatId ?? LeadSeatId.makeUnsafe(randomUUID()))
       : null;
+    const promotedSupervisorSeatId = promoteToSupervisor
+      ? SupervisorSeatId.makeUnsafe(randomUUID())
+      : null;
     if (promotedLeadSeatId !== null) {
       setDraftThreadContext(threadIdForSend, {
         leadSeatId: promotedLeadSeatId,
@@ -8281,7 +8308,7 @@ export default function ChatView({
         const handoffSourceThreadId =
           stagedCrossModeHandoff?.sourceThreadId ?? supervisedSourceThreadId;
         const shouldAtomicallyBootstrapSupervisedThread =
-          handoffSourceThreadId === null && promoteToLead;
+          handoffSourceThreadId === null && promoteToSupervisedSeat;
         if (handoffSourceThreadId) {
           const importedMessages = draftThread?.supervisedHandoffMessages ?? [];
           if (!stagedCrossModeHandoff && importedMessages.length === 0) {
@@ -8493,7 +8520,53 @@ export default function ChatView({
                   },
                 },
               }
-            : {}),
+            : promotedSupervisorSeatId !== null && supervisionProfileForSend !== null
+              ? {
+                  supervisedBootstrap: {
+                    kind: "supervisor" as const,
+                    profilePresetId: supervisionProfileForSend.id,
+                    supervisor: {
+                      id: promotedSupervisorSeatId,
+                      name: "Primary Supervisor",
+                      activeThreadId: threadIdForSend,
+                      predecessorThreadIds: [],
+                      profileSnapshotId: ProfileSnapshotId.makeUnsafe(
+                        `${promotedSupervisorSeatId}:initial-profile`,
+                      ),
+                      status: "active" as const,
+                      createdAt: messageCreatedAt,
+                      updatedAt: messageCreatedAt,
+                      archivedAt: null,
+                      revision: 0,
+                    },
+                    initialMission: {
+                      id: SupervisionMissionId.makeUnsafe(randomUUID()),
+                      supervisorSeatId: promotedSupervisorSeatId,
+                      brief:
+                        outgoingMessageText.trim().length > 0 ? outgoingMessageText : title,
+                      focus: `Coordinate the requested outcome for Project ${targetProjectIdForSend}.`,
+                      scope: [{ kind: "project" as const, projectId: targetProjectIdForSend }],
+                      grants: [
+                        "lead.observe" as const,
+                        "lead.advise" as const,
+                        "lead.pause" as const,
+                        "lead.resume" as const,
+                        "workflow.apply" as const,
+                        "workflow.revoke" as const,
+                        "lead.replace" as const,
+                        "lead.close" as const,
+                      ],
+                      endCondition: { kind: "manual" as const },
+                      status: "active" as const,
+                      sourceMessageId: messageIdForSend,
+                      createdAt: messageCreatedAt,
+                      updatedAt: messageCreatedAt,
+                      completedAt: null,
+                      revision: 0,
+                    },
+                  },
+                }
+              : {}),
           createdAt: messageCreatedAt,
         }),
       );
@@ -9792,11 +9865,10 @@ export default function ChatView({
     },
     [handleModelPickerOpenChange],
   );
-  const supervisionProfilePickerActive =
-    isSupervisedRoomDraft && supervisionDraftMode === "supervise";
+  const supervisionProfilePickerActive = isSupervisedRoomDraft;
   const composerPickerControls = supervisionProfilePickerActive ? (
     <ComposerProfilePicker
-      profiles={supervisedOrchestration.profiles}
+      profiles={supervisionProfilesForDraft}
       selectedProfileId={selectedSupervisionProfile?.id ?? null}
       disabled={isComposerEditorDisabled}
       compact={isComposerFooterCompact}
@@ -12317,7 +12389,9 @@ export default function ChatView({
                       ) : (
                         <>
                           {isSupervisedRoomDraft
-                            ? "What should we orchestrate in "
+                            ? supervisionDraftMode === "orchestrate"
+                              ? "What should the Primary Supervisor coordinate in "
+                              : "What should we orchestrate in "
                             : "What should we do in "}
                           {showEmptyLandingProjectPicker ? (
                             <ProjectPicker
