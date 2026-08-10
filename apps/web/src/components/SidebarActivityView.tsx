@@ -16,6 +16,7 @@ import {
 
 import type { OrchestrationThreadPullRequest, ProjectId, ThreadId } from "@synara/contracts";
 import { GoRepoForked } from "react-icons/go";
+import { resolveThreadEnvironmentMode } from "@synara/shared/threadEnvironment";
 
 import {
   AddPlusIcon,
@@ -24,6 +25,7 @@ import {
   NewThreadIcon,
   SortIcon,
   Undo2Icon,
+  WorktreeIcon,
 } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import {
@@ -34,6 +36,7 @@ import {
   SIDEBAR_SECTION_LABEL_CLASS_NAME,
   sidebarHoverRevealHideClassName,
 } from "../sidebarRowStyles";
+import { resolveThreadPullRequestFallback } from "../hooks/useThreadPullRequests";
 import type { Project, SidebarThreadSummary } from "../types";
 import { ComposerPickerMenuPopup } from "./chat/ComposerPickerMenuPopup";
 import { FolderClosed } from "./FolderClosed";
@@ -42,6 +45,7 @@ import { PrStateChip } from "./pullRequest/PrStateChip";
 import {
   createSidebarThreadHoverAnchorId,
   resolveSidebarThreadListPaging,
+  resolveThreadDisplayBranch,
   resolveThreadProjectLabel,
   resolveThreadStatusTrailingIndicator,
   type ThreadStatusPill,
@@ -130,10 +134,15 @@ function ActivityThreadRow({
   renderHoverCard: (anchorId: string) => ReactNode;
 }) {
   const provider = thread.session?.provider ?? thread.modelSelection.provider;
-  const branch = thread.associatedWorktreeBranch?.trim() || thread.branch?.trim() || null;
+  const branch = resolveThreadDisplayBranch(thread);
   // Same rule as project thread rows: fork badge only when this is a real fork, not a sidechat.
-  const isForkedThread =
-    Boolean(thread.forkSourceThreadId) && !thread.sidechatSourceThreadId;
+  const isForkedThread = Boolean(thread.forkSourceThreadId) && !thread.sidechatSourceThreadId;
+  const isWorktree =
+    resolveThreadEnvironmentMode({
+      envMode: thread.envMode,
+      worktreePath: thread.worktreePath,
+    }) === "worktree";
+  const ProjectGlyph = isWorktree ? WorktreeIcon : FolderClosed;
   const hoverAnchorId = createSidebarThreadHoverAnchorId({
     scope: "activity",
     threadId: thread.id,
@@ -206,7 +215,7 @@ function ActivityThreadRow({
             </span>
           </span>
           <span className="flex min-w-0 items-center gap-1.5">
-            <FolderClosed
+            <ProjectGlyph
               className={sidebarGlyphClass("meta", "text-muted-foreground/70")}
               aria-hidden
             />
@@ -731,22 +740,30 @@ export function SidebarActivityView({
       isActive={activeThreadId === thread.id}
       isSettled={isSettled}
       isPinned={pinnedThreadIdSet.has(thread.id)}
-    pr={prByThreadId.get(thread.id) ?? thread.lastKnownPr ?? null}
-    status={resolveThreadStatus(thread)}
-    onOpen={() => onOpenThread(thread.id)}
-    onSetSettled={
+      pr={
+        // An explicit null means the persisted PR was ruled out; do not resurrect it.
+        prByThreadId.has(thread.id)
+          ? (prByThreadId.get(thread.id) ?? null)
+          : resolveThreadPullRequestFallback({
+              branch: thread.branch,
+              lastKnownPr: thread.lastKnownPr ?? null,
+            })
+      }
+      status={resolveThreadStatus(thread)}
+      onOpen={() => onOpenThread(thread.id)}
+      onSetSettled={
         settlementEnabled && onSetThreadSettled
           ? (settled) => {
               if (settled) onMarkThreadRead(thread.id, thread.latestTurn?.completedAt ?? undefined);
               onSetThreadSettled(thread.id, settled);
             }
           : undefined
-    }
-    onTogglePinned={() => onToggleThreadPinned(thread.id)}
-    onArchive={() => onArchiveThread(thread.id)}
-    onRename={onRenameThread}
-    onRenamePointerUp={onThreadRenamePointerUp}
-    onContextMenu={onThreadContextMenu}
+      }
+      onTogglePinned={() => onToggleThreadPinned(thread.id)}
+      onArchive={() => onArchiveThread(thread.id)}
+      onRename={onRenameThread}
+      onRenamePointerUp={onThreadRenamePointerUp}
+      onContextMenu={onThreadContextMenu}
       renderHoverCard={(anchorId) => renderThreadHoverCard(thread, anchorId)}
     />
   );

@@ -15,7 +15,6 @@ const harness = vi.hoisted(() => ({
     },
   ],
   threadShells: [] as Array<Record<string, unknown>>,
-  roots: [] as Array<Record<string, unknown>>,
   projects: [{ id: "project-1", name: "Project One" }],
   removeDeletedThreadFromClientState: vi.fn(),
   mutateAsync: vi.fn(),
@@ -24,11 +23,8 @@ const harness = vi.hoisted(() => ({
 }));
 
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: (options: { queryKey?: readonly unknown[] }) => ({
-    data:
-      options.queryKey?.[0] === "supervised-runtime"
-        ? { items: harness.roots, highWaterCursor: 0 }
-        : { worktrees: harness.worktrees },
+  useQuery: () => ({
+    data: { worktrees: harness.worktrees },
     isLoading: false,
     isError: false,
   }),
@@ -80,7 +76,6 @@ describe("ConversationStorageSettingsPanels", () => {
   afterEach(() => {
     document.body.innerHTML = "";
     harness.threadShells = [];
-    harness.roots = [];
   });
 
   it("uses one association rule for direct and associated worktree paths", async () => {
@@ -133,7 +128,7 @@ describe("ConversationStorageSettingsPanels", () => {
     expect(text).toContain("Orphan archived");
   });
 
-  it("separates archived Roots from archived chats", async () => {
+  it("keeps retired Orchestrator Root shells available as ordinary archived chats", async () => {
     harness.threadShells = [
       thread({
         id: "root-archived",
@@ -146,26 +141,11 @@ describe("ConversationStorageSettingsPanels", () => {
         archivedAt: "2026-01-04T00:00:00.000Z",
       }),
     ];
-    harness.roots = [
-      {
-        rootThreadId: "root-archived",
-        projectId: "project-1",
-        protocolVersion: 1,
-        state: "archived",
-        activeProcessId: null,
-        resourcePolicyVersion: 1,
-        createdAt: "2026-01-01T00:00:00.000Z",
-        archivedAt: "2026-01-05T00:00:00.000Z",
-        revision: 2,
-      },
-    ];
-
     await render(<ArchivedSettingsPanel active />);
 
     const text = document.body.textContent ?? "";
     expect(text).toContain("Archived chats");
     expect(text).toContain("Ordinary chat");
-    expect(text).toContain("Archived Lead Rooms");
     expect(text).toContain("Architecture council");
     expect(text.match(/Architecture council/g)).toHaveLength(1);
   });

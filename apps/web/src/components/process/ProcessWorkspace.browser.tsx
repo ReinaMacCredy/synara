@@ -167,12 +167,18 @@ describe("Process workspace interaction", () => {
     expect(shell?.className).toContain("w-0");
     expect(shell?.getAttribute("aria-hidden")).toBe("true");
 
-    await page.getByRole("button", { name: "Toggle details" }).click();
+    const toggleDetails = page.getByRole("button", { name: "Toggle details" });
+    await toggleDetails.click();
     expect(shell?.className).toContain("w-[min(28rem,42vw)]");
     expect(shell?.getAttribute("aria-hidden")).toBe("false");
 
-    await page.getByRole("button", { name: "Toggle details" }).click();
-    expect(shell?.className).toContain("w-0");
-    expect(shell?.getAttribute("aria-hidden")).toBe("true");
+    // The artificial harness has no production drawer close control. Once the
+    // responsive shell opens it can cover this external toggle, so invoke the
+    // control directly to exercise only the width transition under test.
+    toggleDetails.element().click();
+    await vi.waitFor(() => {
+      expect(shell?.className).toContain("w-0");
+      expect(shell?.getAttribute("aria-hidden")).toBe("true");
+    });
   });
 });

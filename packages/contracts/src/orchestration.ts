@@ -2542,6 +2542,7 @@ export type OrchestrationGetFullThreadDiffResult = typeof OrchestrationGetFullTh
 
 export const OrchestrationReplayEventsInput = Schema.Struct({
   fromSequenceExclusive: NonNegativeInt,
+  threadId: Schema.optional(ThreadId),
 });
 export type OrchestrationReplayEventsInput = typeof OrchestrationReplayEventsInput.Type;
 

@@ -279,8 +279,8 @@ export function ArchivedSettingsPanel({ active }: { readonly active: boolean }) 
   const threadShells = useStore(useMemo(() => createThreadShellsSelector(), []));
   const projects = useStore((store) => store.projects);
   const archivedGroups = useMemo(() => {
-    // Roots have their own section. For ordinary archived threads, represent each
-    // subtree once while still exposing a child whose parent is active or missing.
+    // Represent each archived subtree once while still exposing a child whose
+    // parent is active or missing.
     const archivedThreadIds = new Set(
       threadShells.filter((thread) => thread.archivedAt != null).map((thread) => thread.id),
     );

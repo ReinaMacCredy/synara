@@ -52,7 +52,6 @@ import {
   Scope,
   Stream,
 } from "effect";
-import * as Semaphore from "effect/Semaphore";
 import { nonEmptyTrimmed } from "@synara/shared/text";
 
 import { ProviderValidationError } from "../Errors.ts";
@@ -65,12 +64,16 @@ import {
 } from "../Services/ProviderSessionDirectory.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 import { PersistenceDecodeError } from "../../persistence/Errors.ts";
-import { ProviderRuntimeEventRepository } from "../../persistence/Services/ProviderRuntimeEvents.ts";
+import {
+  ProviderRuntimeEventRepository,
+  type PersistedProviderRuntimeEvent,
+} from "../../persistence/Services/ProviderRuntimeEvents.ts";
 import {
   classifyTerminalTurnApplicability,
   isStartedTurnApplicable,
 } from "../terminalTurnApplicability.ts";
 import { makeProviderLifecycleCoordinator } from "../providerLifecycleCoordinator.ts";
+import { makeKeyedLock } from "../keyedLock.ts";
 import { carryProviderAttachmentPaths } from "../providerAttachmentPaths.ts";
 import {
   makeProviderRuntimeEventPumpHealthRegistry,
@@ -88,7 +91,9 @@ export interface ProviderServiceLiveOptions {
   /** Test/embedding override for the lossless runtime-event fan-out budget. */
   readonly runtimeEventBufferCapacity?: number;
   /** Production journal hook. The event must be durable before this effect returns. */
-  readonly persistRuntimeEvent?: (event: ProviderRuntimeEvent) => Effect.Effect<void, unknown>;
+  readonly persistRuntimeEvent?: (
+    event: ProviderRuntimeEvent,
+  ) => Effect.Effect<PersistedProviderRuntimeEvent, unknown>;
   /** Durable fallback for events that can never be accepted by the canonical journal. */
   readonly quarantineRuntimeEvent?: (
     event: ProviderRuntimeEvent,
@@ -311,35 +316,6 @@ function hasResumeCursor(value: unknown): boolean {
   return value !== null && value !== undefined;
 }
 
-function makeKeyedThreadLock() {
-  const entries = new Map<ThreadId, { readonly semaphore: Semaphore.Semaphore; users: number }>();
-  const withLock = <A, E, R>(
-    threadId: ThreadId,
-    effect: Effect.Effect<A, E, R>,
-  ): Effect.Effect<A, E, R> => {
-    let entry = entries.get(threadId);
-    if (entry === undefined) {
-      entry = { semaphore: Semaphore.makeUnsafe(1), users: 0 };
-      entries.set(threadId, entry);
-    }
-    entry.users += 1;
-    const acquiredEntry = entry;
-    return acquiredEntry.semaphore
-      .withPermits(1)(effect)
-      .pipe(
-        Effect.ensuring(
-          Effect.sync(() => {
-            acquiredEntry.users -= 1;
-            if (acquiredEntry.users === 0 && entries.get(threadId) === acquiredEntry) {
-              entries.delete(threadId);
-            }
-          }),
-        ),
-      );
-  };
-  return withLock;
-}
-
 function runtimeStatusForEvent(
   event: ProviderRuntimeEvent,
   activeTurnId?: unknown,
@@ -424,7 +400,11 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       1,
       Math.floor(options?.runtimeEventBufferCapacity ?? PROVIDER_RUNTIME_EVENT_BUFFER_CAPACITY),
     );
-    const runtimeEventPubSub = yield* PubSub.bounded<ProviderRuntimeEvent>(
+    type PublishedRuntimeEvent = {
+      readonly event: ProviderRuntimeEvent;
+      readonly persisted?: PersistedProviderRuntimeEvent;
+    };
+    const runtimeEventPubSub = yield* PubSub.bounded<PublishedRuntimeEvent>(
       runtimeEventBufferCapacity,
     );
     const runtimeEventProducerScope = yield* Scope.make("sequential");
@@ -706,18 +686,29 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
 
     const persistCanonicalRuntimeEvent = (
       event: ProviderRuntimeEvent,
-    ): Effect.Effect<void, unknown> =>
-      Effect.uninterruptible(
-        (options?.persistRuntimeEvent ? options.persistRuntimeEvent(event) : Effect.void).pipe(
-          Effect.andThen(
+    ): Effect.Effect<PersistedProviderRuntimeEvent | undefined, unknown> => {
+      const persistence: Effect.Effect<PersistedProviderRuntimeEvent | undefined, unknown> =
+        options?.persistRuntimeEvent
+          ? options.persistRuntimeEvent(event)
+          : Effect.succeed(undefined);
+
+      return Effect.uninterruptible(
+        persistence.pipe(
+          Effect.tap(() =>
             canonicalEventLogger ? canonicalEventLogger.write(event, null) : Effect.void,
           ),
-          Effect.asVoid,
         ),
       );
+    };
 
-    const publishRuntimeEvent = (event: ProviderRuntimeEvent): Effect.Effect<void> =>
-      PubSub.publish(runtimeEventPubSub, event).pipe(Effect.asVoid);
+    const publishRuntimeEvent = (
+      event: ProviderRuntimeEvent,
+      persisted: PersistedProviderRuntimeEvent | undefined,
+    ): Effect.Effect<void> =>
+      PubSub.publish(runtimeEventPubSub, {
+        event,
+        ...(persisted === undefined ? {} : { persisted }),
+      }).pipe(Effect.asVoid);
 
     const upsertSessionBinding = (
       session: ProviderSession,
@@ -841,7 +832,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
     // still be overwritten. Lifecycle events are low-frequency, so a per-thread
     // mutex adds no meaningful contention. Creation is synchronous
     // (Semaphore.makeUnsafe), so concurrent callers cannot mint two locks.
-    const withBindingWriteLock = makeKeyedThreadLock();
+    const withBindingWriteLock = makeKeyedLock<ThreadId>().withLock;
 
     interface StartedTurnPersistenceInput {
       readonly threadId: ThreadId;
@@ -1230,16 +1221,17 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           // fails, the supervised pump retries the same event while its source
           // generation is still current and no recovery waiter has been released.
           return persistCanonicalRuntimeEvent(canonicalEvent).pipe(
-            Effect.andThen(
+            Effect.flatMap((persisted) =>
               Effect.sync(() => {
                 if (canonicalEvent.type === "turn.started") {
                   reconcileRuntimeIdleTimer(canonicalEvent);
                 }
-              }),
+              }).pipe(
+                Effect.andThen(updateSessionBindingFromRuntimeEvent(canonicalEvent)),
+                Effect.andThen(publishRuntimeEvent(canonicalEvent, persisted)),
+                Effect.andThen(scheduleRetiredGatewaySessionRecovery(canonicalEvent)),
+              ),
             ),
-            Effect.andThen(updateSessionBindingFromRuntimeEvent(canonicalEvent)),
-            Effect.andThen(publishRuntimeEvent(canonicalEvent)),
-            Effect.andThen(scheduleRetiredGatewaySessionRecovery(canonicalEvent)),
           );
         }),
       );
@@ -1578,10 +1570,14 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           Effect.gen(function* () {
             const persistedBinding = Option.getOrUndefined(yield* directory.getBinding(threadId));
             const effectiveResumeCursor =
-              input.resumeCursor ??
-              (persistedBinding?.provider === input.provider
-                ? persistedBinding.resumeCursor
-                : undefined);
+              input.forkSourceResumeCursor !== undefined
+                ? undefined
+                : (input.resumeCursor ??
+                  (persistedBinding?.provider === input.provider
+                    ? persistedBinding.resumeCursor
+                    : undefined));
+            const adapterStartInput = { ...input };
+            delete adapterStartInput.resumeCursor;
             const effectiveProviderOptions =
               input.providerOptions ??
               (persistedBinding?.provider === input.provider
@@ -1596,7 +1592,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
               // with text the caller can surface as a session error.
               const started = yield* adapter
                 .startSession({
-                  ...input,
+                  ...adapterStartInput,
                   lifecycleGeneration: lease.generation,
                   ...(effectiveProviderOptions !== undefined
                     ? { providerOptions: effectiveProviderOptions }
@@ -2826,8 +2822,26 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       // consumers (ProviderRuntimeIngestion, CheckpointReactor, etc.) each
       // independently receive all runtime events.
       get streamEvents(): ProviderServiceShape["streamEvents"] {
-        return Stream.fromPubSub(runtimeEventPubSub);
+        return Stream.fromPubSub(runtimeEventPubSub).pipe(Stream.map(({ event }) => event));
       },
+      ...(options?.persistRuntimeEvent === undefined
+        ? {}
+        : {
+            get streamPersistedEvents(): NonNullable<
+              ProviderServiceShape["streamPersistedEvents"]
+            > {
+              return Stream.fromPubSub(runtimeEventPubSub).pipe(
+                Stream.filter(
+                  (
+                    published,
+                  ): published is PublishedRuntimeEvent & {
+                    readonly persisted: PersistedProviderRuntimeEvent;
+                  } => published.persisted !== undefined,
+                ),
+                Stream.map(({ persisted }) => persisted),
+              );
+            },
+          }),
     } satisfies ProviderServiceShape;
   });
 
@@ -2845,7 +2859,7 @@ export function makeDurableProviderServiceLive(options?: ProviderServiceLiveOpti
       const runtimeEvents = yield* ProviderRuntimeEventRepository;
       return yield* makeProviderService({
         ...options,
-        persistRuntimeEvent: (event) => runtimeEvents.append(event).pipe(Effect.asVoid),
+        persistRuntimeEvent: (event) => runtimeEvents.append(event),
         quarantineRuntimeEvent: (event, cause) =>
           runtimeEvents
             .append({

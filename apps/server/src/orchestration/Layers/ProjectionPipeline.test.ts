@@ -26,6 +26,7 @@ import {
 } from "../../persistence/Layers/Sqlite.ts";
 import {
   OrchestrationEventStore,
+  type OrchestrationEventReplayFilter,
   type OrchestrationEventStoreShape,
 } from "../../persistence/Services/OrchestrationEventStore.ts";
 import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedAttachments.ts";
@@ -55,16 +56,25 @@ const makeProjectionPipelinePrefixedTestLayer = (prefix: string) =>
     Layer.provideMerge(NodeServices.layer),
   );
 
-const makeObservedEventStoreLayer = (readCursors: Array<number>) =>
+const makeObservedEventStoreLayer = (
+  readCursors: Array<number>,
+  readFilters: Array<OrchestrationEventReplayFilter> = [],
+) =>
   Layer.effect(
     OrchestrationEventStore,
     Effect.gen(function* () {
       const eventStore = yield* OrchestrationEventStore;
       return {
         ...eventStore,
-        readFromSequence(sequenceExclusive, limit, throughSequenceInclusive) {
+        readFromSequence(sequenceExclusive, limit, throughSequenceInclusive, filter) {
           readCursors.push(sequenceExclusive);
-          return eventStore.readFromSequence(sequenceExclusive, limit, throughSequenceInclusive);
+          if (filter) readFilters.push(filter);
+          return eventStore.readFromSequence(
+            sequenceExclusive,
+            limit,
+            throughSequenceInclusive,
+            filter,
+          );
         },
       } satisfies OrchestrationEventStoreShape;
     }),
@@ -1257,8 +1267,9 @@ it.effect("fast-forwards lagging hot projector cursors before restart replay", (
       Layer.provideMerge(persistenceLayer),
     );
     const readCursors: Array<number> = [];
+    const readFilters: Array<OrchestrationEventReplayFilter> = [];
     const secondProjectionLayer = OrchestrationProjectionPipelineLive.pipe(
-      Layer.provideMerge(makeObservedEventStoreLayer(readCursors)),
+      Layer.provideMerge(makeObservedEventStoreLayer(readCursors, readFilters)),
       Layer.provideMerge(persistenceLayer),
     );
     const projectId = ProjectId.makeUnsafe("project-bootstrap-fast-forward");
@@ -1364,6 +1375,15 @@ it.effect("fast-forwards lagging hot projector cursors before restart replay", (
 
     assert.equal(readCursors.length, projectorStates.length);
     assert.deepEqual([...new Set(readCursors)], [latestSequence]);
+    assert.equal(readFilters.length, projectorStates.length);
+    assert.isTrue(readFilters.every((filter) => filter.includeBoundaryEvent === true));
+    assert.isTrue(
+      readFilters.some(
+        (filter) =>
+          filter.eventTypes.includes("thread.activity-appended") &&
+          filter.activityKinds?.includes("approval.requested") === true,
+      ),
+    );
     for (const row of projectorStates) {
       assert.equal(row.lastAppliedSequence, latestSequence);
     }
@@ -1462,7 +1482,7 @@ it.effect("drains 2,501 file-backed events to a captured high-water fence", () =
         const eventStore = yield* OrchestrationEventStore;
         return {
           ...eventStore,
-          readFromSequence(sequenceExclusive, limit, throughSequenceInclusive) {
+          readFromSequence(sequenceExclusive, limit, throughSequenceInclusive, filter) {
             return Stream.unwrap(
               Effect.gen(function* () {
                 if (!appendedAfterFence) {
@@ -1488,6 +1508,7 @@ it.effect("drains 2,501 file-backed events to a captured high-water fence", () =
                   sequenceExclusive,
                   limit,
                   throughSequenceInclusive,
+                  filter,
                 );
               }),
             );

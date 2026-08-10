@@ -286,6 +286,7 @@ describe("SidebarActivityView", () => {
     expect(completedDot).not.toBeNull();
     expect(completedDot?.parentElement?.dataset.slot).toBe("activity-completion-status");
     const completedStatusSlot = completedDot?.parentElement;
+    const completedStatusCluster = completedStatusSlot?.parentElement;
     const completedStatusLeft = completedStatusSlot?.getBoundingClientRect().left;
 
     const pinnedRow = page.getByTestId(`activity-thread-${pinned.id}`).element();
@@ -298,7 +299,7 @@ describe("SidebarActivityView", () => {
 
     page.getByTestId(`activity-thread-${unseen.id}`).element().focus();
     await vi.waitFor(() => {
-      expect(getComputedStyle(completedStatusSlot!).opacity).toBe("0");
+      expect(getComputedStyle(completedStatusCluster!).opacity).toBe("0");
     });
     expect(completedStatusSlot?.getBoundingClientRect().left).toBe(completedStatusLeft);
     await page.getByRole("button", { name: "Done" }).click();

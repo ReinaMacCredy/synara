@@ -177,6 +177,7 @@ export function createShellSnapshotFromReadModel(
         handoff: thread.handoff ?? null,
         session: thread.session,
       })),
+    supervisedOrchestration: snapshot.supervisedOrchestration,
     updatedAt: snapshot.updatedAt,
   };
 }

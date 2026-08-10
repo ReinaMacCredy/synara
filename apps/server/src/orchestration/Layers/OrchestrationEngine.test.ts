@@ -90,6 +90,7 @@ const makeThreadEventReadMethods = (
   | "getAggregateHighWaterSequence"
   | "readAggregateEvents"
   | "readAggregateEventPage"
+  | "readThreadEventsFromSequence"
 > => ({
   getThreadHighWaterSequence: (threadId) =>
     Effect.succeed(
@@ -138,6 +139,25 @@ const makeThreadEventReadMethods = (
         )
         .toSorted((left, right) => right.sequence - left.sequence)
         .slice(0, input.limit),
+    ),
+  readThreadEventsFromSequence: (
+    threadId,
+    sequenceExclusive,
+    limit = 1_000,
+    throughSequenceInclusive = Number.MAX_SAFE_INTEGER,
+    eventTypes,
+  ) =>
+    Stream.fromIterable(
+      events
+        .filter(
+          (event) =>
+            event.aggregateKind === "thread" &&
+            event.aggregateId === threadId &&
+            event.sequence > sequenceExclusive &&
+            event.sequence <= throughSequenceInclusive &&
+            (eventTypes === undefined || eventTypes.includes(event.type)),
+        )
+        .slice(0, limit),
     ),
 });
 const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);

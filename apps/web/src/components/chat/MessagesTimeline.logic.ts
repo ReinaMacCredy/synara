@@ -533,6 +533,7 @@ export function deriveMessagesTimelineRows(input: {
   activeTurnInProgress?: boolean;
   activeTurnId?: TurnId | null | undefined;
   activeTurnStartedAt: string | null;
+  showReasoningStatus?: boolean;
   turnDiffSummaryByAssistantMessageId: ReadonlyMap<MessageId, TurnDiffSummary>;
   revertTurnCountByUserMessageId: ReadonlyMap<MessageId, number>;
 }): MessagesTimelineRow[] {
@@ -733,45 +734,47 @@ export function deriveMessagesTimelineRows(input: {
 
   // Live lifecycle: one row is present from optimistic Send onward.
   // The provider start timestamp only updates its label; it never changes row
-  // topology or inserts a competing synthetic Thinking row.
-    if (input.isWorking && !(input.worktreeSetup && input.worktreeSetupOpen)) {
-      const insertIndex = findLiveTurnActivityInsertIndex(nextRows);
-      const boundaryRow = nextRows[insertIndex - 1];
-      const boundaryMessageId =
-        boundaryRow?.kind === "message" && boundaryRow.message.role === "user"
-          ? boundaryRow.message.id
-          : null;
-      const activityId = turnActivityRowId(boundaryMessageId, input.activeTurnId ?? null);
-      const settledActivityAlreadyOwnsTurn = nextRows.some(
-        (row) => row.kind === "turn-activity" && row.id === activityId && row.state === "settled",
-      );
-      if (!settledActivityAlreadyOwnsTurn) {
-        nextRows.splice(insertIndex, 0, {
-          kind: "turn-activity",
-          id: activityId,
-          createdAt: input.activeTurnStartedAt,
-          state: "working",
-          showReasoningStatus: false,
-        });
-      }
-      if (
-        !settledActivityAlreadyOwnsTurn &&
-          (detachedActiveReasoningEntries.length > 0 || !hasActiveTurnContentAfterUser)
-      ) {
-        const phaseBoundaryId = findActiveReasoningPhaseBoundaryId(
-          timelineEntries,
-          latestUserMessageEntryIndex,
-          input.activeTurnId,
-        );
-        const scopeKey = `${activityId}:reasoning:${phaseBoundaryId}`;
-        nextRows.push({
-          kind: "reasoning-status",
-          id: scopeKey,
-          scopeKey,
-            reasoningEntries: detachedActiveReasoningEntries,
-        });
-      }
+  // topology. The optimistic Loading phase suppresses the separate Thinking
+  // narration until the durable turn acknowledgement arrives.
+  if (input.isWorking && !(input.worktreeSetup && input.worktreeSetupOpen)) {
+    const insertIndex = findLiveTurnActivityInsertIndex(nextRows);
+    const boundaryRow = nextRows[insertIndex - 1];
+    const boundaryMessageId =
+      boundaryRow?.kind === "message" && boundaryRow.message.role === "user"
+        ? boundaryRow.message.id
+        : null;
+    const activityId = turnActivityRowId(boundaryMessageId, input.activeTurnId ?? null);
+    const settledActivityAlreadyOwnsTurn = nextRows.some(
+      (row) => row.kind === "turn-activity" && row.id === activityId && row.state === "settled",
+    );
+    if (!settledActivityAlreadyOwnsTurn) {
+      nextRows.splice(insertIndex, 0, {
+        kind: "turn-activity",
+        id: activityId,
+        createdAt: input.activeTurnStartedAt,
+        state: "working",
+        showReasoningStatus: false,
+      });
     }
+    if (
+      input.showReasoningStatus !== false &&
+      !settledActivityAlreadyOwnsTurn &&
+      (detachedActiveReasoningEntries.length > 0 || !hasActiveTurnContentAfterUser)
+    ) {
+      const phaseBoundaryId = findActiveReasoningPhaseBoundaryId(
+        timelineEntries,
+        latestUserMessageEntryIndex,
+        input.activeTurnId,
+      );
+      const scopeKey = `${activityId}:reasoning:${phaseBoundaryId}`;
+      nextRows.push({
+        kind: "reasoning-status",
+        id: scopeKey,
+        scopeKey,
+        reasoningEntries: detachedActiveReasoningEntries,
+      });
+    }
+  }
 
   return nextRows;
 }

@@ -67,6 +67,8 @@ interface UseTailAnchorScrollOptions {
   anchorScrollInFlightRef?: RefObject<boolean> | undefined;
   /** Lets the list suspend its own end-follow until the anchor slide is settled. */
   onAnchorSlideFinished?: ((messageId: MessageId) => void) | undefined;
+  /** Enables end-follow only after the streamed response has outgrown the anchor reserve. */
+  onAnchorFollowTail?: ((messageId: MessageId) => void) | undefined;
   /** Changes whenever transcript content may have moved the anchor row. */
   contentChangeSignal?: unknown;
   /** Normal sends slide; steering an already-streaming turn anchors immediately. */
@@ -123,6 +125,7 @@ export function useTailAnchorScroll({
   anchorMessageId,
   anchorScrollInFlightRef,
   onAnchorSlideFinished,
+  onAnchorFollowTail,
   contentChangeSignal,
   animateAnchorSlide = true,
 }: UseTailAnchorScrollOptions): void {
@@ -263,7 +266,13 @@ export function useTailAnchorScroll({
       // below the viewport bottom, so the response has outgrown its reserve.
       // That is the hand-off to the list's own follow-the-tail — from here the
       // anchor is meant to scroll up and out of view.
-      if (hasLanded && target.maxScrollTopPx - target.desired > ANCHOR_OVERFLOW_SLACK_PX) {
+      // Inline bottom padding reserves the floating composer, not streamed
+      // transcript content. Exclude it from overflow detection or the hold
+      // hands off by exactly the composer inset once the slide quiets.
+      const inlineBottomInsetPx = Number.parseFloat(container.style.paddingBottom) || 0;
+      const contentOverflowPx =
+        target.maxScrollTopPx - target.desired - inlineBottomInsetPx;
+      if (hasLanded && contentOverflowPx > ANCHOR_OVERFLOW_SLACK_PX) {
         overflowFrames += 1;
         if (overflowFrames >= ANCHOR_OVERFLOW_HANDOFF_FRAMES) {
           // Complete the motion the hand-off implies rather than releasing at
@@ -271,6 +280,7 @@ export function useTailAnchorScroll({
           // and the list only re-sticks on its next content change, so leaving
           // it here would strand the transcript short of the live edge.
           container.scrollTop = target.maxScrollTopPx;
+          onAnchorFollowTail?.(anchorId);
           finishAnchorSlide();
           return true;
         }
@@ -411,7 +421,14 @@ export function useTailAnchorScroll({
         anchorScrollInFlightRef.current = false;
       }
     };
-  }, [anchorMessageId, anchorScrollInFlightRef, listRef, onAnchorSlideFinished, timelineRootRef]);
+  }, [
+    anchorMessageId,
+    anchorScrollInFlightRef,
+    listRef,
+    onAnchorFollowTail,
+    onAnchorSlideFinished,
+    timelineRootRef,
+  ]);
 
   // React commits streamed text before paint. Re-apply the current slide
   // coordinate in that layout window so a chunk landing above the anchor cannot

@@ -8,6 +8,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Option, Schema, SchemaTransformation } from "effect";
 import {
   type AssistantDeliveryMode,
+  DesktopAppIcon,
   DEFAULT_GIT_TEXT_GENERATION_MODEL,
   DEFAULT_SERVER_SETTINGS,
   DEFAULT_SERVER_SETTINGS_VIEW,
@@ -215,7 +216,8 @@ export const AppSettingsSchema = Schema.Struct({
   confirmThreadArchive: Schema.Boolean.pipe(withDefaults(() => false)),
   confirmTerminalTabClose: Schema.Boolean.pipe(withDefaults(() => true)),
   diffWordWrap: Schema.Boolean.pipe(withDefaults(() => false)),
-  // Local-only preference for the standalone Chats list in the sidebar footer.
+  showPullRequestDiffColors: Schema.Boolean.pipe(withDefaults(() => true)),
+  // Local-only preference for the standalone rootless Chats list.
   showChatsSection: Schema.Boolean.pipe(withDefaults(() => true)),
   // Local-only UI preferences: which optional sections of the chat Environment panel are
   // shown. The git block (Changes/Worktree/branch/Commit and Push) is always visible; these
@@ -236,6 +238,7 @@ export const AppSettingsSchema = Schema.Struct({
   enableAssistantStreaming: Schema.Boolean.pipe(withDefaults(() => true)),
   enableProviderUpdateChecks: Schema.Boolean.pipe(withDefaults(() => true)),
   enableNativeFontSmoothing: Schema.Boolean.pipe(withDefaults(getDefaultNativeFontSmoothing)),
+  desktopAppIcon: DesktopAppIcon.pipe(withDefaults(() => "default" as const)),
   enableTaskCompletionToasts: Schema.Boolean.pipe(withDefaults(() => true)),
   enableSystemTaskCompletionNotifications: Schema.Boolean.pipe(withDefaults(() => true)),
   // Local desktop preference. Native capability/permission state remains owned by Electron.

@@ -880,6 +880,7 @@ describe("AppSettingsSchema", () => {
       defaultThreadEnvMode: "local",
       confirmThreadDelete: false,
       confirmTerminalTabClose: true,
+      desktopAppIcon: "default",
       enableAppSnap: false,
       appSnapShortcut: { kind: "both-option-keys" },
       appSnapPlaySound: true,
@@ -933,6 +934,12 @@ describe("AppSettingsSchema", () => {
         }),
       ).advisorCustomInstructions,
     ).toBe("Challenge assumptions and finish with one concrete recommendation.");
+  });
+
+  it("preserves the selected desktop app icon", () => {
+    const decode = Schema.decodeSync(Schema.fromJsonString(AppSettingsSchema));
+
+    expect(decode(JSON.stringify({ desktopAppIcon: "icon" })).desktopAppIcon).toBe("icon");
   });
 
   it("migrates the former AppSnap feature flag", () => {

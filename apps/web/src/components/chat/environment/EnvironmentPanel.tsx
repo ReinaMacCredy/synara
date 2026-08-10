@@ -362,6 +362,7 @@ export function EnvironmentPanel({
           activeThreadId={activeThreadId}
           projectId={activeProjectId}
           configuredRepositories={githubRepositories}
+          showDiffColors={settings.showPullRequestDiffColors}
           onOpenUrl={onOpenGithubRepository}
           onClose={onClose}
         />
