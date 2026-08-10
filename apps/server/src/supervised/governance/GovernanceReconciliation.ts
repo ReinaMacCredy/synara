@@ -202,6 +202,29 @@ export function governanceDecisionStateFromSnapshot(input: {
 const roomIdsForLead = (runtime: SupervisedRuntimeSnapshot, leadSeatId: string) =>
   runtime.rooms.filter((room) => room.leadSeatId === leadSeatId).map((room) => room.id);
 
+const roomIdsForSupervisor = (
+  runtime: SupervisedRuntimeSnapshot,
+  state: SupervisedGovernanceDecisionState,
+  supervisorSeatId: string,
+) => {
+  const missions = state.missions.filter(
+    (mission) =>
+      mission.supervisorSeatId === supervisorSeatId && mission.status === "active",
+  );
+  return runtime.rooms
+    .filter((room) =>
+      missions.some((mission) =>
+        mission.scope.some((scope) => {
+          if (scope.kind === "all_projects") return true;
+          if (scope.kind === "project") return scope.projectId === room.projectId;
+          if (scope.kind === "lead") return scope.leadSeatId === room.leadSeatId;
+          return false;
+        }),
+      ),
+    )
+    .map((room) => room.id);
+};
+
 const isManagedProjectionLease = (leaseId: string) =>
   leaseId.startsWith("legacy-root-lease:") ||
   leaseId.startsWith("supervised-projection-root-lease:");
@@ -262,6 +285,8 @@ const makeReceipt = (input: {
     ...(input.role === "lead"
       ? [
           "supervised.peer.create",
+          "supervised.work.assign",
+          "supervised.intervention.reconcile",
           "supervised.room.update",
           "supervised.task.create",
           "supervised.task-node.commit",
@@ -278,13 +303,15 @@ const makeReceipt = (input: {
         ? [
             "supervised.room.create",
             "supervised.lead.create",
+            "supervised.peer.create",
+            "supervised.work.assign",
             "supervised.context.workspace-upsert",
             "supervised.context.append",
             "supervised.rlm.upsert",
             "supervised.model-session.upsert",
             "supervised.evidence.publish",
           ]
-        : []),
+        : ["supervised.work.complete"]),
     ...defaultSupervisedCommandsForRole(input.role),
   ];
   const allowedTools = defaultSupervisedToolsForRole(input.role);
@@ -339,11 +366,12 @@ export function reconcileGovernanceProjection(input: {
 
   for (const supervisor of input.state.supervisors) {
     if (shouldPreserveExternallyManagedSeat(input.governance, supervisor.id)) continue;
+    const roomIds = roomIdsForSupervisor(input.runtime, input.state, supervisor.id);
     const receipt = makeReceipt({
       snapshot: input.governance,
       seatId: supervisor.id,
       role: "supervisor",
-      roomIds: [],
+      roomIds,
       issuedAt: supervisor.createdAt,
       at: input.at,
       source: input.source,
@@ -352,7 +380,7 @@ export function reconcileGovernanceProjection(input: {
     agentSeats = upsert(agentSeats, {
       id: AgentSeatId.makeUnsafe(supervisor.id),
       workspaceId,
-      roomIds: [],
+      roomIds,
       identityRole: "supervisor",
       effectiveRole: "supervisor",
       profileId: AgentProfileId.makeUnsafe(supervisor.profileSnapshotId),

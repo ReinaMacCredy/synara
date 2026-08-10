@@ -4,13 +4,18 @@ import {
   CommandId,
   ContextBundleId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
+  EvidenceId,
+  InterventionId,
+  LeadNotificationId,
   LeadRotationId,
   LeadSeatId,
   MessageId,
   ProfileSnapshotId,
+  PeerSpecialtyId,
   ProjectId,
   ProjectTaskId,
   RoomId,
+  ReconciliationId,
   SupervisorSeatId,
   SupervisionMissionId,
   TaskId,
@@ -1715,6 +1720,206 @@ describe("OrchestrationEngine", () => {
     expect(
       readModel.supervised.taskNodes.filter((node) => node.taskId === taskId),
     ).toHaveLength(2);
+    const governanceForPeerWork = await system.run(
+      supervisedGovernanceRepository.getSnapshot(),
+    );
+    const currentSupervisorSeat = governanceForPeerWork.agentSeats.find(
+      (candidate) => candidate.id === supervisorSeatId,
+    )!;
+    const currentSupervisorReceipt = governanceForPeerWork.authorityReceipts.find(
+      (candidate) => candidate.id === currentSupervisorSeat.authorityReceiptId,
+    )!;
+    expect(currentSupervisorReceipt.roomScopes).toContain(roomId);
+    expect(currentSupervisorReceipt.allowedCommands).toContain("supervised.peer.create");
+    expect(currentSupervisorReceipt.allowedCommands).toContain("supervised.work.assign");
+
+    const peerPreset = DEFAULT_SUPERVISED_PROFILES.find((candidate) =>
+      candidate.roleHints.includes("peer"),
+    )!;
+    const peerProfileSnapshot = resolveProfilePreset({
+      preset: peerPreset,
+      snapshotId: ProfileSnapshotId.makeUnsafe("snapshot-supervisor-created-peer"),
+      createdAt,
+    });
+    const peerThreadId = ThreadId.makeUnsafe("peer:supervisor-assigned");
+    const peerSpecialtyId = PeerSpecialtyId.makeUnsafe("peer-specialty-supervisor-assigned");
+    await system.run(
+      engine.dispatch({
+        type: "supervised.peer.create",
+        commandId: CommandId.makeUnsafe("command-supervisor-create-peer"),
+        aggregateId: peerSpecialtyId,
+        actor: {
+          kind: "seat",
+          actorId: supervisorThreadId,
+          seatId: supervisorSeatId,
+        },
+        authorityReceiptId: currentSupervisorReceipt.id,
+        expectedRevision: 0,
+        idempotencyKey: "supervisor-create-peer",
+        createdAt,
+        roomId,
+        projectId,
+        leadSeatId,
+        leadThreadId,
+        threadId: peerThreadId,
+        title: "Protocol investigator",
+        workingDirectory: "/tmp/project-supervisor-first-saga",
+        profilePresetId: peerPreset.id,
+        profileSnapshot: peerProfileSnapshot,
+        peerSpecialty: {
+          id: peerSpecialtyId,
+          profilePresetId: peerPreset.id,
+          concern: "Locate the Supervisor protocol implementation.",
+          status: "active",
+          allowedScopes: [
+            { kind: "project", projectId },
+            { kind: "room", roomId },
+            { kind: "seat", role: "peer", seatId: peerThreadId },
+          ],
+          latestSnapshotId: null,
+          expiresAt: "2026-08-11T01:00:00.000Z",
+          revision: 0,
+          createdAt,
+          updatedAt: createdAt,
+        },
+      }),
+    );
+
+    const governanceAfterPeer = await system.run(
+      supervisedGovernanceRepository.getSnapshot(),
+    );
+    const peerSeat = governanceAfterPeer.agentSeats.find(
+      (candidate) => candidate.threadId === peerThreadId,
+    )!;
+    const peerReceipt = governanceAfterPeer.authorityReceipts.find(
+      (candidate) => candidate.id === peerSeat.authorityReceiptId,
+    )!;
+    expect(peerSeat.identityRole).toBe("peer");
+    expect(peerSeat.roomIds).toContain(roomId);
+    expect(peerReceipt.allowedCommands).toContain("supervised.work.complete");
+
+    const interventionId = InterventionId.makeUnsafe("intervention-supervisor-peer-work");
+    const notificationId = LeadNotificationId.makeUnsafe(
+      "notification-supervisor-peer-work",
+    );
+    const reconciliationId = ReconciliationId.makeUnsafe(
+      "reconciliation-supervisor-peer-work",
+    );
+    const peerWorkActor = {
+      kind: "seat" as const,
+      actorId: supervisorThreadId,
+      seatId: supervisorSeatId,
+    };
+    await system.run(
+      engine.dispatch({
+        type: "supervised.work.assign",
+        commandId: CommandId.makeUnsafe("command-supervisor-assign-peer-work"),
+        aggregateId: interventionId,
+        actor: peerWorkActor,
+        authorityReceiptId: currentSupervisorReceipt.id,
+        expectedRevision: 0,
+        idempotencyKey: "supervisor-assign-peer-work",
+        createdAt,
+        roomId,
+        projectId,
+        leadSeatId,
+        leadThreadId,
+        peerThreadId,
+        intervention: {
+          id: interventionId,
+          roomId,
+          requestedBy: peerWorkActor,
+          specialistThreadId: peerThreadId,
+          reason: "Locate the Supervisor protocol file without editing it.",
+          material: false,
+          evidenceRefs: [],
+          status: "open",
+          createdAt,
+          updatedAt: createdAt,
+          revision: 0,
+        },
+        leadNotification: {
+          id: notificationId,
+          interventionId,
+          roomId,
+          leadSeatId,
+          status: "queued",
+          createdAt,
+          deliveredAt: null,
+          acknowledgedAt: null,
+        },
+        reconciliation: {
+          id: reconciliationId,
+          interventionId,
+          roomId,
+          leadSeatId,
+          status: "open",
+          taskNodeRevisionId: null,
+          reason: null,
+          createdAt,
+          resolvedAt: null,
+          revision: 0,
+        },
+      }),
+    );
+
+    readModel = await system.run(engine.getReadModel());
+    expect(
+      readModel.supervised.interventions.find((item) => item.id === interventionId),
+    ).toMatchObject({ status: "open", material: false, specialistThreadId: peerThreadId });
+
+    const evidenceId = EvidenceId.makeUnsafe("evidence-supervisor-peer-work");
+    await system.run(
+      engine.dispatch({
+        type: "supervised.work.complete",
+        commandId: CommandId.makeUnsafe("command-peer-complete-supervisor-work"),
+        aggregateId: interventionId,
+        actor: {
+          kind: "seat",
+          actorId: peerThreadId,
+          seatId: peerSeat.id,
+        },
+        authorityReceiptId: peerReceipt.id,
+        expectedRevision: 0,
+        idempotencyKey: "peer-complete-supervisor-work",
+        createdAt: "2026-08-10T01:01:00.000Z",
+        roomId,
+        interventionId,
+        evidence: {
+          id: evidenceId,
+          scope: { kind: "room", roomId },
+          kind: "observation",
+          summary:
+            "The Supervisor protocol is apps/server/src/orchestration/supervised/protocolV1.ts.",
+          blob: null,
+          sourceEventIds: [],
+          modelSessionId: null,
+          createdBy: {
+            kind: "seat",
+            actorId: peerThreadId,
+            seatId: peerSeat.id,
+          },
+          createdAt: "2026-08-10T01:01:00.000Z",
+        },
+      }),
+    );
+
+    readModel = await system.run(engine.getReadModel());
+    expect(readModel.supervised.evidence.find((item) => item.id === evidenceId)).toBeDefined();
+    expect(
+      readModel.supervised.interventions.find((item) => item.id === interventionId),
+    ).toMatchObject({ status: "reconciled", evidenceRefs: [evidenceId] });
+    expect(
+      readModel.supervised.leadNotifications.find(
+        (item) => item.interventionId === interventionId,
+      ),
+    ).toMatchObject({ status: "delivered" });
+    expect(
+      readModel.supervised.reconciliations.find(
+        (item) => item.interventionId === interventionId,
+      ),
+    ).toMatchObject({ status: "accepted", taskNodeRevisionId: null });
+    expect(readModel.supervised.workClaims).toHaveLength(0);
     const events = await system.run(
       Stream.runCollect(engine.readEvents(0)).pipe(
         Effect.map((chunk): OrchestrationEvent[] => Array.from(chunk)),
@@ -1741,6 +1946,46 @@ describe("OrchestrationEngine", () => {
       "supervised.task-node-committed",
       "supervised.task-node-committed",
     ]);
+    expect(
+      events
+        .filter((event) => event.commandId === "command-supervisor-assign-peer-work")
+        .map((event) => event.type),
+    ).toEqual([
+      "supervised.intervention-proposed",
+      "thread.message-sent",
+      "thread.turn-start-requested",
+    ]);
+    expect(
+      events
+        .filter((event) => event.commandId === "command-peer-complete-supervisor-work")
+        .map((event) => event.type),
+    ).toEqual([
+      "supervised.evidence-published",
+      "thread.message-sent",
+      "thread.turn-start-requested",
+    ]);
+    const assignmentOrigin = events.find(
+      (event) =>
+        event.commandId === "command-supervisor-assign-peer-work" &&
+        event.type === "thread.turn-start-requested",
+    )?.payload.threadOrigin;
+    expect(assignmentOrigin).toMatchObject({
+      rootThreadId: leadThreadId,
+      senderThreadId: supervisorThreadId,
+      targetThreadId: peerThreadId,
+      assignmentId: interventionId,
+    });
+    const notificationOrigin = events.find(
+      (event) =>
+        event.commandId === "command-peer-complete-supervisor-work" &&
+        event.type === "thread.turn-start-requested",
+    )?.payload.threadOrigin;
+    expect(notificationOrigin).toMatchObject({
+      rootThreadId: leadThreadId,
+      senderThreadId: peerThreadId,
+      targetThreadId: leadThreadId,
+      assignmentId: interventionId,
+    });
     await system.dispose();
   });
 

@@ -448,4 +448,169 @@ testLayer("SupervisedRuntimeRepository", (it) => {
       yield* sql`DELETE FROM projection_projects WHERE project_id = 'project-stage-5-context'`;
     }),
   );
+
+  it.effect("persists Peer completion evidence with its Lead notification and reconciliation", () =>
+    Effect.gen(function* () {
+      const repository = yield* SupervisedRuntimeRepository;
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id, kind, title, workspace_root, scripts_json, created_at, updated_at
+        ) VALUES (
+          'project-peer-persistence', 'project', 'Peer persistence', '/tmp/peer-persistence',
+          '[]', ${now}, ${now}
+        )
+      `;
+      const requester = {
+        kind: "seat" as const,
+        actorId: "supervisor-thread-persistence",
+        seatId: "supervisor-seat-persistence",
+      };
+      const intervention = {
+        id: "intervention-peer-persistence",
+        roomId: "room-peer-persistence",
+        requestedBy: requester,
+        specialistThreadId: "peer-thread-persistence",
+        reason: "Inspect a bounded concern.",
+        material: false,
+        evidenceRefs: [],
+        status: "open" as const,
+        createdAt: now,
+        updatedAt: now,
+        revision: 0,
+      };
+      const notification = {
+        id: "notification-peer-persistence",
+        interventionId: intervention.id,
+        roomId: intervention.roomId,
+        leadSeatId: "lead-seat-persistence",
+        status: "queued" as const,
+        createdAt: now,
+        deliveredAt: null,
+        acknowledgedAt: null,
+      };
+      const reconciliation = {
+        id: "reconciliation-peer-persistence",
+        interventionId: intervention.id,
+        roomId: intervention.roomId,
+        leadSeatId: "lead-seat-persistence",
+        status: "open" as const,
+        taskNodeRevisionId: null,
+        reason: null,
+        createdAt: now,
+        resolvedAt: null,
+        revision: 0,
+      };
+      const base = {
+        eventId: "event-peer-persistence-open",
+        aggregateKind: "intervention",
+        aggregateId: intervention.id,
+        type: "supervised.intervention-proposed",
+        payload: {
+          acceptedRevision: 0,
+          actor: requester,
+          intervention,
+          leadNotification: notification,
+          reconciliation,
+        },
+        occurredAt: now,
+        commandId: "command-peer-persistence-open",
+        causationEventId: null,
+        correlationId: null,
+        metadata: { schemaVersion: "1.0.0" },
+      } as const;
+      yield* repository.applyDomainEvent({
+        ...base,
+        sequence: 299,
+        eventId: "event-peer-persistence-room",
+        aggregateKind: "supervised_room",
+        aggregateId: intervention.roomId,
+        type: "supervised.room-created",
+        payload: {
+          acceptedRevision: 0,
+          actor: requester,
+          room: {
+            id: intervention.roomId,
+            projectId: "project-peer-persistence",
+            title: "Peer persistence Room",
+            leadSeatId: notification.leadSeatId,
+            status: "active",
+            graphRevision: 0,
+            revision: 0,
+            createdAt: now,
+            updatedAt: now,
+          },
+        },
+      } as never);
+      yield* repository.applyDomainEvent({ ...base, sequence: 300 } as never);
+
+      const evidence = {
+        id: "evidence-peer-persistence",
+        scope: { kind: "room" as const, roomId: intervention.roomId },
+        kind: "observation" as const,
+        summary: "Bounded evidence retained.",
+        blob: null,
+        sourceEventIds: [],
+        modelSessionId: null,
+        createdBy: {
+          kind: "seat" as const,
+          actorId: intervention.specialistThreadId,
+          seatId: intervention.specialistThreadId,
+        },
+        createdAt: now,
+      };
+      yield* repository.applyDomainEvent({
+        ...base,
+        sequence: 301,
+        eventId: "event-peer-persistence-complete",
+        type: "supervised.evidence-published",
+        payload: {
+          acceptedRevision: 1,
+          actor: evidence.createdBy,
+          evidence,
+          intervention: {
+            ...intervention,
+            evidenceRefs: [evidence.id],
+            status: "reconciled",
+            revision: 1,
+          },
+          leadNotification: {
+            ...notification,
+            status: "delivered",
+            deliveredAt: now,
+          },
+          reconciliation: {
+            ...reconciliation,
+            status: "accepted",
+            reason: "No canonical Room mutation.",
+            resolvedAt: now,
+            revision: 1,
+          },
+        },
+      } as never);
+
+      const snapshot = yield* repository.getSnapshot({ includeDisabled: true });
+      assert.equal(
+        snapshot.interventions.find((item) => item.id === intervention.id)?.status,
+        "reconciled",
+      );
+      assert.equal(
+        snapshot.leadNotifications.find(
+          (item) => item.interventionId === intervention.id,
+        )?.status,
+        "delivered",
+      );
+      assert.equal(
+        snapshot.reconciliations.find(
+          (item) => item.interventionId === intervention.id,
+        )?.status,
+        "accepted",
+      );
+      assert.equal(
+        snapshot.evidence.find((item) => item.id === evidence.id)?.summary,
+        evidence.summary,
+      );
+      yield* sql`DELETE FROM projection_projects WHERE project_id = 'project-peer-persistence'`;
+    }),
+  );
 });

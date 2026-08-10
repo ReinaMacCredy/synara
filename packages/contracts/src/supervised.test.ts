@@ -141,6 +141,73 @@ describe("Supervised contracts", () => {
     );
   });
 
+  it("round-trips bounded Peer work without encoding TaskNode ownership", () => {
+    const requester = {
+      kind: "seat" as const,
+      actorId: "supervisor-thread-1",
+      seatId: "supervisor-seat-1",
+    };
+    const assignment = Schema.decodeUnknownSync(DispatchSupervisedCommandInput)({
+      command: {
+        type: "supervised.work.assign",
+        commandId: "command-peer-work-1",
+        actor: requester,
+        authorityReceiptId: "receipt-supervisor-1",
+        aggregateId: "intervention-1",
+        expectedRevision: 0,
+        idempotencyKey: "peer-work-1",
+        createdAt: now,
+        roomId: "room-1",
+        projectId: "project-1",
+        leadSeatId: "lead-1",
+        leadThreadId: "lead-thread-1",
+        peerThreadId: "peer-thread-1",
+        intervention: {
+          id: "intervention-1",
+          roomId: "room-1",
+          requestedBy: requester,
+          specialistThreadId: "peer-thread-1",
+          reason: "Inspect the Supervisor protocol location.",
+          material: false,
+          evidenceRefs: [],
+          status: "open",
+          createdAt: now,
+          updatedAt: now,
+          revision: 0,
+        },
+        leadNotification: {
+          id: "notification-1",
+          interventionId: "intervention-1",
+          roomId: "room-1",
+          leadSeatId: "lead-1",
+          status: "queued",
+          createdAt: now,
+          deliveredAt: null,
+          acknowledgedAt: null,
+        },
+        reconciliation: {
+          id: "reconciliation-1",
+          interventionId: "intervention-1",
+          roomId: "room-1",
+          leadSeatId: "lead-1",
+          status: "open",
+          taskNodeRevisionId: null,
+          reason: null,
+          createdAt: now,
+          resolvedAt: null,
+          revision: 0,
+        },
+      },
+    });
+    assert.equal(assignment.command.type, "supervised.work.assign");
+    if (assignment.command.type !== "supervised.work.assign") return;
+    assert.equal(assignment.command.intervention.material, false);
+    assert.equal("taskNodeId" in assignment.command, false);
+
+    const encoded = Schema.encodeSync(DispatchSupervisedCommandInput)(assignment);
+    assert.equal(encoded.command.type, "supervised.work.assign");
+  });
+
   it("decodes a declarative-only plugin without executable authority", () => {
     const manifest = Schema.decodeUnknownSync(PluginManifest)({
       pluginId: "plugin-context-basics",

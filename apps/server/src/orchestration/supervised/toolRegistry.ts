@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto";
 
 import {
   CommandId,
+  EvidenceId,
+  InterventionId,
   LeadRotationId,
+  LeadNotificationId,
   LeadSeatId,
   MessageId,
   MissionEndCondition,
@@ -10,6 +13,7 @@ import {
   MissionScopeList,
   ProfileSnapshotId,
   PeerSpecialtyId,
+  ReconciliationId,
   RoomId,
   SupervisorNotebookEntryId,
   SupervisorNotebookEntryKind,
@@ -83,6 +87,19 @@ const optionalStringArg = (args: Record<string, unknown>, key: string): string |
     throw new HostToolError("supervised_tool_input_invalid", `${key} must be a non-empty string.`);
   }
   return value.trim();
+};
+
+const optionalBooleanArg = (
+  args: Record<string, unknown>,
+  key: string,
+  fallback: boolean,
+): boolean => {
+  const value = args[key];
+  if (value === undefined) return fallback;
+  if (typeof value !== "boolean") {
+    throw new HostToolError("supervised_tool_input_invalid", `${key} must be a boolean.`);
+  }
+  return value;
 };
 
 const stringArrayArg = (args: Record<string, unknown>, key: string): ReadonlyArray<string> => {
@@ -193,7 +210,7 @@ export function makeSupervisedTools(
         return yield* Effect.fail(
           new HostToolError(
             "supervised_role_required",
-            "The caller does not own an active Supervisor or Lead seat.",
+            "The caller does not own an active Supervisor, Lead, or Peer seat.",
           ),
         );
       }
@@ -268,7 +285,10 @@ export function makeSupervisedTools(
   const entry = (
     definition: HostToolEntry["definition"],
     handlers: {
-      readonly visible: (state: OrchestrationReadModel, role: "supervisor" | "lead") => boolean;
+      readonly visible: (
+        state: OrchestrationReadModel,
+        role: "supervisor" | "lead" | "peer",
+      ) => boolean;
       readonly execute: HostToolEntry["execute"];
     },
   ): HostToolEntry => ({
@@ -310,6 +330,11 @@ export function makeSupervisedTools(
                 missionScopeContainsLead({ scope: mission.scope, lead, projects: state.projects }),
               ),
             );
+            const visibleLeadIds = new Set(visibleLeads.map((lead) => lead.id));
+            const visibleRooms = state.supervised.rooms.filter(
+              (room) => room.leadSeatId !== null && visibleLeadIds.has(room.leadSeatId),
+            );
+            const visibleRoomIds = new Set(visibleRooms.map((room) => room.id));
             return hostToolSuccess({
               role: authority.role,
               supervisorSeatId: authority.supervisorSeatId,
@@ -321,25 +346,68 @@ export function makeSupervisedTools(
                 status: lead.status,
                 revision: lead.revision,
               })),
+              rooms: visibleRooms.map((room) => ({
+                id: room.id,
+                projectId: room.projectId,
+                leadSeatId: room.leadSeatId,
+                status: room.status,
+              })),
+              peers: state.governance.agentSeats
+                .filter(
+                  (seat) =>
+                    seat.identityRole === "peer" &&
+                    seat.threadId !== null &&
+                    seat.lifecycleState !== "retired" &&
+                    seat.roomIds.some((roomId) => visibleRoomIds.has(roomId)),
+                )
+                .map((seat) => ({
+                  seatId: seat.id,
+                  threadId: seat.threadId,
+                  projectId: seat.projectId,
+                  roomIds: seat.roomIds,
+                })),
               advice: state.orchestration.advice.filter((advice) => missionIds.has(advice.missionId)),
               observationCursors: state.orchestration.observationCursors.filter((cursor) =>
                 missionIds.has(cursor.missionId),
               ),
             });
           }
+          if (authority.role === "lead") {
+            const leadRoomIds = new Set(
+              state.supervised.rooms
+                .filter((room) => room.leadSeatId === authority.leadSeatId)
+                .map((room) => room.id),
+            );
+            return hostToolSuccess({
+              role: authority.role,
+              leadSeatId: authority.leadSeatId,
+              missions: authority.missions.map((mission) => ({
+                id: mission.id,
+                supervisorSeatId: mission.supervisorSeatId,
+                focus: mission.focus,
+                grants: mission.grants,
+                status: mission.status,
+              })),
+              advice: state.orchestration.advice.filter(
+                (advice) => advice.leadSeatId === authority.leadSeatId,
+              ),
+              interventions: state.supervised.interventions.filter((intervention) =>
+                leadRoomIds.has(intervention.roomId),
+              ),
+            });
+          }
+          const interventions = state.supervised.interventions.filter(
+            (intervention) =>
+              intervention.specialistThreadId === authority.callerThreadId &&
+              authority.roomIds.includes(intervention.roomId),
+          );
+          const evidenceIds = new Set(interventions.flatMap((item) => item.evidenceRefs));
           return hostToolSuccess({
             role: authority.role,
-            leadSeatId: authority.leadSeatId,
-            missions: authority.missions.map((mission) => ({
-              id: mission.id,
-              supervisorSeatId: mission.supervisorSeatId,
-              focus: mission.focus,
-              grants: mission.grants,
-              status: mission.status,
-            })),
-            advice: state.orchestration.advice.filter(
-              (advice) => advice.leadSeatId === authority.leadSeatId,
-            ),
+            peerSeatId: authority.peerSeatId,
+            roomIds: authority.roomIds,
+            interventions,
+            evidence: state.supervised.evidence.filter((item) => evidenceIds.has(item.id)),
           });
         }),
     },
@@ -1220,15 +1288,17 @@ export function makeSupervisedTools(
       name: "create_peer",
       displayName: "Create Peer",
       description:
-        "Create and start a bounded Peer in the current Lead Room using a retained specialty profile.",
+        "Create a bounded Peer under the current Room Lead. A Supervisor must call assign_peer_work afterward; a Lead may include an initial prompt.",
       inputSchema: objectSchema(
         {
+          roomId: { type: "string" },
+          leadSeatId: { type: "string" },
           profilePresetId: { type: "string" },
           title: { type: "string", maxLength: 512 },
           concern: { type: "string", maxLength: 512 },
           initialPrompt: { type: "string", maxLength: 32_768 },
         },
-        ["profilePresetId", "title", "concern", "initialPrompt"],
+        ["roomId", "leadSeatId", "title", "concern"],
       ),
       readOnly: false,
       providerSupport: { codex: "native", claude: "unsupported" },
@@ -1238,28 +1308,43 @@ export function makeSupervisedTools(
       },
     },
     {
-      visible: (_state, role) => role === "lead",
+      visible: (_state, role) => role === "lead" || role === "supervisor",
       execute: (args, context) =>
         Effect.gen(function* () {
           yield* context.assertCallerTurnActive();
           const { state, authority } = yield* loadAuthority(context.callerThreadId);
-          if (authority.role !== "lead") {
+          if (authority.role === "peer") {
             return yield* Effect.fail(
               new HostToolError(
-                "supervised_lead_required",
-                "Only an active Lead may create a Peer.",
+                "supervised_coordinator_required",
+                "Only an active Lead or scoped Primary Supervisor may create a Peer.",
               ),
             );
           }
-          const lead = state.leads.find(
+          const requestedRoomId = RoomId.makeUnsafe(stringArg(args, "roomId"));
+          const requestedLeadSeatId = stringArg(args, "leadSeatId");
+          const eligibleLeads = state.leads.filter(
             (candidate) =>
-              candidate.id === authority.leadSeatId &&
-              candidate.activeThreadId === authority.callerThreadId &&
-              candidate.status === "active",
+              candidate.status === "active" &&
+              (authority.role === "lead"
+                ? candidate.id === authority.leadSeatId &&
+                  candidate.activeThreadId === authority.callerThreadId
+                : authority.missions.some((mission) =>
+                    missionScopeContainsLead({
+                      scope: mission.scope,
+                      lead: candidate,
+                      projects: state.projects,
+                    }),
+                  )),
+          );
+          const lead = eligibleLeads.find(
+            (candidate) => candidate.id === requestedLeadSeatId,
           );
           const room = state.supervised.rooms.find(
             (candidate) =>
-              candidate.leadSeatId === authority.leadSeatId && candidate.status !== "archived",
+              candidate.id === requestedRoomId &&
+              candidate.leadSeatId === lead?.id &&
+              candidate.status !== "archived",
           );
           const project = lead
             ? state.projects.find(
@@ -1270,13 +1355,16 @@ export function makeSupervisedTools(
             return yield* Effect.fail(
               new HostToolError(
                 "supervised_room_unavailable",
-                "The active Lead Room and Project must exist before creating a Peer.",
+                "The requested active Lead Room is outside the caller's scope.",
               ),
             );
           }
-          const profilePresetId = stringArg(args, "profilePresetId");
+          const profilePresetId = optionalStringArg(args, "profilePresetId");
           const preset = state.orchestration.profiles.find(
-            (candidate) => candidate.id === profilePresetId,
+            (candidate) =>
+              candidate.archivedAt === null &&
+              candidate.roleHints.includes("peer") &&
+              (profilePresetId === null || candidate.id === profilePresetId),
           );
           if (!preset) {
             return yield* Effect.fail(
@@ -1299,14 +1387,27 @@ export function makeSupervisedTools(
                 ),
             ),
           );
-          const leadAgentSeat = governance.agentSeats.find(
-            (candidate) => candidate.id === lead.id,
+          const coordinatorSeatId =
+            authority.role === "lead" ? authority.leadSeatId : authority.supervisorSeatId;
+          const coordinatorSeat = governance.agentSeats.find(
+            (candidate) =>
+              candidate.id === coordinatorSeatId &&
+              candidate.threadId === authority.callerThreadId,
           );
-          if (!leadAgentSeat) {
+          if (!coordinatorSeat) {
             return yield* Effect.fail(
               new HostToolError(
                 "supervised_authority_unavailable",
-                "The active Lead has no durable authority receipt.",
+                "The active coordinator has no durable authority receipt.",
+              ),
+            );
+          }
+          const initialPrompt = optionalStringArg(args, "initialPrompt");
+          if (authority.role === "supervisor" && initialPrompt !== null) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_work_assignment_required",
+                "A Supervisor-created Peer must receive bounded work through assign_peer_work.",
               ),
             );
           }
@@ -1324,9 +1425,9 @@ export function makeSupervisedTools(
             actor: {
               kind: "seat",
               actorId: context.callerThreadId,
-              seatId: lead.id,
+              seatId: coordinatorSeat.id,
             },
-            authorityReceiptId: leadAgentSeat.authorityReceiptId,
+            authorityReceiptId: coordinatorSeat.authorityReceiptId,
             expectedRevision: 0,
             idempotencyKey: `peer-create:${peerSpecialtyId}`,
             createdAt,
@@ -1355,13 +1456,398 @@ export function makeSupervisedTools(
               createdAt,
               updatedAt: createdAt,
             },
-            initialPrompt: stringArg(args, "initialPrompt"),
+            ...(initialPrompt === null ? {} : { initialPrompt }),
           });
           return hostToolSuccess({
             sequence: receipt.sequence,
             peerSpecialtyId,
             threadId,
             roomId: room.id,
+            requiresWorkAssignment: authority.role === "supervisor",
+          });
+        }),
+    },
+  );
+
+  const assignPeerWork = entry(
+    {
+      name: "assign_peer_work",
+      displayName: "Assign Peer work",
+      description:
+        "Assign bounded non-owning work to an active Room Peer. The request is persisted as an intervention and the current Lead receives durable completion evidence.",
+      inputSchema: objectSchema(
+        {
+          roomId: { type: "string" },
+          peerThreadId: { type: "string" },
+          workRequest: { type: "string", maxLength: 32_768 },
+          material: {
+            type: "boolean",
+            description:
+              "True only when the result may require a canonical Room change by the current Root Lead.",
+            default: false,
+          },
+        },
+        ["roomId", "peerThreadId", "workRequest"],
+      ),
+      readOnly: false,
+      providerSupport: { codex: "native", claude: "unsupported" },
+      supervised: {
+        toolId: "supervised.work.assign",
+        schemaVersion: "1.0.0",
+      },
+    },
+    {
+      visible: (_state, role) => role === "supervisor" || role === "lead",
+      execute: (args, context) =>
+        Effect.gen(function* () {
+          yield* context.assertCallerTurnActive();
+          const { state, authority } = yield* loadAuthority(context.callerThreadId);
+          if (authority.role === "peer") {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_coordinator_required",
+                "Only an active Lead or scoped Primary Supervisor may assign Peer work.",
+              ),
+            );
+          }
+          const requestedRoomId = RoomId.makeUnsafe(stringArg(args, "roomId"));
+          const peerThreadId = ThreadId.makeUnsafe(stringArg(args, "peerThreadId"));
+          const peerSeat = state.governance.agentSeats.find(
+            (candidate) =>
+              candidate.identityRole === "peer" &&
+              candidate.threadId === peerThreadId &&
+              candidate.roomIds.includes(requestedRoomId) &&
+              candidate.lifecycleState !== "retired",
+          );
+          const room = peerSeat
+            ? state.supervised.rooms.find(
+                (candidate) =>
+                  candidate.id === requestedRoomId &&
+                  candidate.leadSeatId !== null &&
+                  candidate.status !== "archived",
+              )
+            : undefined;
+          const lead = room?.leadSeatId
+            ? state.leads.find(
+                (candidate) =>
+                  candidate.id === room.leadSeatId && candidate.status === "active",
+              )
+            : undefined;
+          const project = room
+            ? state.projects.find(
+                (candidate) => candidate.id === room.projectId && candidate.deletedAt === null,
+              )
+            : undefined;
+          const supervisorScopeAllows =
+            authority.role === "supervisor" &&
+            lead !== undefined &&
+            authority.missions.some((mission) =>
+              missionScopeContainsLead({
+                scope: mission.scope,
+                lead,
+                projects: state.projects,
+              }),
+            );
+          const leadScopeAllows =
+            authority.role === "lead" && lead?.id === authority.leadSeatId;
+          if (
+            !peerSeat ||
+            !room ||
+            !lead ||
+            !project ||
+            (!supervisorScopeAllows && !leadScopeAllows)
+          ) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_peer_scope_denied",
+                "The active Peer and its current Root Lead must be inside the caller's authority scope.",
+              ),
+            );
+          }
+          const coordinatorSeatId =
+            authority.role === "lead" ? authority.leadSeatId : authority.supervisorSeatId;
+          const coordinatorSeat = state.governance.agentSeats.find(
+            (candidate) =>
+              candidate.id === coordinatorSeatId &&
+              candidate.threadId === authority.callerThreadId,
+          );
+          if (!coordinatorSeat) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_authority_unavailable",
+                "The active coordinator has no durable authority receipt.",
+              ),
+            );
+          }
+          const createdAt = new Date().toISOString();
+          const interventionId = InterventionId.makeUnsafe(randomUUID());
+          const actor = {
+            kind: "seat" as const,
+            actorId: context.callerThreadId,
+            seatId: coordinatorSeat.id,
+          };
+          const intervention = {
+            id: interventionId,
+            roomId: RoomId.makeUnsafe(room.id),
+            requestedBy: actor,
+            specialistThreadId: peerThreadId,
+            reason: stringArg(args, "workRequest"),
+            material: optionalBooleanArg(args, "material", false),
+            evidenceRefs: [],
+            status: "open" as const,
+            createdAt,
+            updatedAt: createdAt,
+            revision: 0,
+          };
+          const leadNotification = {
+            id: LeadNotificationId.makeUnsafe(randomUUID()),
+            interventionId,
+            roomId: RoomId.makeUnsafe(room.id),
+            leadSeatId: LeadSeatId.makeUnsafe(lead.id),
+            status: "queued" as const,
+            createdAt,
+            deliveredAt: null,
+            acknowledgedAt: null,
+          };
+          const reconciliation = {
+            id: ReconciliationId.makeUnsafe(randomUUID()),
+            interventionId,
+            roomId: RoomId.makeUnsafe(room.id),
+            leadSeatId: LeadSeatId.makeUnsafe(lead.id),
+            status: "open" as const,
+            taskNodeRevisionId: null,
+            reason: null,
+            createdAt,
+            resolvedAt: null,
+            revision: 0,
+          };
+          const receipt = yield* dispatch({
+            type: "supervised.work.assign",
+            commandId: CommandId.makeUnsafe(randomUUID()),
+            aggregateId: interventionId,
+            actor,
+            authorityReceiptId: coordinatorSeat.authorityReceiptId,
+            expectedRevision: 0,
+            idempotencyKey: `peer-work-assign:${interventionId}`,
+            createdAt,
+            roomId: RoomId.makeUnsafe(room.id),
+            projectId: project.id,
+            leadSeatId: LeadSeatId.makeUnsafe(lead.id),
+            leadThreadId: lead.activeThreadId,
+            peerThreadId,
+            intervention,
+            leadNotification,
+            reconciliation,
+          });
+          return hostToolSuccess({
+            sequence: receipt.sequence,
+            interventionId,
+            peerThreadId,
+            roomId: room.id,
+            leadSeatId: lead.id,
+            material: intervention.material,
+            ownershipTransferred: false,
+          });
+        }),
+    },
+  );
+
+  const publishPeerEvidence = entry(
+    {
+      name: "publish_peer_evidence",
+      displayName: "Publish Peer evidence",
+      description:
+        "Complete assigned bounded work by publishing durable Room evidence and notifying the current Root Lead. This never transfers ownership.",
+      inputSchema: objectSchema(
+        {
+          roomId: { type: "string" },
+          interventionId: { type: "string" },
+          summary: { type: "string", maxLength: 32_768 },
+        },
+        ["roomId", "interventionId", "summary"],
+      ),
+      readOnly: false,
+      providerSupport: { codex: "native", claude: "unsupported" },
+      supervised: {
+        toolId: "supervised.evidence.publish",
+        schemaVersion: "1.0.0",
+      },
+    },
+    {
+      visible: (_state, role) => role === "peer",
+      execute: (args, context) =>
+        Effect.gen(function* () {
+          yield* context.assertCallerTurnActive();
+          const { state, authority } = yield* loadAuthority(context.callerThreadId);
+          if (authority.role !== "peer") {
+            return yield* Effect.fail(
+              new HostToolError("supervised_peer_required", "An active Peer seat is required."),
+            );
+          }
+          const requestedRoomId = RoomId.makeUnsafe(stringArg(args, "roomId"));
+          const intervention = state.supervised.interventions.find(
+            (candidate) =>
+              candidate.id === stringArg(args, "interventionId") &&
+              candidate.roomId === requestedRoomId &&
+              candidate.specialistThreadId === authority.callerThreadId &&
+              candidate.status === "open" &&
+              authority.roomIds.includes(candidate.roomId),
+          );
+          const peerSeat = state.governance.agentSeats.find(
+            (candidate) =>
+              candidate.id === authority.peerSeatId &&
+              candidate.threadId === authority.callerThreadId,
+          );
+          if (!intervention || !peerSeat) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_intervention_unavailable",
+                "The caller has no open assigned intervention with current Peer authority.",
+              ),
+            );
+          }
+          const createdAt = new Date().toISOString();
+          const evidenceId = EvidenceId.makeUnsafe(randomUUID());
+          const evidence = {
+            id: evidenceId,
+            scope: { kind: "room" as const, roomId: RoomId.makeUnsafe(intervention.roomId) },
+            kind: "observation" as const,
+            summary: stringArg(args, "summary"),
+            blob: null,
+            sourceEventIds: [],
+            modelSessionId: null,
+            createdBy: {
+              kind: "seat" as const,
+              actorId: context.callerThreadId,
+              seatId: peerSeat.id,
+            },
+            createdAt,
+          };
+          const receipt = yield* dispatch({
+            type: "supervised.work.complete",
+            commandId: CommandId.makeUnsafe(randomUUID()),
+            aggregateId: intervention.id,
+            actor: evidence.createdBy,
+            authorityReceiptId: peerSeat.authorityReceiptId,
+            expectedRevision: intervention.revision,
+            idempotencyKey: `peer-work-complete:${intervention.id}:${evidenceId}`,
+            createdAt,
+            roomId: RoomId.makeUnsafe(intervention.roomId),
+            interventionId: intervention.id,
+            evidence,
+          });
+          return hostToolSuccess({
+            sequence: receipt.sequence,
+            interventionId: intervention.id,
+            evidenceId,
+            leadNotified: true,
+            requiresLeadReconciliation: intervention.material,
+            ownershipTransferred: false,
+          });
+        }),
+    },
+  );
+
+  const reconcilePeerIntervention = entry(
+    {
+      name: "reconcile_peer_intervention",
+      displayName: "Reconcile Peer intervention",
+      description:
+        "As the current Root Lead, acknowledge material Peer evidence and reconcile the intervention without implicit TaskNode ownership changes.",
+      inputSchema: objectSchema(
+        {
+          roomId: { type: "string" },
+          interventionId: { type: "string" },
+          status: { type: "string", enum: ["accepted", "revised", "rejected"] },
+          taskNodeRevisionId: { type: "string" },
+          reason: { type: "string", maxLength: 32_768 },
+        },
+        ["roomId", "interventionId", "status"],
+      ),
+      readOnly: false,
+      providerSupport: { codex: "native", claude: "unsupported" },
+      supervised: {
+        toolId: "supervised.intervention.reconcile",
+        schemaVersion: "1.0.0",
+      },
+    },
+    {
+      visible: (_state, role) => role === "lead",
+      execute: (args, context) =>
+        Effect.gen(function* () {
+          yield* context.assertCallerTurnActive();
+          const { state, authority } = yield* loadAuthority(context.callerThreadId);
+          if (authority.role !== "lead") {
+            return yield* Effect.fail(
+              new HostToolError("supervised_lead_required", "The current Root Lead is required."),
+            );
+          }
+          const requestedRoomId = RoomId.makeUnsafe(stringArg(args, "roomId"));
+          const intervention = state.supervised.interventions.find(
+            (candidate) =>
+              candidate.id === stringArg(args, "interventionId") &&
+              candidate.roomId === requestedRoomId &&
+              candidate.status === "open",
+          );
+          const room = intervention
+            ? state.supervised.rooms.find(
+                (candidate) =>
+                  candidate.id === intervention.roomId &&
+                  candidate.leadSeatId === authority.leadSeatId,
+              )
+            : undefined;
+          const reconciliation = intervention
+            ? state.supervised.reconciliations.find(
+                (candidate) => candidate.interventionId === intervention.id,
+              )
+            : undefined;
+          const leadSeat = state.governance.agentSeats.find(
+            (candidate) =>
+              candidate.id === authority.leadSeatId &&
+              candidate.threadId === authority.callerThreadId,
+          );
+          const status = stringArg(args, "status");
+          if (
+            !intervention ||
+            !room ||
+            !reconciliation ||
+            !leadSeat ||
+            !["accepted", "revised", "rejected"].includes(status)
+          ) {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_reconciliation_unavailable",
+                "The open intervention must belong to the caller's current Root Room.",
+              ),
+            );
+          }
+          const createdAt = new Date().toISOString();
+          const receipt = yield* dispatch({
+            type: "supervised.intervention.reconcile",
+            commandId: CommandId.makeUnsafe(randomUUID()),
+            aggregateId: intervention.id,
+            actor: {
+              kind: "seat",
+              actorId: context.callerThreadId,
+              seatId: leadSeat.id,
+            },
+            authorityReceiptId: leadSeat.authorityReceiptId,
+            expectedRevision: intervention.revision,
+            idempotencyKey: `peer-intervention-reconcile:${intervention.id}:${intervention.revision}`,
+            createdAt,
+            reconciliation: {
+              ...reconciliation,
+              status: status as "accepted" | "revised" | "rejected",
+              taskNodeRevisionId:
+                optionalStringArg(args, "taskNodeRevisionId") as typeof reconciliation.taskNodeRevisionId,
+              reason: optionalStringArg(args, "reason"),
+            },
+          });
+          return hostToolSuccess({
+            sequence: receipt.sequence,
+            interventionId: intervention.id,
+            status,
+            ownershipTransferred: false,
           });
         }),
     },
@@ -2145,6 +2631,9 @@ export function makeSupervisedTools(
     createLeadRoom,
     createTaskGraph,
     createPeer,
+    assignPeerWork,
+    publishPeerEvidence,
+    reconcilePeerIntervention,
     startRlmExecution,
     searchSupervisorNotebook,
     appendSupervisorNotebook,

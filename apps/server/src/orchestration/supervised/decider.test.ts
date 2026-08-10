@@ -84,58 +84,67 @@ const installation = (overrides: Partial<PluginInstallation> = {}): PluginInstal
 const governanceForSeat = (
   seatId: string,
   allowedCommands: ReadonlyArray<string>,
-): SupervisedGovernanceSnapshot => ({
-  ...emptySupervisedGovernanceSnapshot(now),
-  workspaces: [
-    {
-      id: "workspace-1" as never,
-      ownerNamespace: "owner",
-      title: "Workspace",
-      lifecycleState: "active",
-      revision: 0,
-      createdAt: now,
-      updatedAt: now,
-    },
-  ],
-  authorityReceipts: [
-    {
-      id: `receipt-${seatId}` as never,
-      actorSeatId: seatId as never,
-      identityRole: seatId.startsWith("lead") ? "lead" : "peer",
-      effectiveRole: seatId.startsWith("lead") ? "lead" : "peer",
-      workspaceScopes: ["workspace-1" as never],
-      roomScopes: [room.id],
-      taskNodeScopes: [],
-      allowedCommands,
-      allowedTools: [],
-      rootLeaseIds: [],
-      mandateIds: [],
-      runPolicyRevision: 0,
-      issuedAt: now,
-      expiresAt: null,
-      revokedAt: null,
-    },
-  ],
-  agentSeats: [
-    {
-      id: seatId as never,
-      workspaceId: "workspace-1" as never,
-      roomIds: [room.id],
-      identityRole: seatId.startsWith("lead") ? "lead" : "peer",
-      effectiveRole: seatId.startsWith("lead") ? "lead" : "peer",
-      profileId: `profile-${seatId}` as never,
-      providerSessionId: null,
-      lifecycleState: "active",
-      workState: "idle",
-      authorityReceiptId: `receipt-${seatId}` as never,
-      createdAt: now,
-      retainedAt: null,
-      retiredAt: null,
-      revision: 0,
-      updatedAt: now,
-    },
-  ],
-});
+): SupervisedGovernanceSnapshot => {
+  const role = seatId.startsWith("lead")
+    ? ("lead" as const)
+    : seatId.startsWith("supervisor")
+      ? ("supervisor" as const)
+      : ("peer" as const);
+  return {
+    ...emptySupervisedGovernanceSnapshot(now),
+    workspaces: [
+      {
+        id: "workspace-1" as never,
+        ownerNamespace: "owner",
+        title: "Workspace",
+        lifecycleState: "active",
+        revision: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ],
+    authorityReceipts: [
+      {
+        id: `receipt-${seatId}` as never,
+        actorSeatId: seatId as never,
+        identityRole: role,
+        effectiveRole: role,
+        workspaceScopes: ["workspace-1" as never],
+        roomScopes: [room.id],
+        taskNodeScopes: [],
+        allowedCommands,
+        allowedTools: [],
+        rootLeaseIds: [],
+        mandateIds: [],
+        runPolicyRevision: 0,
+        issuedAt: now,
+        expiresAt: null,
+        revokedAt: null,
+      },
+    ],
+    agentSeats: [
+      {
+        id: seatId as never,
+        workspaceId: "workspace-1" as never,
+        roomIds: [room.id],
+        identityRole: role,
+        effectiveRole: role,
+        profileId: `profile-${seatId}` as never,
+        providerSessionId: null,
+        lifecycleState: "active",
+        workState: "idle",
+        authorityReceiptId: `receipt-${seatId}` as never,
+        threadId: seatId as never,
+        projectId: role === "supervisor" ? null : (room.projectId as never),
+        createdAt: now,
+        retainedAt: null,
+        retiredAt: null,
+        revision: 0,
+        updatedAt: now,
+      },
+    ],
+  };
+};
 
 describe("Supervised command authority", () => {
   it("denies a Seat that does not own the Room mutation", async () => {
@@ -701,6 +710,277 @@ describe("Supervised command authority", () => {
     assert.equal(accepted.type, "supervised.intervention-proposed");
     assert.equal(accepted.payload.leadNotification?.leadSeatId, room.leadSeatId);
     assert.equal(accepted.payload.reconciliation?.status, "open");
+  });
+
+  it("publishes Peer evidence, notifies the Lead, and preserves ownership", async () => {
+    const supervisorGovernance = governanceForSeat("supervisor-thread-1", [
+      "supervised.work.assign",
+    ]);
+    const peerGovernance = governanceForSeat("peer-thread-1", [
+      "supervised.work.complete",
+    ]);
+    const leadGovernance = governanceForSeat("lead-1", []);
+    const governance = {
+      ...supervisorGovernance,
+      authorityReceipts: [
+        ...supervisorGovernance.authorityReceipts,
+        ...peerGovernance.authorityReceipts,
+        ...leadGovernance.authorityReceipts,
+      ],
+      agentSeats: [
+        ...supervisorGovernance.agentSeats,
+        ...peerGovernance.agentSeats,
+        ...leadGovernance.agentSeats.map((seat) => ({
+          ...seat,
+          threadId: "lead-thread-1" as never,
+        })),
+      ],
+    };
+    const requester = {
+      kind: "seat" as const,
+      actorId: "supervisor-thread-1",
+      seatId: "supervisor-thread-1",
+    };
+    const intervention = {
+      id: "intervention-peer-work-1",
+      roomId: room.id,
+      requestedBy: requester,
+      specialistThreadId: "peer-thread-1",
+      reason: "Locate the Supervisor protocol file without editing it.",
+      material: false,
+      evidenceRefs: [],
+      status: "open" as const,
+      createdAt: now,
+      updatedAt: now,
+      revision: 0,
+    };
+    const leadNotification = {
+      id: "notification-peer-work-1",
+      interventionId: intervention.id,
+      roomId: room.id,
+      leadSeatId: room.leadSeatId,
+      status: "queued" as const,
+      createdAt: now,
+      deliveredAt: null,
+      acknowledgedAt: null,
+    };
+    const reconciliation = {
+      id: "reconciliation-peer-work-1",
+      interventionId: intervention.id,
+      roomId: room.id,
+      leadSeatId: room.leadSeatId!,
+      status: "open" as const,
+      taskNodeRevisionId: null,
+      reason: null,
+      createdAt: now,
+      resolvedAt: null,
+      revision: 0,
+    };
+    const assigned = await Effect.runPromise(
+      decideSupervisedCommand({
+        command: {
+          ...baseCommand,
+          type: "supervised.work.assign",
+          commandId: "command-peer-work-assign",
+          aggregateId: intervention.id,
+          actor: requester,
+          authorityReceiptId: "receipt-supervisor-thread-1" as never,
+          expectedRevision: 0,
+          idempotencyKey: "peer-work-assign",
+          roomId: room.id,
+          projectId: room.projectId,
+          leadSeatId: room.leadSeatId!,
+          leadThreadId: "lead-thread-1" as never,
+          peerThreadId: "peer-thread-1" as never,
+          intervention,
+          leadNotification,
+          reconciliation,
+        },
+        state: { ...emptySupervisedRuntimeSnapshot(now), rooms: [room] },
+        governance,
+      }),
+    );
+    assert.equal(assigned.type, "supervised.intervention-proposed");
+
+    const completionState = {
+      ...emptySupervisedRuntimeSnapshot(now),
+      rooms: [room],
+      interventions: [assigned.payload.intervention!],
+      leadNotifications: [assigned.payload.leadNotification!],
+      reconciliations: [assigned.payload.reconciliation!],
+    };
+    const completed = await Effect.runPromise(
+      decideSupervisedCommand({
+        command: {
+          ...baseCommand,
+          type: "supervised.work.complete",
+          commandId: "command-peer-work-complete",
+          aggregateId: intervention.id,
+          actor: {
+            kind: "seat",
+            actorId: "peer-thread-1",
+            seatId: "peer-thread-1",
+          },
+          authorityReceiptId: "receipt-peer-thread-1" as never,
+          expectedRevision: 0,
+          idempotencyKey: "peer-work-complete",
+          roomId: room.id,
+          interventionId: intervention.id as never,
+          evidence: {
+            id: "evidence-peer-work-1" as never,
+            scope: { kind: "room", roomId: room.id },
+            kind: "observation",
+            summary: "The protocol is apps/server/src/orchestration/supervised/protocolV1.ts.",
+            blob: null,
+            sourceEventIds: [],
+            modelSessionId: null,
+            createdBy: {
+              kind: "seat",
+              actorId: "peer-thread-1",
+              seatId: "peer-thread-1",
+            },
+            createdAt: now,
+          },
+        },
+        state: completionState,
+        governance,
+      }),
+    );
+    assert.equal(completed.type, "supervised.evidence-published");
+    assert.equal(completed.payload.intervention?.status, "reconciled");
+    assert.equal(completed.payload.leadNotification?.status, "delivered");
+    assert.equal(completed.payload.reconciliation?.status, "accepted");
+    assert.equal(completionState.workClaims.length, 0);
+  });
+
+  it("keeps material Peer evidence open until the current Root Lead reconciles it", async () => {
+    const peerGovernance = governanceForSeat("peer-material-1", [
+      "supervised.work.complete",
+    ]);
+    const leadGovernance = governanceForSeat("lead-1", [
+      "supervised.intervention.reconcile",
+    ]);
+    const governance = {
+      ...leadGovernance,
+      authorityReceipts: [
+        ...leadGovernance.authorityReceipts,
+        ...peerGovernance.authorityReceipts,
+      ],
+      agentSeats: [...leadGovernance.agentSeats, ...peerGovernance.agentSeats],
+    };
+    const intervention = {
+      id: "intervention-material-1",
+      roomId: room.id,
+      requestedBy: {
+        kind: "seat" as const,
+        actorId: "supervisor-material-1",
+        seatId: "supervisor-material-1",
+      },
+      specialistThreadId: "peer-material-1",
+      reason: "Investigate a potentially material boundary.",
+      material: true,
+      evidenceRefs: [],
+      status: "open" as const,
+      createdAt: now,
+      updatedAt: now,
+      revision: 0,
+    };
+    const notification = {
+      id: "notification-material-1",
+      interventionId: intervention.id,
+      roomId: room.id,
+      leadSeatId: room.leadSeatId,
+      status: "queued" as const,
+      createdAt: now,
+      deliveredAt: null,
+      acknowledgedAt: null,
+    };
+    const reconciliation = {
+      id: "reconciliation-material-1",
+      interventionId: intervention.id,
+      roomId: room.id,
+      leadSeatId: room.leadSeatId!,
+      status: "open" as const,
+      taskNodeRevisionId: null,
+      reason: null,
+      createdAt: now,
+      resolvedAt: null,
+      revision: 0,
+    };
+    const state = {
+      ...emptySupervisedRuntimeSnapshot(now),
+      rooms: [room],
+      interventions: [intervention],
+      leadNotifications: [notification],
+      reconciliations: [reconciliation],
+    };
+    const completed = await Effect.runPromise(
+      decideSupervisedCommand({
+        command: {
+          ...baseCommand,
+          type: "supervised.work.complete",
+          commandId: "command-material-complete",
+          aggregateId: intervention.id,
+          actor: { kind: "seat", actorId: "peer-material-1", seatId: "peer-material-1" },
+          authorityReceiptId: "receipt-peer-material-1" as never,
+          expectedRevision: 0,
+          idempotencyKey: "material-complete",
+          roomId: room.id,
+          interventionId: intervention.id as never,
+          evidence: {
+            id: "evidence-material-1" as never,
+            scope: { kind: "room", roomId: room.id },
+            kind: "observation",
+            summary: "Material evidence requires Root review.",
+            blob: null,
+            sourceEventIds: [],
+            modelSessionId: null,
+            createdBy: {
+              kind: "seat",
+              actorId: "peer-material-1",
+              seatId: "peer-material-1",
+            },
+            createdAt: now,
+          },
+        },
+        state,
+        governance,
+      }),
+    );
+    assert.equal(completed.payload.intervention?.status, "open");
+    assert.equal(completed.payload.leadNotification?.status, "delivered");
+    assert.equal(completed.payload.reconciliation?.status, "open");
+
+    const reconciled = await Effect.runPromise(
+      decideSupervisedCommand({
+        command: {
+          ...baseCommand,
+          type: "supervised.intervention.reconcile",
+          commandId: "command-material-reconcile",
+          aggregateId: intervention.id,
+          actor: { kind: "seat", actorId: "lead-1", seatId: "lead-1" },
+          authorityReceiptId: "receipt-lead-1" as never,
+          expectedRevision: 1,
+          idempotencyKey: "material-reconcile",
+          reconciliation: {
+            ...reconciliation,
+            status: "accepted",
+            reason: "Root reviewed the material evidence.",
+          },
+        },
+        state: {
+          ...state,
+          evidence: [completed.payload.evidence!],
+          interventions: [completed.payload.intervention!],
+          leadNotifications: [completed.payload.leadNotification!],
+          reconciliations: [completed.payload.reconciliation!],
+        },
+        governance,
+      }),
+    );
+    assert.equal(reconciled.payload.intervention?.status, "reconciled");
+    assert.equal(reconciled.payload.leadNotification?.status, "acknowledged");
+    assert.equal(reconciled.payload.reconciliation?.status, "accepted");
   });
 
   it("limits daemon Run transitions to RLM-owned Runs and advances the episode revision", async () => {

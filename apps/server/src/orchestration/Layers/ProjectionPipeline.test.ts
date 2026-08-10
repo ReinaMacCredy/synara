@@ -3,6 +3,8 @@ import {
   CheckpointRef,
   CommandId,
   CorrelationId,
+  emptySupervisedGovernanceSnapshot,
+  emptySupervisedRuntimeSnapshot,
   EventId,
   MessageId,
   ProjectId,
@@ -27,6 +29,8 @@ import {
   type OrchestrationEventStoreShape,
 } from "../../persistence/Services/OrchestrationEventStore.ts";
 import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedAttachments.ts";
+import { SupervisedGovernanceRepository } from "../../persistence/Services/SupervisedGovernanceRepository.ts";
+import { SupervisedRuntimeRepository } from "../../persistence/Services/SupervisedRuntimeRepository.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import {
   ORCHESTRATION_PROJECTOR_NAMES,
@@ -40,6 +44,8 @@ import {
 } from "../Services/ProjectionPipeline.ts";
 import { ServerConfig } from "../../config.ts";
 import { runManagedAttachmentCleanupBatch } from "../../managedAttachmentCleanup.ts";
+import { emptySupervisedGovernanceDecisionState } from "../supervised/governanceState.ts";
+import { reconcileGovernanceProjection } from "../../supervised/governance/GovernanceReconciliation.ts";
 
 const makeProjectionPipelinePrefixedTestLayer = (prefix: string) =>
   OrchestrationProjectionPipelineLive.pipe(
@@ -326,6 +332,134 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       for (const row of stateRows) {
         assert.equal(row.lastAppliedSequence, highWaterSequence);
       }
+    }),
+  );
+
+  it.effect("repairs stale Supervisor Room authority during bootstrap", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const governanceRepository = yield* SupervisedGovernanceRepository;
+      const runtimeRepository = yield* SupervisedRuntimeRepository;
+      const sql = yield* SqlClient.SqlClient;
+      const now = "2026-08-10T03:00:00.000Z";
+      const projectId = ProjectId.makeUnsafe("project-bootstrap-supervisor-authority");
+      const roomId = "room-bootstrap-supervisor-authority" as never;
+      const leadSeatId = "lead-bootstrap-supervisor-authority" as never;
+      const supervisorSeatId = "supervisor-bootstrap-authority" as never;
+
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id, kind, title, workspace_root, scripts_json, created_at, updated_at
+        ) VALUES (
+          ${projectId}, 'project', 'Bootstrap authority', '/tmp/bootstrap-authority',
+          '[]', ${now}, ${now}
+        )
+      `;
+      const runtime = {
+        ...emptySupervisedRuntimeSnapshot(now),
+        rooms: [
+          {
+            id: roomId,
+            projectId,
+            title: "Bootstrap authority Room",
+            leadSeatId,
+            status: "active" as const,
+            graphRevision: 0,
+            revision: 1,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+      };
+      const state = {
+        ...emptySupervisedGovernanceDecisionState(now),
+        supervisors: [
+          {
+            id: supervisorSeatId,
+            name: "Primary Supervisor",
+            activeThreadId: "supervisor-thread-bootstrap-authority",
+            predecessorThreadIds: [],
+            profileSnapshotId: "supervisor-profile-bootstrap-authority",
+            status: "active" as const,
+            createdAt: now,
+            updatedAt: now,
+            archivedAt: null,
+            revision: 1,
+          },
+        ],
+        missions: [
+          {
+            id: "mission-bootstrap-supervisor-authority",
+            supervisorSeatId,
+            brief: "Coordinate the Project",
+            focus: "Project authority",
+            scope: [{ kind: "project" as const, projectId }],
+            grants: [],
+            endCondition: { kind: "manual" as const },
+            status: "active" as const,
+            sourceMessageId: null,
+            createdAt: now,
+            updatedAt: now,
+            completedAt: null,
+            revision: 1,
+          },
+        ],
+      };
+      const governanceSeed = emptySupervisedGovernanceSnapshot(now);
+      const current = reconcileGovernanceProjection({
+        governance: {
+          ...governanceSeed,
+          orchestration: {
+            ...governanceSeed.orchestration,
+            missions: state.missions as never,
+          },
+        },
+        state: state as never,
+        runtime,
+        at: now,
+        source: "canonical",
+      });
+      const currentSeat = current.agentSeats.find(
+        (seat) => seat.id === supervisorSeatId,
+      )!;
+      const currentReceipt = current.authorityReceipts.find(
+        (receipt) => receipt.id === currentSeat.authorityReceiptId,
+      )!;
+      const stale = {
+        ...current,
+        agentSeats: current.agentSeats.map((seat) =>
+          seat.id === supervisorSeatId ? { ...seat, roomIds: [] } : seat,
+        ),
+        authorityReceipts: current.authorityReceipts.map((receipt) =>
+          receipt.id === currentReceipt.id
+            ? {
+                ...receipt,
+                roomScopes: [],
+                allowedCommands: receipt.allowedCommands.filter(
+                  (command) =>
+                    command !== "supervised.peer.create" &&
+                    command !== "supervised.work.assign",
+                ),
+              }
+            : receipt,
+        ),
+      };
+
+      yield* runtimeRepository.replaceSnapshot(runtime);
+      yield* governanceRepository.replaceSnapshot(stale);
+      yield* projectionPipeline.bootstrap;
+
+      const repaired = yield* governanceRepository.getSnapshot();
+      const repairedSeat = repaired.agentSeats.find(
+        (seat) => seat.id === supervisorSeatId,
+      )!;
+      const repairedReceipt = repaired.authorityReceipts.find(
+        (receipt) => receipt.id === repairedSeat.authorityReceiptId,
+      )!;
+      assert.deepEqual(repairedSeat.roomIds, [roomId]);
+      assert.deepEqual(repairedReceipt.roomScopes, [roomId]);
+      assert.ok(repairedReceipt.allowedCommands.includes("supervised.peer.create"));
+      assert.ok(repairedReceipt.allowedCommands.includes("supervised.work.assign"));
     }),
   );
 

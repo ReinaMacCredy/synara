@@ -20,6 +20,89 @@ const reconcileLegacyProjection = (
 ) => reconcileGovernanceProjection({ ...input, source: "legacy" });
 
 describe("Supervised governance reconciliation", () => {
+  it("scopes the Primary Supervisor receipt to Rooms covered by active missions", () => {
+    const state = ({
+      ...emptySupervisedGovernanceDecisionState(now),
+      supervisors: [
+        {
+          id: "supervisor-seat-1",
+          name: "Primary Supervisor",
+          activeThreadId: "supervisor-thread-1",
+          predecessorThreadIds: [],
+          profileSnapshotId: "supervisor-profile-snapshot-1",
+          status: "active",
+          createdAt: now,
+          updatedAt: now,
+          archivedAt: null,
+          revision: 1,
+        },
+      ],
+      missions: [
+        {
+          id: "mission-1",
+          supervisorSeatId: "supervisor-seat-1",
+          brief: "Coordinate project one",
+          focus: "Project one",
+          scope: [{ kind: "project", projectId: "project-1" }],
+          grants: [],
+          endCondition: { kind: "manual" },
+          status: "active",
+          sourceMessageId: null,
+          createdAt: now,
+          updatedAt: now,
+          completedAt: null,
+          revision: 1,
+        },
+      ],
+    }) as SupervisedGovernanceDecisionState;
+    const runtime = Schema.decodeUnknownSync(SupervisedRuntimeSnapshot)({
+      ...emptySupervisedRuntimeSnapshot(now),
+      rooms: [
+        {
+          id: "room-1",
+          projectId: "project-1",
+          title: "In scope",
+          leadSeatId: "lead-seat-1",
+          status: "active",
+          graphRevision: 0,
+          revision: 1,
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: "room-2",
+          projectId: "project-2",
+          title: "Out of scope",
+          leadSeatId: "lead-seat-2",
+          status: "active",
+          graphRevision: 0,
+          revision: 1,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ],
+    });
+
+    const reconciled = reconcileGovernanceProjection({
+      governance: emptySupervisedGovernanceSnapshot(now),
+      state,
+      runtime,
+      at: now,
+      source: "canonical",
+    });
+    const supervisor = reconciled.agentSeats.find(
+      (seat) => seat.id === "supervisor-seat-1",
+    )!;
+    const receipt = reconciled.authorityReceipts.find(
+      (candidate) => candidate.id === supervisor.authorityReceiptId,
+    )!;
+
+    assert.deepEqual(supervisor.roomIds, ["room-1"]);
+    assert.deepEqual(receipt.roomScopes, ["room-1"]);
+    assert.ok(receipt.allowedCommands.includes("supervised.peer.create"));
+    assert.ok(receipt.allowedCommands.includes("supervised.work.assign"));
+  });
+
   it("projects a canonical Lead Room without minting legacy authority identifiers", () => {
     const state = ({
       ...emptySupervisedGovernanceDecisionState(now),

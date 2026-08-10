@@ -758,6 +758,7 @@ export const Intervention = Schema.Struct({
   // once every migration-096 intervention row and journal payload has been upcast.
   specialistThreadId: ThreadId,
   reason: BoundedText,
+  material: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
   evidenceRefs: Schema.Array(EvidenceId).check(Schema.isMaxLength(256)),
   status: Schema.Literals(["open", "reconciled", "rejected"]),
   createdAt: IsoDateTime,
@@ -1307,6 +1308,25 @@ export const SupervisedCommand = Schema.Union([
     profileSnapshot: Schema.optional(ProfileSnapshot),
     peerSpecialty: PeerSpecialty,
     initialPrompt: Schema.optional(BoundedText),
+  }),
+  Schema.Struct({
+    ...CommandBase,
+    type: Schema.Literal("supervised.work.assign"),
+    roomId: RoomId,
+    projectId: ProjectId,
+    leadSeatId: LeadSeatId,
+    leadThreadId: ThreadId,
+    peerThreadId: ThreadId,
+    intervention: Intervention,
+    leadNotification: LeadNotification,
+    reconciliation: Reconciliation,
+  }),
+  Schema.Struct({
+    ...CommandBase,
+    type: Schema.Literal("supervised.work.complete"),
+    roomId: RoomId,
+    interventionId: InterventionId,
+    evidence: Evidence,
   }),
   Schema.Struct({
     ...CommandBase,

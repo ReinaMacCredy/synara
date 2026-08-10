@@ -8,7 +8,6 @@ const rootOwnedCommands = new Set<SupervisedCommand["type"]>([
   "supervised.room.update",
   "supervised.task.create",
   "supervised.task-graph.create",
-  "supervised.peer.create",
   "supervised.compaction.request",
   "supervised.handoff.request",
 ]);
@@ -68,6 +67,8 @@ function commandRoomId(
         : runtime.runs.find((run) => run.id === lease.runId)?.roomId ?? null;
     }
     case "supervised.peer.create":
+    case "supervised.work.assign":
+    case "supervised.work.complete":
     case "supervised.compaction.request":
     case "supervised.handoff.request":
       return command.roomId;
@@ -97,6 +98,13 @@ export function validateSupervisedSeatAuthority(input: {
   const seat = governance.agentSeats.find((candidate) => candidate.id === seatId);
   if (!seat || (seat.lifecycleState !== "ready" && seat.lifecycleState !== "active")) {
     return "The acting AgentSeat is not ready or active.";
+  }
+  if (
+    seat.threadId !== null &&
+    seat.threadId !== undefined &&
+    seat.threadId !== command.actor.actorId
+  ) {
+    return "The command actor thread does not match the acting AgentSeat.";
   }
   if (seat.authorityReceiptId !== command.authorityReceiptId) {
     return "The command does not use the AgentSeat's current authority receipt.";

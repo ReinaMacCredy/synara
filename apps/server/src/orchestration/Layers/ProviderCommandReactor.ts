@@ -1404,6 +1404,31 @@ const make = Effect.gen(function* () {
       sidechatContextBootstrapThreadIds.add(threadId);
     }
 
+    const shouldRehydrateCodexSupervisedSession =
+      shouldRegisterContextBootstrap &&
+      preferredProvider === "codex" &&
+      desiredSupervisedContext !== undefined &&
+      thread.session !== null &&
+      thread.session !== undefined &&
+      thread.session.status !== "stopped";
+    if (shouldRehydrateCodexSupervisedSession) {
+      if (!providerService.clearSessionResumeCursor) {
+        return yield* new ProviderAdapterValidationError({
+          provider: preferredProvider,
+          operation: "thread.turn.start",
+          issue:
+            `Cannot restore Supervised thread '${threadId}' because its provider resume state ` +
+            "cannot be replaced with a native-tool-capable session.",
+        });
+      }
+      yield* providerService.clearSessionResumeCursor({ threadId });
+      freshSessionContextBootstrapThreadIds.add(threadId);
+      yield* Effect.logInfo(
+        "provider command reactor replacing Codex resume with supervised transcript bootstrap",
+        { threadId },
+      );
+    }
+
     const startedSession = yield* startProviderSession();
     // Record the exact selection the session was spawned with so later
     // restart-necessity checks compare against the live spawn state even when

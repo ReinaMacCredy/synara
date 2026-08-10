@@ -3,7 +3,6 @@ import type {
   OrchestrationEvent,
   OrchestrationAggregateKind,
   OrchestrationReadModel,
-  ThreadId,
 } from "@synara/contracts";
 import {
   OrchestrationCommand,
@@ -14,6 +13,7 @@ import {
   SupervisedCommand,
   SupervisedGovernanceAggregateId,
   SupervisedGovernanceCommand,
+  ThreadId,
 } from "@synara/contracts";
 import {
   Cause,
@@ -170,6 +170,9 @@ function commandToAggregateRef(command: OrchestrationCommand): {
         case "supervised.peer.create":
         case "supervised.peer.upsert":
           return "peer" as const;
+        case "supervised.work.assign":
+        case "supervised.work.complete":
+          return "intervention" as const;
         case "supervised.kernel.session-upsert":
         case "supervised.kernel.execution-upsert":
           return "kernel_session" as const;
@@ -1283,7 +1286,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                   workingDirectory: command.workingDirectory,
                   parentThreadId: command.leadThreadId,
                   creationSource: "supervised_native",
-                  sourceThreadId: command.leadThreadId,
+                  sourceThreadId: ThreadId.makeUnsafe(command.actor.actorId),
                   subagentAgentId: null,
                   subagentNickname: null,
                   subagentRole: "peer",
@@ -1303,7 +1306,11 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                   type: "supervised.peer.bind",
                   commandId: command.commandId,
                   aggregateId: SupervisedGovernanceAggregateId.makeUnsafe("supervised"),
-                  actor: { kind: "user", actorId: "owner" },
+                  actor: {
+                    kind: "thread",
+                    actorId: command.actor.actorId,
+                    threadId: ThreadId.makeUnsafe(command.actor.actorId),
+                  },
                   expectedRevision: 0,
                   createdAt: command.createdAt,
                   profilePresetId: command.profilePresetId,
@@ -1350,7 +1357,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                           threadOrigin: {
                             messageId,
                             rootThreadId: command.leadThreadId,
-                            senderThreadId: command.leadThreadId,
+                            senderThreadId: ThreadId.makeUnsafe(command.actor.actorId),
                             targetThreadId: command.threadId,
                             assignmentId: command.peerSpecialty.id,
                             runId: null,
@@ -1376,6 +1383,195 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                 ...(Array.isArray(turnDecision) ? turnDecision : [turnDecision]),
               ];
             })
+          : command.type === "supervised.work.assign"
+            ? yield* Effect.gen(function* () {
+                const room = commandDeciderReadModel.supervised.rooms.find(
+                  (candidate) =>
+                    candidate.id === command.roomId &&
+                    candidate.projectId === command.projectId &&
+                    candidate.leadSeatId === command.leadSeatId,
+                );
+                const lead = governanceDecisionState.leads.find(
+                  (candidate) =>
+                    candidate.id === command.leadSeatId &&
+                    candidate.projectId === command.projectId &&
+                    candidate.activeThreadId === command.leadThreadId &&
+                    candidate.status === "active",
+                );
+                const peer = governanceDecisionState.peers.find(
+                  (candidate) =>
+                    candidate.threadId === command.peerThreadId &&
+                    candidate.projectId === command.projectId &&
+                    candidate.leadSeatId === command.leadSeatId &&
+                    candidate.rootThreadId === command.leadThreadId &&
+                    candidate.status === "active",
+                );
+                const peerThread = commandDeciderReadModel.threads.find(
+                  (candidate) =>
+                    candidate.id === command.peerThreadId &&
+                    candidate.projectId === command.projectId &&
+                    candidate.deletedAt === null,
+                );
+                if (!room || !lead || !peer || !peerThread) {
+                  return yield* new OrchestrationCommandInvariantError({
+                    commandType: command.type,
+                    detail:
+                      "Bounded Peer work requires the current Room, Root Lead, active Peer binding, and provider thread.",
+                  });
+                }
+                const interventionDecision = yield* decideSupervisedCommand({
+                  command,
+                  state: commandDeciderReadModel.supervised,
+                  governance,
+                });
+                const messageId = MessageId.makeUnsafe(
+                  `intervention:${command.intervention.id}:assignment`,
+                );
+                const turnDecision = yield* decideOrchestrationCommand({
+                  command: {
+                    type: "thread.turn.start",
+                    commandId: command.commandId,
+                    threadId: command.peerThreadId,
+                    message: {
+                      messageId,
+                      role: "thread",
+                      text: [
+                        "<synara_supervised_assignment>",
+                        JSON.stringify({
+                          interventionId: command.intervention.id,
+                          roomId: command.roomId,
+                          rootLeadSeatId: command.leadSeatId,
+                          rootLeadThreadId: command.leadThreadId,
+                          requestedBySeatId: command.actor.seatId ?? null,
+                          material: command.intervention.material,
+                          workRequest: command.intervention.reason,
+                        }),
+                        "This is bounded work and does not transfer TaskNode or Root ownership.",
+                        "After completing the request, call publish_peer_evidence with this interventionId.",
+                        "</synara_supervised_assignment>",
+                      ].join("\n"),
+                      attachments: [],
+                    },
+                    dispatchMode: "queue",
+                    dispatchOrigin: "agent",
+                    threadOrigin: {
+                      messageId,
+                      rootThreadId: command.leadThreadId,
+                      senderThreadId: ThreadId.makeUnsafe(command.actor.actorId),
+                      targetThreadId: command.peerThreadId,
+                      assignmentId: command.intervention.id,
+                      runId: null,
+                      correlationId: command.commandId,
+                      replyToMessageId: null,
+                      hopCount: 0,
+                      artifactRefs: [],
+                    },
+                    runtimeMode: peerThread.runtimeMode,
+                    interactionMode: peerThread.interactionMode,
+                    createdAt: command.createdAt,
+                  },
+                  readModel: commandDeciderReadModel,
+                  workspacePaths: deciderWorkspacePaths,
+                });
+                return [
+                  ...(Array.isArray(interventionDecision)
+                    ? interventionDecision
+                    : [interventionDecision]),
+                  ...(Array.isArray(turnDecision) ? turnDecision : [turnDecision]),
+                ];
+              })
+            : command.type === "supervised.work.complete"
+              ? yield* Effect.gen(function* () {
+                  const intervention = commandDeciderReadModel.supervised.interventions.find(
+                    (candidate) => candidate.id === command.interventionId,
+                  );
+                  const room = intervention
+                    ? commandDeciderReadModel.supervised.rooms.find(
+                        (candidate) =>
+                          candidate.id === intervention.roomId &&
+                          candidate.leadSeatId !== null,
+                      )
+                    : undefined;
+                  const lead = room?.leadSeatId
+                    ? governanceDecisionState.leads.find(
+                        (candidate) =>
+                          candidate.id === room.leadSeatId && candidate.status === "active",
+                      )
+                    : undefined;
+                  const leadThread = lead
+                    ? commandDeciderReadModel.threads.find(
+                        (candidate) =>
+                          candidate.id === lead.activeThreadId && candidate.deletedAt === null,
+                      )
+                    : undefined;
+                  if (!intervention || !room || !lead || !leadThread) {
+                    return yield* new OrchestrationCommandInvariantError({
+                      commandType: command.type,
+                      detail:
+                        "Peer evidence completion requires the current intervention, Room, and active Root Lead thread.",
+                    });
+                  }
+                  const completionDecision = yield* decideSupervisedCommand({
+                    command,
+                    state: commandDeciderReadModel.supervised,
+                    governance,
+                  });
+                  const messageId = MessageId.makeUnsafe(
+                    `intervention:${intervention.id}:lead-notification`,
+                  );
+                  const turnDecision = yield* decideOrchestrationCommand({
+                    command: {
+                      type: "thread.turn.start",
+                      commandId: command.commandId,
+                      threadId: lead.activeThreadId,
+                      message: {
+                        messageId,
+                        role: "thread",
+                        text: [
+                          "<synara_supervised_peer_evidence>",
+                          JSON.stringify({
+                            interventionId: intervention.id,
+                            roomId: intervention.roomId,
+                            peerThreadId: intervention.specialistThreadId,
+                            evidenceId: command.evidence.id,
+                            material: intervention.material,
+                            summary: command.evidence.summary,
+                          }),
+                          intervention.material
+                            ? "Review the evidence and call reconcile_peer_intervention before changing canonical Room state."
+                            : "The bounded investigation made no canonical Room mutation; the intervention was reconciled without ownership changes.",
+                          "</synara_supervised_peer_evidence>",
+                        ].join("\n"),
+                        attachments: [],
+                      },
+                      dispatchMode: "queue",
+                      dispatchOrigin: "agent",
+                      threadOrigin: {
+                        messageId,
+                        rootThreadId: lead.activeThreadId,
+                        senderThreadId: ThreadId.makeUnsafe(command.actor.actorId),
+                        targetThreadId: lead.activeThreadId,
+                        assignmentId: intervention.id,
+                        runId: null,
+                        correlationId: command.commandId,
+                        replyToMessageId: null,
+                        hopCount: 0,
+                        artifactRefs: [command.evidence.id],
+                      },
+                      runtimeMode: leadThread.runtimeMode,
+                      interactionMode: leadThread.interactionMode,
+                      createdAt: command.createdAt,
+                    },
+                    readModel: commandDeciderReadModel,
+                    workspacePaths: deciderWorkspacePaths,
+                  });
+                  return [
+                    ...(Array.isArray(completionDecision)
+                      ? completionDecision
+                      : [completionDecision]),
+                    ...(Array.isArray(turnDecision) ? turnDecision : [turnDecision]),
+                  ];
+                })
           : Schema.is(SupervisedGovernanceCommand)(command)
             ? yield* decideSupervisedGovernanceCommand({
                 command,

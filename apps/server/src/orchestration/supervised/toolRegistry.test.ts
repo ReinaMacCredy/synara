@@ -33,4 +33,35 @@ describe("Supervised host tool metadata", () => {
     assert.equal(createLeadRoom?.definition.readOnly, false);
     assert.equal(createTaskGraph?.definition.readOnly, false);
   });
+
+  it("exposes the direct Peer-work lifecycle through canonical intent tools", () => {
+    const tools = makeSupervisedTools({} as never);
+    const createPeer = tools.find((tool) => tool.definition.name === "create_peer");
+    const assignPeerWork = tools.find(
+      (tool) => tool.definition.name === "assign_peer_work",
+    );
+    const publishPeerEvidence = tools.find(
+      (tool) => tool.definition.name === "publish_peer_evidence",
+    );
+    const reconcilePeerIntervention = tools.find(
+      (tool) => tool.definition.name === "reconcile_peer_intervention",
+    );
+
+    assert.equal(createPeer?.definition.supervised?.toolId, "supervised.agent.create");
+    assert.equal(assignPeerWork?.definition.supervised?.toolId, "supervised.work.assign");
+    assert.equal(
+      publishPeerEvidence?.definition.supervised?.toolId,
+      "supervised.evidence.publish",
+    );
+    assert.equal(
+      reconcilePeerIntervention?.definition.supervised?.toolId,
+      "supervised.intervention.reconcile",
+    );
+    assert.equal(assignPeerWork?.definition.readOnly, false);
+    assert.equal(publishPeerEvidence?.definition.readOnly, false);
+    assert.deepEqual(
+      assignPeerWork?.definition.inputSchema.required,
+      ["roomId", "peerThreadId", "workRequest"],
+    );
+  });
 });

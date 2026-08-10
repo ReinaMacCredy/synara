@@ -57,7 +57,10 @@ export const supervisedIntentToolRegistry: ReadonlyArray<SupervisedIntentToolDes
   descriptor("supervised.notebook.compact", ["supervisor"], false, ["notebook.compact"]),
   descriptor("supervised.agent.create", coordinatorRoles, false, ["seat.provision", "seat.waitReady"]),
   descriptor("supervised.message.send", observerRoles, false),
-  descriptor("supervised.work.assign", coordinatorRoles, false, ["task.claim"]),
+  descriptor("supervised.work.assign", coordinatorRoles, false, [
+    "intervention.open",
+    "intervention.notifyLead",
+  ]),
   descriptor("supervised.task.delegate", rootRoles, false, ["task.transferOwnership"]),
   descriptor("supervised.lead.replace", ["supervisor", "acting_root"], false, [
     "seat.provision",
@@ -145,7 +148,9 @@ const defaultRoleTools: Readonly<Record<AgentRole, ReadonlyArray<SupervisedInten
     "supervised.context.requestCompaction",
     "supervised.agent.create",
     "supervised.message.send",
+    "supervised.work.assign",
     "supervised.task.delegate",
+    "supervised.intervention.reconcile",
     "supervised.review.request",
     "supervised.evidence.publish",
   ],

@@ -75,9 +75,21 @@ export function projectSupervisedEvent(
             : next.contextCompactionReceipts,
         };
       case "supervised.evidence-published":
-        return payload.evidence
-          ? { ...next, evidence: upsert(next.evidence, payload.evidence) }
-          : next;
+        return {
+          ...next,
+          evidence: payload.evidence
+            ? upsert(next.evidence, payload.evidence)
+            : next.evidence,
+          interventions: payload.intervention
+            ? upsert(next.interventions, payload.intervention)
+            : next.interventions,
+          leadNotifications: payload.leadNotification
+            ? upsert(next.leadNotifications, payload.leadNotification)
+            : next.leadNotifications,
+          reconciliations: payload.reconciliation
+            ? upsert(next.reconciliations, payload.reconciliation)
+            : next.reconciliations,
+        };
       case "supervised.rlm-upserted":
         return payload.rlmEpisode
           ? { ...next, rlmEpisodes: upsert(next.rlmEpisodes, payload.rlmEpisode) }

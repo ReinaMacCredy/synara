@@ -28,6 +28,8 @@ import {
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   ProjectId,
   SupervisedGovernanceAggregateId,
+  SupervisionMissionId,
+  SupervisorSeatId,
   ThreadId,
   TurnId,
 } from "@synara/contracts";
@@ -6550,6 +6552,134 @@ describe("ProviderCommandReactor", () => {
       expect(
         thread?.activities.find((activity) => activity.kind === "provider.turn.start.failed"),
       ).toBeUndefined();
+    });
+
+    it("replaces a restarted Codex Supervisor resume with native tools and transcript context", async () => {
+      const harness = await createHarness({
+        threadModelSelection: { provider: "codex", model: "gpt-5.6-luna" },
+      });
+      const createdAt = new Date().toISOString();
+      const supervisorPreset = DEFAULT_SUPERVISED_PROFILES.find((candidate) =>
+        candidate.roleHints.includes("supervisor"),
+      )!;
+      const supervisorSeatId = SupervisorSeatId.makeUnsafe(
+        "supervisor-restarted-native-tools",
+      );
+      const profileSnapshot = resolveProfilePreset({
+        preset: supervisorPreset,
+        snapshotId: ProfileSnapshotId.makeUnsafe(
+          "profile-supervisor-restarted-native-tools",
+        ),
+        createdAt,
+      });
+
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.makeUnsafe("cmd-supervisor-native-tools-first-turn"),
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          message: {
+            messageId: asMessageId("message-supervisor-native-tools-first-turn"),
+            role: "user",
+            text: "Create a durable supervised room.",
+            attachments: [],
+          },
+          modelSelection: { provider: "codex", model: "gpt-5.6-luna" },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          supervisedBootstrap: {
+            kind: "supervisor",
+            profilePresetId: supervisorPreset.id,
+            profileSnapshot,
+            supervisor: {
+              id: supervisorSeatId,
+              name: "Primary Supervisor",
+              activeThreadId: ThreadId.makeUnsafe("thread-1"),
+              predecessorThreadIds: [],
+              profileSnapshotId: profileSnapshot.id,
+              status: "active",
+              createdAt,
+              updatedAt: createdAt,
+              archivedAt: null,
+              revision: 0,
+            },
+            initialMission: {
+              id: SupervisionMissionId.makeUnsafe("mission-supervisor-native-tools"),
+              supervisorSeatId,
+              brief: "Maintain the supervised room.",
+              focus: "Provider continuity",
+              scope: [{ kind: "project", projectId: asProjectId("project-1") }],
+              grants: ["lead.observe", "lead.advise"],
+              endCondition: { kind: "manual" },
+              status: "active",
+              sourceMessageId: asMessageId("message-supervisor-native-tools-first-turn"),
+              createdAt,
+              updatedAt: createdAt,
+              completedAt: null,
+              revision: 0,
+            },
+          },
+          createdAt,
+        }),
+      );
+      await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.messages.import",
+          commandId: CommandId.makeUnsafe("cmd-supervisor-native-tools-assistant"),
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          messages: [
+            {
+              messageId: asMessageId("message-supervisor-native-tools-assistant"),
+              role: "assistant",
+              text: "The supervised room is ready.",
+              createdAt: new Date(Date.parse(createdAt) + 1_000).toISOString(),
+              updatedAt: new Date(Date.parse(createdAt) + 1_000).toISOString(),
+            },
+          ],
+          createdAt: new Date(Date.parse(createdAt) + 1_000).toISOString(),
+        }),
+      );
+      await Effect.runPromise(
+        harness.stopRuntimeSession({ threadId: ThreadId.makeUnsafe("thread-1") }),
+      );
+      harness.clearSessionResumeCursor.mockClear();
+
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.makeUnsafe("cmd-supervisor-native-tools-restarted-turn"),
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          message: {
+            messageId: asMessageId("message-supervisor-native-tools-restarted-turn"),
+            role: "user",
+            text: "Continue with native Supervisor tools.",
+            attachments: [],
+          },
+          modelSelection: { provider: "codex", model: "gpt-5.6-luna" },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          createdAt: new Date(Date.parse(createdAt) + 2_000).toISOString(),
+        }),
+      );
+
+      await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+      expect(harness.clearSessionResumeCursor).toHaveBeenCalledWith({
+        threadId: ThreadId.makeUnsafe("thread-1"),
+      });
+      expect(harness.startSession.mock.calls[1]?.[1]).toMatchObject({
+        supervisedContext: {
+          role: "supervisor",
+          agentSeatId: supervisorSeatId,
+        },
+      });
+      const restartedInput = harness.sendTurn.mock.calls[1]?.[0] as
+        | { readonly input?: string }
+        | undefined;
+      expect(restartedInput?.input).toContain("<thread_context>");
+      expect(restartedInput?.input).toContain("Create a durable supervised room.");
+      expect(restartedInput?.input).toContain("The supervised room is ready.");
+      expect(restartedInput?.input).toContain("Continue with native Supervisor tools.");
     });
 
     it("preserves the active session model when in-session model switching is unsupported", async () => {

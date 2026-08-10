@@ -20,6 +20,12 @@ export type SupervisedCallerAuthority =
       readonly callerThreadId: ThreadId;
       readonly leadSeatId: string;
       readonly missions: readonly SupervisionMission[];
+    }
+  | {
+      readonly role: "peer";
+      readonly callerThreadId: ThreadId;
+      readonly peerSeatId: string;
+      readonly roomIds: readonly string[];
     };
 
 export function resolveSupervisedCallerAuthority(input: {
@@ -53,17 +59,33 @@ export function resolveSupervisedCallerAuthority(input: {
       seat.projectId !== null &&
       seat.lifecycleState !== "retired",
   );
-  if (!lead) return null;
-  return {
-    role: "lead",
-    callerThreadId: input.callerThreadId,
-    leadSeatId: lead.id,
-    missions: input.snapshot.orchestration.missions.filter(
-      (mission) =>
-        mission.status === "active" &&
-        missionScopeContainsLead({ scope: mission.scope, lead, projects: input.projects }),
-    ),
-  };
+  if (lead) {
+    return {
+      role: "lead",
+      callerThreadId: input.callerThreadId,
+      leadSeatId: lead.id,
+      missions: input.snapshot.orchestration.missions.filter(
+        (mission) =>
+          mission.status === "active" &&
+          missionScopeContainsLead({ scope: mission.scope, lead, projects: input.projects }),
+      ),
+    };
+  }
+
+  const peer = input.snapshot.agentSeats.find(
+    (seat) =>
+      seat.identityRole === "peer" &&
+      seat.threadId === input.callerThreadId &&
+      seat.lifecycleState !== "retired",
+  );
+  return peer
+    ? {
+        role: "peer",
+        callerThreadId: input.callerThreadId,
+        peerSeatId: peer.id,
+        roomIds: peer.roomIds,
+      }
+    : null;
 }
 
 export function currentTurnHasHumanOrigin(input: {

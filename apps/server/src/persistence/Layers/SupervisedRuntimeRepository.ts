@@ -1250,6 +1250,61 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
       ),
     );
 
+  const upsertInterventionProjection = (payload: SupervisedDomainEvent["payload"]) =>
+    Effect.gen(function* () {
+      if (payload.intervention) {
+        const intervention = payload.intervention;
+        yield* sql`
+          INSERT INTO projection_supervised_interventions (
+            intervention_id, room_id, requester_json, specialist_thread_id,
+            status, revision, updated_at, entity_json
+          ) VALUES (
+            ${intervention.id}, ${intervention.roomId}, ${JSON.stringify(intervention.requestedBy)},
+            ${intervention.specialistThreadId}, ${intervention.status}, ${intervention.revision},
+            ${intervention.updatedAt}, ${JSON.stringify(intervention)}
+          )
+          ON CONFLICT (intervention_id) DO UPDATE SET
+            status = excluded.status,
+            revision = excluded.revision,
+            updated_at = excluded.updated_at,
+            entity_json = excluded.entity_json
+        `;
+      }
+      if (payload.leadNotification) {
+        const notification = payload.leadNotification;
+        yield* sql`
+          INSERT INTO projection_supervised_lead_notifications (
+            notification_id, intervention_id, room_id, lead_seat_id, status, created_at, entity_json
+          ) VALUES (
+            ${notification.id}, ${notification.interventionId}, ${notification.roomId},
+            ${notification.leadSeatId}, ${notification.status}, ${notification.createdAt},
+            ${JSON.stringify(notification)}
+          )
+          ON CONFLICT (notification_id) DO UPDATE SET
+            status = excluded.status,
+            entity_json = excluded.entity_json
+        `;
+      }
+      if (payload.reconciliation) {
+        const reconciliation = payload.reconciliation;
+        yield* sql`
+          INSERT INTO projection_supervised_reconciliations (
+            reconciliation_id, intervention_id, room_id, lead_seat_id,
+            status, revision, resolved_at, entity_json
+          ) VALUES (
+            ${reconciliation.id}, ${reconciliation.interventionId}, ${reconciliation.roomId},
+            ${reconciliation.leadSeatId}, ${reconciliation.status}, ${reconciliation.revision},
+            ${reconciliation.resolvedAt}, ${JSON.stringify(reconciliation)}
+          )
+          ON CONFLICT (reconciliation_id) DO UPDATE SET
+            status = excluded.status,
+            revision = excluded.revision,
+            resolved_at = excluded.resolved_at,
+            entity_json = excluded.entity_json
+        `;
+      }
+    });
+
   const applyDomainEvent: SupervisedRuntimeRepositoryShape["applyDomainEvent"] = (inputEvent) =>
     Effect.gen(function* () {
       const event = yield* Effect.try({
@@ -1473,6 +1528,7 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
             )
             ON CONFLICT (evidence_id) DO NOTHING
           `;
+          yield* upsertInterventionProjection(payload);
           break;
         }
         case "supervised.rlm-upserted": {
@@ -1632,62 +1688,11 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
         case "supervised.dead-lettered":
           if (payload.deadLetter) yield* putDeadLetter(payload.deadLetter);
           break;
-          case "supervised.intervention-proposed":
-          case "supervised.intervention-reconciled": {
-            if (payload.intervention) {
-              const intervention = payload.intervention;
-              yield* sql`
-                INSERT INTO projection_supervised_interventions (
-                  intervention_id, room_id, requester_json, specialist_thread_id,
-                  status, revision, updated_at, entity_json
-                ) VALUES (
-                  ${intervention.id}, ${intervention.roomId}, ${JSON.stringify(intervention.requestedBy)},
-                  ${intervention.specialistThreadId}, ${intervention.status}, ${intervention.revision},
-                  ${intervention.updatedAt}, ${JSON.stringify(intervention)}
-                )
-                ON CONFLICT (intervention_id) DO UPDATE SET
-                  status = excluded.status,
-                  revision = excluded.revision,
-                  updated_at = excluded.updated_at,
-                  entity_json = excluded.entity_json
-              `;
-            }
-            if (payload.leadNotification) {
-              const notification = payload.leadNotification;
-              yield* sql`
-                INSERT INTO projection_supervised_lead_notifications (
-                  notification_id, intervention_id, room_id, lead_seat_id, status, created_at, entity_json
-                ) VALUES (
-                  ${notification.id}, ${notification.interventionId}, ${notification.roomId},
-                  ${notification.leadSeatId}, ${notification.status}, ${notification.createdAt},
-                  ${JSON.stringify(notification)}
-                )
-                ON CONFLICT (notification_id) DO UPDATE SET
-                  status = excluded.status,
-                  entity_json = excluded.entity_json
-              `;
-            }
-            if (payload.reconciliation) {
-              const reconciliation = payload.reconciliation;
-              yield* sql`
-                INSERT INTO projection_supervised_reconciliations (
-                  reconciliation_id, intervention_id, room_id, lead_seat_id,
-                  status, revision, resolved_at, entity_json
-                ) VALUES (
-                  ${reconciliation.id}, ${reconciliation.interventionId}, ${reconciliation.roomId},
-                  ${reconciliation.leadSeatId}, ${reconciliation.status}, ${reconciliation.revision},
-                  ${reconciliation.resolvedAt}, ${JSON.stringify(reconciliation)}
-                )
-                ON CONFLICT (reconciliation_id) DO UPDATE SET
-                  status = excluded.status,
-                  revision = excluded.revision,
-                  resolved_at = excluded.resolved_at,
-                  entity_json = excluded.entity_json
-              `;
-            }
-            break;
-          }
-          case "supervised.compaction-requested":
+        case "supervised.intervention-proposed":
+        case "supervised.intervention-reconciled":
+          yield* upsertInterventionProjection(payload);
+          break;
+        case "supervised.compaction-requested":
         case "supervised.handoff-requested":
           break;
       }

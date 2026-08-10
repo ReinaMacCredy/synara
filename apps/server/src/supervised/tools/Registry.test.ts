@@ -98,4 +98,16 @@ describe("Supervised intent tool registry", () => {
     assert.equal(denied.allowed, false);
     if (!denied.allowed) assert.equal(denied.code, "supervised_tool_command_denied");
   });
+
+  it("authorizes bounded work as an intervention without a Task claim", () => {
+    const workAssignment = supervisedIntentToolRegistry.find(
+      (entry) => entry.id === "supervised.work.assign",
+    );
+
+    assert.deepEqual(workAssignment?.internalCommands, [
+      "intervention.open",
+      "intervention.notifyLead",
+    ]);
+    assert.equal(workAssignment?.internalCommands.includes("task.claim"), false);
+  });
 });

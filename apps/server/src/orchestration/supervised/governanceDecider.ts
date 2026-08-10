@@ -111,6 +111,50 @@ const requireLeadEnrollmentActor = (
       );
 };
 
+const requirePeerBindingActor = (
+  command: Extract<SupervisedGovernanceCommand, { readonly type: "supervised.peer.bind" }>,
+  state: SupervisedGovernanceDecisionState,
+) => {
+  if (isHumanOrigin(command.actor)) return Effect.void;
+  if (command.actor.kind !== "thread" || command.actor.threadId === undefined) {
+    return reject(
+      command,
+      "The Room Lead or a scoped Primary Supervisor thread is required to bind a Peer.",
+    );
+  }
+  const lead = state.leads.find(
+    (candidate) =>
+      candidate.id === command.peer.leadSeatId &&
+      candidate.projectId === command.peer.projectId &&
+      candidate.activeThreadId === command.peer.rootThreadId &&
+      candidate.status === "active",
+  );
+  if (lead?.activeThreadId === command.actor.threadId) return Effect.void;
+  const supervisor = state.supervisors.find(
+    (candidate) =>
+      candidate.status === "active" && candidate.activeThreadId === command.actor.threadId,
+  );
+  const mission = supervisor
+    ? state.missions.find(
+        (candidate) =>
+          candidate.supervisorSeatId === supervisor.id &&
+          candidate.status === "active" &&
+          candidate.scope.some(
+            (scope) =>
+              scope.kind === "all_projects" ||
+              (scope.kind === "project" && scope.projectId === command.peer.projectId) ||
+              (scope.kind === "lead" && scope.leadSeatId === command.peer.leadSeatId),
+          ),
+      )
+    : undefined;
+  return mission
+    ? Effect.void
+    : reject(
+        command,
+        "The Room Lead or a scoped Primary Supervisor thread is required to bind a Peer.",
+      );
+};
+
 export const decideSupervisedGovernanceCommand = Effect.fn(
   "decideSupervisedGovernanceCommand",
 )(function* (input: {
@@ -256,7 +300,7 @@ export const decideSupervisedGovernanceCommand = Effect.fn(
       });
     }
     case "supervised.peer.bind": {
-      yield* requireHuman(command);
+      yield* requirePeerBindingActor(command, state);
       if (state.peers.some((peer) => peer.threadId === command.peer.threadId)) {
         return yield* reject(command, "Peer thread already has a Supervised profile binding.");
       }

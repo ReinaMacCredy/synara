@@ -2402,6 +2402,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
     yield* Effect.forEach(projectors, (projector) =>
       bootstrapProjector(projector, highWaterSequence),
     );
+    yield* reconcileGovernance(new Date().toISOString());
     yield* initializeHotProjectionCursor;
   }).pipe(
     Effect.tap(() =>
