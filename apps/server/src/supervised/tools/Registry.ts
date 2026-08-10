@@ -34,11 +34,7 @@ const observerRoles: ReadonlyArray<EffectiveAgentRole> = [
   "peer",
   "acting_root",
 ];
-const coordinatorRoles: ReadonlyArray<EffectiveAgentRole> = [
-  "supervisor",
-  "lead",
-  "acting_root",
-];
+const coordinatorRoles: ReadonlyArray<EffectiveAgentRole> = ["supervisor", "lead", "acting_root"];
 const rootRoles: ReadonlyArray<EffectiveAgentRole> = ["lead", "acting_root"];
 
 export const supervisedIntentToolRegistry: ReadonlyArray<SupervisedIntentToolDescriptor> = [
@@ -55,7 +51,10 @@ export const supervisedIntentToolRegistry: ReadonlyArray<SupervisedIntentToolDes
   descriptor("supervised.notebook.search", ["supervisor", "lead", "acting_root"], true),
   descriptor("supervised.notebook.append", ["supervisor"], false, ["notebook.append"]),
   descriptor("supervised.notebook.compact", ["supervisor"], false, ["notebook.compact"]),
-  descriptor("supervised.agent.create", coordinatorRoles, false, ["seat.provision", "seat.waitReady"]),
+  descriptor("supervised.agent.create", coordinatorRoles, false, [
+    "seat.provision",
+    "seat.waitReady",
+  ]),
   descriptor("supervised.message.send", observerRoles, false),
   descriptor("supervised.work.assign", coordinatorRoles, false, [
     "intervention.open",
@@ -111,9 +110,7 @@ export const supervisedIntentToolRegistry: ReadonlyArray<SupervisedIntentToolDes
   descriptor("supervised.room.complete", rootRoles, false, ["room.drain", "room.archive"]),
 ];
 
-const descriptorsById = new Map(
-  supervisedIntentToolRegistry.map((entry) => [entry.id, entry]),
-);
+const descriptorsById = new Map(supervisedIntentToolRegistry.map((entry) => [entry.id, entry]));
 
 const defaultRoleTools: Readonly<Record<AgentRole, ReadonlyArray<SupervisedIntentToolId>>> = {
   supervisor: [
@@ -175,9 +172,7 @@ export const defaultSupervisedToolsForRole = (
 export const supervisedInternalCommandsForTools = (
   toolIds: ReadonlyArray<SupervisedIntentToolId>,
 ): ReadonlyArray<SupervisedInternalCommandId> => [
-  ...new Set(
-    toolIds.flatMap((toolId) => descriptorsById.get(toolId)?.internalCommands ?? []),
-  ),
+  ...new Set(toolIds.flatMap((toolId) => descriptorsById.get(toolId)?.internalCommands ?? [])),
 ];
 
 export const defaultSupervisedCommandsForRole = (
@@ -266,10 +261,7 @@ export function authorizeSupervisedIntentTool(input: {
       reason: "The authority receipt does not cover this Workspace.",
     };
   }
-  if (
-    input.roomId &&
-    !input.receipt.roomScopes.some((roomId) => roomId === input.roomId)
-  ) {
+  if (input.roomId && !input.receipt.roomScopes.some((roomId) => roomId === input.roomId)) {
     return {
       allowed: false,
       code: "supervised_tool_room_denied",
@@ -288,9 +280,7 @@ export function selectSupervisedIntentTools(input: {
   const limit = Math.min(12, Math.max(0, input.maximum ?? 12));
   const defaultTools = [
     ...defaultSupervisedToolsForRole(input.seat.identityRole),
-    ...(input.receipt.effectiveRole === "acting_root"
-      ? defaultSupervisedToolsForRole("lead")
-      : []),
+    ...(input.receipt.effectiveRole === "acting_root" ? defaultSupervisedToolsForRole("lead") : []),
   ];
   return [...new Set(defaultTools)]
     .flatMap((toolId) => {

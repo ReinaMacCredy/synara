@@ -22,25 +22,24 @@ function buildHostToolContext(context: ToolContext): HostToolInvocationContext {
     callerTurnId: context.callerTurnId,
     callerDispatchOrigin: context.callerDispatchOrigin,
     assertCallerTurnActive: () =>
-      context.assertCallerTurnActive().pipe(
-        Effect.mapError(
-          (error) =>
-            new HostToolError(
-              "caller_turn_inactive",
-              error instanceof Error ? error.message : String(error),
-            ),
+      context
+        .assertCallerTurnActive()
+        .pipe(
+          Effect.mapError(
+            (error) =>
+              new HostToolError(
+                "caller_turn_inactive",
+                error instanceof Error ? error.message : String(error),
+              ),
+          ),
         ),
-      ),
   };
 }
 
 export function makeAgentGatewayHostTools(input: {
   readonly runtime: HostToolRuntimeShape;
 }): ReadonlyArray<ToolEntry> {
-  const visibleNamesByContext = new WeakMap<
-    object,
-    Effect.Effect<ReadonlySet<string>>
-  >();
+  const visibleNamesByContext = new WeakMap<object, Effect.Effect<ReadonlySet<string>>>();
   const visibleNames = (context: Omit<ToolContext, "jsonRpcRequestId">) => {
     const cached = visibleNamesByContext.get(context);
     if (cached) return cached;
@@ -92,5 +91,7 @@ export function makeAgentGatewayHostTools(input: {
 export function optionalAgentGatewayHostTools(input: {
   readonly runtime: Option.Option<HostToolRuntimeShape>;
 }): ReadonlyArray<ToolEntry> {
-  return Option.isSome(input.runtime) ? makeAgentGatewayHostTools({ runtime: input.runtime.value }) : [];
+  return Option.isSome(input.runtime)
+    ? makeAgentGatewayHostTools({ runtime: input.runtime.value })
+    : [];
 }

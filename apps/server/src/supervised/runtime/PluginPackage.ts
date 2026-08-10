@@ -3,10 +3,7 @@ import { lstat, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import {
-  PluginManifest,
-  type SupervisedPluginInspection,
-} from "@synara/contracts";
+import { PluginManifest, type SupervisedPluginInspection } from "@synara/contracts";
 import { Schema } from "effect";
 
 const MAX_MANIFEST_BYTES = 1_048_576;
@@ -18,7 +15,8 @@ const sha256 = (value: string) =>
 async function readBoundedRegularFile(filePath: string, maxBytes: number): Promise<string> {
   const stat = await lstat(filePath);
   if (!stat.isFile()) throw new Error(`Plugin package file '${filePath}' is not a regular file.`);
-  if (stat.size > maxBytes) throw new Error(`Plugin package file '${filePath}' exceeds its size limit.`);
+  if (stat.size > maxBytes)
+    throw new Error(`Plugin package file '${filePath}' exceeds its size limit.`);
   return readFile(filePath, "utf8");
 }
 
@@ -27,12 +25,11 @@ function containedPath(root: string, candidate: string): boolean {
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
-export async function loadVerifiedSupervisedPluginPackage(
-  requestedDirectory: string,
-) {
+export async function loadVerifiedSupervisedPluginPackage(requestedDirectory: string) {
   const directory = await realpath(requestedDirectory);
   const directoryStat = await lstat(directory);
-  if (!directoryStat.isDirectory()) throw new Error("The selected plugin package is not a directory.");
+  if (!directoryStat.isDirectory())
+    throw new Error("The selected plugin package is not a directory.");
 
   const manifestPath = path.join(directory, "synara-plugin.json");
   const manifestText = await readBoundedRegularFile(manifestPath, MAX_MANIFEST_BYTES);
@@ -68,7 +65,9 @@ export async function loadVerifiedSupervisedPluginPackage(
     },
   });
   const requestedActionRequests = [
-    ...new Set(manifest.subscriptions.flatMap((subscription) => subscription.allowedActionRequests)),
+    ...new Set(
+      manifest.subscriptions.flatMap((subscription) => subscription.allowedActionRequests),
+    ),
   ];
   const protectedPayloadFields = [
     ...new Set(
@@ -88,7 +87,9 @@ export async function loadVerifiedSupervisedPluginPackage(
   );
   const warnings = [
     ...(protectedPayloadFields.length > 0
-      ? [`Requests ${protectedPayloadFields.length} protected payload field${protectedPayloadFields.length === 1 ? "" : "s"}.`]
+      ? [
+          `Requests ${protectedPayloadFields.length} protected payload field${protectedPayloadFields.length === 1 ? "" : "s"}.`,
+        ]
       : []),
     ...(manifest.requestedPayloadFields.some((field) => secretPayloadFields.has(field))
       ? ["Secret payload fields are declared but cannot be granted."]

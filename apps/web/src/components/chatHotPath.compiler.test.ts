@@ -75,10 +75,7 @@ const HOT_PATH_MODULES: readonly HotPathModule[] = [
     // identity, non-regressing elapsed labels, and same-paint settle transitions.
     // Removing the retired thread-message component exposed all of those existing
     // compiler boundaries, so keep the exact count locked while they are split out.
-    allowedBailoutReasons: Array.from(
-      { length: 14 },
-      () => "Cannot access refs during render",
-    ),
+    allowedBailoutReasons: Array.from({ length: 14 }, () => "Cannot access refs during render"),
   },
   { relativePath: "chat/TimelineWorkEntryRow.tsx", allowedBailoutReasons: [] },
   { relativePath: "chat/ChatTranscriptPane.tsx", allowedBailoutReasons: [] },

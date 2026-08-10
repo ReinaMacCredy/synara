@@ -282,7 +282,12 @@ describe("Supervised command authority", () => {
             state: "enabled",
             rateLimitPerMinute: 10,
             maxQueueDepth: 10,
-            failurePolicy: { maxAttempts: 3, backoffMs: 1_000, deadLetterAfterAttempts: 3, critical: false },
+            failurePolicy: {
+              maxAttempts: 3,
+              backoffMs: 1_000,
+              deadLetterAfterAttempts: 3,
+              critical: false,
+            },
             armed: true,
             createdBy: { kind: "user", actorId: "owner" },
             updatedBy: { kind: "user", actorId: "owner" },
@@ -332,7 +337,9 @@ describe("Supervised command authority", () => {
         state: {
           ...emptySupervisedRuntimeSnapshot(now),
           rooms: [room],
-          plugins: [{ ...plugin, grant: { ...plugin.grant, scopes: [{ kind: "room", roomId: "room-2" }] } }],
+          plugins: [
+            { ...plugin, grant: { ...plugin.grant, scopes: [{ kind: "room", roomId: "room-2" }] } },
+          ],
           runPolicies: [policy],
         },
       }),
@@ -384,399 +391,372 @@ describe("Supervised command authority", () => {
     assert.equal(exit._tag, "Failure");
   });
 
-    it("moves an enabled plugin to unhealthy only through the daemon lifecycle command", async () => {
-      const plugin = installation();
-      const command: SupervisedCommand = {
-        ...baseCommand,
-        type: "supervised.plugin.mark-unhealthy",
-        actor: { kind: "daemon", actorId: "supervised-runtime" },
-        aggregateId: plugin.pluginId,
-        expectedRevision: plugin.revision,
-        pluginId: plugin.pluginId,
-      };
-      const accepted = await Effect.runPromise(
-        decideSupervisedCommand({
-          command,
-          state: { ...emptySupervisedRuntimeSnapshot(now), plugins: [plugin] },
-        }),
-      );
-      assert.equal(accepted.payload.plugin?.status, "unhealthy");
-      assert.equal(accepted.payload.plugin?.revision, 1);
+  it("moves an enabled plugin to unhealthy only through the daemon lifecycle command", async () => {
+    const plugin = installation();
+    const command: SupervisedCommand = {
+      ...baseCommand,
+      type: "supervised.plugin.mark-unhealthy",
+      actor: { kind: "daemon", actorId: "supervised-runtime" },
+      aggregateId: plugin.pluginId,
+      expectedRevision: plugin.revision,
+      pluginId: plugin.pluginId,
+    };
+    const accepted = await Effect.runPromise(
+      decideSupervisedCommand({
+        command,
+        state: { ...emptySupervisedRuntimeSnapshot(now), plugins: [plugin] },
+      }),
+    );
+    assert.equal(accepted.payload.plugin?.status, "unhealthy");
+    assert.equal(accepted.payload.plugin?.revision, 1);
 
-      const denied = await Effect.runPromiseExit(
-        decideSupervisedCommand({
-          command: { ...command, actor: { kind: "user", actorId: "owner" } },
-          state: { ...emptySupervisedRuntimeSnapshot(now), plugins: [plugin] },
-        }),
-      );
-      assert.equal(denied._tag, "Failure");
+    const denied = await Effect.runPromiseExit(
+      decideSupervisedCommand({
+        command: { ...command, actor: { kind: "user", actorId: "owner" } },
+        state: { ...emptySupervisedRuntimeSnapshot(now), plugins: [plugin] },
+      }),
+    );
+    assert.equal(denied._tag, "Failure");
+  });
+
+  it("does not let a DeadLetter redrive exceed the subscription replay policy", async () => {
+    const subscription = builtInSubscriptions(now)[0]!;
+    const delivery = {
+      id: "delivery-replay-policy" as const,
+      subscriptionId: subscription.id,
+      signalId: "signal-replay-policy" as const,
+      dedupeKey: "replay-policy",
+      status: "dead_lettered" as const,
+      attemptCount: 3,
+      availableAt: now,
+      deliveredAt: null,
+      lastError: "failed",
+      payloadHash: hash,
+      replay: false,
+      replayBehavior: "observe_only" as const,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const deadLetter = {
+      id: "dead-letter-replay-policy" as const,
+      subscriptionId: subscription.id,
+      deliveryId: delivery.id,
+      pluginId: null,
+      reason: "failed",
+      payloadHash: hash,
+      attemptCount: 3,
+      status: "open" as const,
+      createdAt: now,
+      updatedAt: now,
+      resolvedAt: null,
+    };
+    const command: SupervisedCommand = {
+      ...baseCommand,
+      type: "supervised.delivery.redrive",
+      actor: { kind: "user", actorId: "owner" },
+      aggregateId: delivery.id,
+      expectedRevision: delivery.attemptCount,
+      deadLetterId: deadLetter.id,
+      replayBehavior: "idempotent_actions",
+    };
+    const exit = await Effect.runPromiseExit(
+      decideSupervisedCommand({
+        command,
+        state: {
+          ...emptySupervisedRuntimeSnapshot(now),
+          subscriptions: [subscription],
+          deliveries: [delivery],
+          deadLetters: [deadLetter],
+        },
+      }),
+    );
+    assert.equal(exit._tag, "Failure");
+
+    const resolvedExit = await Effect.runPromiseExit(
+      decideSupervisedCommand({
+        command: { ...command, replayBehavior: "observe_only" },
+        state: {
+          ...emptySupervisedRuntimeSnapshot(now),
+          subscriptions: [subscription],
+          deliveries: [delivery],
+          deadLetters: [{ ...deadLetter, status: "resolved", resolvedAt: now }],
+        },
+      }),
+    );
+    assert.equal(resolvedExit._tag, "Failure");
+  });
+
+  it("rejects a subscription that exceeds the current RunPolicy quota", async () => {
+    const [existing, candidate] = builtInSubscriptions(now);
+    const policy = {
+      id: "policy-subscription-limit",
+      name: "One subscription",
+      ...DEFAULT_SUPERVISED_RUN_POLICY,
+      maxSubscriptions: 1,
+      maxCostUsd: null,
+      allowedCapabilities: [],
+      allowedPluginActions: [],
+      revision: 0,
+      createdAt: now,
+      updatedAt: now,
+    } as const;
+    const command: SupervisedCommand = {
+      ...baseCommand,
+      type: "supervised.subscription.upsert",
+      actor: { kind: "user", actorId: "owner" },
+      aggregateId: candidate!.id,
+      expectedRevision: 0,
+      subscription: candidate!,
+    };
+    const exit = await Effect.runPromiseExit(
+      decideSupervisedCommand({
+        command,
+        state: {
+          ...emptySupervisedRuntimeSnapshot(now),
+          subscriptions: [existing!],
+          runPolicies: [policy],
+        },
+      }),
+    );
+    assert.equal(exit._tag, "Failure");
+  });
+
+  it("allows a governed Seat to propose but not activate a Harness Patch", async () => {
+    const actor = {
+      kind: "seat" as const,
+      actorId: "lead-1",
+      seatId: "lead-1" as const,
+    };
+    const patch = {
+      id: "patch-proposed",
+      name: "Evidence first",
+      patchType: "evaluation",
+      scope: { kind: "room", roomId: room.id },
+      content: "Require evidence before completion.",
+      basePolicyHash: hash,
+      status: "proposed",
+      observationEvidenceRefs: ["evidence-observed"],
+      evaluationEvidenceRefs: [],
+      sandboxEvaluation: null,
+      approval: null,
+      canary: null,
+      rollback: null,
+      lastControlPlaneSequence: 0,
+      version: 1,
+      revision: 0,
+      createdBy: actor,
+      activatedBy: null,
+      createdAt: now,
+      updatedAt: now,
+    } as HarnessPatch;
+    const command: SupervisedCommand = {
+      ...baseCommand,
+      type: "supervised.patch.upsert",
+      actor,
+      authorityReceiptId: "receipt-lead-1",
+      aggregateId: patch.id,
+      expectedRevision: 0,
+      patch,
+    };
+    const accepted = await Effect.runPromise(
+      decideSupervisedCommand({
+        command,
+        state: { ...emptySupervisedRuntimeSnapshot(now), rooms: [room] },
+        governance: governanceForSeat("lead-1", ["supervised.patch.upsert"]),
+      }),
+    );
+    assert.equal(accepted.payload.patch?.status, "proposed");
+
+    const denied = await Effect.runPromiseExit(
+      decideSupervisedCommand({
+        command: {
+          ...command,
+          actor: { kind: "user", actorId: "owner" },
+          authorityReceiptId: undefined,
+          patch: { ...patch, status: "promoted" },
+        },
+        state: emptySupervisedRuntimeSnapshot(now),
+      }),
+    );
+    assert.equal(denied._tag, "Failure");
+  });
+
+  it("runs a Supervisor proposal through failed-canary rollback without mutating Root, Lead, or TaskNode authority", async () => {
+    const supervisorSeatId = "supervisor-patch";
+    const supervisorGovernance = governanceForSeat(supervisorSeatId, ["supervised.patch.upsert"]);
+    const leadGovernance = governanceForSeat("lead-1", []);
+    const rootLeaseId = "lease-lead-root";
+    const leadReceipt = {
+      ...leadGovernance.authorityReceipts[0]!,
+      rootLeaseIds: [rootLeaseId as never],
+    };
+    const governance: SupervisedGovernanceSnapshot = {
+      ...supervisorGovernance,
+      agentSeats: [supervisorGovernance.agentSeats[0]!, leadGovernance.agentSeats[0]!],
+      authorityReceipts: [supervisorGovernance.authorityReceipts[0]!, leadReceipt],
+      rootLeases: [
+        {
+          id: rootLeaseId as never,
+          workspaceId: "workspace-1" as never,
+          roomId: room.id,
+          holderSeatId: "lead-1" as never,
+          status: "active",
+          acquiredUnderReceiptId: leadReceipt.id,
+          predecessorLeaseId: null,
+          acquiredAt: now,
+          releasedAt: null,
+          expiresAt: null,
+          revision: 1,
+          updatedAt: now,
+        },
+      ],
+    };
+    const taskNode = {
+      id: "task-node-patch" as never,
+      taskId: "task-patch" as never,
+      roomId: room.id,
+      parentNodeId: null,
+      title: "Patch-observed task",
+      description: null,
+      lifecycle: "running" as const,
+      activeRevisionId: "task-node-revision-patch" as never,
+      graphRevision: 1,
+      revision: 1,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const workClaim = {
+      id: "work-claim-patch" as never,
+      taskNodeId: taskNode.id,
+      taskNodeRevisionId: taskNode.activeRevisionId,
+      runId: "run-patch" as never,
+      ownerSeatId: "lead-1",
+      status: "active" as const,
+      acquiredAt: now,
+      expiresAt: "2026-08-08T00:00:00.000Z",
+      releasedAt: null,
+      revision: 0,
+    };
+    let state: SupervisedRuntimeSnapshot = {
+      ...emptySupervisedRuntimeSnapshot(now),
+      rooms: [room],
+      taskNodes: [taskNode],
+      workClaims: [workClaim],
+    };
+    const authorityView = () => ({
+      rootLeases: governance.rootLeases,
+      leadSeat: governance.agentSeats.find((seat) => seat.id === "lead-1"),
+      leadReceipt: governance.authorityReceipts.find((receipt) => receipt.id === leadReceipt.id),
+      taskNode: state.taskNodes.find((candidate) => candidate.id === taskNode.id),
+      workClaim: state.workClaims.find((candidate) => candidate.id === workClaim.id),
     });
-
-    it("does not let a DeadLetter redrive exceed the subscription replay policy", async () => {
-      const subscription = builtInSubscriptions(now)[0]!;
-      const delivery = {
-        id: "delivery-replay-policy" as const,
-        subscriptionId: subscription.id,
-        signalId: "signal-replay-policy" as const,
-        dedupeKey: "replay-policy",
-        status: "dead_lettered" as const,
-        attemptCount: 3,
-        availableAt: now,
-        deliveredAt: null,
-        lastError: "failed",
-        payloadHash: hash,
-        replay: false,
-        replayBehavior: "observe_only" as const,
-        createdAt: now,
-        updatedAt: now,
-      };
-      const deadLetter = {
-        id: "dead-letter-replay-policy" as const,
-        subscriptionId: subscription.id,
-        deliveryId: delivery.id,
-        pluginId: null,
-        reason: "failed",
-        payloadHash: hash,
-        attemptCount: 3,
-        status: "open" as const,
-        createdAt: now,
-        updatedAt: now,
-        resolvedAt: null,
-      };
-      const command: SupervisedCommand = {
-        ...baseCommand,
-        type: "supervised.delivery.redrive",
-        actor: { kind: "user", actorId: "owner" },
-        aggregateId: delivery.id,
-        expectedRevision: delivery.attemptCount,
-        deadLetterId: deadLetter.id,
-        replayBehavior: "idempotent_actions",
-      };
-      const exit = await Effect.runPromiseExit(
-        decideSupervisedCommand({
-          command,
-          state: {
-            ...emptySupervisedRuntimeSnapshot(now),
-            subscriptions: [subscription],
-            deliveries: [delivery],
-            deadLetters: [deadLetter],
-          },
-        }),
-      );
-      assert.equal(exit._tag, "Failure");
-
-      const resolvedExit = await Effect.runPromiseExit(
-        decideSupervisedCommand({
-          command: { ...command, replayBehavior: "observe_only" },
-          state: {
-            ...emptySupervisedRuntimeSnapshot(now),
-            subscriptions: [subscription],
-            deliveries: [delivery],
-            deadLetters: [
-              { ...deadLetter, status: "resolved", resolvedAt: now },
-            ],
-          },
-        }),
-      );
-      assert.equal(resolvedExit._tag, "Failure");
-    });
-
-    it("rejects a subscription that exceeds the current RunPolicy quota", async () => {
-      const [existing, candidate] = builtInSubscriptions(now);
-      const policy = {
-        id: "policy-subscription-limit",
-        name: "One subscription",
-        ...DEFAULT_SUPERVISED_RUN_POLICY,
-        maxSubscriptions: 1,
-        maxCostUsd: null,
-        allowedCapabilities: [],
-        allowedPluginActions: [],
-        revision: 0,
-        createdAt: now,
-        updatedAt: now,
-      } as const;
-      const command: SupervisedCommand = {
-        ...baseCommand,
-        type: "supervised.subscription.upsert",
-        actor: { kind: "user", actorId: "owner" },
-        aggregateId: candidate!.id,
-        expectedRevision: 0,
-        subscription: candidate!,
-      };
-      const exit = await Effect.runPromiseExit(
-        decideSupervisedCommand({
-          command,
-          state: {
-            ...emptySupervisedRuntimeSnapshot(now),
-            subscriptions: [existing!],
-            runPolicies: [policy],
-          },
-        }),
-      );
-      assert.equal(exit._tag, "Failure");
-    });
-
-    it("allows a governed Seat to propose but not activate a Harness Patch", async () => {
-      const actor = {
-        kind: "seat" as const,
-        actorId: "lead-1",
-        seatId: "lead-1" as const,
-      };
-      const patch = {
-        id: "patch-proposed",
-        name: "Evidence first",
-        patchType: "evaluation",
-        scope: { kind: "room", roomId: room.id },
-        content: "Require evidence before completion.",
-        basePolicyHash: hash,
-        status: "proposed",
-        observationEvidenceRefs: ["evidence-observed"],
-        evaluationEvidenceRefs: [],
-        sandboxEvaluation: null,
-        approval: null,
-        canary: null,
-        rollback: null,
-        lastControlPlaneSequence: 0,
-        version: 1,
-        revision: 0,
-        createdBy: actor,
-        activatedBy: null,
-        createdAt: now,
-        updatedAt: now,
-      } as HarnessPatch;
-      const command: SupervisedCommand = {
-        ...baseCommand,
-        type: "supervised.patch.upsert",
-        actor,
-        authorityReceiptId: "receipt-lead-1",
-        aggregateId: patch.id,
-        expectedRevision: 0,
-        patch,
-      };
-      const accepted = await Effect.runPromise(
-        decideSupervisedCommand({
-          command,
-          state: { ...emptySupervisedRuntimeSnapshot(now), rooms: [room] },
-          governance: governanceForSeat("lead-1", ["supervised.patch.upsert"]),
-        }),
-      );
-      assert.equal(accepted.payload.patch?.status, "proposed");
-
-      const denied = await Effect.runPromiseExit(
+    const authorityBefore = structuredClone(authorityView());
+    let commandSequence = 0;
+    let eventSequence = 0;
+    const upsertPatch = async (
+      patch: HarnessPatch,
+      actor: SupervisedActor,
+      authorityReceiptId?: string,
+    ) => {
+      const current = state.harnessPatches.find((candidate) => candidate.id === patch.id);
+      commandSequence += 1;
+      const event = await Effect.runPromise(
         decideSupervisedCommand({
           command: {
-            ...command,
-            actor: { kind: "user", actorId: "owner" },
-            authorityReceiptId: undefined,
-            patch: { ...patch, status: "promoted" },
+            type: "supervised.patch.upsert",
+            commandId: `command-patch-${commandSequence}`,
+            aggregateId: patch.id,
+            expectedRevision: current?.revision ?? 0,
+            idempotencyKey: `patch-${commandSequence}`,
+            actor,
+            ...(authorityReceiptId ? { authorityReceiptId: authorityReceiptId as never } : {}),
+            patch,
+            createdAt: patch.updatedAt,
           },
-          state: emptySupervisedRuntimeSnapshot(now),
+          state,
+          governance,
         }),
       );
-      assert.equal(denied._tag, "Failure");
+      eventSequence += 1;
+      state = projectSupervisedEvent(state, {
+        ...event,
+        sequence: eventSequence,
+      } as SupervisedDomainEvent);
+    };
+
+    const supervisor: SupervisedActor = {
+      kind: "seat",
+      actorId: supervisorSeatId,
+      seatId: supervisorSeatId as never,
+    };
+    const daemon: SupervisedActor = {
+      kind: "daemon",
+      actorId: "supervised-runtime",
+    };
+    const owner: SupervisedActor = { kind: "user", actorId: "owner" };
+    const proposed = createHarnessPatchProposal({
+      id: "patch-supervisor-canary" as never,
+      name: "Preserve review evidence",
+      patchType: "evaluation",
+      scope: { kind: "room", roomId: room.id },
+      content: "Require durable review evidence without changing canonical ownership.",
+      observationEvidenceRefs: ["evidence-supervisor-friction" as never],
+      createdBy: supervisor,
+      createdAt: now,
     });
+    await upsertPatch(proposed, supervisor, supervisorGovernance.authorityReceipts[0]!.id);
 
-    it("runs a Supervisor proposal through failed-canary rollback without mutating Root, Lead, or TaskNode authority", async () => {
-      const supervisorSeatId = "supervisor-patch";
-      const supervisorGovernance = governanceForSeat(supervisorSeatId, [
-        "supervised.patch.upsert",
-      ]);
-      const leadGovernance = governanceForSeat("lead-1", []);
-      const rootLeaseId = "lease-lead-root";
-      const leadReceipt = {
-        ...leadGovernance.authorityReceipts[0]!,
-        rootLeaseIds: [rootLeaseId as never],
-      };
-      const governance: SupervisedGovernanceSnapshot = {
-        ...supervisorGovernance,
-        agentSeats: [
-          supervisorGovernance.agentSeats[0]!,
-          leadGovernance.agentSeats[0]!,
-        ],
-        authorityReceipts: [supervisorGovernance.authorityReceipts[0]!, leadReceipt],
-        rootLeases: [
-          {
-            id: rootLeaseId as never,
-            workspaceId: "workspace-1" as never,
-            roomId: room.id,
-            holderSeatId: "lead-1" as never,
-            status: "active",
-            acquiredUnderReceiptId: leadReceipt.id,
-            predecessorLeaseId: null,
-            acquiredAt: now,
-            releasedAt: null,
-            expiresAt: null,
-            revision: 1,
-            updatedAt: now,
-          },
-        ],
-      };
-      const taskNode = {
-        id: "task-node-patch" as never,
-        taskId: "task-patch" as never,
-        roomId: room.id,
-        parentNodeId: null,
-        title: "Patch-observed task",
-        description: null,
-        lifecycle: "running" as const,
-        activeRevisionId: "task-node-revision-patch" as never,
-        graphRevision: 1,
-        revision: 1,
-        createdAt: now,
-        updatedAt: now,
-      };
-      const workClaim = {
-        id: "work-claim-patch" as never,
-        taskNodeId: taskNode.id,
-        taskNodeRevisionId: taskNode.activeRevisionId,
-        runId: "run-patch" as never,
-        ownerSeatId: "lead-1",
-        status: "active" as const,
-        acquiredAt: now,
-        expiresAt: "2026-08-08T00:00:00.000Z",
-        releasedAt: null,
-        revision: 0,
-      };
-      let state: SupervisedRuntimeSnapshot = {
-        ...emptySupervisedRuntimeSnapshot(now),
-        rooms: [room],
-        taskNodes: [taskNode],
-        workClaims: [workClaim],
-      };
-      const authorityView = () => ({
-        rootLeases: governance.rootLeases,
-        leadSeat: governance.agentSeats.find((seat) => seat.id === "lead-1"),
-        leadReceipt: governance.authorityReceipts.find((receipt) => receipt.id === leadReceipt.id),
-        taskNode: state.taskNodes.find((candidate) => candidate.id === taskNode.id),
-        workClaim: state.workClaims.find((candidate) => candidate.id === workClaim.id),
-      });
-      const authorityBefore = structuredClone(authorityView());
-      let commandSequence = 0;
-      let eventSequence = 0;
-      const upsertPatch = async (
-        patch: HarnessPatch,
-        actor: SupervisedActor,
-        authorityReceiptId?: string,
-      ) => {
-        const current = state.harnessPatches.find((candidate) => candidate.id === patch.id);
-        commandSequence += 1;
-        const event = await Effect.runPromise(
-          decideSupervisedCommand({
-            command: {
-              type: "supervised.patch.upsert",
-              commandId: `command-patch-${commandSequence}`,
-              aggregateId: patch.id,
-              expectedRevision: current?.revision ?? 0,
-              idempotencyKey: `patch-${commandSequence}`,
-              actor,
-              ...(authorityReceiptId
-                ? { authorityReceiptId: authorityReceiptId as never }
-                : {}),
-              patch,
-              createdAt: patch.updatedAt,
-            },
-            state,
-            governance,
-          }),
-        );
-        eventSequence += 1;
-        state = projectSupervisedEvent(state, {
-          ...event,
-          sequence: eventSequence,
-        } as SupervisedDomainEvent);
-      };
-
-      const supervisor: SupervisedActor = {
-        kind: "seat",
-        actorId: supervisorSeatId,
-        seatId: supervisorSeatId as never,
-      };
-      const daemon: SupervisedActor = {
-        kind: "daemon",
-        actorId: "supervised-runtime",
-      };
-      const owner: SupervisedActor = { kind: "user", actorId: "owner" };
-      const proposed = createHarnessPatchProposal({
-        id: "patch-supervisor-canary" as never,
-        name: "Preserve review evidence",
-        patchType: "evaluation",
-        scope: { kind: "room", roomId: room.id },
-        content: "Require durable review evidence without changing canonical ownership.",
-        observationEvidenceRefs: ["evidence-supervisor-friction" as never],
-        createdBy: supervisor,
-        createdAt: now,
-      });
-      await upsertPatch(
-        proposed,
-        supervisor,
-        supervisorGovernance.authorityReceipts[0]!.id,
-      );
-
-      const sandboxed: HarnessPatch = {
-        ...proposed,
-        status: "sandboxed",
-        revision: proposed.revision + 1,
-        updatedAt: "2026-08-07T00:01:00.000Z",
-      };
-      await upsertPatch(sandboxed, daemon);
-      const evaluated = applyHarnessPatchSandboxEvaluation(sandboxed, {
-        passed: true,
-        basePolicyHash: hash,
-        evidenceRefs: ["evidence-sandbox-passed" as never],
-        regressions: [],
-        evaluatedBy: daemon,
-        evaluatedAt: "2026-08-07T00:02:00.000Z",
-        eventId: "event-sandbox-passed" as never,
-        controlPlaneSequence: 1,
-      });
-      await upsertPatch(evaluated, daemon);
-      const awaitingApproval = awaitHarnessPatchApproval(
-        evaluated,
-        daemon,
-        "2026-08-07T00:03:00.000Z",
-      );
-      await upsertPatch(awaitingApproval, daemon);
-      assert.throws(
-        () =>
-          startHarnessPatchCanary(
-            awaitingApproval,
-            supervisor,
-            "2026-08-07T00:04:00.000Z",
-            1,
-          ),
-        /Only the Human may approve/,
-      );
-      const canary = startHarnessPatchCanary(
-        awaitingApproval,
-        owner,
-        "2026-08-07T00:04:00.000Z",
-        1,
-      );
-      await upsertPatch(canary, owner);
-      const rolledBack = recordHarnessPatchCanaryEvaluation(canary, {
-        passed: false,
-        basePolicyHash: hash,
-        evidenceRefs: ["evidence-canary-regression" as never],
-        regressions: ["Review evidence regressed"],
-        evaluatedBy: daemon,
-        evaluatedAt: "2026-08-07T00:05:00.000Z",
-        eventId: "event-canary-regression" as never,
-        controlPlaneSequence: 2,
-      });
-      await upsertPatch(rolledBack, daemon);
-
-      const retained = state.harnessPatches.find((patch) => patch.id === proposed.id)!;
-      assert.equal(retained.createdBy.kind, "seat");
-      assert.deepEqual(retained.observationEvidenceRefs, ["evidence-supervisor-friction"]);
-      assert.equal(retained.status, "rolled_back");
-      assert.equal(retained.rollback?.rolledBackBy.kind, "daemon");
-      assert.equal(retained.basePolicyHash, SUPERVISED_BASE_POLICY_HASH);
-      assert.deepEqual(
-        supervisorGovernance.authorityReceipts[0]!.rootLeaseIds,
-        [],
-      );
-      assert.deepEqual(structuredClone(authorityView()), authorityBefore);
+    const sandboxed: HarnessPatch = {
+      ...proposed,
+      status: "sandboxed",
+      revision: proposed.revision + 1,
+      updatedAt: "2026-08-07T00:01:00.000Z",
+    };
+    await upsertPatch(sandboxed, daemon);
+    const evaluated = applyHarnessPatchSandboxEvaluation(sandboxed, {
+      passed: true,
+      basePolicyHash: hash,
+      evidenceRefs: ["evidence-sandbox-passed" as never],
+      regressions: [],
+      evaluatedBy: daemon,
+      evaluatedAt: "2026-08-07T00:02:00.000Z",
+      eventId: "event-sandbox-passed" as never,
+      controlPlaneSequence: 1,
     });
+    await upsertPatch(evaluated, daemon);
+    const awaitingApproval = awaitHarnessPatchApproval(
+      evaluated,
+      daemon,
+      "2026-08-07T00:03:00.000Z",
+    );
+    await upsertPatch(awaitingApproval, daemon);
+    assert.throws(
+      () => startHarnessPatchCanary(awaitingApproval, supervisor, "2026-08-07T00:04:00.000Z", 1),
+      /Only the Human may approve/,
+    );
+    const canary = startHarnessPatchCanary(awaitingApproval, owner, "2026-08-07T00:04:00.000Z", 1);
+    await upsertPatch(canary, owner);
+    const rolledBack = recordHarnessPatchCanaryEvaluation(canary, {
+      passed: false,
+      basePolicyHash: hash,
+      evidenceRefs: ["evidence-canary-regression" as never],
+      regressions: ["Review evidence regressed"],
+      evaluatedBy: daemon,
+      evaluatedAt: "2026-08-07T00:05:00.000Z",
+      eventId: "event-canary-regression" as never,
+      controlPlaneSequence: 2,
+    });
+    await upsertPatch(rolledBack, daemon);
+
+    const retained = state.harnessPatches.find((patch) => patch.id === proposed.id)!;
+    assert.equal(retained.createdBy.kind, "seat");
+    assert.deepEqual(retained.observationEvidenceRefs, ["evidence-supervisor-friction"]);
+    assert.equal(retained.status, "rolled_back");
+    assert.equal(retained.rollback?.rolledBackBy.kind, "daemon");
+    assert.equal(retained.basePolicyHash, SUPERVISED_BASE_POLICY_HASH);
+    assert.deepEqual(supervisorGovernance.authorityReceipts[0]!.rootLeaseIds, []);
+    assert.deepEqual(structuredClone(authorityView()), authorityBefore);
+  });
 
   it("admits one bounded WorkClaim and rejects a competing active claim", async () => {
     const run = {
@@ -916,9 +896,7 @@ describe("Supervised command authority", () => {
       decideSupervisedCommand({
         command,
         state: { ...emptySupervisedRuntimeSnapshot(now), rooms: [room] },
-        governance: governanceForSeat("lead-architecture", [
-          "supervised.intervention.propose",
-        ]),
+        governance: governanceForSeat("lead-architecture", ["supervised.intervention.propose"]),
       }),
     );
     assert.equal(accepted.type, "supervised.intervention-proposed");
@@ -930,9 +908,7 @@ describe("Supervised command authority", () => {
     const supervisorGovernance = governanceForSeat("supervisor-thread-1", [
       "supervised.work.assign",
     ]);
-    const peerGovernance = governanceForSeat("peer-thread-1", [
-      "supervised.work.complete",
-    ]);
+    const peerGovernance = governanceForSeat("peer-thread-1", ["supervised.work.complete"]);
     const leadGovernance = governanceForSeat("lead-1", []);
     const governance = {
       ...supervisorGovernance,
@@ -1068,18 +1044,11 @@ describe("Supervised command authority", () => {
   });
 
   it("keeps material Peer evidence open until the current Root Lead reconciles it", async () => {
-    const peerGovernance = governanceForSeat("peer-material-1", [
-      "supervised.work.complete",
-    ]);
-    const leadGovernance = governanceForSeat("lead-1", [
-      "supervised.intervention.reconcile",
-    ]);
+    const peerGovernance = governanceForSeat("peer-material-1", ["supervised.work.complete"]);
+    const leadGovernance = governanceForSeat("lead-1", ["supervised.intervention.reconcile"]);
     const governance = {
       ...leadGovernance,
-      authorityReceipts: [
-        ...leadGovernance.authorityReceipts,
-        ...peerGovernance.authorityReceipts,
-      ],
+      authorityReceipts: [...leadGovernance.authorityReceipts, ...peerGovernance.authorityReceipts],
       agentSeats: [...leadGovernance.agentSeats, ...peerGovernance.agentSeats],
     };
     const intervention = {
@@ -1275,7 +1244,9 @@ describe("Supervised command authority", () => {
       reason: "RLM synthesis completed.",
     } as SupervisedCommand;
 
-    const accepted = await Effect.runPromise(decideSupervisedCommand({ command: transition, state }));
+    const accepted = await Effect.runPromise(
+      decideSupervisedCommand({ command: transition, state }),
+    );
     assert.equal(accepted.type, "supervised.run-transitioned");
 
     const unrelated = await Effect.runPromiseExit(

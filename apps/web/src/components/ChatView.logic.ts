@@ -1223,9 +1223,7 @@ type LocalDispatchAcknowledgementInput = {
   threadError: string | null | undefined;
 };
 
-function hasLatestTurnChangedSinceLocalDispatch(
-  input: LocalDispatchAcknowledgementInput,
-): boolean {
+function hasLatestTurnChangedSinceLocalDispatch(input: LocalDispatchAcknowledgementInput): boolean {
   const localDispatch = input.localDispatch;
   if (!localDispatch) {
     return false;

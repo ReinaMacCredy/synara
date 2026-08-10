@@ -88,17 +88,17 @@ function supervisorCanCreateRoom(
   );
   return Boolean(
     seat &&
-      lead &&
-      governance.orchestration.missions.some(
-        (mission) =>
-          mission.supervisorSeatId === seat.id &&
-          mission.status === "active" &&
-          mission.scope.some(
-            (scope) =>
-              scope.kind === "all_projects" ||
-              (scope.kind === "project" && scope.projectId === command.room.projectId),
-          ),
-      ),
+    lead &&
+    governance.orchestration.missions.some(
+      (mission) =>
+        mission.supervisorSeatId === seat.id &&
+        mission.status === "active" &&
+        mission.scope.some(
+          (scope) =>
+            scope.kind === "all_projects" ||
+            (scope.kind === "project" && scope.projectId === command.room.projectId),
+        ),
+    ),
   );
 }
 
@@ -116,21 +116,27 @@ function validatePluginInstallation(
     return reject(command, "Plugin manifest, grant, and installation identities must match.");
   }
   const requestedCapabilities = new Set(installation.manifest.requestedCapabilities);
-  if (installation.grant.capabilities.some((capability) => !requestedCapabilities.has(capability))) {
-    return reject(command, "A PluginCapabilityGrant cannot exceed manifest-requested capabilities.");
+  if (
+    installation.grant.capabilities.some((capability) => !requestedCapabilities.has(capability))
+  ) {
+    return reject(
+      command,
+      "A PluginCapabilityGrant cannot exceed manifest-requested capabilities.",
+    );
   }
   const requestedFields = new Set(installation.manifest.requestedPayloadFields);
   if (installation.grant.payloadFields.some((field) => !requestedFields.has(field))) {
-    return reject(command, "A PluginCapabilityGrant cannot expose fields absent from the manifest.");
+    return reject(
+      command,
+      "A PluginCapabilityGrant cannot expose fields absent from the manifest.",
+    );
   }
   const declaredActions = new Set(
     installation.manifest.subscriptions.flatMap(
       (subscription) => subscription.allowedActionRequests,
     ),
   );
-  if (
-    installation.grant.allowedActionRequests.some((action) => !declaredActions.has(action))
-  ) {
+  if (installation.grant.allowedActionRequests.some((action) => !declaredActions.has(action))) {
     return reject(command, "A PluginCapabilityGrant cannot add undeclared action requests.");
   }
   const secretFields = new Set(
@@ -141,7 +147,10 @@ function validatePluginInstallation(
     ),
   );
   if (installation.grant.payloadFields.some((field) => secretFields.has(field))) {
-    return reject(command, "Secret EventSchema fields cannot be included in plugin payload grants.");
+    return reject(
+      command,
+      "Secret EventSchema fields cannot be included in plugin payload grants.",
+    );
   }
   const scopeCovered = (scope: PluginInstallation["grant"]["scopes"][number]) =>
     installation.grant.scopes.some(
@@ -199,8 +208,7 @@ function pluginRunPolicyViolation(
       (plugin) =>
         plugin.pluginId !== installation.pluginId &&
         (plugin.status === "enabled" || plugin.status === "unhealthy"),
-    ).length +
-    (installation.status === "enabled" || installation.status === "unhealthy" ? 1 : 0);
+    ).length + (installation.status === "enabled" || installation.status === "unhealthy" ? 1 : 0);
   const decision = evaluateRunPolicy(
     policy,
     runtimeUsage(state, {
@@ -245,16 +253,16 @@ function commandRoomId(
     case "supervised.run.submit":
     case "supervised.review.accept":
       return state.runs.find((run) => run.id === command.runId)?.roomId ?? null;
-      case "supervised.intervention.propose":
-        return command.intervention.roomId;
-      case "supervised.intervention.reconcile":
-        return command.reconciliation.roomId;
-      case "supervised.work.assign":
-      case "supervised.work.complete":
-        return command.roomId;
-      case "supervised.compaction.request":
-      case "supervised.handoff.request":
-        return command.roomId;
+    case "supervised.intervention.propose":
+      return command.intervention.roomId;
+    case "supervised.intervention.reconcile":
+      return command.reconciliation.roomId;
+    case "supervised.work.assign":
+    case "supervised.work.complete":
+      return command.roomId;
+    case "supervised.compaction.request":
+    case "supervised.handoff.request":
+      return command.roomId;
     default:
       return null;
   }
@@ -281,9 +289,7 @@ function requirePluginAuthority(
   state: SupervisedRuntimeSnapshot,
 ): Effect.Effect<void, OrchestrationCommandInvariantError> {
   if (command.actor.kind !== "plugin") return Effect.void;
-  const installation = state.plugins.find(
-    (plugin) => plugin.pluginId === command.actor.actorId,
-  );
+  const installation = state.plugins.find((plugin) => plugin.pluginId === command.actor.actorId);
   if (
     !installation ||
     installation.status !== "enabled" ||
@@ -438,10 +444,7 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
         current.leadSeatId !== command.previousRootSeatId ||
         command.previousRootSeatId === command.supervisorSeatId
       ) {
-        return yield* reject(
-          command,
-          "Root assumption requires the current distinct Root holder.",
-        );
+        return yield* reject(command, "Root assumption requires the current distinct Root holder.");
       }
       const supervisorSeat = input.governance?.agentSeats.find(
         (seat) =>
@@ -595,7 +598,10 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
       const current = state.runs.find((run) => run.id === command.runId);
       if (!current) return yield* reject(command, "Run does not exist.");
       if (command.daemonEpoch !== undefined && command.actor.kind !== "daemon") {
-        return yield* reject(command, "Only the daemon may attach a recovery epoch to a Run transition.");
+        return yield* reject(
+          command,
+          "Only the daemon may attach a recovery epoch to a Run transition.",
+        );
       }
       const daemonOwnsRlmLifecycle =
         command.actor.kind === "daemon" &&
@@ -623,10 +629,7 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
       ) {
         yield* requireHumanOrMatchingSeat(
           command,
-          [
-            current.ownerSeatId,
-            state.rooms.find((room) => room.id === current.roomId)?.leadSeatId,
-          ],
+          [current.ownerSeatId, state.rooms.find((room) => room.id === current.roomId)?.leadSeatId],
           "Only the Human, Run owner, or current Room Lead may transition this Run.",
         );
       }
@@ -647,9 +650,7 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
     }
     case "supervised.run-policy.upsert": {
       yield* requireHuman(command, "Only the Human may change a RunPolicy.");
-      const current = state.runPolicies.find(
-        (policy) => policy.id === command.runPolicy.id,
-      );
+      const current = state.runPolicies.find((policy) => policy.id === command.runPolicy.id);
       yield* requireRevision(command, current?.revision ?? null);
       const revision = current ? current.revision + 1 : command.runPolicy.revision;
       return event(command, "supervised.run-policy-upserted", "run_policy", revision, {
@@ -658,144 +659,163 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
           revision,
           updatedAt: command.createdAt,
         },
-        });
+      });
+    }
+    case "supervised.claim.acquire": {
+      const run = state.runs.find((candidate) => candidate.id === command.claim.runId);
+      yield* requireHumanOrMatchingSeat(
+        command,
+        [run?.ownerSeatId],
+        "Only the Human or Run owner may acquire a WorkClaim.",
+      );
+      if (!run) return yield* reject(command, "WorkClaim Run does not exist.");
+      if (
+        run.taskNodeId !== command.claim.taskNodeId ||
+        run.taskNodeRevisionId !== command.claim.taskNodeRevisionId
+      ) {
+        return yield* reject(command, "WorkClaim must match the Run TaskNode revision.");
       }
-      case "supervised.claim.acquire": {
-        const run = state.runs.find((candidate) => candidate.id === command.claim.runId);
+      if (Date.parse(command.claim.expiresAt) <= Date.parse(command.claim.acquiredAt)) {
+        return yield* reject(command, "WorkClaim expiry must be after acquisition.");
+      }
+      if (
+        state.workClaims.some(
+          (claim) =>
+            claim.status === "active" &&
+            claim.taskNodeRevisionId === command.claim.taskNodeRevisionId,
+        )
+      ) {
+        return yield* reject(command, "TaskNode revision already has an active WorkClaim.");
+      }
+      yield* requireRevision(command, null);
+      return event(command, "supervised.claim-acquired", "work_claim", command.claim.revision, {
+        workClaim: command.claim,
+      });
+    }
+    case "supervised.claim.release":
+    case "supervised.claim.revoke":
+    case "supervised.claim.expire": {
+      const current = state.workClaims.find((claim) => claim.id === command.claimId);
+      const run = current
+        ? state.runs.find((candidate) => candidate.id === current.runId)
+        : undefined;
+      if (command.type === "supervised.claim.expire") {
+        if (command.actor.kind !== "daemon" && command.actor.kind !== "user") {
+          return yield* reject(command, "Only the daemon or Human may expire a WorkClaim.");
+        }
+      } else {
         yield* requireHumanOrMatchingSeat(
           command,
           [run?.ownerSeatId],
-          "Only the Human or Run owner may acquire a WorkClaim.",
+          "Only the Human or Run owner may release or revoke a WorkClaim.",
         );
-        if (!run) return yield* reject(command, "WorkClaim Run does not exist.");
-        if (
-          run.taskNodeId !== command.claim.taskNodeId ||
-          run.taskNodeRevisionId !== command.claim.taskNodeRevisionId
-        ) {
-          return yield* reject(command, "WorkClaim must match the Run TaskNode revision.");
-        }
-        if (Date.parse(command.claim.expiresAt) <= Date.parse(command.claim.acquiredAt)) {
-          return yield* reject(command, "WorkClaim expiry must be after acquisition.");
-        }
-        if (
-          state.workClaims.some(
-            (claim) =>
-              claim.status === "active" &&
-              claim.taskNodeRevisionId === command.claim.taskNodeRevisionId,
-          )
-        ) {
-          return yield* reject(command, "TaskNode revision already has an active WorkClaim.");
-        }
-        yield* requireRevision(command, null);
-        return event(command, "supervised.claim-acquired", "work_claim", command.claim.revision, {
-          workClaim: command.claim,
-        });
       }
-      case "supervised.claim.release":
-      case "supervised.claim.revoke":
-      case "supervised.claim.expire": {
-        const current = state.workClaims.find((claim) => claim.id === command.claimId);
-        const run = current
-          ? state.runs.find((candidate) => candidate.id === current.runId)
-          : undefined;
-        if (command.type === "supervised.claim.expire") {
-          if (command.actor.kind !== "daemon" && command.actor.kind !== "user") {
-            return yield* reject(command, "Only the daemon or Human may expire a WorkClaim.");
-          }
-        } else {
-          yield* requireHumanOrMatchingSeat(
-            command,
-            [run?.ownerSeatId],
-            "Only the Human or Run owner may release or revoke a WorkClaim.",
-          );
-        }
-        if (!current) return yield* reject(command, "WorkClaim does not exist.");
-        if (current.status !== "active") return yield* reject(command, "WorkClaim is not active.");
-        yield* requireRevision(command, current.revision);
-        const status = command.type.endsWith("release")
-          ? "released"
-          : command.type.endsWith("expire")
-            ? "expired"
-            : "revoked";
-        const workClaim = {
-          ...current,
-          status,
-          releasedAt: command.createdAt,
-          revision: current.revision + 1,
-        };
-        return event(command, "supervised.claim-state-changed", "work_claim", workClaim.revision, {
-          workClaim,
-        });
-      }
-      case "supervised.lease.grant": {
-        const run = state.runs.find((candidate) => candidate.id === command.lease.runId);
-        if (command.actor.kind !== "daemon") {
-          yield* requireHumanOrMatchingSeat(
-            command,
-            [run?.ownerSeatId],
-            "Only the Human, daemon, or Run owner may grant a CapabilityLease.",
-          );
-        }
-        if (!run) return yield* reject(command, "CapabilityLease Run does not exist.");
-        const policy = state.runPolicies.find((candidate) => candidate.id === run.policyId);
-        if (!policy?.allowedCapabilities.includes(command.lease.capability)) {
-          return yield* reject(command, "Capability is not allowed by the RunPolicy snapshot.");
-        }
-        if (Date.parse(command.lease.expiresAt) <= Date.parse(command.lease.grantedAt)) {
-          return yield* reject(command, "CapabilityLease expiry must be after its grant.");
-        }
-        yield* requireRevision(command, null);
-        return event(command, "supervised.lease-granted", "capability_lease", command.lease.revision, {
-          capabilityLease: command.lease,
-        });
-      }
-      case "supervised.lease.revoke":
-      case "supervised.lease.expire": {
-        const current = state.capabilityLeases.find((lease) => lease.id === command.leaseId);
-        const run = current
-          ? state.runs.find((candidate) => candidate.id === current.runId)
-          : undefined;
-        if (command.type === "supervised.lease.expire") {
-          if (command.actor.kind !== "daemon" && command.actor.kind !== "user") {
-            return yield* reject(command, "Only the daemon or Human may expire a CapabilityLease.");
-          }
-        } else {
-          yield* requireHumanOrMatchingSeat(
-            command,
-            [run?.ownerSeatId],
-            "Only the Human or Run owner may revoke a CapabilityLease.",
-          );
-        }
-        if (!current) return yield* reject(command, "CapabilityLease does not exist.");
-        if (current.status !== "active") return yield* reject(command, "CapabilityLease is not active.");
-        yield* requireRevision(command, current.revision);
-        const capabilityLease = {
-          ...current,
-          status: command.type.endsWith("expire") ? "expired" as const : "revoked" as const,
-          revision: current.revision + 1,
-        };
-        return event(command, "supervised.lease-state-changed", "capability_lease", capabilityLease.revision, {
-          capabilityLease,
-        });
-      }
-      case "supervised.context.workspace-upsert": {
-        const room = command.workspace.roomId
-          ? state.rooms.find((candidate) => candidate.id === command.workspace.roomId)
-          : undefined;
+      if (!current) return yield* reject(command, "WorkClaim does not exist.");
+      if (current.status !== "active") return yield* reject(command, "WorkClaim is not active.");
+      yield* requireRevision(command, current.revision);
+      const status = command.type.endsWith("release")
+        ? "released"
+        : command.type.endsWith("expire")
+          ? "expired"
+          : "revoked";
+      const workClaim = {
+        ...current,
+        status,
+        releasedAt: command.createdAt,
+        revision: current.revision + 1,
+      };
+      return event(command, "supervised.claim-state-changed", "work_claim", workClaim.revision, {
+        workClaim,
+      });
+    }
+    case "supervised.lease.grant": {
+      const run = state.runs.find((candidate) => candidate.id === command.lease.runId);
+      if (command.actor.kind !== "daemon") {
         yield* requireHumanOrMatchingSeat(
           command,
-          [room?.leadSeatId],
-          "Only the Human or Room Lead may create or update a Context Workspace.",
+          [run?.ownerSeatId],
+          "Only the Human, daemon, or Run owner may grant a CapabilityLease.",
         );
-        const current = state.contextWorkspaces.find(
-          (workspace) => workspace.id === command.workspace.id,
-        );
-        yield* requireRevision(command, current?.revision ?? null);
-        const revision = current ? current.revision + 1 : command.workspace.revision;
-        return event(command, "supervised.context-workspace-upserted", "context_workspace", revision, {
-          contextWorkspace: { ...command.workspace, revision, updatedAt: command.createdAt },
-        });
       }
+      if (!run) return yield* reject(command, "CapabilityLease Run does not exist.");
+      const policy = state.runPolicies.find((candidate) => candidate.id === run.policyId);
+      if (!policy?.allowedCapabilities.includes(command.lease.capability)) {
+        return yield* reject(command, "Capability is not allowed by the RunPolicy snapshot.");
+      }
+      if (Date.parse(command.lease.expiresAt) <= Date.parse(command.lease.grantedAt)) {
+        return yield* reject(command, "CapabilityLease expiry must be after its grant.");
+      }
+      yield* requireRevision(command, null);
+      return event(
+        command,
+        "supervised.lease-granted",
+        "capability_lease",
+        command.lease.revision,
+        {
+          capabilityLease: command.lease,
+        },
+      );
+    }
+    case "supervised.lease.revoke":
+    case "supervised.lease.expire": {
+      const current = state.capabilityLeases.find((lease) => lease.id === command.leaseId);
+      const run = current
+        ? state.runs.find((candidate) => candidate.id === current.runId)
+        : undefined;
+      if (command.type === "supervised.lease.expire") {
+        if (command.actor.kind !== "daemon" && command.actor.kind !== "user") {
+          return yield* reject(command, "Only the daemon or Human may expire a CapabilityLease.");
+        }
+      } else {
+        yield* requireHumanOrMatchingSeat(
+          command,
+          [run?.ownerSeatId],
+          "Only the Human or Run owner may revoke a CapabilityLease.",
+        );
+      }
+      if (!current) return yield* reject(command, "CapabilityLease does not exist.");
+      if (current.status !== "active")
+        return yield* reject(command, "CapabilityLease is not active.");
+      yield* requireRevision(command, current.revision);
+      const capabilityLease = {
+        ...current,
+        status: command.type.endsWith("expire") ? ("expired" as const) : ("revoked" as const),
+        revision: current.revision + 1,
+      };
+      return event(
+        command,
+        "supervised.lease-state-changed",
+        "capability_lease",
+        capabilityLease.revision,
+        {
+          capabilityLease,
+        },
+      );
+    }
+    case "supervised.context.workspace-upsert": {
+      const room = command.workspace.roomId
+        ? state.rooms.find((candidate) => candidate.id === command.workspace.roomId)
+        : undefined;
+      yield* requireHumanOrMatchingSeat(
+        command,
+        [room?.leadSeatId],
+        "Only the Human or Room Lead may create or update a Context Workspace.",
+      );
+      const current = state.contextWorkspaces.find(
+        (workspace) => workspace.id === command.workspace.id,
+      );
+      yield* requireRevision(command, current?.revision ?? null);
+      const revision = current ? current.revision + 1 : command.workspace.revision;
+      return event(
+        command,
+        "supervised.context-workspace-upserted",
+        "context_workspace",
+        revision,
+        {
+          contextWorkspace: { ...command.workspace, revision, updatedAt: command.createdAt },
+        },
+      );
+    }
     case "supervised.subscription.upsert": {
       yield* requireHumanOrMatchingSeat(
         command,
@@ -842,7 +862,8 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
       );
       if (!current) return yield* reject(command, "Subscription does not exist.");
       yield* requireRevision(command, current.revision);
-      if (current.state === "revoked") return yield* reject(command, "Revoked subscriptions are terminal.");
+      if (current.state === "revoked")
+        return yield* reject(command, "Revoked subscriptions are terminal.");
       const stateValue = command.type.endsWith("pause")
         ? "paused"
         : command.type.endsWith("enable")
@@ -856,9 +877,15 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
         updatedBy: command.actor,
         updatedAt: command.createdAt,
       };
-      return event(command, "supervised.subscription-state-changed", "subscription", subscription.revision, {
-        subscription,
-      });
+      return event(
+        command,
+        "supervised.subscription-state-changed",
+        "subscription",
+        subscription.revision,
+        {
+          subscription,
+        },
+      );
     }
     case "supervised.plugin.install": {
       yield* requireHuman(command, "Only the Human may install a plugin or grant capabilities.");
@@ -869,9 +896,15 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
       const policyViolation = pluginRunPolicyViolation(state, command.installation);
       if (policyViolation) return yield* reject(command, policyViolation);
       yield* requireRevision(command, null);
-      return event(command, "supervised.plugin-installed", "plugin", command.installation.revision, {
-        plugin: command.installation,
-      });
+      return event(
+        command,
+        "supervised.plugin-installed",
+        "plugin",
+        command.installation.revision,
+        {
+          plugin: command.installation,
+        },
+      );
     }
     case "supervised.plugin.upgrade": {
       yield* requireHuman(command, "Only the Human may upgrade a plugin or replace its grants.");
@@ -893,19 +926,13 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
       ) {
         return yield* reject(command, "Plugin package is identical to the installed version.");
       }
-      return event(
-        command,
-        "supervised.plugin-upgraded",
-        "plugin",
-        current.revision + 1,
-        {
-          plugin: {
-            ...command.installation,
-            installedAt: current.installedAt,
-            revision: current.revision + 1,
-          },
+      return event(command, "supervised.plugin-upgraded", "plugin", current.revision + 1, {
+        plugin: {
+          ...command.installation,
+          installedAt: current.installedAt,
+          revision: current.revision + 1,
         },
-      );
+      });
     }
     case "supervised.plugin.enable":
     case "supervised.plugin.disable":
@@ -949,7 +976,9 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
         revision: current.revision + 1,
         updatedAt: command.createdAt,
       };
-      return event(command, "supervised.plugin-state-changed", "plugin", plugin.revision, { plugin });
+      return event(command, "supervised.plugin-state-changed", "plugin", plugin.revision, {
+        plugin,
+      });
     }
     case "supervised.plugin.reset-circuit": {
       yield* requireHuman(command, "Only the Human may reset a plugin circuit breaker.");
@@ -991,9 +1020,12 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
       );
       if (!current) return yield* reject(command, "Signal does not exist.");
       yield* requireRevision(command, current.revision);
-      if (current.state !== "triggered") return yield* reject(command, "Only triggered signals can be acknowledged.");
+      if (current.state !== "triggered")
+        return yield* reject(command, "Only triggered signals can be acknowledged.");
       const signal = { ...current, state: "acknowledged" as const, revision: current.revision + 1 };
-      return event(command, "supervised.signal-acknowledged", "signal", signal.revision, { signal });
+      return event(command, "supervised.signal-acknowledged", "signal", signal.revision, {
+        signal,
+      });
     }
     case "supervised.delivery.redrive": {
       const letter = state.deadLetters.find((candidate) => candidate.id === command.deadLetterId);
@@ -1083,11 +1115,10 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
           );
         }
         const sourceIds = new Set(command.compactionReceipt.sourceRecordIds);
-        const sources = state.contextRecords.filter((candidate) =>
-          sourceIds.has(candidate.id),
-        );
-        const sourceEvidenceRefs = [...new Set(sources.flatMap((source) => source.evidenceRefs))]
-          .toSorted();
+        const sources = state.contextRecords.filter((candidate) => sourceIds.has(candidate.id));
+        const sourceEvidenceRefs = [
+          ...new Set(sources.flatMap((source) => source.evidenceRefs)),
+        ].toSorted();
         if (
           command.record.kind !== "summary" ||
           sourceIds.size !== command.compactionReceipt.sourceRecordIds.length ||
@@ -1185,7 +1216,10 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
         branchIds.size === command.episode.branchCount &&
         !branchIds.has(command.episode.rootModelSessionId);
       if (!current && !canonicalLineage) {
-        return yield* reject(command, "A new RLM episode requires complete immutable session lineage.");
+        return yield* reject(
+          command,
+          "A new RLM episode requires complete immutable session lineage.",
+        );
       }
       if (
         current &&
@@ -1270,13 +1304,9 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
       }
       yield* requireRevision(command, current?.revision ?? null);
       const revision = current ? current.revision + 1 : trace.revision;
-      return event(
-        command,
-        "supervised.model-session-upserted",
-        "model_session",
-        revision,
-        { modelSession: { ...trace, revision, updatedAt: command.createdAt } },
-      );
+      return event(command, "supervised.model-session-upserted", "model_session", revision, {
+        modelSession: { ...trace, revision, updatedAt: command.createdAt },
+      });
     }
     case "supervised.patch.upsert": {
       const current = state.harnessPatches.find((patch) => patch.id === command.patch.id);
@@ -1320,295 +1350,314 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
         return yield* reject(command, "A retained Peer specialty snapshot must be sanitized.");
       }
       const revision = current ? current.revision + 1 : command.peerSpecialty.revision;
+      return event(command, "supervised.peer-upserted", "peer", revision, {
+        peerSpecialty: {
+          ...command.peerSpecialty,
+          revision,
+          updatedAt: command.createdAt,
+        },
+        peerSpecialtySnapshot: command.snapshot,
+      });
+    }
+    case "supervised.kernel.session-upsert": {
+      const run = state.runs.find((candidate) => candidate.id === command.session.runId);
+      if (command.actor.kind !== "daemon") {
+        yield* requireHumanOrMatchingSeat(
+          command,
+          [run?.ownerSeatId],
+          "Only the Human, daemon, or Run owner may update a KernelSession.",
+        );
+      }
+      if (!run) return yield* reject(command, "KernelSession Run does not exist.");
+      const current = state.kernelSessions.find((session) => session.id === command.session.id);
+      yield* requireRevision(command, current ? 1 : null);
       return event(
         command,
-        "supervised.peer-upserted",
-        "peer",
-        revision,
+        "supervised.kernel-session-upserted",
+        "kernel_session",
+        current ? 1 : 0,
         {
-          peerSpecialty: {
-            ...command.peerSpecialty,
-            revision,
-            updatedAt: command.createdAt,
-          },
-          peerSpecialtySnapshot: command.snapshot,
+          kernelSession: command.session,
         },
       );
     }
-      case "supervised.kernel.session-upsert": {
-        const run = state.runs.find((candidate) => candidate.id === command.session.runId);
-        if (command.actor.kind !== "daemon") {
-          yield* requireHumanOrMatchingSeat(
-            command,
-            [run?.ownerSeatId],
-            "Only the Human, daemon, or Run owner may update a KernelSession.",
-          );
-        }
-        if (!run) return yield* reject(command, "KernelSession Run does not exist.");
-        const current = state.kernelSessions.find((session) => session.id === command.session.id);
-        yield* requireRevision(command, current ? 1 : null);
-        return event(command, "supervised.kernel-session-upserted", "kernel_session", current ? 1 : 0, {
-          kernelSession: command.session,
-        });
-      }
-      case "supervised.kernel.execution-upsert": {
-        const session = state.kernelSessions.find(
-          (candidate) => candidate.id === command.execution.kernelSessionId,
-        );
-        const run = session
-          ? state.runs.find((candidate) => candidate.id === session.runId)
-          : undefined;
-        if (command.actor.kind !== "daemon" && command.actor.kind !== "kernel") {
-          yield* requireHumanOrMatchingSeat(
-            command,
-            [run?.ownerSeatId],
-            "Only the Human, daemon, kernel, or Run owner may update a KernelExecution.",
-          );
-        }
-        if (!session) return yield* reject(command, "KernelExecution session does not exist.");
-        const current = state.kernelExecutions.find(
-          (execution) => execution.id === command.execution.id,
-        );
-        yield* requireRevision(command, current ? 1 : null);
-        return event(command, "supervised.kernel-execution-upserted", "kernel_session", current ? 1 : 0, {
-          kernelExecution: command.execution,
-        });
-      }
-      case "supervised.work.assign":
-      case "supervised.intervention.propose": {
-        if (
-          command.intervention.requestedBy.kind !== command.actor.kind ||
-          command.intervention.requestedBy.actorId !== command.actor.actorId ||
-          command.intervention.requestedBy.seatId !== command.actor.seatId
-        ) {
-          return yield* reject(command, "Intervention requester must match the command actor.");
-        }
+    case "supervised.kernel.execution-upsert": {
+      const session = state.kernelSessions.find(
+        (candidate) => candidate.id === command.execution.kernelSessionId,
+      );
+      const run = session
+        ? state.runs.find((candidate) => candidate.id === session.runId)
+        : undefined;
+      if (command.actor.kind !== "daemon" && command.actor.kind !== "kernel") {
         yield* requireHumanOrMatchingSeat(
           command,
-          [command.intervention.requestedBy.seatId],
-          "Only the Human or requesting coordinator may propose this intervention.",
+          [run?.ownerSeatId],
+          "Only the Human, daemon, kernel, or Run owner may update a KernelExecution.",
         );
-        const room = state.rooms.find((candidate) => candidate.id === command.intervention.roomId);
-        if (!room) return yield* reject(command, "Intervention Room does not exist.");
-        if (state.interventions.some((candidate) => candidate.id === command.intervention.id)) {
-          return yield* reject(command, "Intervention already exists.");
-        }
+      }
+      if (!session) return yield* reject(command, "KernelExecution session does not exist.");
+      const current = state.kernelExecutions.find(
+        (execution) => execution.id === command.execution.id,
+      );
+      yield* requireRevision(command, current ? 1 : null);
+      return event(
+        command,
+        "supervised.kernel-execution-upserted",
+        "kernel_session",
+        current ? 1 : 0,
+        {
+          kernelExecution: command.execution,
+        },
+      );
+    }
+    case "supervised.work.assign":
+    case "supervised.intervention.propose": {
+      if (
+        command.intervention.requestedBy.kind !== command.actor.kind ||
+        command.intervention.requestedBy.actorId !== command.actor.actorId ||
+        command.intervention.requestedBy.seatId !== command.actor.seatId
+      ) {
+        return yield* reject(command, "Intervention requester must match the command actor.");
+      }
+      yield* requireHumanOrMatchingSeat(
+        command,
+        [command.intervention.requestedBy.seatId],
+        "Only the Human or requesting coordinator may propose this intervention.",
+      );
+      const room = state.rooms.find((candidate) => candidate.id === command.intervention.roomId);
+      if (!room) return yield* reject(command, "Intervention Room does not exist.");
+      if (state.interventions.some((candidate) => candidate.id === command.intervention.id)) {
+        return yield* reject(command, "Intervention already exists.");
+      }
+      if (
+        command.leadNotification.interventionId !== command.intervention.id ||
+        command.reconciliation.interventionId !== command.intervention.id ||
+        command.leadNotification.roomId !== command.intervention.roomId ||
+        command.reconciliation.roomId !== command.intervention.roomId ||
+        command.leadNotification.leadSeatId !== room.leadSeatId ||
+        command.reconciliation.leadSeatId !== room.leadSeatId
+      ) {
+        return yield* reject(
+          command,
+          "Intervention notification and reconciliation must target the current Room Lead.",
+        );
+      }
+      if (command.type === "supervised.work.assign") {
+        const coordinatorSeatId = actorSeatId(command);
+        const coordinatorSeat = input.governance?.agentSeats.find(
+          (candidate) => candidate.id === coordinatorSeatId,
+        );
+        const peerSeat = input.governance?.agentSeats.find(
+          (candidate) =>
+            candidate.identityRole === "peer" &&
+            candidate.threadId === command.peerThreadId &&
+            candidate.projectId === command.projectId &&
+            candidate.roomIds.includes(command.roomId),
+        );
+        const rootLeadSeat = input.governance?.agentSeats.find(
+          (candidate) =>
+            candidate.id === command.leadSeatId &&
+            candidate.identityRole === "lead" &&
+            candidate.threadId === command.leadThreadId &&
+            candidate.roomIds.includes(command.roomId),
+        );
+        const coordinatorAuthorized =
+          coordinatorSeat?.identityRole === "supervisor" ||
+          (coordinatorSeat?.identityRole === "lead" && coordinatorSeat.id === room.leadSeatId);
         if (
-          command.leadNotification.interventionId !== command.intervention.id ||
-          command.reconciliation.interventionId !== command.intervention.id ||
-          command.leadNotification.roomId !== command.intervention.roomId ||
-          command.reconciliation.roomId !== command.intervention.roomId ||
-          command.leadNotification.leadSeatId !== room.leadSeatId ||
-          command.reconciliation.leadSeatId !== room.leadSeatId
+          command.roomId !== room.id ||
+          command.leadSeatId !== room.leadSeatId ||
+          command.intervention.specialistThreadId !== command.peerThreadId ||
+          !coordinatorAuthorized ||
+          !peerSeat ||
+          !rootLeadSeat
         ) {
-          return yield* reject(command, "Intervention notification and reconciliation must target the current Room Lead.");
+          return yield* reject(
+            command,
+            "Bounded work requires a scoped Supervisor or current Lead, the current Room Root, and an active Room Peer.",
+          );
         }
-        if (command.type === "supervised.work.assign") {
-          const coordinatorSeatId = actorSeatId(command);
-          const coordinatorSeat = input.governance?.agentSeats.find(
-            (candidate) => candidate.id === coordinatorSeatId,
-          );
-          const peerSeat = input.governance?.agentSeats.find(
-            (candidate) =>
-              candidate.identityRole === "peer" &&
-              candidate.threadId === command.peerThreadId &&
-              candidate.projectId === command.projectId &&
-              candidate.roomIds.includes(command.roomId),
-          );
-          const rootLeadSeat = input.governance?.agentSeats.find(
-            (candidate) =>
-              candidate.id === command.leadSeatId &&
-              candidate.identityRole === "lead" &&
-              candidate.threadId === command.leadThreadId &&
-              candidate.roomIds.includes(command.roomId),
-          );
-          const coordinatorAuthorized =
-            coordinatorSeat?.identityRole === "supervisor" ||
-            (coordinatorSeat?.identityRole === "lead" && coordinatorSeat.id === room.leadSeatId);
-          if (
-            command.roomId !== room.id ||
-            command.leadSeatId !== room.leadSeatId ||
-            command.intervention.specialistThreadId !== command.peerThreadId ||
-            !coordinatorAuthorized ||
-            !peerSeat ||
-            !rootLeadSeat
-          ) {
-            return yield* reject(
-              command,
-              "Bounded work requires a scoped Supervisor or current Lead, the current Room Root, and an active Room Peer.",
-            );
-          }
-        }
-        yield* requireRevision(command, null);
-        return event(command, "supervised.intervention-proposed", "intervention", command.intervention.revision, {
+      }
+      yield* requireRevision(command, null);
+      return event(
+        command,
+        "supervised.intervention-proposed",
+        "intervention",
+        command.intervention.revision,
+        {
           intervention: command.intervention,
           leadNotification: command.leadNotification,
           reconciliation: command.reconciliation,
-        });
+        },
+      );
+    }
+    case "supervised.work.complete": {
+      const current = state.interventions.find(
+        (candidate) => candidate.id === command.interventionId,
+      );
+      if (!current) return yield* reject(command, "Intervention does not exist.");
+      if (current.status !== "open") {
+        return yield* reject(command, "Intervention is already closed.");
       }
-      case "supervised.work.complete": {
-        const current = state.interventions.find(
-          (candidate) => candidate.id === command.interventionId,
-        );
-        if (!current) return yield* reject(command, "Intervention does not exist.");
-        if (current.status !== "open") {
-          return yield* reject(command, "Intervention is already closed.");
-        }
-        const peerSeatId = actorSeatId(command);
-        const peerSeat = input.governance?.agentSeats.find(
-          (candidate) =>
-            candidate.id === peerSeatId &&
-            candidate.identityRole === "peer" &&
-            candidate.threadId === current.specialistThreadId &&
-            candidate.roomIds.includes(current.roomId),
-        );
-        if (
-          !peerSeat ||
-          command.actor.actorId !== current.specialistThreadId ||
-          command.roomId !== current.roomId ||
-          command.evidence.createdBy.kind !== command.actor.kind ||
-          command.evidence.createdBy.actorId !== command.actor.actorId ||
-          command.evidence.createdBy.seatId !== peerSeatId ||
-          command.evidence.scope.kind !== "room" ||
-          command.evidence.scope.roomId !== current.roomId
-        ) {
-          return yield* reject(
-            command,
-            "Only the assigned Room Peer may publish completion evidence for this intervention.",
-          );
-        }
-        if (state.evidence.some((candidate) => candidate.id === command.evidence.id)) {
-          return yield* reject(command, "Evidence already exists.");
-        }
-        const notification = state.leadNotifications.find(
-          (candidate) => candidate.interventionId === current.id,
-        );
-        const reconciliation = state.reconciliations.find(
-          (candidate) => candidate.interventionId === current.id,
-        );
-        const room = state.rooms.find(
-          (candidate) => candidate.id === current.roomId && candidate.leadSeatId !== null,
-        );
-        if (!notification || !reconciliation || !room?.leadSeatId) {
-          return yield* reject(
-            command,
-            "Intervention completion requires its durable notification, reconciliation, and current Root Lead.",
-          );
-        }
-        yield* requireRevision(command, current.revision);
-        const intervention = {
-          ...current,
-          evidenceRefs: [...new Set([...current.evidenceRefs, command.evidence.id])],
-          status: current.material ? ("open" as const) : ("reconciled" as const),
-          updatedAt: command.createdAt,
-          revision: current.revision + 1,
-        };
-        const deliveredNotification = {
-          ...notification,
-          leadSeatId: room.leadSeatId,
-          status: "delivered" as const,
-          deliveredAt: command.createdAt,
-        };
-        const completedReconciliation = current.material
-          ? {
-              ...reconciliation,
-              leadSeatId: room.leadSeatId,
-              revision:
-                reconciliation.leadSeatId === room.leadSeatId
-                  ? reconciliation.revision
-                  : reconciliation.revision + 1,
-            }
-          : {
-              ...reconciliation,
-              leadSeatId: room.leadSeatId,
-              status: "accepted" as const,
-              reason: "Peer evidence published; no canonical Room mutation requires Root reconciliation.",
-              resolvedAt: command.createdAt,
-              revision: reconciliation.revision + 1,
-            };
-        return event(
+      const peerSeatId = actorSeatId(command);
+      const peerSeat = input.governance?.agentSeats.find(
+        (candidate) =>
+          candidate.id === peerSeatId &&
+          candidate.identityRole === "peer" &&
+          candidate.threadId === current.specialistThreadId &&
+          candidate.roomIds.includes(current.roomId),
+      );
+      if (
+        !peerSeat ||
+        command.actor.actorId !== current.specialistThreadId ||
+        command.roomId !== current.roomId ||
+        command.evidence.createdBy.kind !== command.actor.kind ||
+        command.evidence.createdBy.actorId !== command.actor.actorId ||
+        command.evidence.createdBy.seatId !== peerSeatId ||
+        command.evidence.scope.kind !== "room" ||
+        command.evidence.scope.roomId !== current.roomId
+      ) {
+        return yield* reject(
           command,
-          "supervised.evidence-published",
-          "intervention",
-          intervention.revision,
-          {
-            evidence: command.evidence,
-            intervention,
-            leadNotification: deliveredNotification,
-            reconciliation: completedReconciliation,
-          },
+          "Only the assigned Room Peer may publish completion evidence for this intervention.",
         );
       }
-      case "supervised.intervention.reconcile": {
-        const current = state.interventions.find(
-          (candidate) => candidate.id === command.reconciliation.interventionId,
-        );
-        yield* requireHumanOrMatchingSeat(
+      if (state.evidence.some((candidate) => candidate.id === command.evidence.id)) {
+        return yield* reject(command, "Evidence already exists.");
+      }
+      const notification = state.leadNotifications.find(
+        (candidate) => candidate.interventionId === current.id,
+      );
+      const reconciliation = state.reconciliations.find(
+        (candidate) => candidate.interventionId === current.id,
+      );
+      const room = state.rooms.find(
+        (candidate) => candidate.id === current.roomId && candidate.leadSeatId !== null,
+      );
+      if (!notification || !reconciliation || !room?.leadSeatId) {
+        return yield* reject(
           command,
-          [command.reconciliation.leadSeatId],
-          "Only the Human or current Room Lead may reconcile an intervention.",
+          "Intervention completion requires its durable notification, reconciliation, and current Root Lead.",
         );
-        if (!current) return yield* reject(command, "Intervention does not exist.");
-        if (current.status !== "open") return yield* reject(command, "Intervention is already closed.");
-        const room = state.rooms.find((candidate) => candidate.id === current.roomId);
-        if (
-          !room?.leadSeatId ||
-          room.leadSeatId !== command.reconciliation.leadSeatId
-        ) {
-          return yield* reject(
-            command,
-            "Only the current Room Root Lead may reconcile an intervention.",
-          );
-        }
-        if (command.reconciliation.taskNodeRevisionId !== null) {
-          const taskNodeRevision = state.taskNodeRevisions.find(
-            (candidate) => candidate.id === command.reconciliation.taskNodeRevisionId,
-          );
-          const taskNode = taskNodeRevision
-            ? state.taskNodes.find(
-                (candidate) => candidate.id === taskNodeRevision.taskNodeId,
-              )
-            : undefined;
-          if (!taskNode || taskNode.roomId !== current.roomId) {
-            return yield* reject(
-              command,
-              "Intervention reconciliation may only reference a TaskNode revision in the same Room.",
-            );
+      }
+      yield* requireRevision(command, current.revision);
+      const intervention = {
+        ...current,
+        evidenceRefs: [...new Set([...current.evidenceRefs, command.evidence.id])],
+        status: current.material ? ("open" as const) : ("reconciled" as const),
+        updatedAt: command.createdAt,
+        revision: current.revision + 1,
+      };
+      const deliveredNotification = {
+        ...notification,
+        leadSeatId: room.leadSeatId,
+        status: "delivered" as const,
+        deliveredAt: command.createdAt,
+      };
+      const completedReconciliation = current.material
+        ? {
+            ...reconciliation,
+            leadSeatId: room.leadSeatId,
+            revision:
+              reconciliation.leadSeatId === room.leadSeatId
+                ? reconciliation.revision
+                : reconciliation.revision + 1,
           }
-        } else if (command.reconciliation.status === "revised") {
+        : {
+            ...reconciliation,
+            leadSeatId: room.leadSeatId,
+            status: "accepted" as const,
+            reason:
+              "Peer evidence published; no canonical Room mutation requires Root reconciliation.",
+            resolvedAt: command.createdAt,
+            revision: reconciliation.revision + 1,
+          };
+      return event(
+        command,
+        "supervised.evidence-published",
+        "intervention",
+        intervention.revision,
+        {
+          evidence: command.evidence,
+          intervention,
+          leadNotification: deliveredNotification,
+          reconciliation: completedReconciliation,
+        },
+      );
+    }
+    case "supervised.intervention.reconcile": {
+      const current = state.interventions.find(
+        (candidate) => candidate.id === command.reconciliation.interventionId,
+      );
+      yield* requireHumanOrMatchingSeat(
+        command,
+        [command.reconciliation.leadSeatId],
+        "Only the Human or current Room Lead may reconcile an intervention.",
+      );
+      if (!current) return yield* reject(command, "Intervention does not exist.");
+      if (current.status !== "open")
+        return yield* reject(command, "Intervention is already closed.");
+      const room = state.rooms.find((candidate) => candidate.id === current.roomId);
+      if (!room?.leadSeatId || room.leadSeatId !== command.reconciliation.leadSeatId) {
+        return yield* reject(
+          command,
+          "Only the current Room Root Lead may reconcile an intervention.",
+        );
+      }
+      if (command.reconciliation.taskNodeRevisionId !== null) {
+        const taskNodeRevision = state.taskNodeRevisions.find(
+          (candidate) => candidate.id === command.reconciliation.taskNodeRevisionId,
+        );
+        const taskNode = taskNodeRevision
+          ? state.taskNodes.find((candidate) => candidate.id === taskNodeRevision.taskNodeId)
+          : undefined;
+        if (!taskNode || taskNode.roomId !== current.roomId) {
           return yield* reject(
             command,
-            "A revised intervention reconciliation requires the canonical TaskNode revision.",
+            "Intervention reconciliation may only reference a TaskNode revision in the same Room.",
           );
         }
-        yield* requireRevision(command, current.revision);
-        const reconciliation = {
-          ...command.reconciliation,
-          revision: command.reconciliation.revision + 1,
-          resolvedAt: command.createdAt,
-        };
-        const intervention = {
-          ...current,
-          status: reconciliation.status === "rejected" ? "rejected" as const : "reconciled" as const,
-          updatedAt: command.createdAt,
-          revision: current.revision + 1,
-        };
-        const currentNotification = state.leadNotifications.find(
-          (candidate) => candidate.interventionId === current.id,
+      } else if (command.reconciliation.status === "revised") {
+        return yield* reject(
+          command,
+          "A revised intervention reconciliation requires the canonical TaskNode revision.",
         );
-        const leadNotification = currentNotification
-          ? {
-              ...currentNotification,
-              status: "acknowledged" as const,
-              acknowledgedAt: command.createdAt,
-            }
-          : undefined;
-        return event(command, "supervised.intervention-reconciled", "intervention", intervention.revision, {
+      }
+      yield* requireRevision(command, current.revision);
+      const reconciliation = {
+        ...command.reconciliation,
+        revision: command.reconciliation.revision + 1,
+        resolvedAt: command.createdAt,
+      };
+      const intervention = {
+        ...current,
+        status:
+          reconciliation.status === "rejected" ? ("rejected" as const) : ("reconciled" as const),
+        updatedAt: command.createdAt,
+        revision: current.revision + 1,
+      };
+      const currentNotification = state.leadNotifications.find(
+        (candidate) => candidate.interventionId === current.id,
+      );
+      const leadNotification = currentNotification
+        ? {
+            ...currentNotification,
+            status: "acknowledged" as const,
+            acknowledgedAt: command.createdAt,
+          }
+        : undefined;
+      return event(
+        command,
+        "supervised.intervention-reconciled",
+        "intervention",
+        intervention.revision,
+        {
           intervention,
           ...(leadNotification ? { leadNotification } : {}),
           reconciliation,
-        });
-      }
+        },
+      );
+    }
     case "supervised.compaction.request":
       yield* requireHumanOrMatchingSeat(
         command,
@@ -1619,7 +1668,8 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
               (subscription) =>
                 subscription.concern === "context" &&
                 subscription.scope.some(
-                  (scope) => scope.kind === "global" ||
+                  (scope) =>
+                    scope.kind === "global" ||
                     (scope.kind === "room" && scope.roomId === command.roomId),
                 ),
             )
@@ -1627,17 +1677,37 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
         ],
         "Only the Human, Room Lead, or scoped Context Lead may request compaction.",
       );
-      return event(command, "supervised.compaction-requested", "supervised_room", command.expectedRevision, {
-        metadata: { leadSeatId: command.leadSeatId, roomId: command.roomId, reason: command.reason },
-      });
+      return event(
+        command,
+        "supervised.compaction-requested",
+        "supervised_room",
+        command.expectedRevision,
+        {
+          metadata: {
+            leadSeatId: command.leadSeatId,
+            roomId: command.roomId,
+            reason: command.reason,
+          },
+        },
+      );
     case "supervised.handoff.request":
       yield* requireHumanOrMatchingSeat(
         command,
         [command.fromSeatId],
         "Only the Human or source seat may request this handoff.",
       );
-      return event(command, "supervised.handoff-requested", "supervised_room", command.expectedRevision, {
-        metadata: { fromSeatId: command.fromSeatId, roomId: command.roomId, reason: command.reason },
-      });
+      return event(
+        command,
+        "supervised.handoff-requested",
+        "supervised_room",
+        command.expectedRevision,
+        {
+          metadata: {
+            fromSeatId: command.fromSeatId,
+            roomId: command.roomId,
+            reason: command.reason,
+          },
+        },
+      );
   }
 });

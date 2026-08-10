@@ -5197,8 +5197,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                 : null,
               hostRuntime: hostToolRuntime,
               threadId,
-              enableHostTools:
-                input.supervisedContext != null || input.handoffContext != null,
+              enableHostTools: input.supervisedContext != null || input.handoffContext != null,
             });
             return Object.keys(mcpServers).length > 0
               ? { mcpServers: mcpServers as NonNullable<ClaudeQueryOptions["mcpServers"]> }

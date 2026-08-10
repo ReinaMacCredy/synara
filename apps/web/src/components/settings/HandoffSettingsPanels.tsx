@@ -19,6 +19,8 @@ import { toastManager } from "~/components/ui/toast";
 import { useProviderModelCatalog } from "~/hooks/useProviderModelCatalog";
 import { serverQueryKeys, serverSettingsQueryOptions } from "~/lib/serverReactQuery";
 import { ensureNativeApi } from "~/nativeApi";
+import { useStore } from "~/store";
+import { createThreadShellsSelector } from "~/storeSelectors";
 import { resolveHandoffSettingsModel } from "./handoffSettingsModel";
 import { SettingsSelectControl } from "./SettingControls";
 import {
@@ -241,6 +243,11 @@ const handoffModeLabel = (mode: HandoffConversationMode | undefined) => {
 
 export function HandoffAccessSettingsPanel({ active }: { active: boolean }) {
   const navigate = useNavigate();
+  const threadShells = useStore(useMemo(() => createThreadShellsSelector(), []));
+  const threadById = useMemo(
+    () => new Map(threadShells.map((thread) => [thread.id, thread])),
+    [threadShells],
+  );
   const grantsQuery = useQuery({
     queryKey: ["handoff", "grants"],
     queryFn: () => ensureNativeApi().orchestration.listHandoffGrants(),

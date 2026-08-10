@@ -1,7 +1,4 @@
-import type {
-  SupervisedIntentToolId,
-  SupervisedToolPolicy,
-} from "@synara/contracts";
+import type { SupervisedIntentToolId, SupervisedToolPolicy } from "@synara/contracts";
 import { ServiceMap } from "effect";
 import type { Effect, Option } from "effect";
 

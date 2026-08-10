@@ -46,8 +46,7 @@ function activePatch(input: {
       startedAt: "2026-08-10T00:03:00.000Z",
       failureThreshold: 2,
       observedFailures: 0,
-      successfulEvaluations:
-        input.successfulEvaluations ?? (status === "promoted" ? 1 : 0),
+      successfulEvaluations: input.successfulEvaluations ?? (status === "promoted" ? 1 : 0),
       evidenceRefs: [],
       lastEvaluationAt: null,
       lastControlPlaneSequence: 1,
@@ -65,9 +64,7 @@ function activePatch(input: {
 
 describe("Harness Patch base policy", () => {
   it("owns one deterministic immutable digest on the server", () => {
-    const expected = `sha256:${createHash("sha256")
-      .update(SUPERVISED_BASE_POLICY)
-      .digest("hex")}`;
+    const expected = `sha256:${createHash("sha256").update(SUPERVISED_BASE_POLICY).digest("hex")}`;
     assert.equal(SUPERVISED_BASE_POLICY_HASH, expected);
     assert.equal(SUPERVISED_BASE_POLICY_HASH.length, 71);
     assert.equal(Object.isFrozen(SUPERVISED_BASE_POLICY_LAWS), true);
@@ -122,7 +119,13 @@ describe("Harness Patch base policy", () => {
       ["canary", "promoted", "canary"],
     );
     assert.equal(Object.isFrozen(overlays), true);
-    assert.equal(overlays.every((overlay) => Object.isFrozen(overlay)), true);
-    assert.equal(overlays.every((overlay) => Object.isFrozen(overlay.scope)), true);
+    assert.equal(
+      overlays.every((overlay) => Object.isFrozen(overlay)),
+      true,
+    );
+    assert.equal(
+      overlays.every((overlay) => Object.isFrozen(overlay.scope)),
+      true,
+    );
   });
 });

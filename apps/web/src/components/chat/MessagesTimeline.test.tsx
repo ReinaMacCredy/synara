@@ -1261,10 +1261,7 @@ describe("MessagesTimeline", () => {
     };
 
     const withoutFork = renderToStaticMarkup(
-      <MessagesTimeline
-        {...makeTimelineBaseProps()}
-        timelineEntries={[settledAssistant]}
-      />,
+      <MessagesTimeline {...makeTimelineBaseProps()} timelineEntries={[settledAssistant]} />,
     );
     expect(withoutFork).toContain('aria-label="Copy message"');
     expect(withoutFork).not.toContain('aria-label="Fork chat"');
@@ -1734,7 +1731,7 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("+2 more tool calls");
   });
 
-    it("hands the stable tool headline directly to the latest live reasoning summary", async () => {
+  it("hands the stable tool headline directly to the latest live reasoning summary", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const activeTurnId = TurnId.makeUnsafe("turn-reasoning-live");
     const markup = renderToStaticMarkup(
@@ -1819,14 +1816,12 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-      expect(markup).not.toContain('data-reasoning-text-swap="true"');
-      expect(markup).not.toContain('data-reasoning-source="provider"');
-    expect(markup).toContain(
-      'data-turn-work-region="turn-activity:turn-reasoning-live"',
-    );
-      expect(markup).toContain("Updating the adapter");
-      expect(markup).not.toContain("Inspecting apps/web/src/store.ts");
-      expect(markup).toContain('data-tool-summary-swap="true"');
+    expect(markup).not.toContain('data-reasoning-text-swap="true"');
+    expect(markup).not.toContain('data-reasoning-source="provider"');
+    expect(markup).toContain('data-turn-work-region="turn-activity:turn-reasoning-live"');
+    expect(markup).toContain("Updating the adapter");
+    expect(markup).not.toContain("Inspecting apps/web/src/store.ts");
+    expect(markup).toContain('data-tool-summary-swap="true"');
     expect(markup).not.toContain('data-reasoning-activity-stream="true"');
     expect(markup).not.toContain("Thinking…");
   });
@@ -1882,29 +1877,29 @@ describe("MessagesTimeline", () => {
   ])(
     "renders $provider tool activity beside the live turn status",
     async ({ activity, expectedMarker, expectedText }) => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
-    const activeTurnId = TurnId.makeUnsafe("turn-provider-live-tool");
-    const markup = renderToStaticMarkup(
-      <MessagesTimeline
-        {...makeTimelineBaseProps()}
-        isWorking
-        activeTurnInProgress
-        activeTurnId={activeTurnId}
-        activeTurnStartedAt="2026-03-17T19:12:28.000Z"
-        timelineEntries={deriveWorkLogEntries([activity], activeTurnId).map((entry) => ({
-          id: entry.id,
-          kind: "work" as const,
-          createdAt: entry.createdAt,
-          entry,
-        }))}
-      />,
-    );
+      const { MessagesTimeline } = await import("./MessagesTimeline");
+      const activeTurnId = TurnId.makeUnsafe("turn-provider-live-tool");
+      const markup = renderToStaticMarkup(
+        <MessagesTimeline
+          {...makeTimelineBaseProps()}
+          isWorking
+          activeTurnInProgress
+          activeTurnId={activeTurnId}
+          activeTurnStartedAt="2026-03-17T19:12:28.000Z"
+          timelineEntries={deriveWorkLogEntries([activity], activeTurnId).map((entry) => ({
+            id: entry.id,
+            kind: "work" as const,
+            createdAt: entry.createdAt,
+            entry,
+          }))}
+        />,
+      );
 
-    expect(markup).toContain('data-timeline-row-kind="work"');
-    expect(markup).toContain(expectedMarker);
-    expect(markup).toContain('data-turn-work-region="turn-activity:turn-provider-live-tool"');
-    expect(markup).toContain("Working for");
-    expect(markup).toContain(expectedText);
+      expect(markup).toContain('data-timeline-row-kind="work"');
+      expect(markup).toContain(expectedMarker);
+      expect(markup).toContain('data-turn-work-region="turn-activity:turn-provider-live-tool"');
+      expect(markup).toContain("Working for");
+      expect(markup).toContain(expectedText);
     },
   );
 
@@ -2242,9 +2237,9 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-      expect(markup).toContain("tool 5");
-      expect(markup).toContain('aria-expanded="true"');
-      expect(markup).not.toContain("Show less");
+    expect(markup).toContain("tool 5");
+    expect(markup).toContain('aria-expanded="true"');
+    expect(markup).not.toContain("Show less");
   });
 
   it("renders inline file-change tool calls as edited rows with diff stats", async () => {

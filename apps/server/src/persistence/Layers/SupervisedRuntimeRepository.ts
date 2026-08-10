@@ -98,7 +98,11 @@ const decodeJson = <A, I>(schema: Schema.Schema<A, I>, operation: string, value:
     catch: toPersistenceDecodeCauseError(operation),
   });
 
-const decodeRows = <A, I>(schema: Schema.Schema<A, I>, operation: string, rows: ReadonlyArray<EntityRow>) =>
+const decodeRows = <A, I>(
+  schema: Schema.Schema<A, I>,
+  operation: string,
+  rows: ReadonlyArray<EntityRow>,
+) =>
   Effect.forEach(rows, (row) => decodeJson(schema, operation, row.entityJson), { concurrency: 1 });
 
 const persistenceError = (operation: string) => (error: unknown) =>
@@ -147,13 +151,13 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
         ORDER BY updated_at DESC, task_id
         LIMIT ${limit}
       `;
-        const taskNodeRows = yield* sql<EntityRow>`
+      const taskNodeRows = yield* sql<EntityRow>`
         SELECT entity_json AS "entityJson"
         FROM projection_supervised_task_nodes
         ORDER BY updated_at DESC, task_node_id
           LIMIT ${limit}
         `;
-        const taskNodeRevisionRows = yield* sql<EntityRow>`
+      const taskNodeRevisionRows = yield* sql<EntityRow>`
           SELECT entity_json AS "entityJson"
           FROM projection_supervised_task_node_revisions
           ORDER BY created_at DESC, task_node_revision_id
@@ -165,105 +169,105 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
         ORDER BY updated_at DESC, run_id
         LIMIT ${limit}
       `;
-        const policyRows = yield* sql<EntityRow>`
+      const policyRows = yield* sql<EntityRow>`
         SELECT entity_json AS "entityJson"
         FROM projection_supervised_run_policies
         ORDER BY updated_at DESC, policy_id
           LIMIT ${limit}
         `;
-        const workClaimRows = yield* sql<EntityRow>`
+      const workClaimRows = yield* sql<EntityRow>`
           SELECT entity_json AS "entityJson"
           FROM projection_supervised_work_claims
           ORDER BY expires_at DESC, claim_id
           LIMIT ${limit}
         `;
-        const capabilityLeaseRows = yield* sql<EntityRow>`
+      const capabilityLeaseRows = yield* sql<EntityRow>`
           SELECT entity_json AS "entityJson"
           FROM projection_supervised_capability_leases
           ORDER BY expires_at DESC, lease_id
           LIMIT ${limit}
         `;
-        const contextRows = yield* sql<EntityRow>`
+      const contextRows = yield* sql<EntityRow>`
         SELECT entity_json AS "entityJson"
         FROM projection_context_workspaces
         ORDER BY updated_at DESC, workspace_id
           LIMIT ${limit}
         `;
-        const contextRecordRows = yield* sql<EntityRow>`
+      const contextRecordRows = yield* sql<EntityRow>`
           SELECT entity_json AS "entityJson"
           FROM projection_context_records
           ORDER BY updated_at DESC, record_id
           LIMIT ${limit}
         `;
-        const contextCompactionRows = yield* sql<EntityRow>`
+      const contextCompactionRows = yield* sql<EntityRow>`
           SELECT entity_json AS "entityJson"
           FROM projection_context_compaction_receipts
           ORDER BY created_at DESC, receipt_id
           LIMIT ${limit}
         `;
-        const evidenceRows = yield* sql<EntityRow>`
+      const evidenceRows = yield* sql<EntityRow>`
           SELECT entity_json AS "entityJson"
           FROM projection_supervised_evidence
           ORDER BY created_at DESC, evidence_id
           LIMIT ${limit}
         `;
-        const rlmEpisodeRows = yield* sql<EntityRow>`
+      const rlmEpisodeRows = yield* sql<EntityRow>`
           SELECT entity_json AS "entityJson"
           FROM projection_supervised_rlm_episodes
           ORDER BY updated_at DESC, episode_id
           LIMIT ${limit}
         `;
-        const modelSessionRows = yield* sql<EntityRow>`
+      const modelSessionRows = yield* sql<EntityRow>`
           SELECT entity_json AS "entityJson"
           FROM projection_supervised_model_sessions
           ORDER BY updated_at DESC, model_session_id
           LIMIT ${limit}
         `;
-        const harnessPatchRows = yield* sql<EntityRow>`
+      const harnessPatchRows = yield* sql<EntityRow>`
           SELECT entity_json AS "entityJson"
           FROM projection_harness_patches
           ORDER BY updated_at DESC, patch_id
           LIMIT ${limit}
         `;
-        // Migration 094 physical names are retained for upgrade compatibility; the
-        // repository exposes only canonical Peer specialty entities after Stage 8.
-        const peerSpecialtyRows = yield* sql<EntityRow>`
+      // Migration 094 physical names are retained for upgrade compatibility; the
+      // repository exposes only canonical Peer specialty entities after Stage 8.
+      const peerSpecialtyRows = yield* sql<EntityRow>`
           SELECT entity_json AS "entityJson"
           FROM projection_retained_specialists
           ORDER BY updated_at DESC, specialist_id
           LIMIT ${limit}
         `;
-        const peerSpecialtySnapshotRows = yield* sql<EntityRow>`
+      const peerSpecialtySnapshotRows = yield* sql<EntityRow>`
           SELECT entity_json AS "entityJson"
           FROM projection_specialist_snapshots
           ORDER BY expires_at DESC, specialist_snapshot_id
           LIMIT ${limit}
         `;
-        const kernelSessionRows = yield* sql<EntityRow>`
+      const kernelSessionRows = yield* sql<EntityRow>`
           SELECT entity_json AS "entityJson"
           FROM projection_kernel_sessions
           ORDER BY last_used_at DESC, kernel_session_id
           LIMIT ${limit}
         `;
-        const kernelExecutionRows = yield* sql<EntityRow>`
+      const kernelExecutionRows = yield* sql<EntityRow>`
           SELECT entity_json AS "entityJson"
           FROM projection_kernel_executions
           ORDER BY COALESCE(finished_at, started_at) DESC, kernel_execution_id
           LIMIT ${limit}
         `;
-        const interventionRows = yield* sql<EntityRow>`
+      const interventionRows = yield* sql<EntityRow>`
           SELECT entity_json AS "entityJson"
           FROM projection_supervised_interventions
           ORDER BY updated_at DESC, intervention_id
           LIMIT ${limit}
         `;
-        const leadNotificationRows = yield* sql<EntityRow>`
+      const leadNotificationRows = yield* sql<EntityRow>`
           SELECT entity_json AS "entityJson"
           FROM projection_supervised_lead_notifications
           ORDER BY created_at DESC, notification_id
           LIMIT ${limit}
         `;
-        const reconciliationRows = yield* sql<EntityRow>`
+      const reconciliationRows = yield* sql<EntityRow>`
           SELECT entity_json AS "entityJson"
           FROM projection_supervised_reconciliations
           ORDER BY COALESCE(resolved_at, '') DESC, reconciliation_id
@@ -348,99 +352,105 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
       `;
 
       const rooms = yield* decodeRows(Room, "SupervisedRuntime.getSnapshot:rooms", roomRows);
-        const tasks = yield* decodeRows(Task, "SupervisedRuntime.getSnapshot:tasks", taskRows);
-        const taskNodes = yield* decodeRows(TaskNode, "SupervisedRuntime.getSnapshot:taskNodes", taskNodeRows);
-        const taskNodeRevisions = yield* decodeRows(
-          TaskNodeRevision,
-          "SupervisedRuntime.getSnapshot:taskNodeRevisions",
-          taskNodeRevisionRows,
-        );
-        const runs = yield* decodeRows(Run, "SupervisedRuntime.getSnapshot:runs", runRows);
-        const runPolicies = yield* decodeRows(RunPolicy, "SupervisedRuntime.getSnapshot:runPolicies", policyRows);
-        const workClaims = yield* decodeRows(
-          WorkClaim,
-          "SupervisedRuntime.getSnapshot:workClaims",
-          workClaimRows,
-        );
-        const capabilityLeases = yield* decodeRows(
-          CapabilityLease,
-          "SupervisedRuntime.getSnapshot:capabilityLeases",
-          capabilityLeaseRows,
-        );
+      const tasks = yield* decodeRows(Task, "SupervisedRuntime.getSnapshot:tasks", taskRows);
+      const taskNodes = yield* decodeRows(
+        TaskNode,
+        "SupervisedRuntime.getSnapshot:taskNodes",
+        taskNodeRows,
+      );
+      const taskNodeRevisions = yield* decodeRows(
+        TaskNodeRevision,
+        "SupervisedRuntime.getSnapshot:taskNodeRevisions",
+        taskNodeRevisionRows,
+      );
+      const runs = yield* decodeRows(Run, "SupervisedRuntime.getSnapshot:runs", runRows);
+      const runPolicies = yield* decodeRows(
+        RunPolicy,
+        "SupervisedRuntime.getSnapshot:runPolicies",
+        policyRows,
+      );
+      const workClaims = yield* decodeRows(
+        WorkClaim,
+        "SupervisedRuntime.getSnapshot:workClaims",
+        workClaimRows,
+      );
+      const capabilityLeases = yield* decodeRows(
+        CapabilityLease,
+        "SupervisedRuntime.getSnapshot:capabilityLeases",
+        capabilityLeaseRows,
+      );
       const contextWorkspaces = yield* decodeRows(
         ContextWorkspace,
         "SupervisedRuntime.getSnapshot:contextWorkspaces",
-          contextRows,
-        );
-        const contextRecords = yield* decodeRows(
-          ContextRecord,
-          "SupervisedRuntime.getSnapshot:contextRecords",
-          contextRecordRows,
-        );
-        const contextCompactionReceipts = yield* decodeRows(
-          ContextCompactionReceipt,
-          "SupervisedRuntime.getSnapshot:contextCompactionReceipts",
-          contextCompactionRows,
-        );
-        const evidence = yield* decodeRows(
-          Evidence,
-          "SupervisedRuntime.getSnapshot:evidence",
-          evidenceRows,
-        );
-        const rlmEpisodes = yield* decodeRows(
-          RlmEpisode,
-          "SupervisedRuntime.getSnapshot:rlmEpisodes",
-          rlmEpisodeRows,
-        );
-        const modelSessions = (yield* decodeRows(
-          ModelSessionTrace,
-          "SupervisedRuntime.getSnapshot:modelSessions",
-          modelSessionRows,
-        )).map(upcastLegacyPeerModelSessionV1);
-        const harnessPatches = yield* decodeRows(
-          HarnessPatch,
-          "SupervisedRuntime.getSnapshot:harnessPatches",
-          harnessPatchRows,
-        );
-        const peerSpecialties = yield* decodeRows(
-          PeerSpecialty,
-          "SupervisedRuntime.getSnapshot:peerSpecialties",
-          peerSpecialtyRows,
-        );
-        const peerSpecialtySnapshots = (yield* decodeRows(
-          Schema.Union([PeerSpecialtySnapshot, LegacySpecialistSnapshot]),
-          "SupervisedRuntime.getSnapshot:peerSpecialtySnapshots",
-          peerSpecialtySnapshotRows,
-        )).map((snapshot) =>
-          "specialistId" in snapshot
-            ? upcastLegacyPeerSpecialtySnapshotV1(snapshot)
-            : snapshot,
-        );
-        const kernelSessions = yield* decodeRows(
-          KernelSession,
-          "SupervisedRuntime.getSnapshot:kernelSessions",
-          kernelSessionRows,
-        );
-        const kernelExecutions = yield* decodeRows(
-          KernelExecution,
-          "SupervisedRuntime.getSnapshot:kernelExecutions",
-          kernelExecutionRows,
-        );
-        const interventions = yield* decodeRows(
-          Intervention,
-          "SupervisedRuntime.getSnapshot:interventions",
-          interventionRows,
-        );
-        const leadNotifications = yield* decodeRows(
-          LeadNotification,
-          "SupervisedRuntime.getSnapshot:leadNotifications",
-          leadNotificationRows,
-        );
-        const reconciliations = yield* decodeRows(
-          Reconciliation,
-          "SupervisedRuntime.getSnapshot:reconciliations",
-          reconciliationRows,
-        );
+        contextRows,
+      );
+      const contextRecords = yield* decodeRows(
+        ContextRecord,
+        "SupervisedRuntime.getSnapshot:contextRecords",
+        contextRecordRows,
+      );
+      const contextCompactionReceipts = yield* decodeRows(
+        ContextCompactionReceipt,
+        "SupervisedRuntime.getSnapshot:contextCompactionReceipts",
+        contextCompactionRows,
+      );
+      const evidence = yield* decodeRows(
+        Evidence,
+        "SupervisedRuntime.getSnapshot:evidence",
+        evidenceRows,
+      );
+      const rlmEpisodes = yield* decodeRows(
+        RlmEpisode,
+        "SupervisedRuntime.getSnapshot:rlmEpisodes",
+        rlmEpisodeRows,
+      );
+      const modelSessions = (yield* decodeRows(
+        ModelSessionTrace,
+        "SupervisedRuntime.getSnapshot:modelSessions",
+        modelSessionRows,
+      )).map(upcastLegacyPeerModelSessionV1);
+      const harnessPatches = yield* decodeRows(
+        HarnessPatch,
+        "SupervisedRuntime.getSnapshot:harnessPatches",
+        harnessPatchRows,
+      );
+      const peerSpecialties = yield* decodeRows(
+        PeerSpecialty,
+        "SupervisedRuntime.getSnapshot:peerSpecialties",
+        peerSpecialtyRows,
+      );
+      const peerSpecialtySnapshots = (yield* decodeRows(
+        Schema.Union([PeerSpecialtySnapshot, LegacySpecialistSnapshot]),
+        "SupervisedRuntime.getSnapshot:peerSpecialtySnapshots",
+        peerSpecialtySnapshotRows,
+      )).map((snapshot) =>
+        "specialistId" in snapshot ? upcastLegacyPeerSpecialtySnapshotV1(snapshot) : snapshot,
+      );
+      const kernelSessions = yield* decodeRows(
+        KernelSession,
+        "SupervisedRuntime.getSnapshot:kernelSessions",
+        kernelSessionRows,
+      );
+      const kernelExecutions = yield* decodeRows(
+        KernelExecution,
+        "SupervisedRuntime.getSnapshot:kernelExecutions",
+        kernelExecutionRows,
+      );
+      const interventions = yield* decodeRows(
+        Intervention,
+        "SupervisedRuntime.getSnapshot:interventions",
+        interventionRows,
+      );
+      const leadNotifications = yield* decodeRows(
+        LeadNotification,
+        "SupervisedRuntime.getSnapshot:leadNotifications",
+        leadNotificationRows,
+      );
+      const reconciliations = yield* decodeRows(
+        Reconciliation,
+        "SupervisedRuntime.getSnapshot:reconciliations",
+        reconciliationRows,
+      );
       const subscriptions = yield* decodeRows(
         SubscriptionDefinition,
         "SupervisedRuntime.getSnapshot:subscriptions",
@@ -451,7 +461,9 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
         "SupervisedRuntime.getSnapshot:cursors",
         cursorRows,
       );
-      const cursorBySubscription = new Map(cursors.map((cursor) => [cursor.subscriptionId, cursor]));
+      const cursorBySubscription = new Map(
+        cursors.map((cursor) => [cursor.subscriptionId, cursor]),
+      );
       const subscriptionsWithCursors = subscriptions.map((subscription) => {
         const cursor = cursorBySubscription.get(subscription.id);
         return cursor
@@ -491,8 +503,16 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
           }),
         { concurrency: 1 },
       );
-      const schemas = yield* decodeRows(EventSchema, "SupervisedRuntime.getSnapshot:schemas", schemaRows);
-      const signals = yield* decodeRows(DerivedSignal, "SupervisedRuntime.getSnapshot:signals", signalRows);
+      const schemas = yield* decodeRows(
+        EventSchema,
+        "SupervisedRuntime.getSnapshot:schemas",
+        schemaRows,
+      );
+      const signals = yield* decodeRows(
+        DerivedSignal,
+        "SupervisedRuntime.getSnapshot:signals",
+        signalRows,
+      );
       const deliveries = yield* decodeRows(
         SubscriptionDelivery,
         "SupervisedRuntime.getSnapshot:deliveries",
@@ -543,77 +563,83 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
       const visibleRooms = rooms.filter(
         (room) => (!projectId || room.projectId === projectId) && (!roomId || room.id === roomId),
       );
-        const roomIds = new Set(visibleRooms.map((room) => room.id));
-        const visibleTasks = tasks.filter((task) => roomIds.has(task.roomId));
-        const taskIds = new Set(visibleTasks.map((task) => task.id));
-        const visibleTaskNodes = taskNodes.filter((node) => taskIds.has(node.taskId));
-        const taskNodeIds = new Set(visibleTaskNodes.map((node) => node.id));
-        const visibleRuns = runs.filter((run) => roomIds.has(run.roomId));
-        const runIds = new Set(visibleRuns.map((run) => run.id));
-        const visibleContextWorkspaces = contextWorkspaces.filter(
-          (workspace) =>
-            (!projectId || workspace.projectId === projectId) &&
-            (!roomId || workspace.roomId === roomId),
-        );
-        const workspaceIds = new Set(visibleContextWorkspaces.map((workspace) => workspace.id));
-        const filteredByScope = projectId !== undefined || roomId !== undefined;
-        const visibleProjectIds = new Set([
-          ...(projectId === undefined ? [] : [projectId]),
-          ...visibleRooms.map((room) => room.projectId),
-          ...visibleContextWorkspaces.map((workspace) => workspace.projectId),
-        ]);
-        const visibleEvidence = filteredByScope
-          ? evidence.filter((item) => {
-              switch (item.scope.kind) {
-                case "global":
-                  return true;
-                case "project":
-                  return visibleProjectIds.has(item.scope.projectId);
-                case "room":
-                  return roomIds.has(item.scope.roomId);
-                case "task":
-                  return taskIds.has(item.scope.taskId);
-                case "task_node":
-                  return taskNodeIds.has(item.scope.taskNodeId);
-                case "seat":
-                  return false;
-              }
-            })
-          : evidence;
+      const roomIds = new Set(visibleRooms.map((room) => room.id));
+      const visibleTasks = tasks.filter((task) => roomIds.has(task.roomId));
+      const taskIds = new Set(visibleTasks.map((task) => task.id));
+      const visibleTaskNodes = taskNodes.filter((node) => taskIds.has(node.taskId));
+      const taskNodeIds = new Set(visibleTaskNodes.map((node) => node.id));
+      const visibleRuns = runs.filter((run) => roomIds.has(run.roomId));
+      const runIds = new Set(visibleRuns.map((run) => run.id));
+      const visibleContextWorkspaces = contextWorkspaces.filter(
+        (workspace) =>
+          (!projectId || workspace.projectId === projectId) &&
+          (!roomId || workspace.roomId === roomId),
+      );
+      const workspaceIds = new Set(visibleContextWorkspaces.map((workspace) => workspace.id));
+      const filteredByScope = projectId !== undefined || roomId !== undefined;
+      const visibleProjectIds = new Set([
+        ...(projectId === undefined ? [] : [projectId]),
+        ...visibleRooms.map((room) => room.projectId),
+        ...visibleContextWorkspaces.map((workspace) => workspace.projectId),
+      ]);
+      const visibleEvidence = filteredByScope
+        ? evidence.filter((item) => {
+            switch (item.scope.kind) {
+              case "global":
+                return true;
+              case "project":
+                return visibleProjectIds.has(item.scope.projectId);
+              case "room":
+                return roomIds.has(item.scope.roomId);
+              case "task":
+                return taskIds.has(item.scope.taskId);
+              case "task_node":
+                return taskNodeIds.has(item.scope.taskNodeId);
+              case "seat":
+                return false;
+            }
+          })
+        : evidence;
       const visibleSubscriptions = subscriptionsWithCursors.filter(
         (subscription) => input.includeDisabled || subscription.state === "enabled",
       );
 
       return Schema.decodeUnknownSync(SupervisedRuntimeSnapshot)({
         snapshotSequence: healthRows[0]?.snapshotSequence ?? 0,
-          rooms: visibleRooms,
-          tasks: visibleTasks,
-          taskNodes: visibleTaskNodes,
-          taskNodeRevisions: taskNodeRevisions.filter((revision) => taskNodeIds.has(revision.taskNodeId)),
-          runs: visibleRuns,
-          runPolicies,
-          workClaims: workClaims.filter((claim) => runIds.has(claim.runId)),
-          capabilityLeases: capabilityLeases.filter((lease) => runIds.has(lease.runId)),
-          contextWorkspaces: visibleContextWorkspaces,
-          contextRecords: contextRecords.filter((record) => workspaceIds.has(record.workspaceId)),
-          contextCompactionReceipts: contextCompactionReceipts.filter((receipt) =>
-            workspaceIds.has(receipt.workspaceId),
+        rooms: visibleRooms,
+        tasks: visibleTasks,
+        taskNodes: visibleTaskNodes,
+        taskNodeRevisions: taskNodeRevisions.filter((revision) =>
+          taskNodeIds.has(revision.taskNodeId),
+        ),
+        runs: visibleRuns,
+        runPolicies,
+        workClaims: workClaims.filter((claim) => runIds.has(claim.runId)),
+        capabilityLeases: capabilityLeases.filter((lease) => runIds.has(lease.runId)),
+        contextWorkspaces: visibleContextWorkspaces,
+        contextRecords: contextRecords.filter((record) => workspaceIds.has(record.workspaceId)),
+        contextCompactionReceipts: contextCompactionReceipts.filter((receipt) =>
+          workspaceIds.has(receipt.workspaceId),
+        ),
+        evidence: visibleEvidence,
+        rlmEpisodes: rlmEpisodes.filter((episode) => runIds.has(episode.runId)),
+        modelSessions: modelSessions.filter((session) => runIds.has(session.runId)),
+        harnessPatches,
+        peerSpecialties,
+        peerSpecialtySnapshots,
+        kernelSessions: kernelSessions.filter((session) => runIds.has(session.runId)),
+        kernelExecutions: kernelExecutions.filter((execution) =>
+          kernelSessions.some(
+            (session) => session.id === execution.kernelSessionId && runIds.has(session.runId),
           ),
-          evidence: visibleEvidence,
-          rlmEpisodes: rlmEpisodes.filter((episode) => runIds.has(episode.runId)),
-          modelSessions: modelSessions.filter((session) => runIds.has(session.runId)),
-          harnessPatches,
-          peerSpecialties,
-          peerSpecialtySnapshots,
-          kernelSessions: kernelSessions.filter((session) => runIds.has(session.runId)),
-          kernelExecutions: kernelExecutions.filter((execution) =>
-            kernelSessions.some(
-              (session) => session.id === execution.kernelSessionId && runIds.has(session.runId),
-            ),
-          ),
-          interventions: interventions.filter((intervention) => roomIds.has(intervention.roomId)),
-          leadNotifications: leadNotifications.filter((notification) => roomIds.has(notification.roomId)),
-          reconciliations: reconciliations.filter((reconciliation) => roomIds.has(reconciliation.roomId)),
+        ),
+        interventions: interventions.filter((intervention) => roomIds.has(intervention.roomId)),
+        leadNotifications: leadNotifications.filter((notification) =>
+          roomIds.has(notification.roomId),
+        ),
+        reconciliations: reconciliations.filter((reconciliation) =>
+          roomIds.has(reconciliation.roomId),
+        ),
         subscriptions: visibleSubscriptions,
         plugins,
         pluginHealth,
@@ -783,10 +809,7 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
         snapshot_sequence = excluded.snapshot_sequence,
         health_json = excluded.health_json,
         updated_at = excluded.updated_at
-    `.pipe(
-      Effect.asVoid,
-      Effect.mapError(toPersistenceSqlError("SupervisedRuntime.setHealth")),
-    );
+    `.pipe(Effect.asVoid, Effect.mapError(toPersistenceSqlError("SupervisedRuntime.setHealth")));
 
   const upsertEventSchema: SupervisedRuntimeRepositoryShape["upsertEventSchema"] = (schema) =>
     sql`
@@ -871,10 +894,7 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
         watermark = excluded.watermark,
         updated_at = excluded.updated_at,
         entity_json = excluded.entity_json
-    `.pipe(
-      Effect.asVoid,
-      Effect.mapError(toPersistenceSqlError("SupervisedRuntime.upsertCursor")),
-    );
+    `.pipe(Effect.asVoid, Effect.mapError(toPersistenceSqlError("SupervisedRuntime.upsertCursor")));
 
   const getSubscriptionEvaluationState: SupervisedRuntimeRepositoryShape["getSubscriptionEvaluationState"] =
     (subscriptionId) =>
@@ -904,25 +924,26 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
 
   const putSubscriptionEvaluationState: SupervisedRuntimeRepositoryShape["putSubscriptionEvaluationState"] =
     (subscriptionId, state, updatedAt) =>
-      sql.withTransaction(
-        Effect.gen(function* () {
-          const keys = Object.keys(state.groups);
-          if (keys.length === 0) {
-            yield* sql`
+      sql
+        .withTransaction(
+          Effect.gen(function* () {
+            const keys = Object.keys(state.groups);
+            if (keys.length === 0) {
+              yield* sql`
               DELETE FROM projection_supervised_subscription_groups
               WHERE subscription_id = ${subscriptionId}
             `;
-            return;
-          }
-          const placeholders = keys.map(() => "?").join(", ");
-          yield* sql.unsafe(
-            `DELETE FROM projection_supervised_subscription_groups
+              return;
+            }
+            const placeholders = keys.map(() => "?").join(", ");
+            yield* sql.unsafe(
+              `DELETE FROM projection_supervised_subscription_groups
              WHERE subscription_id = ? AND group_key NOT IN (${placeholders})`,
-            [subscriptionId, ...keys],
-          );
-          yield* Effect.forEach(
-            Object.entries(state.groups),
-            ([groupKey, group]) => sql`
+              [subscriptionId, ...keys],
+            );
+            yield* Effect.forEach(
+              Object.entries(state.groups),
+              ([groupKey, group]) => sql`
               INSERT INTO projection_supervised_subscription_groups (
                 subscription_id, group_key, armed, next_eligible_at, pending_since,
                 active_signal_id, sample_count, updated_at, state_json
@@ -940,12 +961,13 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
                 updated_at = excluded.updated_at,
                 state_json = excluded.state_json
             `,
-            { concurrency: 1, discard: true },
-          );
-        }),
-      ).pipe(
-        Effect.mapError(persistenceError("SupervisedRuntime.putSubscriptionEvaluationState")),
-      );
+              { concurrency: 1, discard: true },
+            );
+          }),
+        )
+        .pipe(
+          Effect.mapError(persistenceError("SupervisedRuntime.putSubscriptionEvaluationState")),
+        );
 
   const recordMetricSample: SupervisedRuntimeRepositoryShape["recordMetricSample"] = (sample) =>
     sql`
@@ -986,14 +1008,13 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
         revision = excluded.revision,
         aggregation_receipt_hash = excluded.aggregation_receipt_hash,
         entity_json = excluded.entity_json
-    `.pipe(
-      Effect.asVoid,
-      Effect.mapError(toPersistenceSqlError("SupervisedRuntime.upsertSignal")),
-    );
+    `.pipe(Effect.asVoid, Effect.mapError(toPersistenceSqlError("SupervisedRuntime.upsertSignal")));
 
-  const appendControlPlaneEvent: SupervisedRuntimeRepositoryShape["appendControlPlaneEvent"] =
-    (event) =>
-      sql.withTransaction(
+  const appendControlPlaneEvent: SupervisedRuntimeRepositoryShape["appendControlPlaneEvent"] = (
+    event,
+  ) =>
+    sql
+      .withTransaction(
         Effect.gen(function* () {
           yield* sql`
             INSERT OR IGNORE INTO supervised_control_plane_events (
@@ -1010,15 +1031,21 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
             SELECT sequence FROM supervised_control_plane_events WHERE event_id = ${event.eventId}
           `;
           if (!rows[0]) {
-            return yield* Effect.fail(new Error("Control-plane event append did not return a sequence."));
+            return yield* Effect.fail(
+              new Error("Control-plane event append did not return a sequence."),
+            );
           }
           return rows[0].sequence;
         }),
-      ).pipe(Effect.mapError(persistenceError("SupervisedRuntime.appendControlPlaneEvent")));
+      )
+      .pipe(Effect.mapError(persistenceError("SupervisedRuntime.appendControlPlaneEvent")));
 
-  const listControlPlaneEvents: SupervisedRuntimeRepositoryShape["listControlPlaneEvents"] =
-    ({ afterSequence, throughSequence = Number.MAX_SAFE_INTEGER, limit }) =>
-      sql<ControlPlaneEventRow>`
+  const listControlPlaneEvents: SupervisedRuntimeRepositoryShape["listControlPlaneEvents"] = ({
+    afterSequence,
+    throughSequence = Number.MAX_SAFE_INTEGER,
+    limit,
+  }) =>
+    sql<ControlPlaneEventRow>`
         SELECT sequence, event_json AS "eventJson"
         FROM supervised_control_plane_events
         WHERE sequence > ${Math.max(0, afterSequence)}
@@ -1026,23 +1053,25 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
         ORDER BY sequence
         LIMIT ${Math.max(1, Math.min(limit, 1_000))}
       `.pipe(
-        Effect.mapError(toPersistenceSqlError("SupervisedRuntime.listControlPlaneEvents:query")),
-        Effect.flatMap((rows) =>
-          Effect.forEach(
-            rows,
-            (row) =>
-              Effect.try({
-                try: () =>
-                  Schema.decodeUnknownSync(ControlPlaneEvent)({
-                    ...(JSON.parse(row.eventJson) as object),
-                    sequence: row.sequence,
-                  }),
-                catch: toPersistenceDecodeCauseError("SupervisedRuntime.listControlPlaneEvents:decode"),
-              }),
-            { concurrency: 1 },
-          ),
+      Effect.mapError(toPersistenceSqlError("SupervisedRuntime.listControlPlaneEvents:query")),
+      Effect.flatMap((rows) =>
+        Effect.forEach(
+          rows,
+          (row) =>
+            Effect.try({
+              try: () =>
+                Schema.decodeUnknownSync(ControlPlaneEvent)({
+                  ...(JSON.parse(row.eventJson) as object),
+                  sequence: row.sequence,
+                }),
+              catch: toPersistenceDecodeCauseError(
+                "SupervisedRuntime.listControlPlaneEvents:decode",
+              ),
+            }),
+          { concurrency: 1 },
         ),
-      );
+      ),
+    );
 
   const enqueueDelivery: SupervisedRuntimeRepositoryShape["enqueueDelivery"] = (delivery) =>
     Effect.gen(function* () {
@@ -1060,17 +1089,18 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
       return (rows[0]?.changed ?? 0) === 1;
     }).pipe(Effect.mapError(toPersistenceSqlError("SupervisedRuntime.enqueueDelivery")));
 
-  const countPendingDeliveries: SupervisedRuntimeRepositoryShape["countPendingDeliveries"] =
-    (subscriptionId) =>
-      sql<{ readonly count: number }>`
+  const countPendingDeliveries: SupervisedRuntimeRepositoryShape["countPendingDeliveries"] = (
+    subscriptionId,
+  ) =>
+    sql<{ readonly count: number }>`
         SELECT COUNT(*) AS count
         FROM supervised_subscription_deliveries
         WHERE subscription_id = ${subscriptionId}
           AND status IN ('queued', 'delivering', 'failed')
       `.pipe(
-        Effect.map((rows) => rows[0]?.count ?? 0),
-        Effect.mapError(toPersistenceSqlError("SupervisedRuntime.countPendingDeliveries")),
-      );
+      Effect.map((rows) => rows[0]?.count ?? 0),
+      Effect.mapError(toPersistenceSqlError("SupervisedRuntime.countPendingDeliveries")),
+    );
 
   const countDeliveredSince: SupervisedRuntimeRepositoryShape["countDeliveredSince"] = (input) =>
     sql<{ readonly count: number }>`
@@ -1085,9 +1115,10 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
     );
 
   const claimDeliveries: SupervisedRuntimeRepositoryShape["claimDeliveries"] = (input) =>
-    sql.withTransaction(
-      Effect.gen(function* () {
-        const rows = yield* sql<EntityRow & { readonly deliveryId: string }>`
+    sql
+      .withTransaction(
+        Effect.gen(function* () {
+          const rows = yield* sql<EntityRow & { readonly deliveryId: string }>`
           SELECT delivery_id AS "deliveryId", entity_json AS "entityJson"
           FROM supervised_subscription_deliveries
           WHERE available_at <= ${input.now}
@@ -1098,21 +1129,22 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
           ORDER BY available_at, delivery_id
           LIMIT ${Math.max(1, Math.min(input.limit, 100))}
         `;
-        const claimed = yield* Effect.forEach(
-          rows,
-          (row) =>
-            decodeJson(
-              SubscriptionDelivery,
-              "SupervisedRuntime.claimDeliveries:decode",
-              row.entityJson,
-            ).pipe(
-              Effect.map((delivery) => ({
-                ...delivery,
-                status: "delivering" as const,
-                updatedAt: input.now,
-              })),
-              Effect.tap((delivery) =>
-                sql`
+          const claimed = yield* Effect.forEach(
+            rows,
+            (row) =>
+              decodeJson(
+                SubscriptionDelivery,
+                "SupervisedRuntime.claimDeliveries:decode",
+                row.entityJson,
+              ).pipe(
+                Effect.map((delivery) => ({
+                  ...delivery,
+                  status: "delivering" as const,
+                  updatedAt: input.now,
+                })),
+                Effect.tap(
+                  (delivery) =>
+                    sql`
                   UPDATE supervised_subscription_deliveries
                   SET status = 'delivering',
                       lease_owner = ${input.workerId},
@@ -1121,13 +1153,14 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
                       entity_json = ${JSON.stringify(delivery)}
                   WHERE delivery_id = ${row.deliveryId}
                 `,
+                ),
               ),
-            ),
-          { concurrency: 1 },
-        );
-        return claimed;
-      }),
-    ).pipe(Effect.mapError(persistenceError("SupervisedRuntime.claimDeliveries")));
+            { concurrency: 1 },
+          );
+          return claimed;
+        }),
+      )
+      .pipe(Effect.mapError(persistenceError("SupervisedRuntime.claimDeliveries")));
 
   const updateDelivery: SupervisedRuntimeRepositoryShape["updateDelivery"] = (delivery) =>
     sql`
@@ -1166,9 +1199,10 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
     );
 
   const upsertPlugin: SupervisedRuntimeRepositoryShape["upsertPlugin"] = (plugin) =>
-    sql.withTransaction(
-      Effect.gen(function* () {
-        yield* sql`
+    sql
+      .withTransaction(
+        Effect.gen(function* () {
+          yield* sql`
           INSERT INTO supervised_plugin_installations (
             plugin_id, name, version, status, revision, updated_at, entity_json
           ) VALUES (
@@ -1183,7 +1217,7 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
             updated_at = excluded.updated_at,
             entity_json = excluded.entity_json
         `;
-        yield* sql`
+          yield* sql`
           INSERT INTO supervised_plugin_grants (
             grant_id, plugin_id, status, revision, updated_at, entity_json
           ) VALUES (
@@ -1196,15 +1230,16 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
             updated_at = excluded.updated_at,
             entity_json = excluded.entity_json
         `;
-        yield* sql`
+          yield* sql`
       INSERT INTO supervised_plugin_health (
         plugin_id, consecutive_failures, circuit_state, queue_depth, lag_ms,
             last_success_at, last_failure_at, last_error, updated_at, circuit_opened_until
           ) VALUES (${plugin.pluginId}, 0, 'closed', 0, 0, NULL, NULL, NULL, ${plugin.updatedAt}, NULL)
           ON CONFLICT (plugin_id) DO NOTHING
         `;
-      }),
-    ).pipe(Effect.mapError(persistenceError("SupervisedRuntime.upsertPlugin")));
+        }),
+      )
+      .pipe(Effect.mapError(persistenceError("SupervisedRuntime.upsertPlugin")));
 
   const updatePluginHealth: SupervisedRuntimeRepositoryShape["updatePluginHealth"] = (health) =>
     sql`
@@ -1246,7 +1281,11 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
       Effect.flatMap((rows) =>
         rows[0]
           ? Effect.succeed(rows[0].auditSequence)
-          : Effect.fail(toPersistenceSqlError("SupervisedRuntime.appendAudit")(new Error("No audit sequence returned."))),
+          : Effect.fail(
+              toPersistenceSqlError("SupervisedRuntime.appendAudit")(
+                new Error("No audit sequence returned."),
+              ),
+            ),
       ),
     );
 
@@ -1309,9 +1348,7 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
     Effect.gen(function* () {
       const event = yield* Effect.try({
         try: () => upcastLegacyPeerEventV1(inputEvent),
-        catch: toPersistenceDecodeCauseError(
-          "SupervisedRuntime.applyDomainEvent.schemaVersion",
-        ),
+        catch: toPersistenceDecodeCauseError("SupervisedRuntime.applyDomainEvent.schemaVersion"),
       });
       const payload = event.payload;
       switch (event.type) {
@@ -1412,14 +1449,14 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
           `;
           break;
         }
-          case "supervised.run-policy-upserted":
-            if (payload.runPolicy) yield* upsertRunPolicy(payload.runPolicy);
-            break;
-          case "supervised.claim-acquired":
-          case "supervised.claim-state-changed": {
-            if (!payload.workClaim) return;
-            const claim = payload.workClaim;
-            yield* sql`
+        case "supervised.run-policy-upserted":
+          if (payload.runPolicy) yield* upsertRunPolicy(payload.runPolicy);
+          break;
+        case "supervised.claim-acquired":
+        case "supervised.claim-state-changed": {
+          if (!payload.workClaim) return;
+          const claim = payload.workClaim;
+          yield* sql`
               INSERT INTO projection_supervised_work_claims (
                 claim_id, task_node_id, task_node_revision_id, run_id, status,
                 expires_at, revision, entity_json
@@ -1433,13 +1470,13 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
                 revision = excluded.revision,
                 entity_json = excluded.entity_json
             `;
-            break;
-          }
-          case "supervised.lease-granted":
-          case "supervised.lease-state-changed": {
-            if (!payload.capabilityLease) return;
-            const lease = payload.capabilityLease;
-            yield* sql`
+          break;
+        }
+        case "supervised.lease-granted":
+        case "supervised.lease-state-changed": {
+          if (!payload.capabilityLease) return;
+          const lease = payload.capabilityLease;
+          yield* sql`
               INSERT INTO projection_supervised_capability_leases (
                 lease_id, run_id, holder_seat_id, capability, status, expires_at, revision, entity_json
               ) VALUES (
@@ -1452,12 +1489,12 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
                 revision = excluded.revision,
                 entity_json = excluded.entity_json
             `;
-            break;
-          }
-          case "supervised.context-workspace-upserted": {
-            if (!payload.contextWorkspace) return;
-            const workspace = payload.contextWorkspace;
-            yield* sql`
+          break;
+        }
+        case "supervised.context-workspace-upserted": {
+          if (!payload.contextWorkspace) return;
+          const workspace = payload.contextWorkspace;
+          yield* sql`
               INSERT INTO projection_context_workspaces (
                 workspace_id, project_id, room_id, revision, high_water_sequence, updated_at, entity_json
               ) VALUES (
@@ -1471,13 +1508,13 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
                 updated_at = excluded.updated_at,
                 entity_json = excluded.entity_json
             `;
-            break;
-          }
-          case "supervised.context-appended": {
-            if (!payload.contextRecord) return;
-            if (payload.contextWorkspace) {
-              const workspace = payload.contextWorkspace;
-              yield* sql`
+          break;
+        }
+        case "supervised.context-appended": {
+          if (!payload.contextRecord) return;
+          if (payload.contextWorkspace) {
+            const workspace = payload.contextWorkspace;
+            yield* sql`
                 UPDATE projection_context_workspaces
                 SET revision = ${workspace.revision},
                     high_water_sequence = ${workspace.highWaterSequence},
@@ -1485,8 +1522,8 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
                     entity_json = ${JSON.stringify(workspace)}
                 WHERE workspace_id = ${workspace.id}
               `;
-            }
-            const record = payload.contextRecord;
+          }
+          const record = payload.contextRecord;
           yield* sql`
             INSERT INTO projection_context_records (
               record_id, workspace_id, kind, status, content_revision, blob_hash, updated_at, entity_json
@@ -1704,15 +1741,16 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
     }).pipe(Effect.mapError(persistenceError("SupervisedRuntime.applyDomainEvent")));
 
   const replaceSnapshot: SupervisedRuntimeRepositoryShape["replaceSnapshot"] = (snapshot) =>
-    sql.withTransaction(
-      Effect.gen(function* () {
-        yield* sql`DELETE FROM supervised_dead_letters`;
-        yield* sql`DELETE FROM supervised_subscription_deliveries`;
-        yield* sql`DELETE FROM projection_supervised_signals`;
-        yield* sql`DELETE FROM projection_supervised_delivery_cursors`;
-        yield* sql`DELETE FROM projection_supervised_subscriptions`;
-        yield* sql`DELETE FROM supervised_plugin_grants`;
-        yield* sql`DELETE FROM supervised_plugin_health`;
+    sql
+      .withTransaction(
+        Effect.gen(function* () {
+          yield* sql`DELETE FROM supervised_dead_letters`;
+          yield* sql`DELETE FROM supervised_subscription_deliveries`;
+          yield* sql`DELETE FROM projection_supervised_signals`;
+          yield* sql`DELETE FROM projection_supervised_delivery_cursors`;
+          yield* sql`DELETE FROM projection_supervised_subscriptions`;
+          yield* sql`DELETE FROM supervised_plugin_grants`;
+          yield* sql`DELETE FROM supervised_plugin_health`;
           yield* sql`DELETE FROM supervised_plugin_installations`;
           yield* sql`DELETE FROM supervised_event_schemas`;
           yield* sql`DELETE FROM projection_supervised_reconciliations`;
@@ -1731,16 +1769,16 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
           yield* sql`DELETE FROM projection_context_workspaces`;
           yield* sql`DELETE FROM projection_supervised_capability_leases`;
           yield* sql`DELETE FROM projection_supervised_work_claims`;
-        yield* sql`DELETE FROM projection_supervised_runs`;
-        yield* sql`DELETE FROM projection_supervised_task_node_revisions`;
-        yield* sql`DELETE FROM projection_supervised_task_nodes`;
-        yield* sql`DELETE FROM projection_supervised_tasks`;
-        yield* sql`DELETE FROM projection_supervised_rooms`;
-        yield* sql`DELETE FROM projection_supervised_run_policies`;
+          yield* sql`DELETE FROM projection_supervised_runs`;
+          yield* sql`DELETE FROM projection_supervised_task_node_revisions`;
+          yield* sql`DELETE FROM projection_supervised_task_nodes`;
+          yield* sql`DELETE FROM projection_supervised_tasks`;
+          yield* sql`DELETE FROM projection_supervised_rooms`;
+          yield* sql`DELETE FROM projection_supervised_run_policies`;
 
-        yield* Effect.forEach(
-          snapshot.rooms,
-          (room) => sql`
+          yield* Effect.forEach(
+            snapshot.rooms,
+            (room) => sql`
             INSERT INTO projection_supervised_rooms (
               room_id, project_id, lead_seat_id, status, graph_revision, revision, updated_at, entity_json
             ) VALUES (
@@ -1748,11 +1786,11 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
               ${room.graphRevision}, ${room.revision}, ${room.updatedAt}, ${JSON.stringify(room)}
             )
           `,
-          { concurrency: 1, discard: true },
-        );
-        yield* Effect.forEach(
-          snapshot.tasks,
-          (task) => sql`
+            { concurrency: 1, discard: true },
+          );
+          yield* Effect.forEach(
+            snapshot.tasks,
+            (task) => sql`
             INSERT INTO projection_supervised_tasks (
               task_id, room_id, lifecycle, graph_revision, revision, updated_at, entity_json
             ) VALUES (
@@ -1760,11 +1798,11 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
               ${task.revision}, ${task.updatedAt}, ${JSON.stringify(task)}
             )
           `,
-          { concurrency: 1, discard: true },
-        );
+            { concurrency: 1, discard: true },
+          );
           yield* Effect.forEach(
             snapshot.taskNodes,
-          (node) => sql`
+            (node) => sql`
             INSERT INTO projection_supervised_task_nodes (
               task_node_id, task_id, room_id, active_revision_id, lifecycle,
               graph_revision, revision, updated_at, entity_json
@@ -1788,9 +1826,9 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
             `,
             { concurrency: 1, discard: true },
           );
-        yield* Effect.forEach(
-          snapshot.runs,
-          (run) => sql`
+          yield* Effect.forEach(
+            snapshot.runs,
+            (run) => sql`
             INSERT INTO projection_supervised_runs (
               run_id, room_id, task_id, task_node_id, status, daemon_epoch,
               revision, last_progress_at, updated_at, entity_json
@@ -1800,11 +1838,11 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
               ${JSON.stringify(run)}
             )
           `,
-          { concurrency: 1, discard: true },
-        );
+            { concurrency: 1, discard: true },
+          );
           yield* Effect.forEach(
             snapshot.runPolicies,
-          (policy) => sql`
+            (policy) => sql`
             INSERT INTO projection_supervised_run_policies (policy_id, revision, updated_at, entity_json)
             VALUES (${policy.id}, ${policy.revision}, ${policy.updatedAt}, ${JSON.stringify(policy)})
           `,
@@ -1837,7 +1875,7 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
           );
           yield* Effect.forEach(
             snapshot.contextWorkspaces,
-          (workspace) => sql`
+            (workspace) => sql`
             INSERT INTO projection_context_workspaces (
               workspace_id, project_id, room_id, revision, high_water_sequence, updated_at, entity_json
             ) VALUES (
@@ -2014,25 +2052,36 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
             `,
             { concurrency: 1, discard: true },
           );
-        yield* Effect.forEach(snapshot.schemas, upsertEventSchema, { concurrency: 1, discard: true });
-        yield* Effect.forEach(snapshot.plugins, upsertPlugin, { concurrency: 1, discard: true });
-        yield* Effect.forEach(snapshot.pluginHealth, updatePluginHealth, {
-          concurrency: 1,
-          discard: true,
-        });
-        yield* Effect.forEach(snapshot.subscriptions, (subscription) => upsertSubscription(subscription), {
-          concurrency: 1,
-          discard: true,
-        });
-        yield* Effect.forEach(snapshot.signals, upsertSignal, { concurrency: 1, discard: true });
-        yield* Effect.forEach(snapshot.deliveries, (delivery) => enqueueDelivery(delivery), {
-          concurrency: 1,
-          discard: true,
-        });
-        yield* Effect.forEach(snapshot.deadLetters, putDeadLetter, { concurrency: 1, discard: true });
-        yield* setHealth(snapshot.health, snapshot.snapshotSequence);
-      }),
-    ).pipe(Effect.mapError(persistenceError("SupervisedRuntime.replaceSnapshot")));
+          yield* Effect.forEach(snapshot.schemas, upsertEventSchema, {
+            concurrency: 1,
+            discard: true,
+          });
+          yield* Effect.forEach(snapshot.plugins, upsertPlugin, { concurrency: 1, discard: true });
+          yield* Effect.forEach(snapshot.pluginHealth, updatePluginHealth, {
+            concurrency: 1,
+            discard: true,
+          });
+          yield* Effect.forEach(
+            snapshot.subscriptions,
+            (subscription) => upsertSubscription(subscription),
+            {
+              concurrency: 1,
+              discard: true,
+            },
+          );
+          yield* Effect.forEach(snapshot.signals, upsertSignal, { concurrency: 1, discard: true });
+          yield* Effect.forEach(snapshot.deliveries, (delivery) => enqueueDelivery(delivery), {
+            concurrency: 1,
+            discard: true,
+          });
+          yield* Effect.forEach(snapshot.deadLetters, putDeadLetter, {
+            concurrency: 1,
+            discard: true,
+          });
+          yield* setHealth(snapshot.health, snapshot.snapshotSequence);
+        }),
+      )
+      .pipe(Effect.mapError(persistenceError("SupervisedRuntime.replaceSnapshot")));
 
   return {
     applyDomainEvent,
@@ -2054,10 +2103,10 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
     putSubscriptionEvaluationState,
     recordMetricSample,
     upsertSignal,
-      enqueueDelivery,
-      countPendingDeliveries,
-      countDeliveredSince,
-      claimDeliveries,
+    enqueueDelivery,
+    countPendingDeliveries,
+    countDeliveredSince,
+    claimDeliveries,
     updateDelivery,
     putDeadLetter,
     upsertPlugin,

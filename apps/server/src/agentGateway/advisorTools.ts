@@ -143,9 +143,9 @@ export function makeAgentGatewayAdvisorTools(input: {
         }
 
         // One running Advisor per parent (server-side).
-        const shellSnapshot = yield* snapshotQuery.getShellSnapshot().pipe(
-          Effect.mapError((error) => new ToolInputError(errorText(error))),
-        );
+        const shellSnapshot = yield* snapshotQuery
+          .getShellSnapshot()
+          .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
         const runningAdvisor = shellSnapshot.threads.find(
           (shell) =>
             shell.parentThreadId === parentShell.id &&
@@ -162,9 +162,9 @@ export function makeAgentGatewayAdvisorTools(input: {
           );
         }
 
-        const parentDetailOption = yield* snapshotQuery.getThreadDetailById(parentShell.id).pipe(
-          Effect.mapError((error) => new ToolInputError(errorText(error))),
-        );
+        const parentDetailOption = yield* snapshotQuery
+          .getThreadDetailById(parentShell.id)
+          .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
         const parentDetail = Option.getOrNull(parentDetailOption);
         if (!parentDetail) {
           throw new ToolInputError(`Parent thread "${parentShell.id}" was not found.`);
@@ -233,9 +233,9 @@ export function makeAgentGatewayAdvisorTools(input: {
 
         // Block until the Advisor child reaches a terminal turn state (D2/D6).
         while (true) {
-          const childOption = yield* snapshotQuery.getThreadDetailById(ids.threadId).pipe(
-            Effect.mapError((error) => new ToolInputError(errorText(error))),
-          );
+          const childOption = yield* snapshotQuery
+            .getThreadDetailById(ids.threadId)
+            .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
           const child = Option.getOrNull(childOption);
           if (!child) {
             yield* sleep(ADVISOR_POLL_MS);

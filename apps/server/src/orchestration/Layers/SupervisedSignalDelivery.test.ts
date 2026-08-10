@@ -559,83 +559,89 @@ layer("SupervisedSignalDelivery", (it) => {
     }),
   );
 
-  it.effect("persists plugin failures and opens the circuit without blocking the Signal Plane", () =>
-    Effect.gen(function* () {
-      const directory = yield* Effect.tryPromise(() =>
-        mkdtemp(path.join(os.tmpdir(), "synara-delivery-plugin-")),
-      );
-      try {
-        const repository = yield* SupervisedRuntimeRepository;
-        const service = yield* SupervisedSignalDelivery;
-        const plugin = {
-          pluginId: "plugin-failing" as const,
-          manifest: {
-            pluginId: "plugin-failing" as const,
-            name: "Failing plugin",
-            version: "1.0.0",
-            manifestVersion: "1" as const,
-            description: "Fails while loading its missing handler.",
-            handler: { runtime: "javascript" as const, entry: "missing.mjs", protocolVersion: "1" as const },
-            eventSchemas: [
-              {
-                id: "schema-supervised-signal-derived-v1" as const,
-                eventType: "supervised.signal.derived",
-                version: "1.0.0",
-                compatibility: "backward" as const,
-                jsonSchema: {},
-                fieldClassifications: {},
-                status: "active" as const,
-                createdAt: now,
-                updatedAt: now,
-              },
-            ],
-            subscriptions: [],
-            requestedCapabilities: ["event.read" as const],
-            requestedPayloadFields: [],
-            resourceLimits: {
-              maxRuntimeMs: 1_000,
-              maxMemoryMiB: 64,
-              maxOutputBytes: 65_536,
-              maxConcurrentHandlers: 1,
-              maxQueueDepth: 10,
-            },
-            provenance: {
-              source: pathToFileURL(directory).href,
-              contentHash: hash,
-              signature: null,
-            },
-          },
-          grant: {
-            id: "grant-failing" as const,
-            pluginId: "plugin-failing" as const,
-            capabilities: ["event.read" as const],
-            payloadFields: [],
-            scopes: [{ kind: "global" as const }],
-            allowedActionRequests: [],
-            status: "active" as const,
-            grantedBy: { kind: "user" as const, actorId: "owner" },
-            grantedAt: now,
-            revokedAt: null,
-            revision: 0,
-          },
-          status: "enabled" as const,
-          installedAt: now,
-          updatedAt: now,
-          revision: 0,
-        };
-        yield* repository.upsertPlugin(plugin);
-        const subscription = {
-          ...builtInSubscriptions(now)[1]!,
-          destination: { kind: "plugin" as const, pluginId: plugin.pluginId, handler: "handle" },
-        };
-        for (let attempt = 0; attempt < 5; attempt += 1) {
-          const exit = yield* Effect.exit(service.deliver({ subscription, signal, delivery }));
-          assert.equal(exit._tag, "Failure");
-        }
-        const snapshot = yield* repository.getSnapshot({ includeDisabled: true });
-        const health = snapshot.pluginHealth.find(
-          (candidate) => candidate.pluginId === plugin.pluginId,
+  it.effect(
+    "persists plugin failures and opens the circuit without blocking the Signal Plane",
+    () =>
+      Effect.gen(function* () {
+        const directory = yield* Effect.tryPromise(() =>
+          mkdtemp(path.join(os.tmpdir(), "synara-delivery-plugin-")),
         );
+        try {
+          const repository = yield* SupervisedRuntimeRepository;
+          const service = yield* SupervisedSignalDelivery;
+          const plugin = {
+            pluginId: "plugin-failing" as const,
+            manifest: {
+              pluginId: "plugin-failing" as const,
+              name: "Failing plugin",
+              version: "1.0.0",
+              manifestVersion: "1" as const,
+              description: "Fails while loading its missing handler.",
+              handler: {
+                runtime: "javascript" as const,
+                entry: "missing.mjs",
+                protocolVersion: "1" as const,
+              },
+              eventSchemas: [
+                {
+                  id: "schema-supervised-signal-derived-v1" as const,
+                  eventType: "supervised.signal.derived",
+                  version: "1.0.0",
+                  compatibility: "backward" as const,
+                  jsonSchema: {},
+                  fieldClassifications: {},
+                  status: "active" as const,
+                  createdAt: now,
+                  updatedAt: now,
+                },
+              ],
+              subscriptions: [],
+              requestedCapabilities: ["event.read" as const],
+              requestedPayloadFields: [],
+              resourceLimits: {
+                maxRuntimeMs: 1_000,
+                maxMemoryMiB: 64,
+                maxOutputBytes: 65_536,
+                maxConcurrentHandlers: 1,
+                maxQueueDepth: 10,
+              },
+              provenance: {
+                source: pathToFileURL(directory).href,
+                contentHash: hash,
+                signature: null,
+              },
+            },
+            grant: {
+              id: "grant-failing" as const,
+              pluginId: "plugin-failing" as const,
+              capabilities: ["event.read" as const],
+              payloadFields: [],
+              scopes: [{ kind: "global" as const }],
+              allowedActionRequests: [],
+              status: "active" as const,
+              grantedBy: { kind: "user" as const, actorId: "owner" },
+              grantedAt: now,
+              revokedAt: null,
+              revision: 0,
+            },
+            status: "enabled" as const,
+            installedAt: now,
+            updatedAt: now,
+            revision: 0,
+          };
+          yield* repository.upsertPlugin(plugin);
+          const subscription = {
+            ...builtInSubscriptions(now)[1]!,
+            destination: { kind: "plugin" as const, pluginId: plugin.pluginId, handler: "handle" },
+          };
+          for (let attempt = 0; attempt < 5; attempt += 1) {
+            const exit = yield* Effect.exit(service.deliver({ subscription, signal, delivery }));
+            assert.equal(exit._tag, "Failure");
+          }
+          const snapshot = yield* repository.getSnapshot({ includeDisabled: true });
+          const health = snapshot.pluginHealth.find(
+            (candidate) => candidate.pluginId === plugin.pluginId,
+          );
           assert.equal(health?.consecutiveFailures, 5);
           assert.equal(health?.circuitState, "open");
           assert.ok(health?.circuitOpenedUntil);
@@ -647,8 +653,8 @@ layer("SupervisedSignalDelivery", (it) => {
             ),
           );
         } finally {
-        yield* Effect.tryPromise(() => rm(directory, { recursive: true, force: true }));
-      }
-    }),
+          yield* Effect.tryPromise(() => rm(directory, { recursive: true, force: true }));
+        }
+      }),
   );
 });

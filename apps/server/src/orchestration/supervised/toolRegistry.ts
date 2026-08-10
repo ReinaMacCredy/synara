@@ -48,11 +48,12 @@ import { missionScopeContainsLead } from "./missionScope.ts";
 import { profileLaunchIssue, resolveProfilePreset } from "./profileResolver.ts";
 import { currentTurnHasHumanOrigin, resolveSupervisedCallerAuthority } from "./toolPolicy.ts";
 import type { SupervisedRuntimeDaemonShape } from "../Services/SupervisedRuntimeDaemon.ts";
-import { RlmStartError, startRlm, type RlmBranchRequest } from "../../supervised/runtime/RlmStart.ts";
 import {
-  buildContextView,
-  planContextCompaction,
-} from "../../supervised/runtime/ContextViews.ts";
+  RlmStartError,
+  startRlm,
+  type RlmBranchRequest,
+} from "../../supervised/runtime/RlmStart.ts";
+import { buildContextView, planContextCompaction } from "../../supervised/runtime/ContextViews.ts";
 import {
   buildSupervisorNotebookView,
   planSupervisorNotebookCompaction,
@@ -113,8 +114,14 @@ const optionalBooleanArg = (
 
 const stringArrayArg = (args: Record<string, unknown>, key: string): ReadonlyArray<string> => {
   const value = args[key];
-  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string" || entry.trim().length === 0)) {
-    throw new HostToolError("supervised_tool_input_invalid", `${key} must be an array of non-empty strings.`);
+  if (
+    !Array.isArray(value) ||
+    value.some((entry) => typeof entry !== "string" || entry.trim().length === 0)
+  ) {
+    throw new HostToolError(
+      "supervised_tool_input_invalid",
+      `${key} must be an array of non-empty strings.`,
+    );
   }
   return value.map((entry) => (entry as string).trim());
 };
@@ -222,16 +229,12 @@ const activeRootContextForCaller = (
   return receipt && lease ? { seat, room, receipt, lease } : null;
 };
 
-const rootHolderSeatId = (
-  seat: SupervisedGovernanceSnapshot["agentSeats"][number],
-) =>
+const rootHolderSeatId = (seat: SupervisedGovernanceSnapshot["agentSeats"][number]) =>
   seat.identityRole === "supervisor"
     ? SupervisorSeatId.makeUnsafe(seat.id)
     : LeadSeatId.makeUnsafe(seat.id);
 
-export function makeSupervisedTools(
-  input: SupervisedToolsInput,
-): ReadonlyArray<HostToolEntry> {
+export function makeSupervisedTools(input: SupervisedToolsInput): ReadonlyArray<HostToolEntry> {
   const load = (): Effect.Effect<
     OrchestrationReadModel & {
       readonly governance: SupervisedGovernanceSnapshot;
@@ -240,10 +243,7 @@ export function makeSupervisedTools(
     },
     HostToolError
   > =>
-    Effect.all([
-      input.snapshotQuery.getSnapshot(),
-      input.governanceRepository.getSnapshot(),
-    ]).pipe(
+    Effect.all([input.snapshotQuery.getSnapshot(), input.governanceRepository.getSnapshot()]).pipe(
       Effect.map(([state, governance]) => ({
         ...state,
         governance,
@@ -356,10 +356,11 @@ export function makeSupervisedTools(
     definition,
     isVisible: (context) =>
       loadAuthority(context.callerThreadId).pipe(
-        Effect.map(({ state, authority }) =>
-          handlers.visible(state, authority.role) ||
-          (activeRootContextForCaller(state, context.callerThreadId) !== null &&
-            handlers.visible(state, "lead")),
+        Effect.map(
+          ({ state, authority }) =>
+            handlers.visible(state, authority.role) ||
+            (activeRootContextForCaller(state, context.callerThreadId) !== null &&
+              handlers.visible(state, "lead")),
         ),
         Effect.catch(() => Effect.succeed(false)),
       ),
@@ -460,7 +461,9 @@ export function makeSupervisedTools(
                   projectId: seat.projectId,
                   roomIds: seat.roomIds,
                 })),
-              advice: state.orchestration.advice.filter((advice) => missionIds.has(advice.missionId)),
+              advice: state.orchestration.advice.filter((advice) =>
+                missionIds.has(advice.missionId),
+              ),
               observationCursors: state.orchestration.observationCursors.filter((cursor) =>
                 missionIds.has(cursor.missionId),
               ),
@@ -472,9 +475,7 @@ export function makeSupervisedTools(
                 .filter((room) => room.leadSeatId === authority.leadSeatId)
                 .map((room) => room.id),
             );
-            const leadTasks = state.supervised.tasks.filter((task) =>
-              leadRoomIds.has(task.roomId),
-            );
+            const leadTasks = state.supervised.tasks.filter((task) => leadRoomIds.has(task.roomId));
             const leadTaskIds = new Set(leadTasks.map((task) => task.id));
             return hostToolSuccess({
               role: authority.role,
@@ -493,9 +494,7 @@ export function makeSupervisedTools(
                 leadRoomIds.has(intervention.roomId),
               ),
               tasks: leadTasks,
-              taskNodes: state.supervised.taskNodes.filter((node) =>
-                leadTaskIds.has(node.taskId),
-              ),
+              taskNodes: state.supervised.taskNodes.filter((node) => leadTaskIds.has(node.taskId)),
               runs: state.supervised.runs.filter((run) => leadRoomIds.has(run.roomId)),
               workClaims: state.supervised.workClaims.filter((claim) =>
                 state.supervised.runs.some(
@@ -525,13 +524,9 @@ export function makeSupervisedTools(
             peerSeatId: authority.peerSeatId,
             roomIds: authority.roomIds,
             interventions,
-            taskNodes: state.supervised.taskNodes.filter((node) =>
-              ownedTaskNodeIds.has(node.id),
-            ),
+            taskNodes: state.supervised.taskNodes.filter((node) => ownedTaskNodeIds.has(node.id)),
             runs: ownedRuns,
-            workClaims: state.supervised.workClaims.filter((claim) =>
-              ownedRunIds.has(claim.runId),
-            ),
+            workClaims: state.supervised.workClaims.filter((claim) => ownedRunIds.has(claim.runId)),
             evidence: state.supervised.evidence.filter(
               (item) =>
                 evidenceIds.has(item.id) ||
@@ -596,12 +591,15 @@ export function makeSupervisedTools(
           const taskNodeIdValue = optionalStringArg(args, "taskNodeId");
           const taskNodeId =
             taskNodeIdValue === null ? null : TaskNodeId.makeUnsafe(taskNodeIdValue);
-          const room = roomId === null
-            ? null
-            : state.supervised.rooms.find((candidate) => candidate.id === roomId) ?? null;
-          const taskNode = taskNodeId === null
-            ? null
-            : state.supervised.taskNodes.find((candidate) => candidate.id === taskNodeId) ?? null;
+          const room =
+            roomId === null
+              ? null
+              : (state.supervised.rooms.find((candidate) => candidate.id === roomId) ?? null);
+          const taskNode =
+            taskNodeId === null
+              ? null
+              : (state.supervised.taskNodes.find((candidate) => candidate.id === taskNodeId) ??
+                null);
           const runPolicy = state.supervised.runPolicies[0];
           const minimumCodingScore = args.minimumCodingScore;
           if (
@@ -622,15 +620,17 @@ export function makeSupervisedTools(
               ),
             );
           }
-          const routingState = yield* routing.getState("owner").pipe(
-            Effect.mapError(
-              (error) =>
-                new HostToolError(
-                  "supervised_model_routing_unavailable",
-                  error instanceof Error ? error.message : String(error),
+          const routingState = yield* routing
+            .getState("owner")
+            .pipe(
+              Effect.mapError(
+                (error) =>
+                  new HostToolError(
+                    "supervised_model_routing_unavailable",
+                    error instanceof Error ? error.message : String(error),
+                  ),
               ),
-            ),
-          );
+            );
           if (routingState.capabilityProfiles.length === 0) {
             return yield* Effect.fail(
               new HostToolError(
@@ -659,48 +659,47 @@ export function makeSupervisedTools(
             ),
           );
           const createdAt = new Date().toISOString();
-          const receipt = yield* routing.select({
-            receiptId: ModelSelectionReceiptId.makeUnsafe(`model-selection:${randomUUID()}`),
-            request: {
-              userId: "owner",
-              taskCategory: stringArg(args, "taskCategory"),
-              agentRole: seat.identityRole,
-              workspaceId: seat.workspaceId,
-              roomId,
-              taskNodeId,
-              actorSeatId: seat.id,
-              providerAvailability,
-              requirements: {
-                ...(optionalIntArg(args, "minimumContextCapacity") === undefined
-                  ? {}
-                  : {
-                      minimumContextCapacity: optionalIntArg(
-                        args,
-                        "minimumContextCapacity",
-                      ),
-                    }),
-                requiresVision: optionalBooleanArg(args, "requiresVision", false),
-                requiresTools: optionalBooleanArg(args, "requiresTools", true),
-                requiresReasoning: optionalBooleanArg(args, "requiresReasoning", false),
-                ...(minimumCodingScore === undefined
-                  ? {}
-                  : { minimumScores: { coding: minimumCodingScore } }),
+          const receipt = yield* routing
+            .select({
+              receiptId: ModelSelectionReceiptId.makeUnsafe(`model-selection:${randomUUID()}`),
+              request: {
+                userId: "owner",
+                taskCategory: stringArg(args, "taskCategory"),
+                agentRole: seat.identityRole,
+                workspaceId: seat.workspaceId,
+                roomId,
+                taskNodeId,
+                actorSeatId: seat.id,
+                providerAvailability,
+                requirements: {
+                  ...(optionalIntArg(args, "minimumContextCapacity") === undefined
+                    ? {}
+                    : {
+                        minimumContextCapacity: optionalIntArg(args, "minimumContextCapacity"),
+                      }),
+                  requiresVision: optionalBooleanArg(args, "requiresVision", false),
+                  requiresTools: optionalBooleanArg(args, "requiresTools", true),
+                  requiresReasoning: optionalBooleanArg(args, "requiresReasoning", false),
+                  ...(minimumCodingScore === undefined
+                    ? {}
+                    : { minimumScores: { coding: minimumCodingScore } }),
+                },
+                runPolicy,
+                expectedInputTokens: optionalIntArg(args, "expectedInputTokens"),
+                expectedOutputTokens: optionalIntArg(args, "expectedOutputTokens"),
+                routingRevision: routingState.routingRevision,
+                createdAt,
               },
-              runPolicy,
-              expectedInputTokens: optionalIntArg(args, "expectedInputTokens"),
-              expectedOutputTokens: optionalIntArg(args, "expectedOutputTokens"),
-              routingRevision: routingState.routingRevision,
-              createdAt,
-            },
-          }).pipe(
-            Effect.mapError(
-              (error) =>
-                new HostToolError(
-                  "supervised_model_selection_rejected",
-                  error instanceof Error ? error.message : String(error),
-                ),
-            ),
-          );
+            })
+            .pipe(
+              Effect.mapError(
+                (error) =>
+                  new HostToolError(
+                    "supervised_model_selection_rejected",
+                    error instanceof Error ? error.message : String(error),
+                  ),
+              ),
+            );
           const selectedProfile = routingState.capabilityProfiles.find(
             (profile) => profile.id === receipt.selectedModelId,
           );
@@ -809,10 +808,7 @@ export function makeSupervisedTools(
   );
 
   const mutateMission = (
-    name:
-      | "update_supervised_mission"
-      | "complete_supervised_mission"
-      | "cancel_supervised_mission",
+    name: "update_supervised_mission" | "complete_supervised_mission" | "cancel_supervised_mission",
     commandType:
       | "supervised.mission.update"
       | "supervised.mission.complete"
@@ -1137,10 +1133,7 @@ export function makeSupervisedTools(
             !missionScopeContainsLead({ scope: mission.scope, lead, projects: state.projects })
           ) {
             return yield* Effect.fail(
-              new HostToolError(
-                "supervised_scope_denied",
-                "Mission does not cover this Lead.",
-              ),
+              new HostToolError("supervised_scope_denied", "Mission does not cover this Lead."),
             );
           }
           const now = new Date().toISOString();
@@ -1387,8 +1380,7 @@ export function makeSupervisedTools(
           }
           if (
             state.leads.some(
-              (candidate) =>
-                candidate.projectId === project.id && candidate.status !== "archived",
+              (candidate) => candidate.projectId === project.id && candidate.status !== "archived",
             )
           ) {
             return yield* Effect.fail(
@@ -1576,10 +1568,7 @@ export function makeSupervisedTools(
           const nodeKeys = new Set(nodeSpecs.map((node) => node.key));
           if (nodeKeys.size !== nodeSpecs.length) {
             return yield* Effect.fail(
-              new HostToolError(
-                "supervised_tool_input_invalid",
-                "TaskNode keys must be unique.",
-              ),
+              new HostToolError("supervised_tool_input_invalid", "TaskNode keys must be unique."),
             );
           }
           for (const node of nodeSpecs) {
@@ -1617,7 +1606,8 @@ export function makeSupervisedTools(
                 parentNodeId: null,
                 title: node.title,
                 description: node.scope,
-                lifecycle: dependencyNodeIds.length === 0 ? ("ready" as const) : ("planned" as const),
+                lifecycle:
+                  dependencyNodeIds.length === 0 ? ("ready" as const) : ("planned" as const),
                 activeRevisionId: revisionId,
                 graphRevision,
                 revision: 0,
@@ -1857,8 +1847,7 @@ export function makeSupervisedTools(
           }
           const runId = RunId.makeUnsafe(stringArg(args, "runId"));
           const run = state.supervised.runs.find(
-            (candidate) =>
-              candidate.id === runId && candidate.ownerSeatId === authority.peerSeatId,
+            (candidate) => candidate.id === runId && candidate.ownerSeatId === authority.peerSeatId,
           );
           const taskNode = run?.taskNodeId
             ? state.supervised.taskNodes.find((candidate) => candidate.id === run.taskNodeId)
@@ -1928,9 +1917,7 @@ export function makeSupervisedTools(
               ownerSeatId: peerSeat.id,
               status: "active",
               acquiredAt: createdAt,
-              expiresAt: new Date(
-                Date.parse(createdAt) + policy.maxWallTimeMs,
-              ).toISOString(),
+              expiresAt: new Date(Date.parse(createdAt) + policy.maxWallTimeMs).toISOString(),
               releasedAt: null,
               revision: 0,
             },
@@ -1979,8 +1966,7 @@ export function makeSupervisedTools(
           }
           const runId = RunId.makeUnsafe(stringArg(args, "runId"));
           const run = state.supervised.runs.find(
-            (candidate) =>
-              candidate.id === runId && candidate.ownerSeatId === authority.peerSeatId,
+            (candidate) => candidate.id === runId && candidate.ownerSeatId === authority.peerSeatId,
           );
           const taskNode = run?.taskNodeId
             ? state.supervised.taskNodes.find((candidate) => candidate.id === run.taskNodeId)
@@ -2232,9 +2218,7 @@ export function makeSupervisedTools(
                         }),
                       )),
               );
-          const lead = eligibleLeads.find(
-            (candidate) => candidate.id === requestedLeadSeatId,
-          );
+          const lead = eligibleLeads.find((candidate) => candidate.id === requestedLeadSeatId);
           const room = state.supervised.rooms.find(
             (candidate) =>
               candidate.id === requestedRoomId &&
@@ -2273,21 +2257,22 @@ export function makeSupervisedTools(
             );
           }
           const createdAt = new Date().toISOString();
-          const governance = yield* input.governanceRepository.getSnapshot().pipe(
-            Effect.mapError(
-              (error) =>
-                new HostToolError(
-                  "supervised_state_unavailable",
-                  error instanceof Error ? error.message : String(error),
-                ),
-            ),
-          );
+          const governance = yield* input.governanceRepository
+            .getSnapshot()
+            .pipe(
+              Effect.mapError(
+                (error) =>
+                  new HostToolError(
+                    "supervised_state_unavailable",
+                    error instanceof Error ? error.message : String(error),
+                  ),
+              ),
+            );
           const coordinatorSeatId =
             authority.role === "lead" ? authority.leadSeatId : authority.supervisorSeatId;
           const coordinatorSeat = governance.agentSeats.find(
             (candidate) =>
-              candidate.id === coordinatorSeatId &&
-              candidate.threadId === authority.callerThreadId,
+              candidate.id === coordinatorSeatId && candidate.threadId === authority.callerThreadId,
           );
           if (!coordinatorSeat) {
             return yield* Effect.fail(
@@ -2435,8 +2420,7 @@ export function makeSupervisedTools(
               }
             : room?.leadSeatId
               ? state.leads.find(
-                  (candidate) =>
-                    candidate.id === room.leadSeatId && candidate.status === "active",
+                  (candidate) => candidate.id === room.leadSeatId && candidate.status === "active",
                 )
               : undefined;
           const project = room
@@ -2455,8 +2439,7 @@ export function makeSupervisedTools(
                   projects: state.projects,
                 }),
               ));
-          const leadScopeAllows =
-            authority.role === "lead" && lead?.id === authority.leadSeatId;
+          const leadScopeAllows = authority.role === "lead" && lead?.id === authority.leadSeatId;
           if (
             !peerSeat ||
             !room ||
@@ -2475,8 +2458,7 @@ export function makeSupervisedTools(
             authority.role === "lead" ? authority.leadSeatId : authority.supervisorSeatId;
           const coordinatorSeat = state.governance.agentSeats.find(
             (candidate) =>
-              candidate.id === coordinatorSeatId &&
-              candidate.threadId === authority.callerThreadId,
+              candidate.id === coordinatorSeatId && candidate.threadId === authority.callerThreadId,
           );
           if (!coordinatorSeat) {
             return yield* Effect.fail(
@@ -2745,8 +2727,10 @@ export function makeSupervisedTools(
             reconciliation: {
               ...reconciliation,
               status: status as "accepted" | "revised" | "rejected",
-              taskNodeRevisionId:
-                optionalStringArg(args, "taskNodeRevisionId") as typeof reconciliation.taskNodeRevisionId,
+              taskNodeRevisionId: optionalStringArg(
+                args,
+                "taskNodeRevisionId",
+              ) as typeof reconciliation.taskNodeRevisionId,
               reason: optionalStringArg(args, "reason"),
             },
           });
@@ -2801,15 +2785,17 @@ export function makeSupervisedTools(
         Effect.gen(function* () {
           yield* context.assertCallerTurnActive();
           const { state, authority } = yield* loadAuthority(context.callerThreadId);
-          const governance = yield* input.governanceRepository.getSnapshot().pipe(
-            Effect.mapError(
-              (error) =>
-                new HostToolError(
-                  "supervised_state_unavailable",
-                  error instanceof Error ? error.message : String(error),
-                ),
-            ),
-          );
+          const governance = yield* input.governanceRepository
+            .getSnapshot()
+            .pipe(
+              Effect.mapError(
+                (error) =>
+                  new HostToolError(
+                    "supervised_state_unavailable",
+                    error instanceof Error ? error.message : String(error),
+                  ),
+              ),
+            );
           const seatId =
             authority.role === "lead" ? authority.leadSeatId : authority.supervisorSeatId;
           const seat = governance.agentSeats.find((candidate) => candidate.id === seatId);
@@ -2956,7 +2942,10 @@ export function makeSupervisedTools(
           );
           if (!seat || !receipt) {
             return yield* Effect.fail(
-              new HostToolError("supervised_authority_unavailable", "The caller AgentSeat is unavailable."),
+              new HostToolError(
+                "supervised_authority_unavailable",
+                "The caller AgentSeat is unavailable.",
+              ),
             );
           }
           const requestedRoomId = optionalStringArg(args, "roomId");
@@ -2972,9 +2961,7 @@ export function makeSupervisedTools(
             );
           }
           const limit =
-            args.limit === undefined
-              ? 50
-              : Math.max(1, Math.min(200, intArg(args, "limit")));
+            args.limit === undefined ? 50 : Math.max(1, Math.min(200, intArg(args, "limit")));
           const incremental = args.incremental === true;
           if (args.incremental !== undefined && typeof args.incremental !== "boolean") {
             return yield* Effect.fail(
@@ -3017,14 +3004,13 @@ export function makeSupervisedTools(
           });
           return hostToolSuccess(view);
         }).pipe(
-          Effect.mapError(
-            (error) =>
-              error instanceof HostToolError
-                ? error
-                : new HostToolError(
-                    "supervised_state_unavailable",
-                    error instanceof Error ? error.message : String(error),
-                  ),
+          Effect.mapError((error) =>
+            error instanceof HostToolError
+              ? error
+              : new HostToolError(
+                  "supervised_state_unavailable",
+                  error instanceof Error ? error.message : String(error),
+                ),
           ),
         ),
     },
@@ -3079,7 +3065,10 @@ export function makeSupervisedTools(
           );
           if (!seat || !receipt) {
             return yield* Effect.fail(
-              new HostToolError("supervised_authority_unavailable", "The Supervisor AgentSeat is unavailable."),
+              new HostToolError(
+                "supervised_authority_unavailable",
+                "The Supervisor AgentSeat is unavailable.",
+              ),
             );
           }
           const current = yield* input.governanceRepository.getNotebookState({
@@ -3118,12 +3107,10 @@ export function makeSupervisedTools(
           }
           if (
             taskNodeId !== null &&
-            (receipt.taskNodeScopes.length > 0 &&
-              !receipt.taskNodeScopes.includes(taskNodeId) ||
+            ((receipt.taskNodeScopes.length > 0 && !receipt.taskNodeScopes.includes(taskNodeId)) ||
               !state.supervised.taskNodes.some(
                 (candidate) =>
-                  candidate.id === taskNodeId &&
-                  (roomId === null || candidate.roomId === roomId),
+                  candidate.id === taskNodeId && (roomId === null || candidate.roomId === roomId),
               ))
           ) {
             return yield* Effect.fail(
@@ -3134,9 +3121,17 @@ export function makeSupervisedTools(
             );
           }
           const confidence = args.confidence;
-          if (typeof confidence !== "number" || !Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
+          if (
+            typeof confidence !== "number" ||
+            !Number.isFinite(confidence) ||
+            confidence < 0 ||
+            confidence > 1
+          ) {
             return yield* Effect.fail(
-              new HostToolError("supervised_tool_input_invalid", "confidence must be between 0 and 1."),
+              new HostToolError(
+                "supervised_tool_input_invalid",
+                "confidence must be between 0 and 1.",
+              ),
             );
           }
           const entry = {
@@ -3148,7 +3143,8 @@ export function makeSupervisedTools(
             authorSeatId: seat.id,
             kind: decode(SupervisorNotebookEntryKind, args.kind, "kind"),
             content: stringArg(args, "content"),
-            evidenceRefs: args.evidenceRefs === undefined ? [] : stringArrayArg(args, "evidenceRefs"),
+            evidenceRefs:
+              args.evidenceRefs === undefined ? [] : stringArrayArg(args, "evidenceRefs"),
             confidence,
             supersedesEntryId: supersedesEntryId as never,
             protectionClass: "internal",
@@ -3163,14 +3159,13 @@ export function makeSupervisedTools(
           }
           return hostToolSuccess({ entry });
         }).pipe(
-          Effect.mapError(
-            (error) =>
-              error instanceof HostToolError
-                ? error
-                : new HostToolError(
-                    "supervised_state_unavailable",
-                    error instanceof Error ? error.message : String(error),
-                  ),
+          Effect.mapError((error) =>
+            error instanceof HostToolError
+              ? error
+              : new HostToolError(
+                  "supervised_state_unavailable",
+                  error instanceof Error ? error.message : String(error),
+                ),
           ),
         ),
     },
@@ -3313,14 +3308,13 @@ export function makeSupervisedTools(
           }
           return hostToolSuccess(planned);
         }).pipe(
-          Effect.mapError(
-            (error) =>
-              error instanceof HostToolError
-                ? error
-                : new HostToolError(
-                    "supervised_notebook_compaction_failed",
-                    error instanceof Error ? error.message : String(error),
-                  ),
+          Effect.mapError((error) =>
+            error instanceof HostToolError
+              ? error
+              : new HostToolError(
+                  "supervised_notebook_compaction_failed",
+                  error instanceof Error ? error.message : String(error),
+                ),
           ),
         ),
     },
@@ -3381,7 +3375,8 @@ export function makeSupervisedTools(
           }
           if (
             workspace.roomId !== null &&
-            (!seat.roomIds.includes(workspace.roomId) || !receipt.roomScopes.includes(workspace.roomId))
+            (!seat.roomIds.includes(workspace.roomId) ||
+              !receipt.roomScopes.includes(workspace.roomId))
           ) {
             return yield* Effect.fail(
               new HostToolError(
@@ -3397,7 +3392,9 @@ export function makeSupervisedTools(
             actorSeatId: seat.id,
             allowedScopes: [
               { kind: "project", projectId: workspace.projectId },
-              ...(workspace.roomId === null ? [] : [{ kind: "room" as const, roomId: workspace.roomId }]),
+              ...(workspace.roomId === null
+                ? []
+                : [{ kind: "room" as const, roomId: workspace.roomId }]),
             ],
             allowedProtectionClasses: ["workspace", "internal"],
             provider: thread.modelSelection.provider,
@@ -3420,7 +3417,8 @@ export function makeSupervisedTools(
             );
           }
           const sourceRecords = sourceRecordIds.map(
-            (recordId) => state.supervised.contextRecords.find((candidate) => candidate.id === recordId)!,
+            (recordId) =>
+              state.supervised.contextRecords.find((candidate) => candidate.id === recordId)!,
           );
           const protectionClass = sourceRecords.some(
             (record) => record.protectionClass === "internal",
@@ -3456,14 +3454,13 @@ export function makeSupervisedTools(
             compactionReceipt: planned.receipt,
           });
         }).pipe(
-          Effect.mapError(
-            (error) =>
-              error instanceof HostToolError
-                ? error
-                : new HostToolError(
-                    "supervised_context_compaction_failed",
-                    error instanceof Error ? error.message : String(error),
-                  ),
+          Effect.mapError((error) =>
+            error instanceof HostToolError
+              ? error
+              : new HostToolError(
+                  "supervised_context_compaction_failed",
+                  error instanceof Error ? error.message : String(error),
+                ),
           ),
         ),
     },

@@ -84,7 +84,11 @@ function focusThread(threadId: Thread["id"], navigate: ReturnType<typeof useNavi
   void navigate({
     to: "/$threadId",
     params: { threadId },
-    search: (previous) => ({ ...previous, splitViewId: undefined }),
+    search: (previous) => ({
+      ...previous,
+      view: previous.view === "editor" ? ("editor" as const) : undefined,
+      splitViewId: undefined,
+    }),
   });
 }
 

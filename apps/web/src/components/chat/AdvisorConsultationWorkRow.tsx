@@ -71,17 +71,13 @@ export function AdvisorConsultationWorkRow(props: {
   const questionTail = shortQuestionTail(question);
   const errorDetail =
     status === "error"
-      ? (workEntry.detail?.trim() || workEntry.liveActivity?.detail?.trim() || null)
+      ? workEntry.detail?.trim() || workEntry.liveActivity?.detail?.trim() || null
       : null;
   const shouldRenderExpand = open || keepExpandedMounted;
   const showActions = isReady && (Boolean(advice) || Boolean(threadId && onOpenThread));
 
   return (
-    <div
-      data-advisor-work-row="true"
-      data-advisor-work-state={status}
-      className="py-0.5"
-    >
+    <div data-advisor-work-row="true" data-advisor-work-state={status} className="py-0.5">
       <button
         type="button"
         aria-expanded={open}
@@ -132,12 +128,7 @@ export function AdvisorConsultationWorkRow(props: {
               </div>
             ) : null}
 
-            <div
-              className={cn(
-                "space-y-0.5",
-                question ? "border-t border-border/50 pt-2" : null,
-              )}
-            >
+            <div className={cn("space-y-0.5", question ? "border-t border-border/50 pt-2" : null)}>
               <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/60">
                 Advice
               </div>

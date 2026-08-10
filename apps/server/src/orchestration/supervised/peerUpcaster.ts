@@ -33,9 +33,7 @@ export const upcastLegacyPeerSpecialtySnapshotV1 = (
   return { ...rest, peerSpecialtyId: specialistId };
 };
 
-export const upcastLegacyPeerModelSessionV1 = (
-  session: ModelSessionTrace,
-): ModelSessionTrace => {
+export const upcastLegacyPeerModelSessionV1 = (session: ModelSessionTrace): ModelSessionTrace => {
   const { specialistId, ...canonical } = session;
   return {
     ...canonical,
@@ -46,9 +44,7 @@ export const upcastLegacyPeerModelSessionV1 = (
 
 // TODO(supervised-runtime): Remove this v1 journal upcaster on or after 2027-08-09
 // once every supported database has replayed migration 108 and compacted old events.
-export const upcastLegacyPeerEventV1 = (
-  event: SupervisedDomainEvent,
-): SupervisedDomainEvent => {
+export const upcastLegacyPeerEventV1 = (event: SupervisedDomainEvent): SupervisedDomainEvent => {
   assertSupportedSupervisedEventVersion(event);
   if (event.type === "supervised.model-session-upserted" && event.payload.modelSession) {
     return {

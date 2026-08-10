@@ -415,7 +415,7 @@ describe("buildActivityViewModel", () => {
     expect(model.settled.map((thread) => thread.id)).toEqual(["reviewed"]);
   });
 
-    it("keeps settled Supervised Lead Rooms in active history when settlement is disabled", () => {
+  it("keeps settled Supervised Lead Rooms in active history when settlement is disabled", () => {
     const root = makeThread({
       id: "supervised-room",
       settledAt: "2026-08-01T09:50:00.000Z",
@@ -429,9 +429,9 @@ describe("buildActivityViewModel", () => {
       includeSettled: false,
     });
 
-      expect(model.active.map((thread) => thread.id)).toEqual(["supervised-room"]);
-      expect(model.settled).toEqual([]);
-    });
+    expect(model.active.map((thread) => thread.id)).toEqual(["supervised-room"]);
+    expect(model.settled).toEqual([]);
+  });
 });
 
 describe("date buckets", () => {
@@ -577,9 +577,9 @@ describe("project filter", () => {
           projectId: CHAT_PROJECT_B,
           latestTurn: completedTurn("2026-08-01T09:10:00.000Z"),
         }),
-        ],
-        (projectId) => projectId === PROJECT_ID,
-        { nowMs: Date.parse("2026-08-01T12:00:00.000Z") },
+      ],
+      (projectId) => projectId === PROJECT_ID,
+      { nowMs: Date.parse("2026-08-01T12:00:00.000Z") },
     );
 
     expect(groups.map((group) => [group.kind, group.threads.map((thread) => thread.id)])).toEqual([
@@ -593,7 +593,7 @@ describe("project filter", () => {
     });
   });
 
-    it("ranks projects touched in the current working day above newer untouched activity", () => {
+  it("ranks projects touched in the current working day above newer untouched activity", () => {
     const OTHER_PROJECT_ID = ProjectId.makeUnsafe("project-2");
     // 01:30 local on Aug 2: the working day still started at 04:00 on Aug 1.
     const nowMs = new Date(2026, 7, 2, 1, 30, 0).getTime();
@@ -620,9 +620,9 @@ describe("project filter", () => {
     const groups = groupActivityThreadsByProject([untouched, touched], () => true, { nowMs });
     expect(groups.map((group) => group.key)).toEqual([
       `project:${PROJECT_ID}`,
-        `project:${OTHER_PROJECT_ID}`,
-      ]);
-    });
+      `project:${OTHER_PROJECT_ID}`,
+    ]);
+  });
 });
 
 describe("resolveActivityScope", () => {
@@ -681,7 +681,7 @@ describe("splitRecentActivityThreads", () => {
     expect(split.seen.map((thread) => thread.id)).toEqual(["seen"]);
   });
 
-    // Fixed "now": 2026-08-01T15:00 local time, so the working day started at 04:00.
+  // Fixed "now": 2026-08-01T15:00 local time, so the working day started at 04:00.
   const recentNowMs = new Date(2026, 7, 1, 15, 0, 0).getTime();
   const localIso = (year: number, month: number, day: number, hour: number) =>
     new Date(year, month, day, hour).toISOString();
@@ -709,10 +709,10 @@ describe("splitRecentActivityThreads", () => {
   });
 
   it("ages threads last touched before today out of Recent, into the date buckets", () => {
-      const active = [
-        byInteraction("today", localIso(2026, 7, 1, 9)),
-        byInteraction("two-days-ago", localIso(2026, 6, 30, 14)),
-        // Yesterday evening, past midnight but before the 4am turnover: still stale.
+    const active = [
+      byInteraction("today", localIso(2026, 7, 1, 9)),
+      byInteraction("two-days-ago", localIso(2026, 6, 30, 14)),
+      // Yesterday evening, past midnight but before the 4am turnover: still stale.
       byInteraction("last-night", localIso(2026, 6, 31, 23)),
     ];
 
@@ -721,8 +721,8 @@ describe("splitRecentActivityThreads", () => {
     expect(rest.map((thread) => thread.id)).toEqual(["two-days-ago", "last-night"]);
   });
 
-    it("carries a past-midnight session as the same working day until 4am", () => {
-      // 01:30 local: the working day still starts at 04:00 on the previous date.
+  it("carries a past-midnight session as the same working day until 4am", () => {
+    // 01:30 local: the working day still starts at 04:00 on the previous date.
     const afterMidnightMs = new Date(2026, 7, 2, 1, 30, 0).getTime();
     const active = [
       byInteraction("late-night", localIso(2026, 7, 1, 23)),

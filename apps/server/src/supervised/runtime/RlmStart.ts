@@ -101,13 +101,10 @@ const runUsage = (
   requestedFanOut: number,
   at: string,
 ): RunResourceUsage => {
-  const sessions = run
-    ? runtime.modelSessions.filter((session) => session.runId === run.id)
-    : [];
+  const sessions = run ? runtime.modelSessions.filter((session) => session.runId === run.id) : [];
   const startedAt = run?.startedAt ?? run?.createdAt ?? null;
   return {
-    wallTimeMs:
-      startedAt === null ? 0 : Math.max(0, Date.parse(at) - Date.parse(startedAt)),
+    wallTimeMs: startedAt === null ? 0 : Math.max(0, Date.parse(at) - Date.parse(startedAt)),
     recursiveCalls: run
       ? runtime.rlmEpisodes.filter((episode) => episode.runId === run.id).length
       : 0,
@@ -149,7 +146,10 @@ export function startRlm(input: StartRlmInput) {
     }
     if (input.branches.length < 2) {
       return yield* Effect.fail(
-        new RlmStartError("supervised_rlm_branches_required", "RLM requires at least two independent branches."),
+        new RlmStartError(
+          "supervised_rlm_branches_required",
+          "RLM requires at least two independent branches.",
+        ),
       );
     }
     const distinctBranchPrompts = new Set(
@@ -198,12 +198,15 @@ export function startRlm(input: StartRlmInput) {
     const policyRun = requestedExistingRun ?? replayedRun;
     const policy = policyRun
       ? input.runtime.runPolicies.find((candidate) => candidate.id === policyRun.policyId)
-      : input.runtime.runPolicies.find(
+      : (input.runtime.runPolicies.find(
           (candidate) => candidate.revision === input.authorityReceipt.runPolicyRevision,
-        ) ?? input.runtime.runPolicies[0];
+        ) ?? input.runtime.runPolicies[0]);
     if (!policy) {
       return yield* Effect.fail(
-        new RlmStartError("supervised_rlm_policy_unavailable", "No durable RunPolicy is available."),
+        new RlmStartError(
+          "supervised_rlm_policy_unavailable",
+          "No durable RunPolicy is available.",
+        ),
       );
     }
     const policyDecision = evaluateRunPolicy(
@@ -226,7 +229,10 @@ export function startRlm(input: StartRlmInput) {
       !input.authorityReceipt.roomScopes.includes(input.room.id)
     ) {
       return yield* Effect.fail(
-        new RlmStartError("supervised_rlm_scope_denied", "The caller does not own the selected Room scope."),
+        new RlmStartError(
+          "supervised_rlm_scope_denied",
+          "The caller does not own the selected Room scope.",
+        ),
       );
     }
 
@@ -259,10 +265,15 @@ export function startRlm(input: StartRlmInput) {
     let run: Run;
     const existingRun = requestedExistingRun ?? replayedRun;
     if (existingRun) {
-      const existingTask = input.runtime.tasks.find((candidate) => candidate.id === existingRun.taskId);
+      const existingTask = input.runtime.tasks.find(
+        (candidate) => candidate.id === existingRun.taskId,
+      );
       if (!existingTask) {
         return yield* Effect.fail(
-          new RlmStartError("supervised_rlm_task_unavailable", "The Run's durable Task is unavailable."),
+          new RlmStartError(
+            "supervised_rlm_task_unavailable",
+            "The Run's durable Task is unavailable.",
+          ),
         );
       }
       task = existingTask;
@@ -277,18 +288,26 @@ export function startRlm(input: StartRlmInput) {
         );
       }
       const replayedTask = input.runtime.tasks.find((candidate) => candidate.id === plannedTaskId);
-      task = replayedTask ?? decode(Task, {
-          id: plannedTaskId,
-          roomId: input.room.id,
-          title: input.objective.slice(0, 512),
-          intent: input.objective,
-          acceptanceCriteria: ["Independent branch transcripts and retained synthesis evidence exist."],
-          lifecycle: "active",
-          activeGraphRevision: input.room.graphRevision,
-          revision: 0,
-          createdAt: input.createdAt,
-          updatedAt: input.createdAt,
-        }, "RLM Task");
+      task =
+        replayedTask ??
+        decode(
+          Task,
+          {
+            id: plannedTaskId,
+            roomId: input.room.id,
+            title: input.objective.slice(0, 512),
+            intent: input.objective,
+            acceptanceCriteria: [
+              "Independent branch transcripts and retained synthesis evidence exist.",
+            ],
+            lifecycle: "active",
+            activeGraphRevision: input.room.graphRevision,
+            revision: 0,
+            createdAt: input.createdAt,
+            updatedAt: input.createdAt,
+          },
+          "RLM Task",
+        );
       if (!replayedTask) {
         yield* dispatchSupervised({
           type: "supervised.task.create",
@@ -296,24 +315,28 @@ export function startRlm(input: StartRlmInput) {
           task,
         });
       }
-      run = decode(Run, {
-        id: plannedRunId,
-        roomId: input.room.id,
-        taskId: task.id,
-        taskNodeId: null,
-        taskNodeRevisionId: null,
-        ownerSeatId: input.seat.id,
-        policyId: policy.id,
-        status: "queued",
-        attempt: 1,
-        daemonEpoch: Math.max(1, input.runtime.health.daemonEpoch),
-        startedAt: null,
-        lastProgressAt: null,
-        finishedAt: null,
-        revision: 0,
-        createdAt: input.createdAt,
-        updatedAt: input.createdAt,
-      }, "RLM Run");
+      run = decode(
+        Run,
+        {
+          id: plannedRunId,
+          roomId: input.room.id,
+          taskId: task.id,
+          taskNodeId: null,
+          taskNodeRevisionId: null,
+          ownerSeatId: input.seat.id,
+          policyId: policy.id,
+          status: "queued",
+          attempt: 1,
+          daemonEpoch: Math.max(1, input.runtime.health.daemonEpoch),
+          startedAt: null,
+          lastProgressAt: null,
+          finishedAt: null,
+          revision: 0,
+          createdAt: input.createdAt,
+          updatedAt: input.createdAt,
+        },
+        "RLM Run",
+      );
       yield* dispatchSupervised({
         type: "supervised.run.request",
         ...commandBase(run.id, 0, "run-request"),
@@ -341,7 +364,8 @@ export function startRlm(input: StartRlmInput) {
         ...run,
         status,
         revision: run.revision + 1,
-        startedAt: run.startedAt ?? (status === "starting" || status === "running" ? input.createdAt : null),
+        startedAt:
+          run.startedAt ?? (status === "starting" || status === "running" ? input.createdAt : null),
         lastProgressAt: status === "running" ? input.createdAt : run.lastProgressAt,
         updatedAt: input.createdAt,
       };
@@ -359,16 +383,24 @@ export function startRlm(input: StartRlmInput) {
       (candidate) => candidate.projectId === input.project.id && candidate.roomId === input.room.id,
     );
     if (!contextWorkspace) {
-      contextWorkspace = decode(ContextWorkspace, {
-        id: ContextWorkspaceId.makeUnsafe(`context-workspace:${input.room.id}`),
-        projectId: input.project.id,
-        roomId: input.room.id,
-        revision: 0,
-        highWaterSequence: input.runtime.snapshotSequence,
-        retention: { maxAgeMs: 30 * 24 * 60 * 60 * 1_000, maxInlineBytes: 64_000, compactAfterRecords: 200 },
-        createdAt: input.createdAt,
-        updatedAt: input.createdAt,
-      }, "Context Workspace");
+      contextWorkspace = decode(
+        ContextWorkspace,
+        {
+          id: ContextWorkspaceId.makeUnsafe(`context-workspace:${input.room.id}`),
+          projectId: input.project.id,
+          roomId: input.room.id,
+          revision: 0,
+          highWaterSequence: input.runtime.snapshotSequence,
+          retention: {
+            maxAgeMs: 30 * 24 * 60 * 60 * 1_000,
+            maxInlineBytes: 64_000,
+            compactAfterRecords: 200,
+          },
+          createdAt: input.createdAt,
+          updatedAt: input.createdAt,
+        },
+        "Context Workspace",
+      );
       yield* dispatchSupervised({
         type: "supervised.context.workspace-upsert",
         ...commandBase(contextWorkspace.id, 0, "context-workspace"),
@@ -424,7 +456,10 @@ export function startRlm(input: StartRlmInput) {
       estimatedContextPercent:
         input.providerLimitTokens === null
           ? 0
-          : Math.min(100, (admissionContext.view.estimatedTokens / input.providerLimitTokens) * 100),
+          : Math.min(
+              100,
+              (admissionContext.view.estimatedTokens / input.providerLimitTokens) * 100,
+            ),
       estimatedInputTokens,
       independentEvidenceBranches: branchPlans.length,
       policyId: policy.id,
@@ -441,24 +476,30 @@ export function startRlm(input: StartRlmInput) {
         ),
       );
     }
-    let episode = existingEpisode ?? decode(RlmEpisode, {
-      id: episodeId,
-      runId: run.id,
-      admission,
-      status: "requested",
-      rootModelSessionId,
-      branchModelSessionIds: branchPlans.map((branch) => branch.modelSessionId),
-      branchCount: branchPlans.length,
-      completedBranchCount: 0,
-      staleBranchCount: 0,
-      coveragePercent: 0,
-      contradictionCount: 0,
-      evidenceRefs: [],
-      failureSummaries: [],
-      revision: 0,
-      createdAt: input.createdAt,
-      updatedAt: input.createdAt,
-    }, "RLM Episode");
+    let episode =
+      existingEpisode ??
+      decode(
+        RlmEpisode,
+        {
+          id: episodeId,
+          runId: run.id,
+          admission,
+          status: "requested",
+          rootModelSessionId,
+          branchModelSessionIds: branchPlans.map((branch) => branch.modelSessionId),
+          branchCount: branchPlans.length,
+          completedBranchCount: 0,
+          staleBranchCount: 0,
+          coveragePercent: 0,
+          contradictionCount: 0,
+          evidenceRefs: [],
+          failureSummaries: [],
+          revision: 0,
+          createdAt: input.createdAt,
+          updatedAt: input.createdAt,
+        },
+        "RLM Episode",
+      );
     if (!existingEpisode) {
       yield* dispatchSupervised({
         type: "supervised.rlm.upsert",
@@ -473,26 +514,28 @@ export function startRlm(input: StartRlmInput) {
       parentThreadId: ThreadId,
       suffix: string,
     ) =>
-      input.engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe(
-          stableId("command:rlm-thread-create", { requestKey, threadId, suffix }),
-        ),
-        threadId,
-        projectId: input.project.id,
-        title,
-        modelSelection: input.callerThread.modelSelection,
-        runtimeMode: input.callerThread.runtimeMode,
-        interactionMode: input.callerThread.interactionMode,
-        envMode: "local",
-        branch: null,
-        worktreePath: null,
-        workingDirectory: input.project.workspaceRoot,
-        parentThreadId,
-        creationSource: "supervised_native",
-        sourceThreadId: input.callerThread.id,
-        createdAt: input.createdAt,
-      }).pipe(Effect.mapError(dispatchFailure));
+      input.engine
+        .dispatch({
+          type: "thread.create",
+          commandId: CommandId.makeUnsafe(
+            stableId("command:rlm-thread-create", { requestKey, threadId, suffix }),
+          ),
+          threadId,
+          projectId: input.project.id,
+          title,
+          modelSelection: input.callerThread.modelSelection,
+          runtimeMode: input.callerThread.runtimeMode,
+          interactionMode: input.callerThread.interactionMode,
+          envMode: "local",
+          branch: null,
+          worktreePath: null,
+          workingDirectory: input.project.workspaceRoot,
+          parentThreadId,
+          creationSource: "supervised_native",
+          sourceThreadId: input.callerThread.id,
+          createdAt: input.createdAt,
+        })
+        .pipe(Effect.mapError(dispatchFailure));
     const makeTrace = (inputTrace: {
       readonly id: ModelSessionId;
       readonly threadId: ThreadId;
@@ -502,60 +545,65 @@ export function startRlm(input: StartRlmInput) {
       readonly prompt: string;
     }) => {
       const context = contextFor();
-      return decode(ModelSessionTrace, {
-        id: inputTrace.id,
-        roomId: input.room.id,
-        runId: run.id,
-        taskId: task.id,
-        taskNodeId: run.taskNodeId,
-        actorSeatId: input.authorityReceipt.actorSeatId,
-        authorityReceiptId: input.authorityReceipt.id,
-        effectiveRole: input.authorityReceipt.effectiveRole,
-        rootLeaseIds: [...input.authorityReceipt.rootLeaseIds],
-        rlmEpisodeId: episode.id,
-        parentSessionId: inputTrace.parentSessionId,
-        peerSpecialtyId: null,
-        threadId: inputTrace.threadId,
-        role: inputTrace.role,
-        title: inputTrace.title,
-        provider: input.callerThread.modelSelection.provider,
-        model: input.callerThread.modelSelection.model,
-        reasoningEffort: reasoningEffort(input.callerThread.modelSelection),
-        providerSessionId: null,
-        providerCallId: null,
-        contextViewRefs: context.view.recordIds,
-        contextView: context.view,
-        promptHash: inputTrace.role === "rlm_branch" ? promptReceiptHash(inputTrace.prompt) : null,
-        inputSummary: inputTrace.prompt,
-        items: [
-          {
-            id: `${inputTrace.id}:context`,
-            type: "context_receipt",
-            label: "Scoped durable ContextView",
-            contextRecordIds: context.view.recordIds,
-            createdAt: input.createdAt,
+      return decode(
+        ModelSessionTrace,
+        {
+          id: inputTrace.id,
+          roomId: input.room.id,
+          runId: run.id,
+          taskId: task.id,
+          taskNodeId: run.taskNodeId,
+          actorSeatId: input.authorityReceipt.actorSeatId,
+          authorityReceiptId: input.authorityReceipt.id,
+          effectiveRole: input.authorityReceipt.effectiveRole,
+          rootLeaseIds: [...input.authorityReceipt.rootLeaseIds],
+          rlmEpisodeId: episode.id,
+          parentSessionId: inputTrace.parentSessionId,
+          peerSpecialtyId: null,
+          threadId: inputTrace.threadId,
+          role: inputTrace.role,
+          title: inputTrace.title,
+          provider: input.callerThread.modelSelection.provider,
+          model: input.callerThread.modelSelection.model,
+          reasoningEffort: reasoningEffort(input.callerThread.modelSelection),
+          providerSessionId: null,
+          providerCallId: null,
+          contextViewRefs: context.view.recordIds,
+          contextView: context.view,
+          promptHash:
+            inputTrace.role === "rlm_branch" ? promptReceiptHash(inputTrace.prompt) : null,
+          inputSummary: inputTrace.prompt,
+          items: [
+            {
+              id: `${inputTrace.id}:context`,
+              type: "context_receipt",
+              label: "Scoped durable ContextView",
+              contextRecordIds: context.view.recordIds,
+              createdAt: input.createdAt,
+            },
+          ],
+          usage: {
+            inputTokens: 0,
+            outputTokens: 0,
+            contextTokens: 0,
+            providerLimitTokens: null,
+            contextUsagePercent: null,
           },
-        ],
-        usage: {
-          inputTokens: 0,
-          outputTokens: 0,
-          contextTokens: 0,
-          providerLimitTokens: null,
-          contextUsagePercent: null,
+          usageProvenance: {
+            inputOutputTokens: "unavailable",
+            contextWindow: "unavailable",
+          },
+          status: "queued",
+          retryCount: 0,
+          durationMs: null,
+          costUsd: null,
+          synthesisDestination: inputTrace.role === "rlm_branch" ? rootModelSessionId : null,
+          createdAt: input.createdAt,
+          updatedAt: input.createdAt,
+          revision: 0,
         },
-        usageProvenance: {
-          inputOutputTokens: "unavailable",
-          contextWindow: "unavailable",
-        },
-        status: "queued",
-        retryCount: 0,
-        durationMs: null,
-        costUsd: null,
-        synthesisDestination: inputTrace.role === "rlm_branch" ? rootModelSessionId : null,
-        createdAt: input.createdAt,
-        updatedAt: input.createdAt,
-        revision: 0,
-      }, `${inputTrace.role} ModelSessionTrace`);
+        `${inputTrace.role} ModelSessionTrace`,
+      );
     };
 
     const existingRootTrace = input.runtime.modelSessions.find(
@@ -641,37 +689,39 @@ export function startRlm(input: StartRlmInput) {
       const messageId = MessageId.makeUnsafe(
         stableId("rlm-message", { requestKey, branchIndex: index }),
       );
-      yield* input.engine.dispatch({
-        type: "thread.turn.start",
-        commandId: CommandId.makeUnsafe(
-          stableId("command:rlm-branch-turn", { requestKey, branchIndex: index }),
-        ),
-        threadId: branch.threadId,
-        message: {
-          messageId,
-          role: "thread",
-          text: prompt,
-          attachments: [],
-        },
-        modelSelection: input.callerThread.modelSelection,
-        dispatchMode: "queue",
-        dispatchOrigin: "agent",
-        threadOrigin: {
-          messageId,
-          rootThreadId: input.callerThread.id,
-          senderThreadId: rootThreadId,
-          targetThreadId: branch.threadId,
-          assignmentId: branch.modelSessionId,
-          runId: run.id,
-          correlationId: episode.id,
-          replyToMessageId: null,
-          hopCount: 0,
-          artifactRefs: [],
-        },
-        runtimeMode: input.callerThread.runtimeMode,
-        interactionMode: input.callerThread.interactionMode,
-        createdAt: input.createdAt,
-      }).pipe(Effect.mapError(dispatchFailure));
+      yield* input.engine
+        .dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.makeUnsafe(
+            stableId("command:rlm-branch-turn", { requestKey, branchIndex: index }),
+          ),
+          threadId: branch.threadId,
+          message: {
+            messageId,
+            role: "thread",
+            text: prompt,
+            attachments: [],
+          },
+          modelSelection: input.callerThread.modelSelection,
+          dispatchMode: "queue",
+          dispatchOrigin: "agent",
+          threadOrigin: {
+            messageId,
+            rootThreadId: input.callerThread.id,
+            senderThreadId: rootThreadId,
+            targetThreadId: branch.threadId,
+            assignmentId: branch.modelSessionId,
+            runId: run.id,
+            correlationId: episode.id,
+            replyToMessageId: null,
+            hopCount: 0,
+            artifactRefs: [],
+          },
+          runtimeMode: input.callerThread.runtimeMode,
+          interactionMode: input.callerThread.interactionMode,
+          createdAt: input.createdAt,
+        })
+        .pipe(Effect.mapError(dispatchFailure));
     }
 
     const episodeTransitions =

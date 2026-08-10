@@ -169,9 +169,7 @@ export const ServerSettingsPatch = Schema.Struct({
   addProjectBaseDirectory: Schema.optionalKey(StringSetting),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
   advisorModelSelection: Schema.optionalKey(ModelSelectionPatch),
-  advisorCustomInstructions: Schema.optionalKey(
-    Schema.String.check(Schema.isMaxLength(12_000)),
-  ),
+  advisorCustomInstructions: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(12_000))),
   providers: Schema.optionalKey(
     Schema.Struct({
       codex: Schema.optionalKey(

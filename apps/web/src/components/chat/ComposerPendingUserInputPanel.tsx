@@ -293,11 +293,7 @@ function ComposerPendingUserInputCard({
   const stepPushGenerationRef = useRef(0);
   const lockedShellHeightRef = useRef<number | null>(null);
 
-  const progress = derivePendingUserInputProgress(
-    prompt.questions,
-    answers,
-    renderedQuestionIndex,
-  );
+  const progress = derivePendingUserInputProgress(prompt.questions, answers, renderedQuestionIndex);
   const activeQuestion = progress.activeQuestion;
   const selectedOptionLabelSet = new Set(progress.selectedOptionLabels);
   const autoAdvanceTimerRef = useRef<number | null>(null);
@@ -715,10 +711,12 @@ function ComposerPendingUserInputCard({
                   selected &&
                   activeNoteTarget?.questionId === activeQuestion.id &&
                   activeNoteTarget.optionLabel === option.label;
-                const optionNote = getPendingUserInputOptionNote(progress.activeDraft, option.label);
+                const optionNote = getPendingUserInputOptionNote(
+                  progress.activeDraft,
+                  option.label,
+                );
                 const noteOpen = selected && noteEditing;
-                const keyboardNoteTarget =
-                  progress.selectedOptionLabels.at(-1) === option.label;
+                const keyboardNoteTarget = progress.selectedOptionLabels.at(-1) === option.label;
                 return (
                   <div
                     key={`${activeQuestion.id}:${option.label}`}
@@ -731,8 +729,7 @@ function ComposerPendingUserInputCard({
                         selected
                           ? "bg-[var(--color-background-button-secondary)]"
                           : "hover:bg-[var(--color-background-button-secondary-hover)]",
-                        (isResponding || stepPushBlockingInput) &&
-                          "cursor-not-allowed opacity-50",
+                        (isResponding || stepPushBlockingInput) && "cursor-not-allowed opacity-50",
                       )}
                     >
                       <span
@@ -841,7 +838,9 @@ function ComposerPendingUserInputCard({
               disabled={isResponding}
               aria-label={`Custom answer for ${activeQuestion.question}`}
               placeholder="Type another answer…"
-              onChange={(event) => onCustomAnswerChange(activeQuestion.id, event.currentTarget.value)}
+              onChange={(event) =>
+                onCustomAnswerChange(activeQuestion.id, event.currentTarget.value)
+              }
               onKeyDown={(event) => {
                 if (event.key !== "Enter" || !canContinue) return;
                 event.preventDefault();

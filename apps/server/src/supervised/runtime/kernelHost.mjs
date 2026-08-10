@@ -8,11 +8,7 @@ for await (const line of lines) {
   let request;
   try {
     request = JSON.parse(line);
-    const fn = new AsyncFunction(
-      "state",
-      "input",
-      `"use strict";\n${request.code}\n`,
-    );
+    const fn = new AsyncFunction("state", "input", `"use strict";\n${request.code}\n`);
     const result = await fn(state, request.input ?? null);
     process.stdout.write(`${JSON.stringify({ id: request.id, ok: true, result })}\n`);
   } catch (error) {

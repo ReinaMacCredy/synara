@@ -6,9 +6,7 @@ import { makeSupervisedTools } from "./toolRegistry.ts";
 describe("Supervised host tool metadata", () => {
   it("classifies the bounded Supervised state reader as read-only", () => {
     const tools = makeSupervisedTools({} as never);
-    const readState = tools.find(
-      (tool) => tool.definition.name === "read_supervised_state",
-    );
+    const readState = tools.find((tool) => tool.definition.name === "read_supervised_state");
     assert.equal(readState?.definition.readOnly, true);
   });
 
@@ -30,12 +28,8 @@ describe("Supervised host tool metadata", () => {
 
   it("exposes typed Supervisor Lead-Room and Lead Task-Graph mutations", () => {
     const tools = makeSupervisedTools({} as never);
-    const createLeadRoom = tools.find(
-      (tool) => tool.definition.name === "create_lead_room",
-    );
-    const createTaskGraph = tools.find(
-      (tool) => tool.definition.name === "create_task_graph",
-    );
+    const createLeadRoom = tools.find((tool) => tool.definition.name === "create_lead_room");
+    const createTaskGraph = tools.find((tool) => tool.definition.name === "create_task_graph");
 
     assert.equal(createLeadRoom?.definition.supervised?.toolId, "supervised.agent.create");
     assert.equal(createTaskGraph?.definition.supervised?.toolId, "supervised.task.delegate");
@@ -46,9 +40,7 @@ describe("Supervised host tool metadata", () => {
   it("exposes the direct Peer-work lifecycle through canonical intent tools", () => {
     const tools = makeSupervisedTools({} as never);
     const createPeer = tools.find((tool) => tool.definition.name === "create_peer");
-    const assignPeerWork = tools.find(
-      (tool) => tool.definition.name === "assign_peer_work",
-    );
+    const assignPeerWork = tools.find((tool) => tool.definition.name === "assign_peer_work");
     const publishPeerEvidence = tools.find(
       (tool) => tool.definition.name === "publish_peer_evidence",
     );
@@ -58,29 +50,25 @@ describe("Supervised host tool metadata", () => {
 
     assert.equal(createPeer?.definition.supervised?.toolId, "supervised.agent.create");
     assert.equal(assignPeerWork?.definition.supervised?.toolId, "supervised.work.assign");
-    assert.equal(
-      publishPeerEvidence?.definition.supervised?.toolId,
-      "supervised.evidence.publish",
-    );
+    assert.equal(publishPeerEvidence?.definition.supervised?.toolId, "supervised.evidence.publish");
     assert.equal(
       reconcilePeerIntervention?.definition.supervised?.toolId,
       "supervised.intervention.reconcile",
     );
     assert.equal(assignPeerWork?.definition.readOnly, false);
     assert.equal(publishPeerEvidence?.definition.readOnly, false);
-    assert.deepEqual(
-      assignPeerWork?.definition.inputSchema.required,
-      ["roomId", "peerThreadId", "workRequest"],
-    );
+    assert.deepEqual(assignPeerWork?.definition.inputSchema.required, [
+      "roomId",
+      "peerThreadId",
+      "workRequest",
+    ]);
   });
 
   it("exposes the durable TaskNode Run lifecycle through role-bounded intent tools", () => {
     const tools = makeSupervisedTools({} as never);
     const delegate = tools.find((tool) => tool.definition.name === "delegate_task_node");
     const start = tools.find((tool) => tool.definition.name === "start_task_node_run");
-    const publish = tools.find(
-      (tool) => tool.definition.name === "publish_task_node_evidence",
-    );
+    const publish = tools.find((tool) => tool.definition.name === "publish_task_node_evidence");
     const accept = tools.find((tool) => tool.definition.name === "accept_task_node");
 
     assert.equal(delegate?.definition.supervised?.toolId, "supervised.task.delegate");

@@ -242,14 +242,14 @@ export const migrationEntries = [
   [100, "SupervisorFirstGovernance", Migration0100],
   [101, "SupervisorFirstLifecycle", Migration0101],
   [102, "SupervisedToolReceipts", Migration0102],
-    [103, "SupervisedModelRouting", Migration0103],
-    [104, "SupervisedContextNotebookRlm", Migration0104],
-    [105, "SupervisedSignalPluginLearning", Migration0105],
-    [106, "SupervisedRuntimeDeliveryAndIngestion", Migration0106],
-    [107, "SupervisedToolPolicies", Migration0107],
-    [108, "SupervisedCanonicalCutover", Migration0108],
-    [109, "SupervisedCanonicalRepair", Migration0109],
-  ] as const;
+  [103, "SupervisedModelRouting", Migration0103],
+  [104, "SupervisedContextNotebookRlm", Migration0104],
+  [105, "SupervisedSignalPluginLearning", Migration0105],
+  [106, "SupervisedRuntimeDeliveryAndIngestion", Migration0106],
+  [107, "SupervisedToolPolicies", Migration0107],
+  [108, "SupervisedCanonicalCutover", Migration0108],
+  [109, "SupervisedCanonicalRepair", Migration0109],
+] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>
   Migrator.fromRecord(

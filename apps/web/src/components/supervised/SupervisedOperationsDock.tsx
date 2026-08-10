@@ -164,7 +164,9 @@ function SignalRow(props: {
         <span>
           Delivery {props.preview ? "suppressed" : deliveryLabel(props.snapshot, props.signal)}
         </span>
-        {subscription ? <span>Cooldown {Math.round(subscription.cooldownMs / 60_000)}m</span> : null}
+        {subscription ? (
+          <span>Cooldown {Math.round(subscription.cooldownMs / 60_000)}m</span>
+        ) : null}
         {subscription?.allowedActionRequests[0] ? (
           <span>May request {subscription.allowedActionRequests[0]}</span>
         ) : (
@@ -180,11 +182,15 @@ function SignalRow(props: {
           <dl className="mt-2 grid gap-1.5 rounded-md border border-border/55 bg-background/35 p-2 text-[10px] leading-4 text-muted-foreground">
             <div>
               <dt className="inline font-medium text-foreground/80">Source events: </dt>
-              <dd className="inline break-all">{props.signal.sourceEventIds.join(", ") || "none"}</dd>
+              <dd className="inline break-all">
+                {props.signal.sourceEventIds.join(", ") || "none"}
+              </dd>
             </div>
             <div>
               <dt className="inline font-medium text-foreground/80">Metric samples: </dt>
-              <dd className="inline break-all">{props.signal.metricSampleIds.join(", ") || "none"}</dd>
+              <dd className="inline break-all">
+                {props.signal.metricSampleIds.join(", ") || "none"}
+              </dd>
             </div>
             <div>
               <dt className="inline font-medium text-foreground/80">Aggregation receipt: </dt>
@@ -218,9 +224,7 @@ function OperationalRow(props: {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="truncate text-xs font-medium text-foreground">{props.title}</h3>
-          <p className="mt-1.5 text-[11px] leading-4 text-muted-foreground">
-            {props.description}
-          </p>
+          <p className="mt-1.5 text-[11px] leading-4 text-muted-foreground">{props.description}</p>
         </div>
         <span className="shrink-0 text-[10px] capitalize text-muted-foreground">
           {props.status}
@@ -246,11 +250,10 @@ function ActivityPanel(props: {
     [props.roomId, props.snapshot.signals],
   );
   const taskIds = useMemo(
-    () => new Set(
-      props.snapshot.tasks
-        .filter((task) => task.roomId === props.roomId)
-        .map((task) => task.id),
-    ),
+    () =>
+      new Set(
+        props.snapshot.tasks.filter((task) => task.roomId === props.roomId).map((task) => task.id),
+      ),
     [props.roomId, props.snapshot.tasks],
   );
   const facts = useMemo(
@@ -273,7 +276,7 @@ function ActivityPanel(props: {
           status: run.status,
           at: run.updatedAt,
         })),
-      ...props.snapshot.interventions
+      ...(props.snapshot.interventions ?? [])
         .filter((intervention) => intervention.roomId === props.roomId)
         .map((intervention) => ({
           id: `intervention:${intervention.id}`,
@@ -283,37 +286,48 @@ function ActivityPanel(props: {
           at: intervention.updatedAt,
         })),
     ],
-    [props.roomId, props.snapshot.interventions, props.snapshot.runs, props.snapshot.tasks, taskIds],
+    [
+      props.roomId,
+      props.snapshot.interventions,
+      props.snapshot.runs,
+      props.snapshot.tasks,
+      taskIds,
+    ],
   );
   const observations = useMemo(
-    () => props.snapshot.contextRecords
-      .filter((record) =>
-        record.scope.kind === "global" ||
-        (record.scope.kind === "room" && record.scope.roomId === props.roomId),
-      )
-      .map((record) => ({
-        id: `context:${record.id}`,
-        title: record.title,
-        description: `${record.kind} observation · context revision ${record.contentRevision} · ${record.sourceEventIds.length} source events`,
-        status: record.status,
-        at: record.updatedAt,
-      })),
+    () =>
+      (props.snapshot.contextRecords ?? [])
+        .filter(
+          (record) =>
+            record.scope.kind === "global" ||
+            (record.scope.kind === "room" && record.scope.roomId === props.roomId),
+        )
+        .map((record) => ({
+          id: `context:${record.id}`,
+          title: record.title,
+          description: `${record.kind} observation · context revision ${record.contentRevision} · ${record.sourceEventIds.length} source events`,
+          status: record.status,
+          at: record.updatedAt,
+        })),
     [props.roomId, props.snapshot.contextRecords],
   );
   const commands = useMemo(
-    () => props.snapshot.audit.slice(0, 50).map((entry) => ({
-      id: `audit:${entry.sequence}`,
-      title: entry.action,
-      description: `${entry.actor.kind} ${entry.actor.actorId} · ${entry.targetKind} ${entry.targetId}`,
-      status: entry.outcome,
-      at: entry.occurredAt,
-    })),
+    () =>
+      (props.snapshot.audit ?? []).slice(0, 50).map((entry) => ({
+        id: `audit:${entry.sequence}`,
+        title: entry.action,
+        description: `${entry.actor.kind} ${entry.actor.actorId} · ${entry.targetKind} ${entry.targetId}`,
+        status: entry.outcome,
+        at: entry.occurredAt,
+      })),
     [props.snapshot.audit],
   );
 
   const runSyntheticTest = async () => {
     const api = readNativeApi();
-    const subscription = props.snapshot.subscriptions.find((candidate) => candidate.state === "enabled");
+    const subscription = props.snapshot.subscriptions.find(
+      (candidate) => candidate.state === "enabled",
+    );
     if (!api || !subscription) return;
     setTesting(true);
     setTestError(null);
@@ -359,7 +373,9 @@ function ActivityPanel(props: {
         {filter === "facts" && facts.length > 0 ? (
           facts.map((fact) => <OperationalRow key={fact.id} {...fact} />)
         ) : filter === "observations" && observations.length > 0 ? (
-          observations.map((observation) => <OperationalRow key={observation.id} {...observation} />)
+          observations.map((observation) => (
+            <OperationalRow key={observation.id} {...observation} />
+          ))
         ) : filter === "commands" && commands.length > 0 ? (
           commands.map((command) => <OperationalRow key={command.id} {...command} />)
         ) : filter === "signals" && (previewSignal || signals.length > 0) ? (
@@ -420,24 +436,32 @@ function TaskGraphPanel(props: {
             <span className="text-[10px] capitalize text-muted-foreground">{task.lifecycle}</span>
           </div>
           <div className="mt-3 space-y-1.5">
-            {nodes.filter((node) => node.taskId === task.id).map((node) => (
-              <button
-                key={node.id}
-                type="button"
-                className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
-                disabled={!props.snapshot.modelSessions.some((session) => session.taskNodeId === node.id)}
-                title={
-                  props.snapshot.modelSessions.some((session) => session.taskNodeId === node.id)
-                    ? "Open the model transcript that executed this TaskNode"
-                    : "No model session receipt has been recorded for this TaskNode"
-                }
-                onClick={() => props.onOpenTranscript(node.id)}
-              >
-                <span className="size-1.5 rounded-full bg-muted-foreground/55" />
-                <span className="min-w-0 flex-1 truncate">{node.title}</span>
-                <span className="capitalize">{node.lifecycle}</span>
-              </button>
-            ))}
+            {nodes
+              .filter((node) => node.taskId === task.id)
+              .map((node) => (
+                <button
+                  key={node.id}
+                  type="button"
+                  className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+                  disabled={
+                    !(props.snapshot.modelSessions ?? []).some(
+                      (session) => session.taskNodeId === node.id,
+                    )
+                  }
+                  title={
+                    (props.snapshot.modelSessions ?? []).some(
+                      (session) => session.taskNodeId === node.id,
+                    )
+                      ? "Open the model transcript that executed this TaskNode"
+                      : "No model session receipt has been recorded for this TaskNode"
+                  }
+                  onClick={() => props.onOpenTranscript(node.id)}
+                >
+                  <span className="size-1.5 rounded-full bg-muted-foreground/55" />
+                  <span className="min-w-0 flex-1 truncate">{node.title}</span>
+                  <span className="capitalize">{node.lifecycle}</span>
+                </button>
+              ))}
           </div>
         </section>
       ))}
@@ -449,7 +473,9 @@ export function SupervisedOperationsDock(props: {
   readonly roomId: string;
   readonly conversation: ReactNode;
   readonly supervisorConversation?: ReactNode;
-  readonly navigationRequest?: SupervisedTopologyOpenTarget & { readonly requestId: number };
+  readonly navigationRequest?:
+    | (SupervisedTopologyOpenTarget & { readonly requestId: number })
+    | undefined;
 }) {
   const [tab, setTab] = useState<OperationsTab>("activity");
   const [conversationGroup, setConversationGroup] = useState<ConversationGroup>("supervisor");
@@ -468,23 +494,22 @@ export function SupervisedOperationsDock(props: {
     setTab("conversation");
   }, [props.navigationRequest]);
   const openTaskNodeTranscript = (taskNodeId: string) => {
-    const session = query.data?.modelSessions
+    const session = (query.data?.modelSessions ?? [])
       .filter((candidate) => candidate.taskNodeId === taskNodeId)
       .toSorted((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
     if (!session) return;
     setConversationGroup(
-      session.role === "lead"
-        ? "lead"
-        : isPeerModelSessionRole(session.role)
-          ? "peers"
-          : "rlm",
+      session.role === "lead" ? "lead" : isPeerModelSessionRole(session.role) ? "peers" : "rlm",
     );
     setSelectedSessionId(session.id);
     setTab("conversation");
   };
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--color-background-surface)]">
-      <nav className="flex h-11 shrink-0 items-end gap-4 border-b border-border/60 px-4" aria-label="Room operations">
+      <nav
+        className="flex h-11 shrink-0 items-end gap-4 border-b border-border/60 px-4"
+        aria-label="Room operations"
+      >
         {OPERATIONS_TABS.map((item) => (
           <button
             key={item.id}
@@ -540,7 +565,8 @@ export function SupervisedOperationsDock(props: {
           <div className="mt-3 rounded-lg border border-border/65 p-3">
             <div className="text-xs font-medium">Delivery state</div>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              {query.data.deliveries.length} deliveries · {query.data.deadLetters.length} DeadLetters
+              {query.data.deliveries.length} deliveries · {query.data.deadLetters.length}{" "}
+              DeadLetters
             </p>
           </div>
         </div>

@@ -124,11 +124,8 @@ export const SupervisedToolResultState = Schema.Literals([
 ]);
 export type SupervisedToolResultState = typeof SupervisedToolResultState.Type;
 
-export const SupervisedToolInvocationReceiptId = entityId(
-  "SupervisedToolInvocationReceiptId",
-);
-export type SupervisedToolInvocationReceiptId =
-  typeof SupervisedToolInvocationReceiptId.Type;
+export const SupervisedToolInvocationReceiptId = entityId("SupervisedToolInvocationReceiptId");
+export type SupervisedToolInvocationReceiptId = typeof SupervisedToolInvocationReceiptId.Type;
 
 export const SupervisedToolInvocationReceipt = Schema.Struct({
   id: SupervisedToolInvocationReceiptId,
@@ -147,5 +144,4 @@ export const SupervisedToolInvocationReceipt = Schema.Struct({
   errorCode: Schema.NullOr(TrimmedNonEmptyString),
   errorMessage: Schema.NullOr(Schema.String),
 });
-export type SupervisedToolInvocationReceipt =
-  typeof SupervisedToolInvocationReceipt.Type;
+export type SupervisedToolInvocationReceipt = typeof SupervisedToolInvocationReceipt.Type;

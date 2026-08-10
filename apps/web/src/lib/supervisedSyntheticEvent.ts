@@ -1,7 +1,4 @@
-import type {
-  ControlPlaneEvent,
-  SubscriptionDefinition,
-} from "@synara/contracts";
+import type { ControlPlaneEvent, SubscriptionDefinition } from "@synara/contracts";
 
 export function makeSupervisedSyntheticEvent(
   subscription: SubscriptionDefinition,
@@ -47,11 +44,7 @@ export function makeSupervisedSyntheticEvent(
   }
   if (subscription.aggregation.function !== "count") {
     const metricField = subscription.aggregation.field ?? selectorNames[0];
-    if (
-      metricField &&
-      !metricField.includes(".") &&
-      typeof payload[metricField] !== "number"
-    ) {
+    if (metricField && !metricField.includes(".") && typeof payload[metricField] !== "number") {
       payload[metricField] = thresholdValue;
     }
   }

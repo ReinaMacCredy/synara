@@ -1776,16 +1776,16 @@ const make = Effect.gen(function* () {
               );
           // Reuse the parent's full selection when the models match so capability
           // flags (e.g. supportsAutoMode) survive; a diverging subagent model gets
-            // a bare selection because the parent's flags don't describe it.
-            const resolvedModelSelection =
-              resolvedIdentity?.model && resolvedIdentity.modelIsRequestedHint !== true
-                ? resolvedIdentity.model === parentThread.modelSelection.model
-                  ? parentThread.modelSelection
-                  : {
-                      provider: parentThread.modelSelection.provider,
-                      model: resolvedIdentity.model,
-                    }
-                : undefined;
+          // a bare selection because the parent's flags don't describe it.
+          const resolvedModelSelection =
+            resolvedIdentity?.model && resolvedIdentity.modelIsRequestedHint !== true
+              ? resolvedIdentity.model === parentThread.modelSelection.model
+                ? parentThread.modelSelection
+                : {
+                    provider: parentThread.modelSelection.provider,
+                    model: resolvedIdentity.model,
+                  }
+              : undefined;
 
           if (Option.isNone(existingThread)) {
             // The read above hides soft-deleted threads, but `thread.create` is
@@ -2119,9 +2119,7 @@ const make = Effect.gen(function* () {
               status,
               providerName: event.provider,
               providerSessionId:
-                event.providerRefs?.providerThreadId ??
-                thread.session?.providerSessionId ??
-                null,
+                event.providerRefs?.providerThreadId ?? thread.session?.providerSessionId ?? null,
               runtimeMode: thread.session?.runtimeMode ?? "full-access",
               activeTurnId: nextActiveTurnId,
               lastError,
@@ -2433,9 +2431,7 @@ const make = Effect.gen(function* () {
               status: "error",
               providerName: event.provider,
               providerSessionId:
-                event.providerRefs?.providerThreadId ??
-                thread.session?.providerSessionId ??
-                null,
+                event.providerRefs?.providerThreadId ?? thread.session?.providerSessionId ?? null,
               runtimeMode: thread.session?.runtimeMode ?? "full-access",
               activeTurnId: eventTurnId ?? null,
               lastError: runtimeErrorMessage,

@@ -85,8 +85,13 @@ export function buildContextView(input: BuildContextViewInput): BuiltContextView
   const ordered = candidates
     .filter((record) => !compactedSourceIds.has(record.id))
     .toSorted((left, right) => {
-      const obligationOrder = Number(right.kind === "obligation") - Number(left.kind === "obligation");
-      return obligationOrder || right.updatedAt.localeCompare(left.updatedAt) || left.id.localeCompare(right.id);
+      const obligationOrder =
+        Number(right.kind === "obligation") - Number(left.kind === "obligation");
+      return (
+        obligationOrder ||
+        right.updatedAt.localeCompare(left.updatedAt) ||
+        left.id.localeCompare(right.id)
+      );
     });
 
   const selected: ContextRecord[] = [];

@@ -69,9 +69,7 @@ export interface SupervisedRuntimeRepositoryShape {
     ProjectionRepositoryError
   >;
   readonly hasActiveRlmWork: () => Effect.Effect<boolean, ProjectionRepositoryError>;
-  readonly getIngestionCursor: (
-    key: string,
-  ) => Effect.Effect<number, ProjectionRepositoryError>;
+  readonly getIngestionCursor: (key: string) => Effect.Effect<number, ProjectionRepositoryError>;
   readonly putIngestionCursor: (input: {
     readonly key: string;
     readonly sourceSequence: number;
@@ -95,9 +93,7 @@ export interface SupervisedRuntimeRepositoryShape {
   readonly upsertEventSchema: (
     schema: EventSchema,
   ) => Effect.Effect<void, ProjectionRepositoryError>;
-  readonly upsertRunPolicy: (
-    policy: RunPolicy,
-  ) => Effect.Effect<void, ProjectionRepositoryError>;
+  readonly upsertRunPolicy: (policy: RunPolicy) => Effect.Effect<void, ProjectionRepositoryError>;
   readonly upsertSubscription: (
     subscription: SubscriptionDefinition,
     runtime?: {
@@ -106,9 +102,7 @@ export interface SupervisedRuntimeRepositoryShape {
       readonly lastResetAt?: string | null;
     },
   ) => Effect.Effect<void, ProjectionRepositoryError>;
-  readonly upsertCursor: (
-    cursor: DeliveryCursor,
-  ) => Effect.Effect<void, ProjectionRepositoryError>;
+  readonly upsertCursor: (cursor: DeliveryCursor) => Effect.Effect<void, ProjectionRepositoryError>;
   readonly getSubscriptionEvaluationState: (
     subscriptionId: SubscriptionDefinition["id"],
   ) => Effect.Effect<SubscriptionEvaluationState, ProjectionRepositoryError>;
@@ -120,20 +114,18 @@ export interface SupervisedRuntimeRepositoryShape {
   readonly recordMetricSample: (
     sample: MetricSample,
   ) => Effect.Effect<void, ProjectionRepositoryError>;
-  readonly upsertSignal: (
-    signal: DerivedSignal,
-  ) => Effect.Effect<void, ProjectionRepositoryError>;
-    readonly enqueueDelivery: (
-      delivery: SubscriptionDelivery,
-    ) => Effect.Effect<boolean, ProjectionRepositoryError>;
-    readonly countPendingDeliveries: (
-      subscriptionId: SubscriptionDefinition["id"],
-    ) => Effect.Effect<number, ProjectionRepositoryError>;
-    readonly countDeliveredSince: (input: {
-      readonly subscriptionId: SubscriptionDefinition["id"];
-      readonly since: string;
-    }) => Effect.Effect<number, ProjectionRepositoryError>;
-    readonly claimDeliveries: (
+  readonly upsertSignal: (signal: DerivedSignal) => Effect.Effect<void, ProjectionRepositoryError>;
+  readonly enqueueDelivery: (
+    delivery: SubscriptionDelivery,
+  ) => Effect.Effect<boolean, ProjectionRepositoryError>;
+  readonly countPendingDeliveries: (
+    subscriptionId: SubscriptionDefinition["id"],
+  ) => Effect.Effect<number, ProjectionRepositoryError>;
+  readonly countDeliveredSince: (input: {
+    readonly subscriptionId: SubscriptionDefinition["id"];
+    readonly since: string;
+  }) => Effect.Effect<number, ProjectionRepositoryError>;
+  readonly claimDeliveries: (
     input: ClaimSupervisedDeliveriesInput,
   ) => Effect.Effect<ReadonlyArray<SubscriptionDelivery>, ProjectionRepositoryError>;
   readonly updateDelivery: (

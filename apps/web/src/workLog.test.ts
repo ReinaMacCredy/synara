@@ -2910,7 +2910,7 @@ describe("deriveWorkLogEntries", () => {
           data: {
             item: {
               prompt:
-                "SYNARA_ADVISOR_CONSULTATION_V1\nSYNARA_ADVISOR_QUESTION_JSON: \"Keep the adapter?\"\n\nYou are Advisor.",
+                'SYNARA_ADVISOR_CONSULTATION_V1\nSYNARA_ADVISOR_QUESTION_JSON: "Keep the adapter?"\n\nYou are Advisor.',
               receiverAgents: [
                 {
                   threadId: "subagent:parent:advisor-1",

@@ -236,10 +236,11 @@ const sameStringSet = (left: ReadonlyArray<string>, right: ReadonlyArray<string>
   return leftSorted.every((value, index) => value === rightSorted[index]);
 };
 
-const sameScopeSet = (
-  left: ReadonlyArray<object>,
-  right: ReadonlyArray<object>,
-) => sameStringSet(left.map((scope) => JSON.stringify(scope)), right.map((scope) => JSON.stringify(scope)));
+const sameScopeSet = (left: ReadonlyArray<object>, right: ReadonlyArray<object>) =>
+  sameStringSet(
+    left.map((scope) => JSON.stringify(scope)),
+    right.map((scope) => JSON.stringify(scope)),
+  );
 
 export function pluginInstallStepIdempotencyKey(input: {
   readonly step:
@@ -1193,7 +1194,9 @@ const makeWsRpcHandlersLayer = () =>
           rpcEffect(
             Effect.gen(function* () {
               yield* requireOwnerSession;
-              if (!supervisedIntentToolRegistry.some((descriptor) => descriptor.id === input.toolId)) {
+              if (
+                !supervisedIntentToolRegistry.some((descriptor) => descriptor.id === input.toolId)
+              ) {
                 return yield* Effect.fail(new Error(`Unknown Supervised tool '${input.toolId}'.`));
               }
               const now = new Date().toISOString();
@@ -1260,9 +1263,7 @@ const makeWsRpcHandlersLayer = () =>
               const inspection = yield* Effect.tryPromise(() =>
                 inspectSupervisedPluginPackage(input.directory),
               );
-              const requestedCapabilities = new Set(
-                inspection.manifest.requestedCapabilities,
-              );
+              const requestedCapabilities = new Set(inspection.manifest.requestedCapabilities);
               if (input.capabilities.some((capability) => !requestedCapabilities.has(capability))) {
                 return yield* Effect.fail(
                   new Error("Selected plugin capabilities exceed the inspected manifest."),
@@ -1301,18 +1302,16 @@ const makeWsRpcHandlersLayer = () =>
                   new Error("This plugin identity was revoked and cannot be reactivated."),
                 );
               }
-              const collidingSubscription = inspection.manifest.subscriptions.find(
-                (declared) => {
-                  const existing = snapshot.subscriptions.find(
-                    (subscription) => subscription.id === declared.id,
-                  );
-                  return (
-                    existing !== undefined &&
-                    (existing.destination.kind !== "plugin" ||
-                      existing.destination.pluginId !== inspection.manifest.pluginId)
-                  );
-                },
-              );
+              const collidingSubscription = inspection.manifest.subscriptions.find((declared) => {
+                const existing = snapshot.subscriptions.find(
+                  (subscription) => subscription.id === declared.id,
+                );
+                return (
+                  existing !== undefined &&
+                  (existing.destination.kind !== "plugin" ||
+                    existing.destination.pluginId !== inspection.manifest.pluginId)
+                );
+              });
               if (collidingSubscription) {
                 return yield* Effect.fail(
                   new Error(
@@ -1331,10 +1330,7 @@ const makeWsRpcHandlersLayer = () =>
                 sameStringSet(current.grant.capabilities, input.capabilities) &&
                 sameStringSet(current.grant.payloadFields, input.payloadFields) &&
                 sameScopeSet(current.grant.scopes, input.scopes) &&
-                sameStringSet(
-                  current.grant.allowedActionRequests,
-                  input.allowedActionRequests,
-                );
+                sameStringSet(current.grant.allowedActionRequests, input.allowedActionRequests);
               if (samePackage && !sameGrant) {
                 return yield* Effect.fail(
                   new Error(
@@ -1530,9 +1526,7 @@ const makeWsRpcHandlersLayer = () =>
                   const existing = snapshot.subscriptions.find(
                     (candidate) => candidate.id === subscription.id,
                   );
-                  const expectedRevision = existing
-                    ? existing.revision + 1
-                    : subscription.revision;
+                  const expectedRevision = existing ? existing.revision + 1 : subscription.revision;
                   const enableSubscriptionResult = yield* orchestrationEngine.dispatch({
                     type: "supervised.subscription.enable",
                     commandId: CommandId.makeUnsafe(`plugin-subscription-enable:${randomUUID()}`),
@@ -1555,7 +1549,7 @@ const makeWsRpcHandlersLayer = () =>
               return {
                 installation: finalInstallation,
                 sequence,
-                operation: current ? "upgraded" as const : "installed" as const,
+                operation: current ? ("upgraded" as const) : ("installed" as const),
               };
             }),
             "Failed to install Supervised plugin",
@@ -2121,8 +2115,8 @@ const makeWsRpcHandlersLayer = () =>
                 ),
               ),
             ),
-              { label: "projects.github-provision" },
-            ),
+            { label: "projects.github-provision" },
+          ),
         [WS_METHODS.filesystemBrowse]: (input) =>
           rpcEffect(workspaceEntries.browse(input), "Failed to browse filesystem"),
         [WS_METHODS.shellOpenInEditor]: (input) =>

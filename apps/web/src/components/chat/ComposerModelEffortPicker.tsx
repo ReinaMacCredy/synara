@@ -129,7 +129,8 @@ export function ComposerModelEffortPicker(props: ComposerModelEffortPickerProps)
     ? (controlledEffortOptions.find((option) => option.value === props.controlledEffort?.value)
         ?.label ?? props.controlledEffort.value)
     : null;
-  const triggerStatusLabel = controlledEffortLabel ?? resolveComposerTraitStatusLabel(traitSelection);
+  const triggerStatusLabel =
+    controlledEffortLabel ?? resolveComposerTraitStatusLabel(traitSelection);
   const showsFastBadge = showsComposerFastModeBadge(traitSelection);
 
   const handleAfterModelSelection = () => {

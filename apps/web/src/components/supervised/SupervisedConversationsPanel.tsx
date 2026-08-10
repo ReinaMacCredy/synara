@@ -36,7 +36,9 @@ function roleLabel(session: ModelSessionTrace): string {
   }
 }
 
-function orderRlmSessions(sessions: ReadonlyArray<ModelSessionTrace>): ReadonlyArray<ModelSessionTrace> {
+function orderRlmSessions(
+  sessions: ReadonlyArray<ModelSessionTrace>,
+): ReadonlyArray<ModelSessionTrace> {
   const byParent = new Map<string, Array<ModelSessionTrace>>();
   const roots: Array<ModelSessionTrace> = [];
   const knownIds = new Set(sessions.map((session) => session.id));
@@ -69,7 +71,10 @@ function orderRlmSessions(sessions: ReadonlyArray<ModelSessionTrace>): ReadonlyA
   return ordered;
 }
 
-function sessionDepth(session: ModelSessionTrace, sessions: ReadonlyArray<ModelSessionTrace>): number {
+function sessionDepth(
+  session: ModelSessionTrace,
+  sessions: ReadonlyArray<ModelSessionTrace>,
+): number {
   const byId = new Map(sessions.map((candidate) => [candidate.id, candidate]));
   const visited = new Set<string>();
   let current = session;
@@ -98,7 +103,9 @@ function RlmEpisodeSummary(props: { readonly episode: RlmEpisode }) {
         <div className="min-w-0">
           <div className="uppercase tracking-[0.14em]">RLM episode receipt</div>
           <div className="mt-1 break-all text-xs font-medium text-foreground">{episode.id}</div>
-          <div className="mt-1 break-all">Run {episode.runId} · revision {episode.revision}</div>
+          <div className="mt-1 break-all">
+            Run {episode.runId} · revision {episode.revision}
+          </div>
         </div>
         <span className="shrink-0 rounded-full border border-border/70 px-2 py-0.5 capitalize text-foreground">
           {statusLabel(episode.status)}
@@ -119,15 +126,24 @@ function RlmEpisodeSummary(props: { readonly episode: RlmEpisode }) {
       </div>
       <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 break-all">
         <dt>Mode</dt>
-        <dd>{admission.requestedMode} → {admission.selectedMode}</dd>
+        <dd>
+          {admission.requestedMode} → {admission.selectedMode}
+        </dd>
         <dt>Policy</dt>
         <dd>{admission.admittedByPolicyId}</dd>
         <dt>Estimate</dt>
-        <dd>{admission.estimatedInputTokens.toLocaleString()} input tokens · {admission.estimatedContextPercent}% context</dd>
+        <dd>
+          {admission.estimatedInputTokens.toLocaleString()} input tokens ·{" "}
+          {admission.estimatedContextPercent}% context
+        </dd>
         <dt>Root session</dt>
         <dd>{episode.rootModelSessionId ?? "not supplied"}</dd>
         <dt>Branch sessions</dt>
-        <dd>{episode.branchModelSessionIds.length > 0 ? episode.branchModelSessionIds.join(", ") : "not supplied"}</dd>
+        <dd>
+          {(episode.branchModelSessionIds ?? []).length > 0
+            ? (episode.branchModelSessionIds ?? []).join(", ")
+            : "not supplied"}
+        </dd>
       </dl>
       {admission.reasons.length > 0 ? (
         <div className="mt-2">Admission · {admission.reasons.join(" · ")}</div>
@@ -139,7 +155,9 @@ function RlmEpisodeSummary(props: { readonly episode: RlmEpisode }) {
       )}
       {episode.failureSummaries.length > 0 ? (
         <ul className="mt-2 space-y-1 border-l-2 border-destructive/50 pl-2 text-destructive">
-          {episode.failureSummaries.map((failure, index) => <li key={`${index}:${failure}`}>{failure}</li>)}
+          {episode.failureSummaries.map((failure, index) => (
+            <li key={`${index}:${failure}`}>{failure}</li>
+          ))}
         </ul>
       ) : null}
     </section>
@@ -151,11 +169,15 @@ function TranscriptItem(props: { readonly item: ModelTranscriptItem }) {
   switch (item.type) {
     case "message":
       return (
-        <article className={cn("rounded-lg border p-3", item.role === "assistant" && "bg-muted/25")}>
+        <article
+          className={cn("rounded-lg border p-3", item.role === "assistant" && "bg-muted/25")}
+        >
           <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
             {item.role === "assistant" ? "Assistant" : "Input"}
           </div>
-          <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-foreground">{item.content}</p>
+          <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-foreground">
+            {item.content}
+          </p>
           {item.reasoningSummary ? (
             <div className="mt-3 border-t border-border/55 pt-2">
               <div className="text-[10px] text-muted-foreground">Provider reasoning summary</div>
@@ -203,7 +225,9 @@ function TranscriptItem(props: { readonly item: ModelTranscriptItem }) {
           <div className="border-b border-border/55 px-3 py-2 text-[10px] text-muted-foreground">
             Kernel · {item.language} · {item.status}
           </div>
-          <pre className="overflow-x-auto bg-muted/25 px-3 py-2 text-[11px] leading-4">{item.code}</pre>
+          <pre className="overflow-x-auto bg-muted/25 px-3 py-2 text-[11px] leading-4">
+            {item.code}
+          </pre>
           {item.output ? (
             <pre className="overflow-x-auto border-t border-border/55 px-3 py-2 text-[11px] leading-4 text-muted-foreground">
               {item.output}
@@ -250,40 +274,71 @@ function SessionTranscript(props: { readonly session: ModelSessionTrace }) {
           </span>
         </div>
         <div className="mt-2 text-[10px] leading-4 text-muted-foreground">
-          {session.provider} · {session.model}{session.reasoningEffort ? ` · ${session.reasoningEffort}` : ""} · Run {session.runId}
+          {session.provider} · {session.model}
+          {session.reasoningEffort ? ` · ${session.reasoningEffort}` : ""} · Run {session.runId}
         </div>
         <details className="mt-2 text-[10px] text-muted-foreground">
           <summary className="cursor-pointer select-none">Session receipts</summary>
           <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 break-all">
-            <dt>Trace</dt><dd>{session.id}</dd>
-            <dt>Episode</dt><dd>{session.rlmEpisodeId ?? "not an RLM session"}</dd>
-            <dt>Thread</dt><dd>{session.threadId ?? "not supplied"}</dd>
-            <dt>Provider session</dt><dd>{session.providerSessionId ?? "not supplied by provider projection"}</dd>
-            <dt>Provider call</dt><dd>{session.providerCallId ?? "not supplied"}</dd>
-            <dt>Prompt SHA-256</dt><dd>{session.promptHash ?? "not supplied"}</dd>
-            <dt>Parent session</dt><dd>{session.parentSessionId ?? (session.rlmEpisodeId ? "none (RLM root session)" : "none")}</dd>
-            <dt>Caller seat</dt><dd>{session.actorSeatId ?? "not supplied"}</dd>
-            <dt>Authority receipt</dt><dd>{session.authorityReceiptId ?? "not supplied"}</dd>
-            <dt>Effective role</dt><dd className="capitalize">{session.effectiveRole ? statusLabel(session.effectiveRole) : "not supplied"}</dd>
-            <dt>Root leases</dt><dd>{session.rootLeaseIds.length > 0 ? session.rootLeaseIds.join(", ") : "none (no Root authority)"}</dd>
-            <dt>Task</dt><dd>{session.taskId}</dd>
-            <dt>TaskNode</dt><dd>{session.taskNodeId ?? "not scoped"}</dd>
-            <dt>ContextView</dt><dd>{contextView?.id ?? "not supplied"}</dd>
-            <dt>Context actor</dt><dd>{contextView?.actorSeatId ?? "not supplied"}</dd>
+            <dt>Trace</dt>
+            <dd>{session.id}</dd>
+            <dt>Episode</dt>
+            <dd>{session.rlmEpisodeId ?? "not an RLM session"}</dd>
+            <dt>Thread</dt>
+            <dd>{session.threadId ?? "not supplied"}</dd>
+            <dt>Provider session</dt>
+            <dd>{session.providerSessionId ?? "not supplied by provider projection"}</dd>
+            <dt>Provider call</dt>
+            <dd>{session.providerCallId ?? "not supplied"}</dd>
+            <dt>Prompt SHA-256</dt>
+            <dd>{session.promptHash ?? "not supplied"}</dd>
+            <dt>Parent session</dt>
+            <dd>
+              {session.parentSessionId ??
+                (session.rlmEpisodeId ? "none (RLM root session)" : "none")}
+            </dd>
+            <dt>Caller seat</dt>
+            <dd>{session.actorSeatId ?? "not supplied"}</dd>
+            <dt>Authority receipt</dt>
+            <dd>{session.authorityReceiptId ?? "not supplied"}</dd>
+            <dt>Effective role</dt>
+            <dd className="capitalize">
+              {session.effectiveRole ? statusLabel(session.effectiveRole) : "not supplied"}
+            </dd>
+            <dt>Root leases</dt>
+            <dd>
+              {(session.rootLeaseIds ?? []).length > 0
+                ? (session.rootLeaseIds ?? []).join(", ")
+                : "none (no Root authority)"}
+            </dd>
+            <dt>Task</dt>
+            <dd>{session.taskId}</dd>
+            <dt>TaskNode</dt>
+            <dd>{session.taskNodeId ?? "not scoped"}</dd>
+            <dt>ContextView</dt>
+            <dd>{contextView?.id ?? "not supplied"}</dd>
+            <dt>Context actor</dt>
+            <dd>{contextView?.actorSeatId ?? "not supplied"}</dd>
           </dl>
         </details>
       </header>
       <div className="space-y-3 p-4">
         <section className="rounded-lg border border-dashed border-border/70 p-3">
-          <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">ContextView / prompt receipt</div>
+          <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+            ContextView / prompt receipt
+          </div>
           <p className="mt-2 whitespace-pre-wrap text-xs leading-5">{session.inputSummary}</p>
           <div className="mt-2 text-[10px] text-muted-foreground">
             {session.contextViewRefs.length} durable context reference
             {session.contextViewRefs.length === 1 ? "" : "s"}
-            {contextView ? ` · ${contextView.estimatedTokens.toLocaleString()} estimated tokens · ${contextView.confidence} confidence` : ""}
+            {contextView
+              ? ` · ${contextView.estimatedTokens.toLocaleString()} estimated tokens · ${contextView.confidence} confidence`
+              : ""}
           </div>
         </section>
-        {session.items.map((item) => <TranscriptItem key={item.id} item={item} />)}
+        {session.items.map((item) => (
+          <TranscriptItem key={item.id} item={item} />
+        ))}
         {session.items.length === 0 ? (
           <div className="rounded-lg border border-dashed p-4 text-center text-[11px] text-muted-foreground">
             This session receipt has no model-visible transcript items yet.
@@ -292,15 +347,27 @@ function SessionTranscript(props: { readonly session: ModelSessionTrace }) {
       </div>
       <footer className="border-t border-border/60 px-4 py-3 text-[10px] leading-4 text-muted-foreground">
         <div>
-          Recorded context {usage.contextUsagePercent === null ? "unknown" : `${usage.contextUsagePercent}%`} · {usage.contextTokens.toLocaleString()}
-          {usage.providerLimitTokens ? ` / ${usage.providerLimitTokens.toLocaleString()} tokens` : " tokens"}
+          Recorded context{" "}
+          {usage.contextUsagePercent === null ? "unknown" : `${usage.contextUsagePercent}%`} ·{" "}
+          {usage.contextTokens.toLocaleString()}
+          {usage.providerLimitTokens
+            ? ` / ${usage.providerLimitTokens.toLocaleString()} tokens`
+            : " tokens"}
         </div>
-        <div>Input {usage.inputTokens.toLocaleString()} · output {usage.outputTokens.toLocaleString()} tokens</div>
         <div>
-          {session.durationMs === null ? "Duration pending" : `${(session.durationMs / 1_000).toFixed(1)}s`} · {session.retryCount} retries
+          Input {usage.inputTokens.toLocaleString()} · output {usage.outputTokens.toLocaleString()}{" "}
+          tokens
+        </div>
+        <div>
+          {session.durationMs === null
+            ? "Duration pending"
+            : `${(session.durationMs / 1_000).toFixed(1)}s`}{" "}
+          · {session.retryCount} retries
           {session.costUsd === null ? "" : ` · $${session.costUsd.toFixed(4)}`}
         </div>
-        {session.synthesisDestination ? <div>Destination · {session.synthesisDestination}</div> : null}
+        {session.synthesisDestination ? (
+          <div>Destination · {session.synthesisDestination}</div>
+        ) : null}
       </footer>
     </div>
   );
@@ -322,7 +389,9 @@ function SessionIndex(props: {
             type="button"
             className={cn(
               "flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-[11px] transition-colors",
-              props.selectedSessionId === session.id ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+              props.selectedSessionId === session.id
+                ? "bg-muted text-foreground"
+                : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
             )}
             style={{ paddingLeft: `${8 + depth * 18}px` }}
             onClick={() => props.onSelectSession(session.id)}
@@ -348,36 +417,47 @@ export function SupervisedConversationsPanel(props: {
   readonly onGroupChange: (group: ConversationGroup) => void;
   readonly onSelectSession: (sessionId: string) => void;
 }) {
-  const roomSessions = props.snapshot.modelSessions
+  const roomSessions = (props.snapshot.modelSessions ?? [])
     .filter((session) => session.roomId === props.roomId)
     .toSorted((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   const groupedSessions = roomSessions.filter((session) => roleGroup(session) === props.group);
   const sessions = props.group === "rlm" ? orderRlmSessions(groupedSessions) : groupedSessions;
-  const selected = sessions.find((session) => session.id === props.selectedSessionId) ?? sessions[0] ?? null;
+  const selected =
+    sessions.find((session) => session.id === props.selectedSessionId) ?? sessions[0] ?? null;
   const roomRunIds = new Set(
     props.snapshot.runs.filter((run) => run.roomId === props.roomId).map((run) => run.id),
   );
   const roomEpisodeIds = new Set(
-    roomSessions.flatMap((session) => session.rlmEpisodeId ? [session.rlmEpisodeId] : []),
+    roomSessions.flatMap((session) => (session.rlmEpisodeId ? [session.rlmEpisodeId] : [])),
   );
-  const episodes = props.snapshot.rlmEpisodes
+  const episodes = (props.snapshot.rlmEpisodes ?? [])
     .filter((episode) => roomRunIds.has(episode.runId) || roomEpisodeIds.has(episode.id))
-    .toSorted((left, right) => right.updatedAt.localeCompare(left.updatedAt) || right.id.localeCompare(left.id));
+    .toSorted(
+      (left, right) =>
+        right.updatedAt.localeCompare(left.updatedAt) || right.id.localeCompare(left.id),
+    );
   const selectedEpisode =
     (selected?.rlmEpisodeId
       ? episodes.find((episode) => episode.id === selected.rlmEpisodeId)
-      : undefined) ?? episodes[0] ?? null;
+      : undefined) ??
+    episodes[0] ??
+    null;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <nav className="flex h-10 shrink-0 items-center gap-1 border-b border-border/60 px-3" aria-label="Model conversations">
+      <nav
+        className="flex h-10 shrink-0 items-center gap-1 border-b border-border/60 px-3"
+        aria-label="Model conversations"
+      >
         {GROUPS.map((item) => (
           <button
             key={item.id}
             type="button"
             className={cn(
               "rounded-md px-2.5 py-1.5 text-[10px] transition-colors",
-              props.group === item.id ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground",
+              props.group === item.id
+                ? "bg-muted text-foreground"
+                : "text-muted-foreground hover:text-foreground",
             )}
             aria-current={props.group === item.id ? "page" : undefined}
             onClick={() => props.onGroupChange(item.id)}
@@ -386,18 +466,21 @@ export function SupervisedConversationsPanel(props: {
           </button>
         ))}
       </nav>
-      {props.group === "rlm" && selectedEpisode ? <RlmEpisodeSummary episode={selectedEpisode} /> : null}
+      {props.group === "rlm" && selectedEpisode ? (
+        <RlmEpisodeSummary episode={selectedEpisode} />
+      ) : null}
       {props.group === "supervisor" ? (
-        props.supervisorConversation ?? (
+        (props.supervisorConversation ?? (
           <div className="flex min-h-64 flex-1 items-center justify-center px-8 text-center text-xs text-muted-foreground">
             No active Supervisor conversation is available for this workspace.
           </div>
-        )
+        ))
       ) : props.group === "lead" && !selected ? (
         <div className="flex min-h-0 flex-1">{props.leadConversation}</div>
       ) : sessions.length === 0 ? (
         <div className="flex min-h-64 flex-1 items-center justify-center px-8 text-center text-xs text-muted-foreground">
-          No {props.group === "peers" ? "Peer" : "RLM"} model sessions have been recorded for this Room.
+          No {props.group === "peers" ? "Peer" : "RLM"} model sessions have been recorded for this
+          Room.
         </div>
       ) : (
         <>

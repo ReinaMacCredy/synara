@@ -1,4 +1,9 @@
-import type { MissionScope, OrchestrationProject, ProjectId, SupervisionMission } from "@synara/contracts";
+import type {
+  MissionScope,
+  OrchestrationProject,
+  ProjectId,
+  SupervisionMission,
+} from "@synara/contracts";
 
 interface MissionLead {
   readonly id: string;

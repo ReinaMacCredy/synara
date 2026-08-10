@@ -13,16 +13,16 @@ layer("095_SupervisedPluginHealthCircuit", (it) => {
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* runMigrations({ toMigrationInclusive: 95 });
-        const columns = yield* sql<{ readonly name: string }>`
+      const columns = yield* sql<{ readonly name: string }>`
           SELECT name FROM pragma_table_info('supervised_plugin_health')
         `;
-        assert.isTrue(columns.some((column) => column.name === "circuit_opened_until"));
-        yield* Migration0095;
-        const replayedColumns = yield* sql<{ readonly name: string }>`
+      assert.isTrue(columns.some((column) => column.name === "circuit_opened_until"));
+      yield* Migration0095;
+      const replayedColumns = yield* sql<{ readonly name: string }>`
           SELECT name FROM pragma_table_info('supervised_plugin_health')
           WHERE name = 'circuit_opened_until'
         `;
-        assert.strictEqual(replayedColumns.length, 1);
-      }),
+      assert.strictEqual(replayedColumns.length, 1);
+    }),
   );
 });

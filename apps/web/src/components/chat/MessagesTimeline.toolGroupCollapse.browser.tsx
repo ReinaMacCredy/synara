@@ -53,13 +53,13 @@ function commandEntry(id: string, command: string): TimelineEntry {
       createdAt: "2026-03-17T19:12:28.000Z",
       label: "Ran command",
       tone: "tool",
-        itemType: "command_execution",
-        toolStatus: "completed",
-        command,
-        turnId: TurnId.makeUnsafe("turn-live"),
-      },
-    };
-  }
+      itemType: "command_execution",
+      toolStatus: "completed",
+      command,
+      turnId: TurnId.makeUnsafe("turn-live"),
+    },
+  };
+}
 
 function reasoningEntry(id: string, preview: string): TimelineEntry {
   return {
@@ -184,8 +184,9 @@ describe("MessagesTimeline tool group collapse", () => {
       const nextAssistantText = document.querySelector<HTMLElement>(
         '[data-assistant-message-id="narration-2"]',
       )!;
-      expect(trigger.compareDocumentPosition(nextAssistantText) & Node.DOCUMENT_POSITION_FOLLOWING)
-        .not.toBe(0);
+      expect(
+        trigger.compareDocumentPosition(nextAssistantText) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).not.toBe(0);
       expect(
         nextAssistantText.compareDocumentPosition(liveTrigger) & Node.DOCUMENT_POSITION_FOLLOWING,
       ).not.toBe(0);
@@ -229,9 +230,9 @@ describe("MessagesTimeline tool group collapse", () => {
     }
   });
 
-    it("keeps reasoning out of expanded tool details", async () => {
+  it("keeps reasoning out of expanded tool details", async () => {
     const host = createTimelineHost();
-      const screen = await render(
+    const screen = await render(
       <ToolGroupCollapseTimeline
         timelineEntries={[
           assistantEntry("narration-1", "Looking at the failing checks first.", true),
@@ -255,21 +256,21 @@ describe("MessagesTimeline tool group collapse", () => {
 
       trigger.click();
       await expect.poll(() => trigger.getAttribute("aria-expanded")).toBe("true");
-        expect(trigger.nextElementSibling?.textContent ?? "").not.toContain(
-          "Weighing the next verification step",
-        );
-        expect(
-          [...document.querySelectorAll<HTMLElement>("[data-work-entry-row='true']")].filter(
-            (element) => element.closest("[aria-hidden='true']") === null,
-          ),
-        ).toHaveLength(SETTLED_COMMANDS.length + LIVE_COMMANDS.length);
+      expect(trigger.nextElementSibling?.textContent ?? "").not.toContain(
+        "Weighing the next verification step",
+      );
+      expect(
+        [...document.querySelectorAll<HTMLElement>("[data-work-entry-row='true']")].filter(
+          (element) => element.closest("[aria-hidden='true']") === null,
+        ),
+      ).toHaveLength(SETTLED_COMMANDS.length + LIVE_COMMANDS.length);
     } finally {
       await screen.unmount();
       host.remove();
     }
   });
 
-    it("swaps tool and reasoning headlines in one stable disclosure row", async () => {
+  it("swaps tool and reasoning headlines in one stable disclosure row", async () => {
     const host = createTimelineHost();
     const user = userEntry("reasoning-user", "Inspect the workspace.");
     const firstReasoning = reasoningEntry("reasoning-first", "Inspecting the workspace");
@@ -284,14 +285,16 @@ describe("MessagesTimeline tool group collapse", () => {
     try {
       expect(isThinkingVisible()).toBe(true);
 
-        await mounted.rerender(
-          <ToolGroupCollapseTimeline
+      await mounted.rerender(
+        <ToolGroupCollapseTimeline
           timelineEntries={[user, firstReasoning]}
           isWorking
           activeTurnInProgress
         />,
       );
-      await expect.poll(() => document.body.textContent ?? "").toContain("Inspecting the workspace");
+      await expect
+        .poll(() => document.body.textContent ?? "")
+        .toContain("Inspecting the workspace");
       expect(
         document.querySelector<HTMLElement>("[data-reasoning-source='provider']"),
       ).not.toBeNull();
@@ -309,32 +312,32 @@ describe("MessagesTimeline tool group collapse", () => {
       expect(document.body.textContent ?? "").not.toContain("Inspecting the workspace");
       expect(isThinkingVisible()).toBe(false);
 
-        toolTrigger?.click();
-        await expect.poll(() => toolTrigger?.getAttribute("aria-expanded")).toBe("true");
-        expect(document.body.textContent ?? "").toContain("Ran command");
-        expect(toolTrigger?.nextElementSibling?.textContent ?? "").not.toContain(
-          "Inspecting the workspace",
-        );
-        expect(document.body.textContent ?? "").not.toContain("bun run build");
-        expect(document.body.textContent ?? "").not.toContain("Completed command");
-        toolTrigger?.click();
-        await expect.poll(() => toolTrigger?.getAttribute("aria-expanded")).toBe("false");
+      toolTrigger?.click();
+      await expect.poll(() => toolTrigger?.getAttribute("aria-expanded")).toBe("true");
+      expect(document.body.textContent ?? "").toContain("Ran command");
+      expect(toolTrigger?.nextElementSibling?.textContent ?? "").not.toContain(
+        "Inspecting the workspace",
+      );
+      expect(document.body.textContent ?? "").not.toContain("bun run build");
+      expect(document.body.textContent ?? "").not.toContain("Completed command");
+      toolTrigger?.click();
+      await expect.poll(() => toolTrigger?.getAttribute("aria-expanded")).toBe("false");
 
-        const summarySwap = document.querySelector<HTMLElement>("[data-tool-summary-swap='true']");
-        await mounted.rerender(
+      const summarySwap = document.querySelector<HTMLElement>("[data-tool-summary-swap='true']");
+      await mounted.rerender(
         <ToolGroupCollapseTimeline
           timelineEntries={[user, firstReasoning, tool, secondReasoning]}
           isWorking
           activeTurnInProgress
         />,
-        );
-        await expect.poll(() => document.body.textContent ?? "").toContain("Checking the build result");
-        expect(
-          document.querySelector("[data-timeline-row-kind='reasoning-status']"),
-        ).toBeNull();
-        expect(document.querySelector("[data-tool-summary-swap='true']")).toBe(summarySwap);
+      );
+      await expect
+        .poll(() => document.body.textContent ?? "")
+        .toContain("Checking the build result");
+      expect(document.querySelector("[data-timeline-row-kind='reasoning-status']")).toBeNull();
+      expect(document.querySelector("[data-tool-summary-swap='true']")).toBe(summarySwap);
 
-        await mounted.rerender(
+      await mounted.rerender(
         <ToolGroupCollapseTimeline
           timelineEntries={[user, firstReasoning, tool, secondReasoning, nextTool]}
           isWorking
@@ -377,26 +380,26 @@ describe("MessagesTimeline tool group collapse", () => {
             commandEntry("settling-command", "bun run build"),
             assistantEntry("settling-assistant", "Finishing the verification.", false),
           ]}
-            isWorking
-            activeTurnInProgress={false}
-          />,
-        );
+          isWorking
+          activeTurnInProgress={false}
+        />,
+      );
 
       await expect.poll(() => document.body.textContent ?? "").toContain("Worked for");
       expect(document.querySelectorAll("[data-turn-work-region]")).toHaveLength(1);
       expect(document.querySelector<HTMLElement>("[data-turn-work-region]")).toBe(liveRegion);
-      expect(
-        liveRegion?.querySelector("[data-work-status-text='working']")?.className,
-      ).toContain("work-status-swap__phrase--exit");
-      expect(
-        liveRegion?.querySelector("[data-work-status-text='settled']")?.className,
-      ).toContain("work-status-swap__phrase--visible");
-      expect(
-        liveRegion?.querySelector("[data-work-status-text='settled']")?.textContent,
-      ).toContain("Worked for 10s");
-      expect(
-        liveRegion?.querySelector("[data-work-status-text='working']")?.textContent,
-      ).toContain("Working for 10s");
+      expect(liveRegion?.querySelector("[data-work-status-text='working']")?.className).toContain(
+        "work-status-swap__phrase--exit",
+      );
+      expect(liveRegion?.querySelector("[data-work-status-text='settled']")?.className).toContain(
+        "work-status-swap__phrase--visible",
+      );
+      expect(liveRegion?.querySelector("[data-work-status-text='settled']")?.textContent).toContain(
+        "Worked for 10s",
+      );
+      expect(liveRegion?.querySelector("[data-work-status-text='working']")?.textContent).toContain(
+        "Working for 10s",
+      );
 
       const workingLayer = liveRegion?.querySelector<HTMLElement>(
         "[data-work-status-text='working']",
@@ -705,9 +708,7 @@ describe("MessagesTimeline tool group collapse", () => {
       expect(hydratedRegion?.querySelector("[aria-hidden='false']")?.textContent).toContain(
         "Worked for",
       );
-      expect(hydratedRegion?.querySelector("button")?.getAttribute("aria-expanded")).toBe(
-        "false",
-      );
+      expect(hydratedRegion?.querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
       expect(isThinkingVisible()).toBe(false);
     } finally {
       await mounted.unmount();

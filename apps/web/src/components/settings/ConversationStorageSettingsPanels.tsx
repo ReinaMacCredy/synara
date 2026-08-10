@@ -17,7 +17,7 @@ import { formatRelativeTime } from "~/lib/relativeTime";
 import { serverQueryKeys, serverWorktreesQueryOptions } from "~/lib/serverReactQuery";
 import { unarchiveThreadFromClient } from "~/lib/threadArchive";
 import { cn } from "~/lib/utils";
-import { readNativeApi } from "~/nativeApi";
+import { ensureNativeApi, readNativeApi } from "~/nativeApi";
 import {
   SETTINGS_CARD_ROW_DESCRIPTION_CLASS_NAME,
   SETTINGS_SECTION_LABEL_CLASS_NAME,

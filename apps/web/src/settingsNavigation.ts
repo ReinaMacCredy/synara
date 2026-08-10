@@ -200,7 +200,8 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     id: "supervised-general",
     group: "supervised",
     label: "General",
-    description: "See the owner control plane, active Rooms, attention signals, and durable health.",
+    description:
+      "See the owner control plane, active Rooms, attention signals, and durable health.",
     icon: "settings-gear-4",
     eyebrow: "Control plane",
   },
@@ -208,7 +209,8 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     id: "supervised-profiles",
     group: "supervised",
     label: "Roles & profiles",
-    description: "Manage existing Lead and Peer profile presets without changing their saved identity.",
+    description:
+      "Manage existing Lead and Peer profile presets without changing their saved identity.",
     icon: "agents",
     eyebrow: "Roles and presets",
   },
@@ -216,7 +218,8 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     id: "supervised-models",
     group: "supervised",
     label: "Models",
-    description: "Inspect governed capabilities and set durable owner routing preferences and fallbacks.",
+    description:
+      "Inspect governed capabilities and set durable owner routing preferences and fallbacks.",
     icon: "brain",
     eyebrow: "Model routing",
   },
@@ -224,7 +227,8 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     id: "supervised-notebook",
     group: "supervised",
     label: "Shared notebook",
-    description: "Search durable shared knowledge, evidence, cursors, compaction, and supersession history.",
+    description:
+      "Search durable shared knowledge, evidence, cursors, compaction, and supersession history.",
     icon: "notes",
     eyebrow: "Durable knowledge",
   },
@@ -232,7 +236,8 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     id: "supervised-authority",
     group: "supervised",
     label: "Mandates & authority",
-    description: "Review directives, mandates, Root leases, effective authority, and interventions.",
+    description:
+      "Review directives, mandates, Root leases, effective authority, and interventions.",
     icon: "safe-simple",
     eyebrow: "Governance",
   },
@@ -240,7 +245,8 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     id: "supervised-lifecycle",
     group: "supervised",
     label: "Lifecycle",
-    description: "Inspect Workspace, Room, AgentSeat, provider-session, handoff, and intervention lifecycle.",
+    description:
+      "Inspect Workspace, Room, AgentSeat, provider-session, handoff, and intervention lifecycle.",
     icon: "progress-25",
     eyebrow: "Runtime lifecycle",
   },
@@ -248,7 +254,8 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     id: "supervised-tools",
     group: "supervised",
     label: "System tools",
-    description: "Control durable tool policy and inspect schemas, authority, health, and invocation receipts.",
+    description:
+      "Control durable tool policy and inspect schemas, authority, health, and invocation receipts.",
     icon: "toolbox",
     eyebrow: "Governed tools",
   },
@@ -272,7 +279,8 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     id: "supervised-runtime",
     group: "supervised",
     label: "Runtime",
-    description: "Inspect daemon, Signal Plane, programmable kernels, RunPolicy, and recovery controls.",
+    description:
+      "Inspect daemon, Signal Plane, programmable kernels, RunPolicy, and recovery controls.",
     icon: "gauge",
     eyebrow: "Runtime control plane",
   },
@@ -280,7 +288,8 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     id: "supervised-diagnostics",
     group: "supervised",
     label: "Diagnostics",
-    description: "Open bounded logs, copy diagnostics, and inspect audit, schemas, delivery, and DeadLetters.",
+    description:
+      "Open bounded logs, copy diagnostics, and inspect audit, schemas, delivery, and DeadLetters.",
     icon: "ladybug",
     eyebrow: "Evidence and recovery",
   },

@@ -50,8 +50,14 @@ layer("migration 097", (it) => {
       const columns = yield* sql<{ readonly name: string }>`
         SELECT name FROM pragma_table_info('projection_supervised_subscriptions')
       `;
-      assert.equal(columns.some((column) => column.name === "owner_lead_seat_id"), true);
-      assert.equal(columns.some((column) => column.name === "supervisor_seat_id"), false);
+      assert.equal(
+        columns.some((column) => column.name === "owner_lead_seat_id"),
+        true,
+      );
+      assert.equal(
+        columns.some((column) => column.name === "supervisor_seat_id"),
+        false,
+      );
 
       const rows = yield* sql<{ readonly entityJson: string }>`
         SELECT entity_json AS "entityJson"

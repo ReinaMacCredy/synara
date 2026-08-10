@@ -38,10 +38,7 @@ export function projectSupervisedSystemTools(input: {
 }): ProjectedTool[] {
   const registry = input.registry ?? supervisedIntentToolRegistry;
   const policyByToolId = new Map(input.policies.map((policy) => [policy.toolId, policy]));
-  const definitionsByToolId = new Map<
-    string,
-    HostToolDefinition[]
-  >();
+  const definitionsByToolId = new Map<string, HostToolDefinition[]>();
   for (const definition of input.definitions) {
     if (!definition.supervised) continue;
     const definitions = definitionsByToolId.get(definition.supervised.toolId) ?? [];

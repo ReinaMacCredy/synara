@@ -109,7 +109,8 @@ export const ModelRoutingServiceLive = Layer.effect(
           routingRevision: snapshot.revision,
           capabilityProfiles: snapshot.modelCapabilityProfiles,
           preferenceProfile:
-            snapshot.userModelPreferenceProfiles.find((profile) => profile.userId === userId) ?? null,
+            snapshot.userModelPreferenceProfiles.find((profile) => profile.userId === userId) ??
+            null,
           telemetryAggregates: snapshot.modelTelemetryAggregates,
         };
       });
@@ -134,9 +135,7 @@ export const ModelRoutingServiceLive = Layer.effect(
             (sameId.provider !== input.profile.provider ||
               sameId.model !== input.profile.model ||
               sameId.version !== input.profile.version)) ||
-          (current
-            ? input.profile.revision !== current.revision + 1
-            : input.profile.revision !== 0)
+          (current ? input.profile.revision !== current.revision + 1 : input.profile.revision !== 0)
         ) {
           return yield* Effect.fail(
             new ModelRoutingDomainError(
@@ -168,9 +167,7 @@ export const ModelRoutingServiceLive = Layer.effect(
           (current?.revision ?? null) !== input.expectedRevision ||
           (current && current.id !== input.profile.id) ||
           (sameId && sameId.userId !== input.profile.userId) ||
-          (current
-            ? input.profile.revision !== current.revision + 1
-            : input.profile.revision !== 0)
+          (current ? input.profile.revision !== current.revision + 1 : input.profile.revision !== 0)
         ) {
           return yield* Effect.fail(
             new ModelRoutingDomainError(
@@ -223,9 +220,7 @@ export const ModelRoutingServiceLive = Layer.effect(
             ),
           );
         }
-        const actorSeat = snapshot.agentSeats.find(
-          (seat) => seat.id === input.request.actorSeatId,
-        );
+        const actorSeat = snapshot.agentSeats.find((seat) => seat.id === input.request.actorSeatId);
         const authorityReceipt = snapshot.authorityReceipts.find(
           (receipt) => receipt.id === actorSeat?.authorityReceiptId,
         );
@@ -284,9 +279,7 @@ export const ModelRoutingServiceLive = Layer.effect(
       Effect.gen(function* () {
         const snapshot = yield* repository.getModelRoutingState();
         if (
-          !snapshot.modelCapabilityProfiles.some(
-            (profile) => profile.id === outcome.modelProfileId,
-          )
+          !snapshot.modelCapabilityProfiles.some((profile) => profile.id === outcome.modelProfileId)
         ) {
           return yield* Effect.fail(
             new ModelRoutingDomainError(

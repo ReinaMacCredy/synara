@@ -2,9 +2,13 @@ import {
   ApprovalRequestId,
   CommandId,
   TaskProcessDomainEvent,
+  TaskProcessEventType,
   SupervisionDomainEvent,
+  SupervisionEventType,
   SupervisedDomainEvent,
+  SupervisedEventType,
   SupervisedGovernanceDomainEvent,
+  SupervisedGovernanceEventType,
   type OrchestrationEvent,
   type SupervisedGovernanceSnapshot,
 } from "@synara/contracts";
@@ -673,10 +677,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
         const next = projectSupervisedGovernanceDecisionEvent(current, canonicalEvent);
         const staged = {
           ...governance,
-          orchestration: projectSupervisedGovernanceEvent(
-            governance.orchestration,
-            canonicalEvent,
-          ),
+          orchestration: projectSupervisedGovernanceEvent(governance.orchestration, canonicalEvent),
         };
         const reconciled = reconcileGovernanceProjection({
           governance: staged,
@@ -2000,6 +2001,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
       name: ORCHESTRATION_PROJECTOR_NAMES.taskProcess,
       phase: "hot",
       shouldApply: Schema.is(TaskProcessDomainEvent),
+      replayFilter: { eventTypes: [...TaskProcessEventType.literals] },
       apply: applyTaskProcessProjection,
     },
     {
@@ -2009,6 +2011,13 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
         Schema.is(SupervisedDomainEvent)(event) ||
         Schema.is(SupervisedGovernanceDomainEvent)(event) ||
         Schema.is(SupervisionDomainEvent)(event),
+      replayFilter: {
+        eventTypes: [
+          ...SupervisedEventType.literals,
+          ...SupervisedGovernanceEventType.literals,
+          ...SupervisionEventType.literals,
+        ],
+      },
       apply: applySupervisedProjection,
     },
     {

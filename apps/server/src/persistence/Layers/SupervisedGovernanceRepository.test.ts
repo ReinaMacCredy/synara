@@ -444,7 +444,10 @@ testLayer("SupervisedGovernanceRepository", (it) => {
         { concurrency: "unbounded" },
       );
       assert.deepEqual(inserted, [true, true]);
-      assert.equal(yield* repository.appendNotebookEntry({ ...first, content: "must not replace" }), false);
+      assert.equal(
+        yield* repository.appendNotebookEntry({ ...first, content: "must not replace" }),
+        false,
+      );
       const invalidSupersession = yield* Effect.exit(
         repository.appendNotebookEntry({
           ...first,
@@ -459,8 +462,14 @@ testLayer("SupervisedGovernanceRepository", (it) => {
         seatId: first.authorSeatId,
         limit: 20,
       });
-      assert.equal(state.entries.some((entry) => entry.id === first.id), true);
-      assert.equal(state.entries.some((entry) => entry.id === second.id), true);
+      assert.equal(
+        state.entries.some((entry) => entry.id === first.id),
+        true,
+      );
+      assert.equal(
+        state.entries.some((entry) => entry.id === second.id),
+        true,
+      );
       assert.equal(state.entries.find((entry) => entry.id === first.id)?.content, first.content);
       assert.deepEqual(
         state.entries
@@ -560,7 +569,10 @@ testLayer("SupervisedGovernanceRepository", (it) => {
         includeRedacted: false,
         limit: 1,
       });
-      assert.deepEqual(scoped.entries.map((entry) => entry.id), [visible.id]);
+      assert.deepEqual(
+        scoped.entries.map((entry) => entry.id),
+        [visible.id],
+      );
     }),
   );
 
@@ -622,8 +634,14 @@ testLayer("SupervisedGovernanceRepository", (it) => {
         }),
       );
       assert.equal(invalidEvidence._tag, "Failure");
-      assert.equal(yield* repository.appendNotebookCompaction({ summaryEntry: summary, receipt }), true);
-      assert.equal(yield* repository.appendNotebookCompaction({ summaryEntry: summary, receipt }), false);
+      assert.equal(
+        yield* repository.appendNotebookCompaction({ summaryEntry: summary, receipt }),
+        true,
+      );
+      assert.equal(
+        yield* repository.appendNotebookCompaction({ summaryEntry: summary, receipt }),
+        false,
+      );
 
       const newestCursor = {
         id: "cursor-newest" as const,

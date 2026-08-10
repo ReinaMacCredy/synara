@@ -70,15 +70,17 @@ const makeHostToolRuntime = Effect.gen(function* () {
 
   const loadCanonicalCaller = (context: Parameters<(typeof entries)[number]["isVisible"]>[0]) =>
     Effect.gen(function* () {
-      const governance = yield* governanceRepository.getSnapshot().pipe(
-        Effect.mapError(
-          (error) =>
-            new HostToolError(
-              "supervised_tool_authority_unavailable",
-              error instanceof Error ? error.message : String(error),
-            ),
-        ),
-      );
+      const governance = yield* governanceRepository
+        .getSnapshot()
+        .pipe(
+          Effect.mapError(
+            (error) =>
+              new HostToolError(
+                "supervised_tool_authority_unavailable",
+                error instanceof Error ? error.message : String(error),
+              ),
+          ),
+        );
       const caller = resolveProjectedSupervisedCaller({
         governance,
         threadId: context.callerThreadId,
@@ -118,7 +120,7 @@ const makeHostToolRuntime = Effect.gen(function* () {
       const roomId =
         typeof args.roomId === "string" && args.roomId.length > 0
           ? args.roomId
-          : seat?.roomIds[0] ?? null;
+          : (seat?.roomIds[0] ?? null);
       const receipt: SupervisedToolInvocationReceipt = {
         id: SupervisedToolInvocationReceiptId.makeUnsafe(randomUUID()),
         toolId: metadata.toolId,
@@ -136,29 +138,30 @@ const makeHostToolRuntime = Effect.gen(function* () {
         errorCode: null,
         errorMessage: null,
       };
-      yield* toolReceiptRepository.insert(receipt).pipe(
-        Effect.mapError(
-          (error) => new HostToolError("supervised_tool_receipt_unavailable", error.message),
-        ),
-      );
-      const executeRequestedTool = Effect.gen(function* () {
-        const policy = yield* toolPolicyRepository.getByToolId(metadata.toolId).pipe(
+      yield* toolReceiptRepository
+        .insert(receipt)
+        .pipe(
           Effect.mapError(
-            (error) =>
-              new HostToolError(
-                "supervised_tool_policy_unavailable",
-                error instanceof Error ? error.message : String(error),
-              ),
+            (error) => new HostToolError("supervised_tool_receipt_unavailable", error.message),
           ),
         );
+      const executeRequestedTool = Effect.gen(function* () {
+        const policy = yield* toolPolicyRepository
+          .getByToolId(metadata.toolId)
+          .pipe(
+            Effect.mapError(
+              (error) =>
+                new HostToolError(
+                  "supervised_tool_policy_unavailable",
+                  error instanceof Error ? error.message : String(error),
+                ),
+            ),
+          );
         const policyDecision = evaluateSupervisedToolPolicy(
           Option.isSome(policy) ? policy.value : null,
         );
         if (!policyDecision.enabled) {
-          const failure = new HostToolError(
-            policyDecision.code,
-            policyDecision.reason,
-          );
+          const failure = new HostToolError(policyDecision.code, policyDecision.reason);
           const completed = yield* completeReceipt(receipt, "denied", failure).pipe(
             Effect.mapError(
               (error) => new HostToolError("supervised_tool_receipt_unavailable", error.message),
@@ -257,7 +260,8 @@ const makeHostToolRuntime = Effect.gen(function* () {
                   !evaluateSupervisedToolPolicy(
                     policyState.byToolId.get(entry.definition.supervised.toolId),
                   ).enabled
-                ) return false;
+                )
+                  return false;
                 if (!canonicalCaller.available) return false;
                 const { seat, receipt } = canonicalCaller.value;
                 return authorizeSupervisedIntentTool({
@@ -281,20 +285,22 @@ const makeHostToolRuntime = Effect.gen(function* () {
         );
       }
       if (entry.definition.supervised) return executeCanonical(entry, args, context);
-      return entry.isVisible(context).pipe(
-        Effect.flatMap((visible) =>
-          visible
-            ? entry.execute(args, context)
-            : Effect.succeed(
-                hostToolFailure(
-                  new HostToolError(
-                    "host_tool_capability_denied",
-                    `This thread cannot call ${entry.definition.displayName}.`,
+      return entry
+        .isVisible(context)
+        .pipe(
+          Effect.flatMap((visible) =>
+            visible
+              ? entry.execute(args, context)
+              : Effect.succeed(
+                  hostToolFailure(
+                    new HostToolError(
+                      "host_tool_capability_denied",
+                      `This thread cannot call ${entry.definition.displayName}.`,
+                    ),
                   ),
                 ),
-              ),
-        ),
-      );
+          ),
+        );
     },
   });
 });
@@ -303,7 +309,5 @@ export const HostToolRuntimeLive = Layer.effect(HostToolRuntime, makeHostToolRun
 
 export const HostToolRuntimeConfiguredLive = HostToolRuntimeLive.pipe(
   Layer.provideMerge(OrchestrationLayerLive),
-  Layer.provideMerge(
-    ModelRoutingServiceLive.pipe(Layer.provideMerge(OrchestrationLayerLive)),
-  ),
+  Layer.provideMerge(ModelRoutingServiceLive.pipe(Layer.provideMerge(OrchestrationLayerLive))),
 );

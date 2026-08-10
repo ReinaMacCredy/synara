@@ -2014,7 +2014,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           const projects: ReadonlyArray<OrchestrationProject> = projectRows.map(toProjectedProject);
           const supervisedOrchestration = (yield* supervisedGovernanceRepository.getSnapshot())
             .orchestration;
-          const supervised = yield* supervisedRuntimeRepository.getSnapshot({ includeDisabled: true });
+          const supervised = yield* supervisedRuntimeRepository.getSnapshot({
+            includeDisabled: true,
+          });
 
           const threads: ReadonlyArray<OrchestrationThread> = threadRows.map((row) =>
             toProjectedThread({
@@ -2163,7 +2165,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           const projects: ReadonlyArray<OrchestrationProject> = projectRows.map(toProjectedProject);
           const supervisedOrchestration = (yield* supervisedGovernanceRepository.getSnapshot())
             .orchestration;
-          const supervised = yield* supervisedRuntimeRepository.getSnapshot({ includeDisabled: true });
+          const supervised = yield* supervisedRuntimeRepository.getSnapshot({
+            includeDisabled: true,
+          });
 
           const threads: ReadonlyArray<OrchestrationThread> = threadRows.map((row) =>
             toProjectedThread({
@@ -2324,9 +2328,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       supervisedGovernanceRepository
         .getSnapshot()
         .pipe(
-          Effect.map((snapshot) =>
-            redactSupervisedOrchestrationForShell(snapshot.orchestration),
-          ),
+          Effect.map((snapshot) => redactSupervisedOrchestrationForShell(snapshot.orchestration)),
         );
 
   const listStaleInFlightThreadIds: ProjectionSnapshotQueryShape["listStaleInFlightThreadIds"] = (

@@ -56,9 +56,7 @@ export function AnimatedTextSwap(props: {
       {...props.rootData}
     >
       <span aria-hidden="true" className="grid overflow-hidden text-left">
-        <span className="invisible col-start-1 row-start-1 whitespace-nowrap">
-          {longestPhrase}
-        </span>
+        <span className="invisible col-start-1 row-start-1 whitespace-nowrap">{longestPhrase}</span>
         {phraseState.previousPhrase === null ? null : (
           <span className="reasoning-text-swap__phrase reasoning-text-swap__phrase--exit col-start-1 row-start-1 inline-block justify-self-start whitespace-nowrap">
             <span className={phraseClassName}>{phraseState.previousPhrase}</span>

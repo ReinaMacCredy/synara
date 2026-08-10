@@ -91,7 +91,11 @@ export function createContextBlobStore(rootDirectory: string): ContextBlobStore 
           await rename(temporary, target);
         } catch (renameError) {
           await unlink(temporary).catch(() => undefined);
-          if (!(renameError instanceof Error) || !("code" in renameError) || renameError.code !== "EEXIST") {
+          if (
+            !(renameError instanceof Error) ||
+            !("code" in renameError) ||
+            renameError.code !== "EEXIST"
+          ) {
             throw renameError;
           }
         }

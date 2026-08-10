@@ -51,11 +51,13 @@ describe("pending user-input Advisor contract", () => {
     const prompt = buildPendingUserInputAdvisorQuestion(question, undefined);
 
     expect(shouldShowPendingUserInputAdvisorConsultation(prompt, [question.question])).toBe(true);
-    expect(shouldShowPendingUserInputAdvisorConsultation(prompt, ["A newer question?"])).toBe(false);
+    expect(shouldShowPendingUserInputAdvisorConsultation(prompt, ["A newer question?"])).toBe(
+      false,
+    );
     expect(shouldShowPendingUserInputAdvisorConsultation(prompt, [])).toBe(false);
-    expect(
-      shouldShowPendingUserInputAdvisorConsultation("Should we keep the adapter?", []),
-    ).toBe(true);
+    expect(shouldShowPendingUserInputAdvisorConsultation("Should we keep the adapter?", [])).toBe(
+      true,
+    );
   });
 
   it("parses an exact allowed option and its short reason", () => {

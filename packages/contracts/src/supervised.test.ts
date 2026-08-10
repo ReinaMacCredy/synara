@@ -34,7 +34,12 @@ const contextPressureSubscription = {
     { field: "roomId", operator: "eq" as const, value: "room-1" },
   ],
   aggregation: { function: "latest" as const, field: "value", groupBy: ["leadSeatId"] },
-  window: { kind: "sliding" as const, durationMs: 300_000, allowedLatenessMs: 10_000, maxSamples: 300 },
+  window: {
+    kind: "sliding" as const,
+    durationMs: 300_000,
+    allowedLatenessMs: 10_000,
+    maxSamples: 300,
+  },
   condition: { operator: "gte" as const, value: 80 },
   hysteresis: {
     trigger: { operator: "gte" as const, value: 80 },
@@ -91,7 +96,11 @@ describe("Supervised contracts", () => {
       causationEventId: null,
       correlationId: null,
       payload: { role: "lead", contextUsagePercent: 82 },
-      provenance: { actor: { kind: "daemon", actorId: "daemon-1" }, source: "provider-usage", confidence: 0.9 },
+      provenance: {
+        actor: { kind: "daemon", actorId: "daemon-1" },
+        source: "provider-usage",
+        confidence: 0.9,
+      },
     });
     assert.equal(event.type, "agent.context.measured");
     assert.equal("commandId" in event, false);
@@ -233,41 +242,41 @@ describe("Supervised contracts", () => {
     assert.equal(manifest.subscriptions.length, 1);
   });
 
-    it("decodes durable Harness Patch lifecycle and replay behavior defaults", () => {
-      const patch = Schema.decodeUnknownSync(HarnessPatch)({
-        id: "patch-stage-6",
-        name: "Evidence first",
-        patchType: "evaluation",
-        scope: { kind: "project", projectId: "project-1" },
-        content: "Require durable evidence before completion.",
-        basePolicyHash: hash,
-        status: "proposed",
-        evaluationEvidenceRefs: [],
-        version: 1,
-        createdBy: actor,
-        activatedBy: null,
-        createdAt: now,
-        updatedAt: now,
-      });
-      assert.equal(patch.revision, 0);
-      assert.equal(patch.lastControlPlaneSequence, 0);
-      assert.deepEqual(patch.observationEvidenceRefs, []);
+  it("decodes durable Harness Patch lifecycle and replay behavior defaults", () => {
+    const patch = Schema.decodeUnknownSync(HarnessPatch)({
+      id: "patch-stage-6",
+      name: "Evidence first",
+      patchType: "evaluation",
+      scope: { kind: "project", projectId: "project-1" },
+      content: "Require durable evidence before completion.",
+      basePolicyHash: hash,
+      status: "proposed",
+      evaluationEvidenceRefs: [],
+      version: 1,
+      createdBy: actor,
+      activatedBy: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+    assert.equal(patch.revision, 0);
+    assert.equal(patch.lastControlPlaneSequence, 0);
+    assert.deepEqual(patch.observationEvidenceRefs, []);
 
-      const delivery = Schema.decodeUnknownSync(SubscriptionDelivery)({
-        id: "delivery-stage-6",
-        subscriptionId: contextPressureSubscription.id,
-        signalId: "signal-stage-6",
-        dedupeKey: "stage-6",
-        status: "queued",
-        attemptCount: 0,
-        availableAt: now,
-        deliveredAt: null,
-        lastError: null,
-        payloadHash: hash,
-        replay: true,
-        createdAt: now,
-        updatedAt: now,
-      });
+    const delivery = Schema.decodeUnknownSync(SubscriptionDelivery)({
+      id: "delivery-stage-6",
+      subscriptionId: contextPressureSubscription.id,
+      signalId: "signal-stage-6",
+      dedupeKey: "stage-6",
+      status: "queued",
+      attemptCount: 0,
+      availableAt: now,
+      deliveredAt: null,
+      lastError: null,
+      payloadHash: hash,
+      replay: true,
+      createdAt: now,
+      updatedAt: now,
+    });
     assert.equal(delivery.replayBehavior, "observe_only");
   });
 

@@ -163,8 +163,7 @@ describe("ChatTranscriptPane", () => {
       const composerCommits = transcriptCommits.slice(baselineCommitCount);
       expect(
         composerCommits.every(
-          (commit) =>
-            commit.actualDuration <= Math.max(0.25, commit.baseDuration * 0.01),
+          (commit) => commit.actualDuration <= Math.max(0.25, commit.baseDuration * 0.01),
         ),
         `Composer update performed transcript work: ${JSON.stringify(composerCommits)}`,
       ).toBe(true);

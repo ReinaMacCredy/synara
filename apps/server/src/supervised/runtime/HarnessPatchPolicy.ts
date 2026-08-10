@@ -1,12 +1,6 @@
 import { createHash } from "node:crypto";
 
-import type {
-  HarnessPatch,
-  ProfilePresetId,
-  ProjectId,
-  RoomId,
-  TaskId,
-} from "@synara/contracts";
+import type { HarnessPatch, ProfilePresetId, ProjectId, RoomId, TaskId } from "@synara/contracts";
 
 export const SUPERVISED_BASE_POLICY_LAWS = Object.freeze([
   "Communication routing and canonical authority are independent.",
@@ -44,9 +38,7 @@ export interface EffectiveHarnessPatchOverlay {
   readonly activatedAt: string;
 }
 
-export function isCurrentSupervisedBasePolicyHash(
-  hash: HarnessPatch["basePolicyHash"],
-): boolean {
+export function isCurrentSupervisedBasePolicyHash(hash: HarnessPatch["basePolicyHash"]): boolean {
   return hash === SUPERVISED_BASE_POLICY_HASH;
 }
 
@@ -110,7 +102,9 @@ export function resolveEffectiveHarnessPatchOverlays(input: {
 }): ReadonlyArray<EffectiveHarnessPatchOverlay> {
   const overlays = input.patches
     .filter(
-      (patch): patch is HarnessPatch & {
+      (
+        patch,
+      ): patch is HarnessPatch & {
         readonly status: "canary" | "promoted";
         readonly activatedBy: NonNullable<HarnessPatch["activatedBy"]>;
         readonly canary: NonNullable<HarnessPatch["canary"]>;

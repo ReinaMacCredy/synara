@@ -908,10 +908,7 @@ export function SupervisedOrchestrationSettingsPanel(props: { readonly active: b
 
   const dispatchProfileLifecycle = async (
     profile: ProfilePreset,
-    type:
-      | "supervised.profile.archive"
-      | "supervised.profile.restore"
-      | "supervised.profile.clear",
+    type: "supervised.profile.archive" | "supervised.profile.restore" | "supervised.profile.clear",
   ) => {
     const api = readNativeApi();
     if (!api) throw new Error("Synara server unavailable.");
@@ -979,11 +976,10 @@ export function SupervisedOrchestrationSettingsPanel(props: { readonly active: b
       <header className="border-b pb-5">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <h1 className="text-xl font-medium tracking-tight text-foreground">
-              Roles & profiles
-            </h1>
+            <h1 className="text-xl font-medium tracking-tight text-foreground">Roles & profiles</h1>
             <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-              Manage reusable Supervisor, Lead, and Peer profiles while preserving every existing preset and runtime default.
+              Manage reusable Supervisor, Lead, and Peer profiles while preserving every existing
+              preset and runtime default.
             </p>
           </div>
           <Button size="sm" onClick={() => beginDraft({ ...EMPTY_DRAFT }, null)}>

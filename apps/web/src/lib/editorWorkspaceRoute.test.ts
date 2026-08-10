@@ -13,9 +13,7 @@ describe("chat route workspace shell", () => {
   });
 
   it("restores the thread sidebar when a Supervised Room switches back to chat", () => {
-    expect(isEditorWorkspaceLocation({ pathname: "/supervised/room-1", view: "chat" })).toBe(
-      false,
-    );
+    expect(isEditorWorkspaceLocation({ pathname: "/supervised/room-1", view: "chat" })).toBe(false);
   });
 
   it("keeps the sidebar on the Supervised composer and nested task routes", () => {

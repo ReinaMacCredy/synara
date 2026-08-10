@@ -61,8 +61,7 @@ describe("ReasoningTextSwap", () => {
       await expect
         .poll(
           () =>
-            document.querySelector<HTMLElement>('[data-reasoning-text-swap="true"]')
-              ?.textContent,
+            document.querySelector<HTMLElement>('[data-reasoning-text-swap="true"]')?.textContent,
         )
         .toContain("Planning README inspection strategy");
 
@@ -78,9 +77,7 @@ describe("ReasoningTextSwap", () => {
       await expect
         .poll(() => document.querySelector<HTMLElement>('[data-reasoning-text-swap="true"]'))
         .not.toBe(root);
-      const resetRoot = document.querySelector<HTMLElement>(
-        '[data-reasoning-text-swap="true"]',
-      );
+      const resetRoot = document.querySelector<HTMLElement>('[data-reasoning-text-swap="true"]');
       expect(resetRoot?.dataset.reasoningSource).toBe("synthetic");
       expect(resetRoot?.textContent).toContain("Thinking…");
       expect(resetRoot?.textContent).not.toContain("Planning README inspection strategy");
@@ -88,13 +85,10 @@ describe("ReasoningTextSwap", () => {
       await expect
         .poll(
           () =>
-            document.querySelector<HTMLElement>('[data-reasoning-text-swap="true"]')
-              ?.textContent,
+            document.querySelector<HTMLElement>('[data-reasoning-text-swap="true"]')?.textContent,
         )
         .toContain("Inspecting the current request");
-      const nextTurnRoot = document.querySelector<HTMLElement>(
-        '[data-reasoning-text-swap="true"]',
-      );
+      const nextTurnRoot = document.querySelector<HTMLElement>('[data-reasoning-text-swap="true"]');
       expect(nextTurnRoot).not.toBe(root);
       expect(nextTurnRoot?.dataset.reasoningSource).toBe("provider");
       expect(nextTurnRoot?.textContent).not.toContain("Planning README inspection strategy");

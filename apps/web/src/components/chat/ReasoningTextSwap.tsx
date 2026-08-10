@@ -18,10 +18,7 @@ export function ReasoningTextSwap(props: {
   );
 }
 
-function ReasoningTextSwapStateful(props: {
-  active: boolean;
-  providerPhrase?: string | null;
-}) {
+function ReasoningTextSwapStateful(props: { active: boolean; providerPhrase?: string | null }) {
   const providerPhrase = props.providerPhrase?.trim() || null;
   const [latchedProviderPhrase, setLatchedProviderPhrase] = useState(providerPhrase);
 

@@ -83,9 +83,7 @@ describe("Codex Synara harness policy", () => {
     expect(CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS).toContain(
       "invoke it instead of replying that the current mode blocks it",
     );
-    expect(CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS).not.toContain(
-      "unavailable in Default mode",
-    );
+    expect(CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS).not.toContain("unavailable in Default mode");
   });
 
   it("enables default-mode request_user_input on every app-server process", () => {

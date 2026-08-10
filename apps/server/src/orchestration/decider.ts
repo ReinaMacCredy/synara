@@ -1156,10 +1156,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
-        // Provider-native threads: see thread.create — the selection mirrors the
-        // provider's own subagent, so the Auto-mode capability check doesn't apply.
-        if (command.modelSelection !== undefined && thread.creationSource !== "provider_native") {
-          yield* validateAutoRuntimeMode(command, command.modelSelection, thread.runtimeMode);
+      // Provider-native threads: see thread.create — the selection mirrors the
+      // provider's own subagent, so the Auto-mode capability check doesn't apply.
+      if (command.modelSelection !== undefined && thread.creationSource !== "provider_native") {
+        yield* validateAutoRuntimeMode(command, command.modelSelection, thread.runtimeMode);
       }
       const occurredAt = nowIso();
       return {

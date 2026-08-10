@@ -1,11 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
 
-import type {
-  ContextCompactionReceipt,
-  ContextRecord,
-  ContextWorkspace,
-} from "@synara/contracts";
+import type { ContextCompactionReceipt, ContextRecord, ContextWorkspace } from "@synara/contracts";
 
 import { buildContextView, planContextCompaction, renderContextView } from "./ContextViews.ts";
 
@@ -21,10 +17,7 @@ const workspace = {
   updatedAt: now,
 } as ContextWorkspace;
 
-const record = (
-  id: string,
-  overrides: Partial<ContextRecord> = {},
-): ContextRecord =>
+const record = (id: string, overrides: Partial<ContextRecord> = {}): ContextRecord =>
   ({
     id,
     workspaceId: workspace.id,

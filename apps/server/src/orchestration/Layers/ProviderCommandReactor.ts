@@ -640,14 +640,15 @@ const make = Effect.gen(function* () {
         ? { supervisorSeatId: caller.seatId }
         : { leadSeatId: caller.leadSeatId ?? caller.seatId }),
       profileSnapshot,
-      missionIds: caller.role === "supervisor"
-        ? governance.orchestration.missions
-            .filter(
-              (mission) =>
-                mission.supervisorSeatId === caller.seatId && mission.status === "active",
-            )
-            .map((mission) => mission.id)
-        : [],
+      missionIds:
+        caller.role === "supervisor"
+          ? governance.orchestration.missions
+              .filter(
+                (mission) =>
+                  mission.supervisorSeatId === caller.seatId && mission.status === "active",
+              )
+              .map((mission) => mission.id)
+          : [],
       agentSeatId: authority.seat.id,
       workspaceId: authority.seat.workspaceId,
       roomIds: authority.seat.roomIds.filter((roomId) =>
@@ -1357,11 +1358,11 @@ const make = Effect.gen(function* () {
         !shouldRestartForModelSelectionChange &&
         !supervisedContextChanged
       ) {
-          return {
-            activeSessionBeforeEnsure,
-            activeSession: activeSessionBeforeEnsure,
-            modelSelection: desiredModelSelection,
-          };
+        return {
+          activeSessionBeforeEnsure,
+          activeSession: activeSessionBeforeEnsure,
+          modelSelection: desiredModelSelection,
+        };
       }
 
       const resumeCursor =
@@ -1414,10 +1415,7 @@ const make = Effect.gen(function* () {
       };
     }
 
-    if (
-      providerService.forkThread &&
-      thread.forkSourceThreadId
-    ) {
+    if (providerService.forkThread && thread.forkSourceThreadId) {
       const forked = yield* providerService.forkThread({
         ...providerSessionOptions,
         sourceThreadId: thread.forkSourceThreadId,
@@ -1650,7 +1648,7 @@ const make = Effect.gen(function* () {
       shouldBootstrapHandoff && handoffBootstrapAvailableChars > 0
         ? buildHandoffBootstrapText(thread, handoffBootstrapAvailableChars)
         : null;
-      const selectedProvider = ensuredModelSelection.provider;
+    const selectedProvider = ensuredModelSelection.provider;
     const hasPendingPriorTranscriptBootstrap =
       freshSessionContextBootstrapThreadIds.has(input.threadId) ||
       rollbackContextBootstrapThreadIds.has(input.threadId);

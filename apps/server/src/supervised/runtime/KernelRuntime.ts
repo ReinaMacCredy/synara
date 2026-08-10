@@ -54,7 +54,8 @@ async function executableExists(executable: string): Promise<boolean> {
   }
 }
 
-const escapeSandboxLiteral = (value: string) => value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+const escapeSandboxLiteral = (value: string) =>
+  value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 
 function macosSandboxProfile(input: {
   readonly executable: string;
@@ -109,7 +110,10 @@ function sanitizedEnvironment(overrides: Readonly<Record<string, string>> = {}) 
 
 async function spawnKernelHost(
   options: KernelRuntimeOptions,
-): Promise<{ readonly child: ChildProcessWithoutNullStreams; readonly backend: KernelIsolationBackend }> {
+): Promise<{
+  readonly child: ChildProcessWithoutNullStreams;
+  readonly backend: KernelIsolationBackend;
+}> {
   const workingDirectory = path.resolve(options.workingDirectory);
   await mkdir(workingDirectory, { recursive: true, mode: 0o700 });
   const hostScript =
@@ -127,7 +131,8 @@ async function spawnKernelHost(
     options.language === "javascript"
       ? [`--max-old-space-size=${options.policy.maxKernelMemoryMiB}`, hostScript]
       : ["-I", hostScript];
-  const sandboxAvailable = process.platform === "darwin" && (await executableExists("/usr/bin/sandbox-exec"));
+  const sandboxAvailable =
+    process.platform === "darwin" && (await executableExists("/usr/bin/sandbox-exec"));
   let command = executable;
   let args = languageArgs;
   let backend: KernelIsolationBackend = "trusted-process";
@@ -243,11 +248,14 @@ export class PersistentKernel {
     if (this.stopped) return Promise.reject(new Error("Kernel host is stopped."));
     const id = randomUUID();
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error("Kernel execution exceeded RunPolicy wall time."));
-        this.stop();
-      }, Math.min(this.policy.maxWallTimeMs, 2_147_483_647));
+      const timeout = setTimeout(
+        () => {
+          this.pending.delete(id);
+          reject(new Error("Kernel execution exceeded RunPolicy wall time."));
+          this.stop();
+        },
+        Math.min(this.policy.maxWallTimeMs, 2_147_483_647),
+      );
       this.pending.set(id, { resolve, reject, timeout });
       this.child.stdin.write(`${JSON.stringify({ id, code, input })}\n`, (error) => {
         if (!error) return;

@@ -50,8 +50,7 @@ const mapChanged = <T>(items: ReadonlyArray<T>, map: (item: T) => T) => {
 export type GovernanceProjectionSource = "canonical" | "legacy";
 
 const isManagedProjectionReceipt = (receiptId: string) =>
-  receiptId.startsWith("legacy-receipt:") ||
-  receiptId.startsWith("supervised-projection-receipt:");
+  receiptId.startsWith("legacy-receipt:") || receiptId.startsWith("supervised-projection-receipt:");
 
 const projectionReceiptId = (input: {
   readonly seatId: string;
@@ -74,8 +73,7 @@ const projectionReceiptId = (input: {
     )
     .digest("hex")
     .slice(0, 16);
-  const prefix =
-    input.source === "legacy" ? "legacy-receipt" : "supervised-projection-receipt";
+  const prefix = input.source === "legacy" ? "legacy-receipt" : "supervised-projection-receipt";
   return EffectiveAuthorityReceiptId.makeUnsafe(`${prefix}:${input.seatId}:${version}`);
 };
 
@@ -89,11 +87,7 @@ const seatLifecycle = (status: string): AgentSeat["lifecycleState"] => {
 const supervisorStatus = (seat: AgentSeat): SupervisorSeat["status"] => {
   if (seat.lifecycleState === "draining") return "rotating";
   if (seat.lifecycleState === "ready" || seat.lifecycleState === "active") return "active";
-  if (
-    ["requested", "provisioning", "bootstrapping", "recovering"].includes(
-      seat.lifecycleState,
-    )
-  ) {
+  if (["requested", "provisioning", "bootstrapping", "recovering"].includes(seat.lifecycleState)) {
     return "queued";
   }
   return "archived";
@@ -102,11 +96,7 @@ const supervisorStatus = (seat: AgentSeat): SupervisorSeat["status"] => {
 const leadStatus = (seat: AgentSeat): LeadSeat["status"] => {
   if (seat.lifecycleState === "draining") return "rotating";
   if (seat.lifecycleState === "ready" || seat.lifecycleState === "active") return "active";
-  if (
-    ["requested", "provisioning", "bootstrapping", "recovering"].includes(
-      seat.lifecycleState,
-    )
-  ) {
+  if (["requested", "provisioning", "bootstrapping", "recovering"].includes(seat.lifecycleState)) {
     return "vacant";
   }
   return "archived";
@@ -214,20 +204,20 @@ const roomIdsForSupervisor = (
   supervisorSeatId: string,
 ) => {
   const missions = state.missions.filter(
-    (mission) =>
-      mission.supervisorSeatId === supervisorSeatId && mission.status === "active",
+    (mission) => mission.supervisorSeatId === supervisorSeatId && mission.status === "active",
   );
   return runtime.rooms
-    .filter((room) =>
-      room.leadSeatId === supervisorSeatId ||
-      missions.some((mission) =>
-        mission.scope.some((scope) => {
-          if (scope.kind === "all_projects") return true;
-          if (scope.kind === "project") return scope.projectId === room.projectId;
-          if (scope.kind === "lead") return scope.leadSeatId === room.leadSeatId;
-          return false;
-        }),
-      ),
+    .filter(
+      (room) =>
+        room.leadSeatId === supervisorSeatId ||
+        missions.some((mission) =>
+          mission.scope.some((scope) => {
+            if (scope.kind === "all_projects") return true;
+            if (scope.kind === "project") return scope.projectId === room.projectId;
+            if (scope.kind === "lead") return scope.leadSeatId === room.leadSeatId;
+            return false;
+          }),
+        ),
     )
     .map((room) => room.id);
 };
@@ -520,8 +510,7 @@ export function reconcileGovernanceProjection(input: {
       (candidate) => candidate.leadSeatId === room.leadSeatId,
     );
     const createdAt = leadRooms.reduce(
-      (earliest, candidate) =>
-        candidate.createdAt < earliest ? candidate.createdAt : earliest,
+      (earliest, candidate) => (candidate.createdAt < earliest ? candidate.createdAt : earliest),
       room.createdAt,
     );
     const updatedAt = leadRooms.reduce(
@@ -631,9 +620,7 @@ export function reconcileGovernanceProjection(input: {
     );
     const terminal = room.status === "completed" || room.status === "archived";
     const lease: RootAuthorityLease = {
-      id:
-        current?.id ??
-        rootLeaseIdFor(input.governance, room.id, room.leadSeatId, input.source),
+      id: current?.id ?? rootLeaseIdFor(input.governance, room.id, room.leadSeatId, input.source),
       workspaceId,
       roomId: room.id,
       holderSeatId: AgentSeatId.makeUnsafe(room.leadSeatId),

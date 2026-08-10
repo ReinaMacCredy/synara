@@ -299,8 +299,8 @@ function ActivityThreadRow({
                 stopRowActivation(event);
                 onSetSettled(!isSettled);
               }}
-              />
-            ) : null}
+            />
+          ) : null}
         </span>
       </TooltipTrigger>
       {renderHoverCard(hoverAnchorId)}
@@ -843,12 +843,12 @@ export function SidebarActivityView({
         pagedProjectGroups.map(({ group, paging, threads: visibleThreads }) => (
           <div key={group.key}>
             <ActivitySectionLabel
-                label={
+              label={
                 group.kind === "chats"
                   ? "Synara"
-                    : resolveThreadProjectLabel(projectById.get(group.projectId))
-                }
-                {...(group.kind === "project"
+                  : resolveThreadProjectLabel(projectById.get(group.projectId))
+              }
+              {...(group.kind === "project"
                 ? {
                     onContextMenu: (position: SidebarRowContextMenuPosition) =>
                       onProjectContextMenu(group.projectId, position),

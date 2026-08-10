@@ -23,7 +23,6 @@ describe("resolveRouteVisibleThreadIds", () => {
       }),
     ).toEqual(["split-a", "split-b"]);
   });
-
 });
 
 const threadId = (value: string) => ThreadId.makeUnsafe(value);

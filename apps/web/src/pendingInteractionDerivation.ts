@@ -251,10 +251,10 @@ export function derivePendingApprovals(
       parseRequested: ({ activity, payload, requestId, lifecycleGeneration }) => {
         const requestKind =
           payload?.requestKind === "command" ||
-            payload?.requestKind === "file-read" ||
-            payload?.requestKind === "file-change" ||
-            payload?.requestKind === "permissions" ||
-            payload?.requestKind === "mcp-tool"
+          payload?.requestKind === "file-read" ||
+          payload?.requestKind === "file-change" ||
+          payload?.requestKind === "permissions" ||
+          payload?.requestKind === "mcp-tool"
             ? payload.requestKind
             : approvalRequestKindFromRequestType(payload?.requestType);
         if (!requestKind) {
@@ -280,7 +280,7 @@ export function derivePendingApprovals(
           ...(permissionProfile ? { permissionProfile } : {}),
           ...(sessionApprovalAvailable !== undefined ? { sessionApprovalAvailable } : {}),
         };
-        },
+      },
     },
     options,
   );

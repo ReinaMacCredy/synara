@@ -20,7 +20,9 @@ function firstNonEmpty(...values: Array<string | null | undefined>): string | nu
   return null;
 }
 
-export function isAdvisorSubagent(subagent: Pick<WorkLogSubagent, "nickname" | "role" | "title">): boolean {
+export function isAdvisorSubagent(
+  subagent: Pick<WorkLogSubagent, "nickname" | "role" | "title">,
+): boolean {
   return isAdvisorIdentity({
     nickname: subagent.nickname,
     role: subagent.role,
@@ -39,7 +41,14 @@ function normalizeToolName(value: string | null | undefined): string {
 export function isAdvisorConsultationWorkEntry(
   entry: Pick<
     WorkLogEntry,
-    "itemType" | "subagents" | "subagentAction" | "detail" | "preview" | "label" | "toolName" | "toolTitle"
+    | "itemType"
+    | "subagents"
+    | "subagentAction"
+    | "detail"
+    | "preview"
+    | "label"
+    | "toolName"
+    | "toolTitle"
   >,
 ): boolean {
   // Preferred path: Synara gateway tool (same fork pipeline as type 1/2).
@@ -167,7 +176,11 @@ export function advisorWorkEntryThreadId(
   entry: Pick<WorkLogEntry, "subagents" | "detail" | "preview">,
 ): string | null {
   for (const subagent of entry.subagents ?? []) {
-    const id = firstNonEmpty(subagent.resolvedThreadId, subagent.threadId, subagent.providerThreadId);
+    const id = firstNonEmpty(
+      subagent.resolvedThreadId,
+      subagent.threadId,
+      subagent.providerThreadId,
+    );
     if (id) return id;
   }
   for (const candidate of [entry.detail, entry.preview]) {
@@ -179,7 +192,10 @@ export function advisorWorkEntryThreadId(
 }
 
 export function workEntryReferencesAdvisorThread(
-  entry: Pick<WorkLogEntry, "itemType" | "subagents" | "subagentAction" | "detail" | "preview" | "label">,
+  entry: Pick<
+    WorkLogEntry,
+    "itemType" | "subagents" | "subagentAction" | "detail" | "preview" | "label"
+  >,
   threadId: string,
 ): boolean {
   if (!isAdvisorConsultationWorkEntry(entry)) return false;
@@ -195,7 +211,10 @@ export function workEntryReferencesAdvisorThread(
 
 /** True when a work entry is the agent-invoked source for this consultation. */
 export function workEntryMatchesAdvisorConsultation(
-  entry: Pick<WorkLogEntry, "itemType" | "subagents" | "subagentAction" | "detail" | "preview" | "label">,
+  entry: Pick<
+    WorkLogEntry,
+    "itemType" | "subagents" | "subagentAction" | "detail" | "preview" | "label"
+  >,
   consultation: { threadId: string; question: string },
 ): boolean {
   if (!isAdvisorConsultationWorkEntry(entry)) return false;

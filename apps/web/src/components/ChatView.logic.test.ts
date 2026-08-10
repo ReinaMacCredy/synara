@@ -2242,12 +2242,12 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
       threadError: null,
     };
 
-    expect(
-      hasTurnLifecycleSettledLocalDispatch({ ...baseInput, hasPendingApproval: true }),
-    ).toBe(false);
-    expect(
-      hasTurnLifecycleSettledLocalDispatch({ ...baseInput, hasPendingUserInput: true }),
-    ).toBe(false);
+    expect(hasTurnLifecycleSettledLocalDispatch({ ...baseInput, hasPendingApproval: true })).toBe(
+      false,
+    );
+    expect(hasTurnLifecycleSettledLocalDispatch({ ...baseInput, hasPendingUserInput: true })).toBe(
+      false,
+    );
     expect(
       hasTurnLifecycleSettledLocalDispatch({ ...baseInput, threadError: "provider failed" }),
     ).toBe(true);

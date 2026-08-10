@@ -56,7 +56,10 @@ export function evaluateRunPolicy(
   request: RunActionRequest = {},
 ): RunPolicyDecision {
   if (usage.wallTimeMs >= policy.maxWallTimeMs) {
-    return denied("wall_time", `Wall time ${usage.wallTimeMs}ms reached ${policy.maxWallTimeMs}ms.`);
+    return denied(
+      "wall_time",
+      `Wall time ${usage.wallTimeMs}ms reached ${policy.maxWallTimeMs}ms.`,
+    );
   }
   if (usage.recursiveCalls >= policy.maxRecursiveCalls) {
     return denied("recursive_calls", `Recursive calls reached ${policy.maxRecursiveCalls}.`);
@@ -71,13 +74,22 @@ export function evaluateRunPolicy(
     return denied("cost", `Cost ${usage.costUsd} reached ${policy.maxCostUsd}.`);
   }
   if (usage.kernelMemoryMiB > policy.maxKernelMemoryMiB) {
-    return denied("kernel_memory", `Kernel memory ${usage.kernelMemoryMiB} MiB exceeds ${policy.maxKernelMemoryMiB} MiB.`);
+    return denied(
+      "kernel_memory",
+      `Kernel memory ${usage.kernelMemoryMiB} MiB exceeds ${policy.maxKernelMemoryMiB} MiB.`,
+    );
   }
   if (usage.kernelOutputBytes > policy.maxKernelOutputBytes) {
-    return denied("kernel_output", `Kernel output ${usage.kernelOutputBytes} bytes exceeds ${policy.maxKernelOutputBytes}.`);
+    return denied(
+      "kernel_output",
+      `Kernel output ${usage.kernelOutputBytes} bytes exceeds ${policy.maxKernelOutputBytes}.`,
+    );
   }
   if (usage.activePlugins > policy.maxPlugins) {
-    return denied("plugin_count", `Plugin count ${usage.activePlugins} exceeds ${policy.maxPlugins}.`);
+    return denied(
+      "plugin_count",
+      `Plugin count ${usage.activePlugins} exceeds ${policy.maxPlugins}.`,
+    );
   }
   if (usage.activeSubscriptions > policy.maxSubscriptions) {
     return denied(
@@ -86,7 +98,10 @@ export function evaluateRunPolicy(
     );
   }
   if (usage.eventRatePerMinute > policy.maxEventRatePerMinute) {
-    return denied("event_rate", `Event rate ${usage.eventRatePerMinute}/min exceeds ${policy.maxEventRatePerMinute}/min.`);
+    return denied(
+      "event_rate",
+      `Event rate ${usage.eventRatePerMinute}/min exceeds ${policy.maxEventRatePerMinute}/min.`,
+    );
   }
   if (usage.aggregationSamples > policy.maxAggregationSamples) {
     return denied(
@@ -107,7 +122,10 @@ export function evaluateRunPolicy(
     return denied("capability", `Capability '${request.capability}' is not allowed by RunPolicy.`);
   }
   if (request.pluginAction && !policy.allowedPluginActions.includes(request.pluginAction)) {
-    return denied("plugin_action", `Plugin action '${request.pluginAction}' is not allowed by RunPolicy.`);
+    return denied(
+      "plugin_action",
+      `Plugin action '${request.pluginAction}' is not allowed by RunPolicy.`,
+    );
   }
   if (request.replay && policy.replayBehavior !== "idempotent_actions") {
     return denied("replay", `Replay behavior '${policy.replayBehavior}' does not permit actions.`);
@@ -119,8 +137,26 @@ const RUN_TRANSITIONS: Readonly<Record<Run["status"], ReadonlySet<Run["status"]>
   queued: new Set(["admitted", "cancelled"]),
   admitted: new Set(["starting", "cancelled", "failed"]),
   starting: new Set(["running", "interrupted", "failed", "cancelled"]),
-  running: new Set(["waiting", "reviewing", "paused", "retrying", "interrupted", "stalled", "succeeded", "failed", "cancelled"]),
-  waiting: new Set(["running", "reviewing", "paused", "interrupted", "stalled", "failed", "cancelled"]),
+  running: new Set([
+    "waiting",
+    "reviewing",
+    "paused",
+    "retrying",
+    "interrupted",
+    "stalled",
+    "succeeded",
+    "failed",
+    "cancelled",
+  ]),
+  waiting: new Set([
+    "running",
+    "reviewing",
+    "paused",
+    "interrupted",
+    "stalled",
+    "failed",
+    "cancelled",
+  ]),
   reviewing: new Set(["running", "succeeded", "retrying", "failed", "cancelled"]),
   paused: new Set(["queued", "starting", "running", "cancelled"]),
   retrying: new Set(["starting", "running", "failed", "cancelled"]),

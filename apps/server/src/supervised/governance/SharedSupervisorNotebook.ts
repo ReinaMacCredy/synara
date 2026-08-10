@@ -83,12 +83,13 @@ export function buildSupervisorNotebookView(
       receipt.sourceEntryIds.every((entryId) => scopedEntryIds.has(entryId)),
   );
   const candidates = scopedEntries.filter(
-    (entry) =>
-      cursorBoundary === null || `${entry.createdAt}\u0000${entry.id}` > cursorBoundary,
+    (entry) => cursorBoundary === null || `${entry.createdAt}\u0000${entry.id}` > cursorBoundary,
   );
   const candidateIds = new Set(candidates.map((entry) => entry.id));
   const supersededIds = new Set(
-    candidates.flatMap((entry) => (entry.supersedesEntryId === null ? [] : [entry.supersedesEntryId])),
+    candidates.flatMap((entry) =>
+      entry.supersedesEntryId === null ? [] : [entry.supersedesEntryId],
+    ),
   );
   const compactedIds = new Set(
     visibleReceipts.flatMap((receipt) =>

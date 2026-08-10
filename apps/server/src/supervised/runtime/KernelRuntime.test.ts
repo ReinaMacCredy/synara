@@ -10,7 +10,9 @@ import { PersistentKernel } from "./KernelRuntime.ts";
 
 const directories: string[] = [];
 afterEach(async () => {
-  await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+  await Promise.all(
+    directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })),
+  );
 });
 
 const policy = {
@@ -34,8 +36,14 @@ describe("PersistentKernel", () => {
       isolation: "trusted-process",
     });
     try {
-      assert.equal((await kernel.execute("state.count = (state.count ?? 0) + 1; return state.count;")).result, 1);
-      assert.equal((await kernel.execute("state.count += input; return state.count;", 2)).result, 3);
+      assert.equal(
+        (await kernel.execute("state.count = (state.count ?? 0) + 1; return state.count;")).result,
+        1,
+      );
+      assert.equal(
+        (await kernel.execute("state.count += input; return state.count;", 2)).result,
+        3,
+      );
     } finally {
       kernel.stop();
     }
@@ -50,8 +58,18 @@ describe("PersistentKernel", () => {
       pythonBinary: "/usr/bin/python3",
     });
     try {
-      assert.equal((await kernel.execute("state['count'] = state.get('count', 0) + 1\nresult = state['count']")).result, 1);
-      assert.equal((await kernel.execute("state['count'] += input\nresult = state['count']", 2)).result, 3);
+      assert.equal(
+        (
+          await kernel.execute(
+            "state['count'] = state.get('count', 0) + 1\nresult = state['count']",
+          )
+        ).result,
+        1,
+      );
+      assert.equal(
+        (await kernel.execute("state['count'] += input\nresult = state['count']", 2)).result,
+        3,
+      );
     } finally {
       kernel.stop();
     }

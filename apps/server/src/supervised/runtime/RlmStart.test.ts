@@ -183,7 +183,17 @@ function supervisorExistingRunFixture() {
     workspaceRoot: "/tmp/supervisor-rlm",
     deletedAt: null,
   } as OrchestrationProject;
-  return { authorityReceipt, callerThread, governance, lead, project, room, run, runtime, supervisor };
+  return {
+    authorityReceipt,
+    callerThread,
+    governance,
+    lead,
+    project,
+    room,
+    run,
+    runtime,
+    supervisor,
+  };
 }
 
 function projectionHarness(
@@ -430,7 +440,9 @@ describe("RLM start planning", () => {
     assert.deepEqual(
       dispatched
         .filter((command) => command.type === "supervised.rlm.upsert")
-        .map((command) => (command.type === "supervised.rlm.upsert" ? command.episode.status : null)),
+        .map((command) =>
+          command.type === "supervised.rlm.upsert" ? command.episode.status : null,
+        ),
       ["requested", "admitted", "branching", "branches_running"],
     );
 
@@ -545,9 +557,18 @@ describe("RLM start planning", () => {
     assert.equal(fixture.room.leadSeatId, fixture.lead.id);
     assert.equal(fixture.governance.rootLeases[0]?.holderSeatId, fixture.lead.id);
     assert.deepEqual(fixture.authorityReceipt.rootLeaseIds, []);
-    assert.equal(harness.dispatched.some((command) => command.type === "supervised.task.create"), false);
-    assert.equal(harness.dispatched.some((command) => command.type === "supervised.run.request"), false);
-    assert.equal(harness.dispatched.some((command) => command.type === "supervised.room.update"), false);
+    assert.equal(
+      harness.dispatched.some((command) => command.type === "supervised.task.create"),
+      false,
+    );
+    assert.equal(
+      harness.dispatched.some((command) => command.type === "supervised.run.request"),
+      false,
+    );
+    assert.equal(
+      harness.dispatched.some((command) => command.type === "supervised.room.update"),
+      false,
+    );
     assert.equal(
       harness.dispatched
         .filter((command) => command.type.startsWith("supervised."))

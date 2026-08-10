@@ -432,22 +432,22 @@ export function CreateProjectDialog(props: {
 
           {source === "local" ? (
             <>
-                <InputGroup className={PROJECT_DIALOG_FIELD_CONTROL_CLASS_NAME}>
-                  <InputGroupAddon className="w-10 self-stretch border-e border-foreground/12 ps-0">
-                    {isElectron ? (
-                      <button
-                        type="button"
-                        aria-label="Browse for project folder"
-                        disabled={isPickingFolder || submitting}
-                        className="inline-flex size-full cursor-pointer items-center justify-center text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-default disabled:opacity-50"
-                        onClick={() => void handleBrowse()}
-                      >
-                        <FolderClosed className="size-4" aria-hidden="true" />
-                      </button>
-                    ) : (
-                      <FolderClosed className="size-4 text-muted-foreground/70" aria-hidden="true" />
-                    )}
-                  </InputGroupAddon>
+              <InputGroup className={PROJECT_DIALOG_FIELD_CONTROL_CLASS_NAME}>
+                <InputGroupAddon className="w-10 self-stretch border-e border-foreground/12 ps-0">
+                  {isElectron ? (
+                    <button
+                      type="button"
+                      aria-label="Browse for project folder"
+                      disabled={isPickingFolder || submitting}
+                      className="inline-flex size-full cursor-pointer items-center justify-center text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-default disabled:opacity-50"
+                      onClick={() => void handleBrowse()}
+                    >
+                      <FolderClosed className="size-4" aria-hidden="true" />
+                    </button>
+                  ) : (
+                    <FolderClosed className="size-4 text-muted-foreground/70" aria-hidden="true" />
+                  )}
+                </InputGroupAddon>
                 <InputGroupInput
                   id={pathInputId}
                   value={path}
@@ -635,13 +635,13 @@ export function CreateProjectDialog(props: {
             onClick={() => void submit()}
             disabled={submitting}
           >
-              {submitting
-                ? source === "github"
-                  ? "Cloning…"
-                  : "Adding…"
-                : source === "github"
-                  ? "Clone and add"
-                  : "Add project"}
+            {submitting
+              ? source === "github"
+                ? "Cloning…"
+                : "Adding…"
+              : source === "github"
+                ? "Clone and add"
+                : "Add project"}
           </Button>
         </DialogFooter>
         <SpaceEditorDialog

@@ -11,7 +11,7 @@ import { supervisedRuntimeQueryOptions } from "~/lib/supervisedRuntime";
 import { useStore } from "~/store";
 import { createThreadSelector } from "~/storeSelectors";
 
-interface SupervisedRoomSearch {
+export interface SupervisedRoomSearch {
   readonly projectId?: ProjectId;
   readonly editorFilePath?: string;
   readonly view?: "chat";
@@ -26,8 +26,7 @@ function SupervisedRoomRouteView() {
   const draft = useComposerDraftStore((state) => state.draftThreadsByThreadId[threadId] ?? null);
   const runtime = useQuery(supervisedRuntimeQueryOptions());
   const projectId = thread?.projectId ?? draft?.projectId ?? search.projectId ?? null;
-  const roomName =
-    runtime.data?.rooms.find((room) => room.id === roomId)?.title ?? "Lead Room";
+  const roomName = runtime.data?.rooms.find((room) => room.id === roomId)?.title ?? "Lead Room";
 
   if (!projectId) {
     return (

@@ -63,9 +63,9 @@ describe("ensureSupervisedDraft", () => {
 
     ensureSupervisedDraft({ project });
 
-    expect(
-      useComposerDraftStore.getState().draftThreadsByThreadId[threadId]?.supervisionMode,
-    ).toBe("supervise");
+    expect(useComposerDraftStore.getState().draftThreadsByThreadId[threadId]?.supervisionMode).toBe(
+      "supervise",
+    );
   });
 
   it("converges when room creation committed before its projection became readable", async () => {
@@ -90,9 +90,11 @@ describe("ensureSupervisedDraft", () => {
     nativeApiMocks.readNativeApi.mockReturnValue({
       orchestration: {
         getSupervisedRuntime,
-        dispatchCommand: vi.fn().mockRejectedValue(
-          new Error("Orchestration command invariant failed: Room already exists."),
-        ),
+        dispatchCommand: vi
+          .fn()
+          .mockRejectedValue(
+            new Error("Orchestration command invariant failed: Room already exists."),
+          ),
       },
     });
 

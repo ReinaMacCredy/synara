@@ -1252,8 +1252,7 @@ export function syncServerShellSnapshot(
 
   const normalizedState: AppState = {
     ...state,
-    supervisedOrchestration:
-      snapshot.supervisedOrchestration ?? state.supervisedOrchestration,
+    supervisedOrchestration: snapshot.supervisedOrchestration ?? state.supervisedOrchestration,
     threadIds: reuseThreadIdRegistry(state.threadIds, nextThreadIds),
     ...rebuildThreadShellRecords(state, snapshotThreads),
     messageIdsByThreadId: retainThreadScopedRecord(state.messageIdsByThreadId, nextThreadIds),
@@ -1432,8 +1431,7 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
   resetThreadDetailResumeCursors();
   let normalizedState: AppState = {
     ...state,
-    supervisedOrchestration:
-      readModel.supervisedOrchestration ?? state.supervisedOrchestration,
+    supervisedOrchestration: readModel.supervisedOrchestration ?? state.supervisedOrchestration,
     threadIds: reuseThreadIdRegistry(state.threadIds, nextThreadIds),
     threadShellById: retainThreadScopedRecord(state.threadShellById, nextThreadIds),
     threadSessionById: retainThreadScopedRecord(state.threadSessionById, nextThreadIds),

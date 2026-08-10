@@ -270,8 +270,7 @@ export function useTailAnchorScroll({
       // transcript content. Exclude it from overflow detection or the hold
       // hands off by exactly the composer inset once the slide quiets.
       const inlineBottomInsetPx = Number.parseFloat(container.style.paddingBottom) || 0;
-      const contentOverflowPx =
-        target.maxScrollTopPx - target.desired - inlineBottomInsetPx;
+      const contentOverflowPx = target.maxScrollTopPx - target.desired - inlineBottomInsetPx;
       if (hasLanded && contentOverflowPx > ANCHOR_OVERFLOW_SLACK_PX) {
         overflowFrames += 1;
         if (overflowFrames >= ANCHOR_OVERFLOW_HANDOFF_FRAMES) {

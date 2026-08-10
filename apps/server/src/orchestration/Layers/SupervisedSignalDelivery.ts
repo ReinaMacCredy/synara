@@ -31,10 +31,7 @@ import {
   type PluginHandlerResult,
 } from "../../supervised/runtime/PluginRuntime.ts";
 import { loadVerifiedSupervisedPluginPackage } from "../../supervised/runtime/PluginPackage.ts";
-import {
-  evaluateRunPolicy,
-  type RunResourceUsage,
-} from "../../supervised/runtime/RunPolicy.ts";
+import { evaluateRunPolicy, type RunResourceUsage } from "../../supervised/runtime/RunPolicy.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { activeMissionsCoveringLead } from "../supervised/missionScope.ts";
 import {
@@ -123,10 +120,7 @@ function pluginUsage(snapshot: SupervisedRuntimeSnapshot): RunResourceUsage {
   };
 }
 
-function signalEvent(
-  signal: DerivedSignal,
-  delivery: SubscriptionDelivery,
-): ControlPlaneEvent {
+function signalEvent(signal: DerivedSignal, delivery: SubscriptionDelivery): ControlPlaneEvent {
   return Schema.decodeUnknownSync(ControlPlaneEvent)({
     sequence: 0,
     eventId: EventId.makeUnsafe(stableId("event:signal-delivery", delivery.id)),
@@ -156,10 +150,7 @@ function signalEvent(
   });
 }
 
-function leadWakeText(
-  subscription: SubscriptionDefinition,
-  signal: DerivedSignal,
-): string {
+function leadWakeText(subscription: SubscriptionDefinition, signal: DerivedSignal): string {
   return [
     "<synara_supervised_signal>",
     "This is a durable bounded Signal Plane wake, not a Human instruction.",
@@ -215,8 +206,7 @@ function signalLeadContext(input: {
   );
   if (!room) return null;
   const contextLeadSeatId = input.signal.context.leadSeatId;
-  const leadSeatId =
-    typeof contextLeadSeatId === "string" ? contextLeadSeatId : room.leadSeatId;
+  const leadSeatId = typeof contextLeadSeatId === "string" ? contextLeadSeatId : room.leadSeatId;
   if (leadSeatId !== room.leadSeatId) return null;
   const lead = input.governance.agentSeats.find(
     (candidate) =>
@@ -641,18 +631,20 @@ export const makeSupervisedSignalDelivery = Effect.gen(function* () {
     const result = yield* execute.pipe(
       Effect.matchEffect({
         onSuccess: (value) =>
-          repository.updatePluginHealth({
-            pluginId: installation.pluginId,
-            consecutiveFailures: 0,
-            circuitState: "closed",
-            circuitOpenedUntil: null,
-            queueDepth: Math.max(0, queueDepth - 1),
-            lagMs: Math.max(0, nowMs - Date.parse(input.signal.triggeredAt)),
-            lastSuccessAt: input.delivery.updatedAt,
-            lastFailureAt: priorHealth?.lastFailureAt ?? null,
-            lastError: null,
-            updatedAt: input.delivery.updatedAt,
-          }).pipe(Effect.as(value)),
+          repository
+            .updatePluginHealth({
+              pluginId: installation.pluginId,
+              consecutiveFailures: 0,
+              circuitState: "closed",
+              circuitOpenedUntil: null,
+              queueDepth: Math.max(0, queueDepth - 1),
+              lagMs: Math.max(0, nowMs - Date.parse(input.signal.triggeredAt)),
+              lastSuccessAt: input.delivery.updatedAt,
+              lastFailureAt: priorHealth?.lastFailureAt ?? null,
+              lastError: null,
+              updatedAt: input.delivery.updatedAt,
+            })
+            .pipe(Effect.as(value)),
         onFailure: (error) => {
           const consecutiveFailures = (priorHealth?.consecutiveFailures ?? 0) + 1;
           const circuitOpen = consecutiveFailures >= policy.circuitBreakerFailureCount;
@@ -720,7 +712,11 @@ export const makeSupervisedSignalDelivery = Effect.gen(function* () {
   }) {
     if (input.subscription.destination.kind !== "concern") return;
     if (input.delivery.replay && input.delivery.replayBehavior !== "idempotent_actions") {
-      yield* appendAudit({ ...input, outcome: "replay_observed", detail: { wakeSuppressed: true } });
+      yield* appendAudit({
+        ...input,
+        outcome: "replay_observed",
+        detail: { wakeSuppressed: true },
+      });
       return;
     }
     const [readModel, governance] = yield* Effect.all([
@@ -782,7 +778,11 @@ export const makeSupervisedSignalDelivery = Effect.gen(function* () {
     readonly delivery: SubscriptionDelivery;
   }) {
     if (input.delivery.replay && input.delivery.replayBehavior !== "idempotent_actions") {
-      yield* appendAudit({ ...input, outcome: "replay_observed", detail: { wakeSuppressed: true } });
+      yield* appendAudit({
+        ...input,
+        outcome: "replay_observed",
+        detail: { wakeSuppressed: true },
+      });
       return;
     }
     const readModel = yield* engine.getReadModel();

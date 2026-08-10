@@ -40,17 +40,19 @@ interface CanonicalLeadView {
 const canonicalLeadViews = (governance: SupervisedGovernanceSnapshot): CanonicalLeadView[] =>
   governance.agentSeats.flatMap((seat) =>
     seat.identityRole === "lead" && seat.threadId !== null && seat.projectId !== null
-      ? [{
-          id: seat.id,
-          projectId: seat.projectId,
-          activeThreadId: seat.threadId,
-          status:
-            seat.lifecycleState === "draining"
-              ? "rotating"
-              : seat.lifecycleState === "retired"
-                ? "archived"
-                : "active",
-        }]
+      ? [
+          {
+            id: seat.id,
+            projectId: seat.projectId,
+            activeThreadId: seat.threadId,
+            status:
+              seat.lifecycleState === "draining"
+                ? "rotating"
+                : seat.lifecycleState === "retired"
+                  ? "archived"
+                  : "active",
+          },
+        ]
       : [],
   );
 
@@ -296,7 +298,7 @@ export const makeSupervisedWakeReactor = Effect.gen(function* () {
       event,
       beforeEndConditions.orchestration,
     );
-    const currentState = missionChanged ? (yield* loadState()) : beforeEndConditions;
+    const currentState = missionChanged ? yield* loadState() : beforeEndConditions;
     const { readModel, orchestration, leads: canonicalLeads } = currentState;
     const leads = eventLeadCandidates(event, canonicalLeads).filter(
       (lead) => lead.status === "active" || lead.status === "rotating",
@@ -311,8 +313,7 @@ export const makeSupervisedWakeReactor = Effect.gen(function* () {
     if (
       !isEligibleSupervisedWake({
         eventType: event.type,
-        aggregateThreadId:
-          event.aggregateKind === "thread" ? event.aggregateId : null,
+        aggregateThreadId: event.aggregateKind === "thread" ? event.aggregateId : null,
         leadThreadIds,
         peerThreadIds,
       })
@@ -385,10 +386,12 @@ export const makeSupervisedWakeReactor = Effect.gen(function* () {
     }
   });
   const reconcileEvent: SupervisedWakeReactorShape["reconcileEvent"] = (event) =>
-    lock.withPermits(1)(reconcileEventUnlocked(event)).pipe(
-      Effect.andThen(Effect.sleep(`${WAKE_DEBOUNCE_MS} millis`)),
-      Effect.andThen(lock.withPermits(1)(reconcileQueuedUnlocked)),
-    );
+    lock
+      .withPermits(1)(reconcileEventUnlocked(event))
+      .pipe(
+        Effect.andThen(Effect.sleep(`${WAKE_DEBOUNCE_MS} millis`)),
+        Effect.andThen(lock.withPermits(1)(reconcileQueuedUnlocked)),
+      );
 
   const start: SupervisedWakeReactorShape["start"] = Effect.gen(function* () {
     const initialState = yield* loadState().pipe(Effect.catch(() => Effect.succeed(null)));

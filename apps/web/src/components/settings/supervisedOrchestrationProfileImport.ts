@@ -64,9 +64,7 @@ function profileNameFromFile(fileName: string): string {
   const stem = fileName.trim().replace(/\.(json|toml)$/i, "");
   const words = stem.split(/[-_.\s]+/).filter(Boolean);
   if (words.length === 0) return "Imported profile";
-  return words
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
+  return words.map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
 }
 
 function inferNativeRoleHints(instructions: unknown): readonly RoomRole[] {
@@ -74,9 +72,7 @@ function inferNativeRoleHints(instructions: unknown): readonly RoomRole[] {
   const match = instructions.match(/\broom\s+role\s*:\s*(lead|peer|specialist)\b/i);
   if (!match?.[1]) return [];
   return [
-    match[1].toLowerCase() === "specialist"
-      ? PEER_ROLE
-      : (match[1].toLowerCase() as RoomRole),
+    match[1].toLowerCase() === "specialist" ? PEER_ROLE : (match[1].toLowerCase() as RoomRole),
   ];
 }
 

@@ -125,7 +125,10 @@ export const providerAvailabilityFromHealth = (
   );
 
 const categoryDimension = (category: string): ModelCapabilityDimension | null => {
-  const tokens = category.toLowerCase().split(/[^a-z]+/).filter(Boolean);
+  const tokens = category
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter(Boolean);
   const hasPrefix = (prefix: string) => tokens.some((token) => token.startsWith(prefix));
   if (hasPrefix("architect")) return "architecture";
   if (hasPrefix("debug")) return "debugging";
@@ -209,7 +212,10 @@ const rejectReasons = (profile: ModelCapabilityProfile, request: ModelRoutingReq
   if (request.fallback?.failedModelIds.includes(profile.id)) {
     reasons.push("Model was excluded by the current fallback attempt.");
   }
-  if (requirements?.minimumContextCapacity && profile.contextCapacity < requirements.minimumContextCapacity) {
+  if (
+    requirements?.minimumContextCapacity &&
+    profile.contextCapacity < requirements.minimumContextCapacity
+  ) {
     reasons.push(
       `Context capacity ${profile.contextCapacity} is below ${requirements.minimumContextCapacity}.`,
     );
@@ -308,7 +314,12 @@ const objectiveContribution = (
   const reliability = Math.max(0, 10 * (1 - (profile.failureRate + profile.retryRate) / 2));
   const qualityAndReliability = (quality * 3 + reliability) / 4;
   const context = Math.min(10, (profile.contextCapacity / 200_000) * 10);
-  const priorities = preference?.priorities ?? { quality: 10, speed: 5, cost: 5, contextCapacity: 5 };
+  const priorities = preference?.priorities ?? {
+    quality: 10,
+    speed: 5,
+    cost: 5,
+    contextCapacity: 5,
+  };
   const weight =
     priorities.quality + priorities.speed + priorities.cost + priorities.contextCapacity || 1;
   return {
@@ -382,7 +393,9 @@ export function recommendModels(
   request: ModelRoutingRequest,
 ): ModelRecommendation {
   if (preference && preference.userId !== request.userId) {
-    throw new Error(`Preference profile '${preference.id}' does not belong to user '${request.userId}'.`);
+    throw new Error(
+      `Preference profile '${preference.id}' does not belong to user '${request.userId}'.`,
+    );
   }
   const rejectedCandidates: RejectedModelCandidate[] = [];
   const valid = profiles.flatMap((profile) => {

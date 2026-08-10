@@ -604,14 +604,8 @@ describe("Scenario F daemon restart", () => {
           assert.equal(recoveredRun?.status, "running");
           assert.equal(recoveredRun?.daemonEpoch, 2);
           assert.equal(recoveredRun?.revision, 6);
-          assert.equal(
-            governanceAfter.directInterventions[0]?.lifecycleState,
-            "failed",
-          );
-          assert.equal(
-            governanceAfter.roleAssumptions[0]?.lifecycleState,
-            "topology_reconciled",
-          );
+          assert.equal(governanceAfter.directInterventions[0]?.lifecycleState, "failed");
+          assert.equal(governanceAfter.roleAssumptions[0]?.lifecycleState, "topology_reconciled");
           assert.equal(
             governanceAfter.rootLeases.find((lease) => lease.status === "active")?.holderSeatId,
             "seat:supervisor-root",
@@ -640,14 +634,12 @@ describe("Scenario F daemon restart", () => {
           assert.ok(
             governanceTrace.some(
               (entry) =>
-                entry.kind === "role_assumption" &&
-                entry.lifecycleState === "topology_reconciled",
+                entry.kind === "role_assumption" && entry.lifecycleState === "topology_reconciled",
             ),
           );
           assert.ok(
             governanceTrace.some(
-              (entry) =>
-                entry.kind === "intervention" && entry.lifecycleState === "failed",
+              (entry) => entry.kind === "intervention" && entry.lifecycleState === "failed",
             ),
           );
 

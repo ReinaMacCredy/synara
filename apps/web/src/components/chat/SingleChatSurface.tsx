@@ -110,7 +110,6 @@ import { RouteInsetSurface } from "../RouteInsetSurface";
 import { SidebarInset } from "../ui/sidebar";
 import { toastManager } from "../ui/toast";
 import type { SupervisedTopologyOpenTarget } from "../supervised/SupervisedTopologyView";
-import { supervisedRoomRoot } from "../supervised/supervisedTopologyProjection";
 import {
   collectParentDirectoryPaths,
   resolveFilePreviewWorkspaceRoot,
@@ -264,20 +263,7 @@ export function SingleChatSurface(props: {
   const availableDockPaneKinds = dockLauncherItems.map(({ kind }) => kind);
   const projects = useStore((store) => store.projects);
   const supervisorConversationThreadId = useStore((store) => {
-    if (props.roomView) {
-      const root = supervisedRoomRoot(
-        store.supervisedOrchestration,
-        props.roomView.roomId,
-      );
-      if (
-        root.resolution === "resolved" &&
-        root.identityRole === "supervisor" &&
-        root.threadId !== null
-      ) {
-        return root.threadId as ThreadId;
-      }
-    }
-    const supervisors = store.supervisedOrchestration.agentSeats.filter(
+    const supervisors = (store.supervisedOrchestration.agentSeats ?? []).filter(
       (seat) =>
         seat.identityRole === "supervisor" &&
         seat.lifecycleState !== "retired" &&
@@ -658,7 +644,10 @@ export function SingleChatSurface(props: {
       to: "/$threadId",
       params: { threadId: props.threadId },
       replace: true,
-      search: (previous) => stripDiffSearchParams(previous),
+      search: (previous) => ({
+        ...stripDiffSearchParams(previous),
+        view: previous.view === "editor" ? ("editor" as const) : undefined,
+      }),
     });
   }, [
     navigate,
@@ -1154,63 +1143,71 @@ export function SingleChatSurface(props: {
                   onEditorDiffOptionsChange={handleEditorDiffOptionsChange}
                 />
               }
-              topologySidebar={props.roomView ? (
-                <SupervisedTopologySidebar
-                  roomId={props.roomView.roomId}
-                  selectedNodeId={selectedTopologyNodeId}
-                  onSelectNode={setSelectedTopologyNodeId}
-                />
-              ) : undefined}
-              topologyPanel={props.roomView ? (
-                <SupervisedTopologyCanvas
-                  roomId={props.roomView.roomId}
-                  selectedNodeId={selectedTopologyNodeId}
-                  onSelectNode={setSelectedTopologyNodeId}
-                  onOpenNode={(target) =>
-                    setSupervisedOperationsRequest((current) => ({
-                      ...target,
-                      requestId: (current?.requestId ?? 0) + 1,
-                    }))
-                  }
-                />
-              ) : undefined}
-              chatPanel={props.roomView ? (
-                <SupervisedOperationsDock
-                  roomId={props.roomView.roomId}
-                  conversation={renderRoomConversation(
-                    props.threadId,
-                    `${EDITOR_CHAT_PANE_SCOPE_ID}:${props.roomView.roomId}`,
-                  )}
-                  supervisorConversation={
-                    supervisorConversationThreadId
-                      ? renderRoomConversation(
-                          supervisorConversationThreadId,
-                          `${EDITOR_CHAT_PANE_SCOPE_ID}:supervisor:${props.roomView.roomId}`,
-                        )
-                      : undefined
-                  }
-                  navigationRequest={supervisedOperationsRequest}
-                />
-              ) : (
-                <SidebarInset
-                  className="min-h-0 min-w-0 overflow-hidden overscroll-y-none text-foreground"
-                  surfaceClassName={CHAT_BACKGROUND_CLASS_NAME}
-                >
-                  <DeferredChatView
-                    threadId={props.threadId}
-                    paneScopeId={EDITOR_CHAT_PANE_SCOPE_ID}
-                    deferMount={false}
-                    surfaceMode="split"
-                    presentationMode="editor"
-                    isFocusedPane
-                    panelState={editorChatPanelState}
-                    onToggleDiff={handleEditorToggleDiff}
-                    onToggleBrowser={noopChatSurfaceAction}
-                    onOpenBrowserUrl={noopChatSurfaceAction}
-                    onOpenTurnDiff={handleEditorOpenTurnDiff}
+              topologySidebar={
+                props.roomView ? (
+                  <SupervisedTopologySidebar
+                    roomId={props.roomView.roomId}
+                    selectedNodeId={selectedTopologyNodeId}
+                    onSelectNode={setSelectedTopologyNodeId}
                   />
-                </SidebarInset>
-              )}
+                ) : undefined
+              }
+              topologyPanel={
+                props.roomView ? (
+                  <SupervisedTopologyCanvas
+                    roomId={props.roomView.roomId}
+                    selectedNodeId={selectedTopologyNodeId}
+                    onSelectNode={setSelectedTopologyNodeId}
+                    onOpenNode={(target) =>
+                      setSupervisedOperationsRequest((current) => ({
+                        ...target,
+                        requestId: (current?.requestId ?? 0) + 1,
+                      }))
+                    }
+                  />
+                ) : undefined
+              }
+              chatPanel={
+                props.roomView ? (
+                  <SupervisedOperationsDock
+                    roomId={props.roomView.roomId}
+                    conversation={renderRoomConversation(
+                      props.threadId,
+                      `${EDITOR_CHAT_PANE_SCOPE_ID}:${props.roomView.roomId}`,
+                    )}
+                    supervisorConversation={
+                      supervisorConversationThreadId
+                        ? renderRoomConversation(
+                            supervisorConversationThreadId,
+                            `${EDITOR_CHAT_PANE_SCOPE_ID}:supervisor:${props.roomView.roomId}`,
+                          )
+                        : undefined
+                    }
+                    {...(supervisedOperationsRequest
+                      ? { navigationRequest: supervisedOperationsRequest }
+                      : {})}
+                  />
+                ) : (
+                  <SidebarInset
+                    className="min-h-0 min-w-0 overflow-hidden overscroll-y-none text-foreground"
+                    surfaceClassName={CHAT_BACKGROUND_CLASS_NAME}
+                  >
+                    <DeferredChatView
+                      threadId={props.threadId}
+                      paneScopeId={EDITOR_CHAT_PANE_SCOPE_ID}
+                      deferMount={false}
+                      surfaceMode="split"
+                      presentationMode="editor"
+                      isFocusedPane
+                      panelState={editorChatPanelState}
+                      onToggleDiff={handleEditorToggleDiff}
+                      onToggleBrowser={noopChatSurfaceAction}
+                      onOpenBrowserUrl={noopChatSurfaceAction}
+                      onOpenTurnDiff={handleEditorOpenTurnDiff}
+                    />
+                  </SidebarInset>
+                )
+              }
             />
           </Suspense>
         </div>

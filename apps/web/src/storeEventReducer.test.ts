@@ -36,7 +36,9 @@ import {
   threadsOf,
 } from "./storeTestFixtures";
 
-const EMPTY_SUPERVISED_ORCHESTRATION = emptySupervisedOrchestrationSnapshot("2026-02-27T00:00:00.000Z");
+const EMPTY_SUPERVISED_ORCHESTRATION = emptySupervisedOrchestrationSnapshot(
+  "2026-02-27T00:00:00.000Z",
+);
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE } from "./types";
 
 describe("store event reducer", () => {

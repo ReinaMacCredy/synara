@@ -349,9 +349,9 @@ export const ContextRecord = Schema.Struct({
   blob: Schema.NullOr(BlobReference),
   sourceEventIds: Schema.Array(EventId).check(Schema.isMaxLength(512)),
   evidenceRefs: Schema.Array(EvidenceId).check(Schema.isMaxLength(256)),
-  sourceRecordIds: Schema.optional(Schema.Array(ContextRecordId).check(Schema.isMaxLength(512))).pipe(
-    Schema.withDecodingDefault(() => []),
-  ),
+  sourceRecordIds: Schema.optional(
+    Schema.Array(ContextRecordId).check(Schema.isMaxLength(512)),
+  ).pipe(Schema.withDecodingDefault(() => [])),
   provenance: Schema.optional(BoundedJsonRecord).pipe(Schema.withDecodingDefault(() => ({}))),
   protectionClass: Schema.optional(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(() => "workspace"),
@@ -402,9 +402,9 @@ export const ContextCompactionReceipt = Schema.Struct({
   id: ContextCompactionReceiptId,
   workspaceId: ContextWorkspaceId,
   summaryRecordId: ContextRecordId,
-  sourceRecordIds: Schema.Array(ContextRecordId).check(Schema.isMinLength(1)).check(
-    Schema.isMaxLength(512),
-  ),
+  sourceRecordIds: Schema.Array(ContextRecordId)
+    .check(Schema.isMinLength(1))
+    .check(Schema.isMaxLength(512)),
   evidenceRefs: Schema.Array(EvidenceId).check(Schema.isMaxLength(512)),
   createdBy: SupervisedActor,
   createdAt: IsoDateTime,
@@ -632,7 +632,9 @@ export const HarnessPatchScope = Schema.Union([
 export const HarnessPatchSandboxEvaluation = Schema.Struct({
   passed: Schema.Boolean,
   basePolicyHash: Sha256,
-  evidenceRefs: Schema.Array(EvidenceId).check(Schema.isMinLength(1)).check(Schema.isMaxLength(128)),
+  evidenceRefs: Schema.Array(EvidenceId)
+    .check(Schema.isMinLength(1))
+    .check(Schema.isMaxLength(128)),
   regressions: Schema.Array(BoundedText).check(Schema.isMaxLength(128)),
   evaluatedBy: SupervisedActor,
   evaluatedAt: IsoDateTime,
@@ -654,7 +656,9 @@ export const HarnessPatchCanary = Schema.Struct({
 });
 export const HarnessPatchRollback = Schema.Struct({
   reason: BoundedText,
-  evidenceRefs: Schema.Array(EvidenceId).check(Schema.isMinLength(1)).check(Schema.isMaxLength(128)),
+  evidenceRefs: Schema.Array(EvidenceId)
+    .check(Schema.isMinLength(1))
+    .check(Schema.isMaxLength(128)),
   rolledBackBy: SupervisedActor,
   rolledBackAt: IsoDateTime,
 });
@@ -866,7 +870,9 @@ export const MetricSample = Schema.Struct({
   unit: TrimmedNonEmptyString,
   eventTime: IsoDateTime,
   computedAt: IsoDateTime,
-  sourceEventIds: Schema.Array(EventId).check(Schema.isMinLength(1)).check(Schema.isMaxLength(10_000)),
+  sourceEventIds: Schema.Array(EventId)
+    .check(Schema.isMinLength(1))
+    .check(Schema.isMaxLength(10_000)),
   aggregationReceiptHash: Sha256,
   quality: MetricQuality,
   confidence: Confidence,
@@ -903,7 +909,9 @@ export const DerivedSignal = Schema.Struct({
   state: Schema.Literals(["triggered", "acknowledged", "reset", "expired"]),
   measuredValue: Schema.Finite,
   threshold: ThresholdSpec,
-  sourceEventIds: Schema.Array(EventId).check(Schema.isMinLength(1)).check(Schema.isMaxLength(10_000)),
+  sourceEventIds: Schema.Array(EventId)
+    .check(Schema.isMinLength(1))
+    .check(Schema.isMaxLength(10_000)),
   metricSampleIds: Schema.Array(MetricSampleId).check(Schema.isMaxLength(10_000)),
   aggregationReceiptHash: Sha256,
   context: BoundedUnknownRecord,
@@ -915,7 +923,9 @@ export type DerivedSignal = typeof DerivedSignal.Type;
 
 export const SubscriptionSelector = Schema.Struct({
   sourceKind: Schema.Literals(["event", "metric"]),
-  names: Schema.Array(TrimmedNonEmptyString).check(Schema.isMinLength(1)).check(Schema.isMaxLength(64)),
+  names: Schema.Array(TrimmedNonEmptyString)
+    .check(Schema.isMinLength(1))
+    .check(Schema.isMaxLength(64)),
 });
 export const SubscriptionFilter = Schema.Struct({
   field: TrimmedNonEmptyString,
@@ -932,7 +942,11 @@ export const SubscriptionDeliveryTarget = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("concern"), concern: TrimmedNonEmptyString }),
   Schema.Struct({ kind: Schema.Literal("inbox"), inbox: TrimmedNonEmptyString }),
   Schema.Struct({ kind: Schema.Literal("notification"), channel: TrimmedNonEmptyString }),
-  Schema.Struct({ kind: Schema.Literal("plugin"), pluginId: PluginId, handler: TrimmedNonEmptyString }),
+  Schema.Struct({
+    kind: Schema.Literal("plugin"),
+    pluginId: PluginId,
+    handler: TrimmedNonEmptyString,
+  }),
 ]);
 export const SubscriptionDefinition = Schema.Struct({
   id: SubscriptionId,
@@ -983,8 +997,7 @@ export const SubscriptionEvaluationWindowSample = Schema.Struct({
   value: Schema.Finite,
   event: ControlPlaneEvent,
 });
-export type SubscriptionEvaluationWindowSample =
-  typeof SubscriptionEvaluationWindowSample.Type;
+export type SubscriptionEvaluationWindowSample = typeof SubscriptionEvaluationWindowSample.Type;
 export const SubscriptionEvaluationGroupState = Schema.Struct({
   samples: Schema.Array(SubscriptionEvaluationWindowSample).check(Schema.isMaxLength(10_000)),
   armed: Schema.Boolean,
@@ -992,8 +1005,7 @@ export const SubscriptionEvaluationGroupState = Schema.Struct({
   pendingSince: Schema.NullOr(IsoDateTime),
   activeSignal: Schema.NullOr(DerivedSignal),
 });
-export type SubscriptionEvaluationGroupState =
-  typeof SubscriptionEvaluationGroupState.Type;
+export type SubscriptionEvaluationGroupState = typeof SubscriptionEvaluationGroupState.Type;
 export const SubscriptionEvaluationState = Schema.Struct({
   groups: Schema.Record(
     Schema.String.check(Schema.isMaxLength(2_048)),
@@ -1348,7 +1360,11 @@ export const SupervisedCommand = Schema.Union([
     type: Schema.Literal("supervised.evidence.publish"),
     evidence: Evidence,
   }),
-  Schema.Struct({ ...CommandBase, type: Schema.Literal("supervised.rlm.upsert"), episode: RlmEpisode }),
+  Schema.Struct({
+    ...CommandBase,
+    type: Schema.Literal("supervised.rlm.upsert"),
+    episode: RlmEpisode,
+  }),
   Schema.Struct({
     ...CommandBase,
     type: Schema.Literal("supervised.model-session.upsert"),
@@ -1645,9 +1661,7 @@ export const SupervisedRuntimeSnapshot = Schema.Struct({
     Schema.withDecodingDefault(() => []),
   ),
   evidence: Schema.optional(Schema.Array(Evidence)).pipe(Schema.withDecodingDefault(() => [])),
-  rlmEpisodes: Schema.optional(Schema.Array(RlmEpisode)).pipe(
-    Schema.withDecodingDefault(() => []),
-  ),
+  rlmEpisodes: Schema.optional(Schema.Array(RlmEpisode)).pipe(Schema.withDecodingDefault(() => [])),
   modelSessions: Schema.optional(Schema.Array(ModelSessionTrace)).pipe(
     Schema.withDecodingDefault(() => []),
   ),

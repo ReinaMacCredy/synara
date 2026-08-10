@@ -70,7 +70,7 @@ export function useFocusedChatContext(): FocusedChatContext {
   const routeThreadId = useParams({
     strict: false,
     select: (params) => {
-      const value = params.threadId ?? params.rootThreadId;
+      const value = params.threadId ?? params.roomId;
       return value ? ThreadId.makeUnsafe(value) : null;
     },
   });

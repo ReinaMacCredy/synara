@@ -186,10 +186,10 @@ export function buildActivityViewModel(input: {
       pinned.push(thread);
       continue;
     }
-      const statusGroup = resolveActivityStatusGroup(thread);
-      if (
-        (input.includeSettled ?? true) &&
-        isThreadSettledForActivity(thread, input.settledOverrideByThreadId) &&
+    const statusGroup = resolveActivityStatusGroup(thread);
+    if (
+      (input.includeSettled ?? true) &&
+      isThreadSettledForActivity(thread, input.settledOverrideByThreadId) &&
       statusGroup === "seen"
     ) {
       settled.push(thread);
@@ -342,8 +342,8 @@ export function groupActivityThreadsByProject(
       leftRank.touchedToday - rightRank.touchedToday ||
       rightRank.recencyMs - leftRank.recencyMs ||
       left.key.localeCompare(right.key)
-      );
-    });
+    );
+  });
 }
 
 export type ActivityScopeOption =

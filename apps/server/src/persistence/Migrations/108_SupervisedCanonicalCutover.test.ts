@@ -61,21 +61,23 @@ freshSchemaLayer("migration 108 Supervised canonical cutover on a fresh database
 });
 
 upgradeSchemaLayer("migration 108 Supervised canonical cutover upgrade", (it) => {
-  it.effect("upcasts legacy profiles and actor linkage without retaining duplicate seat arrays", () =>
-    Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations({ toMigrationInclusive: 99 });
-      yield* sql`
+  it.effect(
+    "upcasts legacy profiles and actor linkage without retaining duplicate seat arrays",
+    () =>
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* runMigrations({ toMigrationInclusive: 99 });
+        yield* sql`
         INSERT INTO projection_projects (
           project_id, kind, title, workspace_root, scripts_json, created_at, updated_at
         ) VALUES ('project-1', 'project', 'Project', '/tmp/project', '[]', ${now}, ${now})
       `;
-      for (const [threadId, title] of [
-        ["supervisor-thread", "Supervisor"],
-        ["lead-thread", "Lead"],
-        ["peer-thread", "Peer"],
-      ] as const) {
-        yield* sql`
+        for (const [threadId, title] of [
+          ["supervisor-thread", "Supervisor"],
+          ["lead-thread", "Lead"],
+          ["peer-thread", "Peer"],
+        ] as const) {
+          yield* sql`
           INSERT INTO projection_threads (
             thread_id, project_id, title, created_at, updated_at,
             runtime_mode, interaction_mode, env_mode
@@ -84,8 +86,8 @@ upgradeSchemaLayer("migration 108 Supervised canonical cutover upgrade", (it) =>
             'full-access', 'default', 'local'
           )
         `;
-      }
-      yield* sql`
+        }
+        yield* sql`
         UPDATE projection_supervision_state
         SET snapshot_json = ${JSON.stringify({
           snapshotSequence: 42,
@@ -105,7 +107,7 @@ upgradeSchemaLayer("migration 108 Supervised canonical cutover upgrade", (it) =>
         })}, snapshot_sequence = 42, updated_at = ${now}
         WHERE singleton_id = 1
       `;
-      yield* sql`
+        yield* sql`
         INSERT INTO projection_supervision_supervisors (
           supervisor_seat_id, active_thread_id, status, archived_at,
           revision, updated_at, entity_json
@@ -125,7 +127,7 @@ upgradeSchemaLayer("migration 108 Supervised canonical cutover upgrade", (it) =>
           })}
         )
       `;
-      yield* sql`
+        yield* sql`
         INSERT INTO projection_supervision_active_leads (
           lead_seat_id, project_id, active_thread_id, profile_snapshot_id,
           status, archived_at, revision, updated_at, entity_json
@@ -146,7 +148,7 @@ upgradeSchemaLayer("migration 108 Supervised canonical cutover upgrade", (it) =>
           })}
         )
       `;
-      yield* sql`
+        yield* sql`
         INSERT INTO projection_supervision_peers (
           thread_id, project_id, lead_seat_id, root_thread_id, profile_snapshot_id,
           status, archived_at, revision, updated_at, entity_json
@@ -167,12 +169,12 @@ upgradeSchemaLayer("migration 108 Supervised canonical cutover upgrade", (it) =>
           })}
         )
       `;
-      yield* sql`
+        yield* sql`
         UPDATE projection_threads
         SET subagent_role = 'specialist'
         WHERE thread_id = 'peer-thread'
       `;
-      yield* sql`
+        yield* sql`
         INSERT INTO projection_retained_specialists (
           specialist_id, profile_preset_id, concern, status, latest_snapshot_id,
           expires_at, revision, updated_at, entity_json
@@ -193,7 +195,7 @@ upgradeSchemaLayer("migration 108 Supervised canonical cutover upgrade", (it) =>
           })}
         )
       `;
-      yield* sql`
+        yield* sql`
         INSERT INTO projection_specialist_snapshots (
           specialist_snapshot_id, specialist_id, profile_content_hash, expires_at, entity_json
         ) VALUES (
@@ -213,24 +215,24 @@ upgradeSchemaLayer("migration 108 Supervised canonical cutover upgrade", (it) =>
         )
       `;
 
-      yield* runMigrations({ toMigrationInclusive: 107 });
-      yield* sql`
+        yield* runMigrations({ toMigrationInclusive: 107 });
+        yield* sql`
         INSERT INTO projection_supervised_rooms (
           room_id, project_id, lead_seat_id, status, graph_revision, revision, updated_at, entity_json
         ) VALUES ('room-1', 'project-1', 'lead-seat', 'active', 1, 1, ${now}, '{}')
       `;
-      yield* sql`
+        yield* sql`
         INSERT INTO projection_supervised_tasks (
           task_id, room_id, lifecycle, graph_revision, revision, updated_at, entity_json
         ) VALUES ('task-1', 'room-1', 'active', 1, 1, ${now}, '{}')
       `;
-      yield* sql`
+        yield* sql`
         INSERT INTO projection_supervised_runs (
           run_id, room_id, task_id, task_node_id, status, daemon_epoch,
           revision, last_progress_at, updated_at, entity_json
         ) VALUES ('run-1', 'room-1', 'task-1', NULL, 'running', 1, 1, ${now}, ${now}, '{}')
       `;
-      yield* sql`
+        yield* sql`
         INSERT INTO projection_supervised_model_sessions (
           model_session_id, room_id, run_id, task_node_id, rlm_episode_id,
           parent_session_id, role, status, revision, updated_at, entity_json, thread_id
@@ -241,85 +243,88 @@ upgradeSchemaLayer("migration 108 Supervised canonical cutover upgrade", (it) =>
         )
       `;
 
-      yield* runMigrations();
+        yield* runMigrations();
 
-      const stateRows = yield* sql<{ readonly orchestrationJson: string }>`
+        const stateRows = yield* sql<{ readonly orchestrationJson: string }>`
         SELECT orchestration_json AS "orchestrationJson"
         FROM supervised_governance_state
         WHERE singleton_id = 1
       `;
-      const rawState = JSON.parse(stateRows[0]!.orchestrationJson) as Record<string, unknown>;
-      const snapshot = Schema.decodeUnknownSync(SupervisedOrchestrationSnapshot)(rawState);
-      assert.equal(snapshot.revision, 42);
-      assert.deepStrictEqual(snapshot.profiles.map((candidate) => candidate.id), ["profile-lead"]);
-      assert.equal("supervisors" in rawState, false);
-      assert.equal("leads" in rawState, false);
-      assert.equal("peers" in rawState, false);
+        const rawState = JSON.parse(stateRows[0]!.orchestrationJson) as Record<string, unknown>;
+        const snapshot = Schema.decodeUnknownSync(SupervisedOrchestrationSnapshot)(rawState);
+        assert.equal(snapshot.revision, 42);
+        assert.deepStrictEqual(
+          snapshot.profiles.map((candidate) => candidate.id),
+          ["profile-lead"],
+        );
+        assert.equal("supervisors" in rawState, false);
+        assert.equal("leads" in rawState, false);
+        assert.equal("peers" in rawState, false);
 
-      const seatRows = yield* sql<{ readonly seatId: string; readonly entityJson: string }>`
+        const seatRows = yield* sql<{ readonly seatId: string; readonly entityJson: string }>`
         SELECT seat_id AS "seatId", entity_json AS "entityJson"
         FROM projection_supervised_agent_seats
         WHERE seat_id IN ('supervisor-seat', 'lead-seat', 'peer-thread')
         ORDER BY seat_id
       `;
-      const seats = new Map(
-        seatRows.map((row) => [
-          row.seatId,
-          Schema.decodeUnknownSync(AgentSeat)(JSON.parse(row.entityJson)),
-        ]),
-      );
-      assert.equal(seats.get("supervisor-seat")!.threadId, "supervisor-thread");
-      assert.equal(seats.get("supervisor-seat")!.displayName, "Primary Supervisor");
-      assert.deepStrictEqual(seats.get("lead-seat")!.predecessorThreadIds, ["lead-predecessor"]);
-      assert.equal(seats.get("lead-seat")!.projectId, "project-1");
-      assert.equal(seats.get("peer-thread")!.identityRole, "peer");
-      assert.equal(seats.get("peer-thread")!.profileSnapshotId, "snapshot-peer");
+        const seats = new Map(
+          seatRows.map((row) => [
+            row.seatId,
+            Schema.decodeUnknownSync(AgentSeat)(JSON.parse(row.entityJson)),
+          ]),
+        );
+        assert.equal(seats.get("supervisor-seat")!.threadId, "supervisor-thread");
+        assert.equal(seats.get("supervisor-seat")!.displayName, "Primary Supervisor");
+        assert.deepStrictEqual(seats.get("lead-seat")!.predecessorThreadIds, ["lead-predecessor"]);
+        assert.equal(seats.get("lead-seat")!.projectId, "project-1");
+        assert.equal(seats.get("peer-thread")!.identityRole, "peer");
+        assert.equal(seats.get("peer-thread")!.profileSnapshotId, "snapshot-peer");
 
-      const peerThreadRows = yield* sql<{ readonly subagentRole: string | null }>`
+        const peerThreadRows = yield* sql<{ readonly subagentRole: string | null }>`
         SELECT subagent_role AS "subagentRole"
         FROM projection_threads
         WHERE thread_id = 'peer-thread'
       `;
-      assert.equal(peerThreadRows[0]!.subagentRole, "peer");
-      const specialtySnapshotRows = yield* sql<{ readonly entityJson: string }>`
+        assert.equal(peerThreadRows[0]!.subagentRole, "peer");
+        const specialtySnapshotRows = yield* sql<{ readonly entityJson: string }>`
         SELECT entity_json AS "entityJson"
         FROM projection_specialist_snapshots
         WHERE specialist_snapshot_id = 'specialty-snapshot-1'
       `;
-      assert.deepStrictEqual(JSON.parse(specialtySnapshotRows[0]!.entityJson), {
-        id: "specialty-snapshot-1",
-        peerSpecialtyId: "specialty-1",
-        profileContentHash: "sha256:legacy",
-        contextRefs: [],
-        evidenceRefs: [],
-        sanitized: true,
-        compatibleSchemaVersions: ["1.0.0"],
-        createdAt: now,
-        expiresAt: "2027-08-09T00:00:00.000Z",
-      });
-      const specialtyRows = yield* sql<{ readonly entityJson: string }>`
+        assert.deepStrictEqual(JSON.parse(specialtySnapshotRows[0]!.entityJson), {
+          id: "specialty-snapshot-1",
+          peerSpecialtyId: "specialty-1",
+          profileContentHash: "sha256:legacy",
+          contextRefs: [],
+          evidenceRefs: [],
+          sanitized: true,
+          compatibleSchemaVersions: ["1.0.0"],
+          createdAt: now,
+          expiresAt: "2027-08-09T00:00:00.000Z",
+        });
+        const specialtyRows = yield* sql<{ readonly entityJson: string }>`
         SELECT entity_json AS "entityJson"
         FROM projection_retained_specialists
         WHERE specialist_id = 'specialty-1'
       `;
-      assert.deepStrictEqual(
-        (JSON.parse(specialtyRows[0]!.entityJson) as { allowedScopes: unknown[] }).allowedScopes,
-        [{ kind: "seat", role: "peer", seatId: "peer-thread" }],
-      );
-      const modelSessionRows = yield* sql<{
-        readonly role: string;
-        readonly entityJson: string;
-      }>`
+        assert.deepStrictEqual(
+          (JSON.parse(specialtyRows[0]!.entityJson) as { allowedScopes: unknown[] }).allowedScopes,
+          [{ kind: "seat", role: "peer", seatId: "peer-thread" }],
+        );
+        const modelSessionRows = yield* sql<{
+          readonly role: string;
+          readonly entityJson: string;
+        }>`
         SELECT role, entity_json AS "entityJson"
         FROM projection_supervised_model_sessions
         WHERE model_session_id = 'model-session-specialist'
       `;
-      assert.equal(modelSessionRows[0]?.role, "peer");
-      assert.deepStrictEqual(JSON.parse(modelSessionRows[0]!.entityJson), {
-        role: "peer",
-        peerSpecialtyId: "specialty-1",
-      });
-      yield* sql`
+        assert.equal(modelSessionRows[0]?.role, "peer");
+        assert.deepStrictEqual(JSON.parse(modelSessionRows[0]!.entityJson), {
+          role: "peer",
+          peerSpecialtyId: "specialty-1",
+        });
+        yield* sql`
         INSERT INTO projection_supervised_model_sessions (
           model_session_id, room_id, run_id, task_node_id, rlm_episode_id,
           parent_session_id, role, status, revision, updated_at, entity_json, thread_id
@@ -329,13 +334,13 @@ upgradeSchemaLayer("migration 108 Supervised canonical cutover upgrade", (it) =>
         )
       `;
 
-      yield* SupervisedCanonicalCutover;
-      const rerunRows = yield* sql<{ readonly orchestrationJson: string }>`
+        yield* SupervisedCanonicalCutover;
+        const rerunRows = yield* sql<{ readonly orchestrationJson: string }>`
         SELECT orchestration_json AS "orchestrationJson"
         FROM supervised_governance_state
         WHERE singleton_id = 1
       `;
-      assert.equal(rerunRows[0]!.orchestrationJson, stateRows[0]!.orchestrationJson);
-    }),
+        assert.equal(rerunRows[0]!.orchestrationJson, stateRows[0]!.orchestrationJson);
+      }),
   );
 });

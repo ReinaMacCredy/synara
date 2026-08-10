@@ -57,11 +57,11 @@ testLayer("SupervisedToolPolicyRepository", (it) => {
       assert.match(conflict.message, /revision conflict/);
 
       const enabledPolicy: SupervisedToolPolicy = {
-          ...disabled,
-          state: "enabled",
-          revision: 2,
-          reason: null,
-          updatedAt: "2026-08-09T09:01:00.000Z",
+        ...disabled,
+        state: "enabled",
+        revision: 2,
+        reason: null,
+        updatedAt: "2026-08-09T09:01:00.000Z",
       };
       const enabled = yield* repository.put({
         policy: enabledPolicy,

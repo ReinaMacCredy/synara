@@ -41,7 +41,7 @@ function SupervisedIndexRouteView() {
   const search = Route.useSearch();
   const projects = useStore((store) => store.projects);
   const threads = useStore(useMemo(() => createAllThreadsSelector(), []));
-  const supervisedSeats = useStore((store) => store.supervisedOrchestration.agentSeats);
+  const supervisedSeats = useStore((store) => store.supervisedOrchestration.agentSeats) ?? [];
   const runtime = useQuery(supervisedRuntimeQueryOptions());
   const homeDir = useWorkspacePathsStore((state) => state.homeDir);
   const chatWorkspaceRoot = useWorkspacePathsStore((state) => state.chatWorkspaceRoot);

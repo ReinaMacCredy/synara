@@ -72,10 +72,7 @@ export function getRightDockPaneMeta(kind: RightDockPaneKind): RightDockPaneMeta
 // clicking a file reference in chat, while the add menu offers the richer
 // "explorer" pane (file tree + search + viewer) in its place.
 export const RIGHT_DOCK_ADD_MENU_KINDS: readonly RightDockPaneKind[] = RIGHT_DOCK_PANE_KINDS.filter(
-  (kind) =>
-    kind !== "file" &&
-    kind !== "pullRequest" &&
-    kind !== "supervision",
+  (kind) => kind !== "file" && kind !== "pullRequest" && kind !== "supervision",
 );
 
 // Empty-dock launchers prioritize the everyday workspace tools. Review only

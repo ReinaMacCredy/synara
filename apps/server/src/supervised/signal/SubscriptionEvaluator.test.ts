@@ -89,10 +89,7 @@ describe("SubscriptionEvaluator", () => {
   });
 
   it("builds enough isolated samples for a count-rule preview without production effects", () => {
-    const result = evaluateSyntheticSubscriptionTest(
-      reviewSubscription,
-      reviewEvent(1),
-    );
+    const result = evaluateSyntheticSubscriptionTest(reviewSubscription, reviewEvent(1));
     assert.equal(result.triggeredSignals.length, 1);
     assert.equal(result.triggeredSignals[0]?.measuredValue, 4);
     assert.equal(result.triggeredSignals[0]?.context.reviewCount, 4);
@@ -125,7 +122,11 @@ describe("SubscriptionEvaluator", () => {
     }
     let newRevisionTriggers = 0;
     for (let index = 1; index <= 4; index += 1) {
-      const result = evaluateSubscriptionEvent(reviewSubscription, state, reviewEvent(index + 10, 2));
+      const result = evaluateSubscriptionEvent(
+        reviewSubscription,
+        state,
+        reviewEvent(index + 10, 2),
+      );
       state = result.state;
       newRevisionTriggers += result.triggeredSignals.length;
     }
@@ -133,7 +134,11 @@ describe("SubscriptionEvaluator", () => {
   });
 
   it("deduplicates at-least-once events", () => {
-    const first = evaluateSubscriptionEvent(reviewSubscription, emptySubscriptionRuntimeState(), reviewEvent(1));
+    const first = evaluateSubscriptionEvent(
+      reviewSubscription,
+      emptySubscriptionRuntimeState(),
+      reviewEvent(1),
+    );
     const duplicate = evaluateSubscriptionEvent(reviewSubscription, first.state, reviewEvent(1));
     assert.equal(duplicate.metricSamples.length, 0);
     assert.match(duplicate.reasons[0] ?? "", /deduplicated/);
@@ -187,7 +192,11 @@ describe("SubscriptionEvaluator", () => {
       ...reviewSubscription,
       id: "sub-context",
       selector: { sourceKind: "metric", names: ["contextUsagePercent"] },
-      aggregation: { function: "latest", field: "contextUsagePercent", groupBy: ["leadSeatId", "roomId"] },
+      aggregation: {
+        function: "latest",
+        field: "contextUsagePercent",
+        groupBy: ["leadSeatId", "roomId"],
+      },
       condition: { operator: "gte", value: 80 },
       hysteresis: { trigger: { operator: "gte", value: 80 }, reset: { operator: "lt", value: 65 } },
       cooldownMs: 600_000,
@@ -218,7 +227,11 @@ describe("SubscriptionEvaluator", () => {
         usedTokensEstimate: value * 1_000,
         quality: "estimated",
       },
-      provenance: { actor: { kind: "daemon", actorId: "daemon-1" }, source: "usage", confidence: 0.8 },
+      provenance: {
+        actor: { kind: "daemon", actorId: "daemon-1" },
+        source: "usage",
+        confidence: 0.8,
+      },
     });
     let state = emptySubscriptionRuntimeState();
     const first = evaluateSubscriptionEvent(subscription, state, contextEvent(1, 80, 0));

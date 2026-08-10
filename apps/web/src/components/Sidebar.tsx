@@ -1534,7 +1534,7 @@ export default function Sidebar() {
   const routeThreadId = useParams({
     strict: false,
     select: (params) => {
-      const value = params.rootThreadId ?? params.threadId;
+      const value = params.threadId ?? params.roomId;
       return value ? ThreadId.makeUnsafe(value) : null;
     },
   });
@@ -1677,13 +1677,9 @@ export default function Sidebar() {
   const [supervisedRoomsSectionExpanded] = useState(
     () => readSidebarUiState().supervisedRoomsSectionExpanded,
   );
-  const [supervisedExpandedRoomIds, setSupervisedExpandedRoomIds] = useState<
-    ReadonlySet<ThreadId>
-  >(
+  const [supervisedExpandedRoomIds, setSupervisedExpandedRoomIds] = useState<ReadonlySet<ThreadId>>(
     () =>
-      new Set(
-        readSidebarUiState().supervisedExpandedRoomIds.map((id) => ThreadId.makeUnsafe(id)),
-      ),
+      new Set(readSidebarUiState().supervisedExpandedRoomIds.map((id) => ThreadId.makeUnsafe(id))),
   );
   const [chatThreadListExtraPages, setChatThreadListExtraPages] = useState(
     () => readSidebarUiState().chatThreadListExtraPages,
@@ -2565,7 +2561,7 @@ export default function Sidebar() {
           ? recoverForSupervised(waitForProjectWorkspaceRootInSnapshot(api, workspaceRoot))
           : recoverExistingProjectByWorkspaceRootFromServer(api, workspaceRoot);
 
-    // The flow lives in a nested function that the exclusive lock helper merely awaits: React
+      // The flow lives in a nested function that the exclusive lock helper merely awaits: React
       // Compiler's BuildHIR cannot lower a `throw` or a value block (`?.`, `??`, ternary,
       // conditional spread) that sits directly inside a try block, and a single one of them
       // makes the entire Sidebar bail out of compilation — silently, since `panicThreshold`
@@ -2638,7 +2634,7 @@ export default function Sidebar() {
     [
       appSettings.defaultThreadEnvMode,
       handleNewThread,
-    navigate,
+      navigate,
       projects,
       recoverExistingProjectFromServer,
       recoverExistingProjectByWorkspaceRootFromServer,
@@ -2747,11 +2743,7 @@ export default function Sidebar() {
         description: error instanceof Error ? error.message : "The task board could not be opened.",
       });
     });
-  }, [
-    handleStartAddProject,
-    openOrCreateProjectTasks,
-    tasksProjectId,
-  ]);
+  }, [handleStartAddProject, openOrCreateProjectTasks, tasksProjectId]);
 
   // Warm model discovery before ChatView mounts so new-thread composers skip
   // the "Loading models" skeleton when React Query already has a fresh cache hit.
@@ -3538,14 +3530,14 @@ export default function Sidebar() {
               }
               if (!project || !snapshot) return false;
 
-            handleSelectSpaceForIncomingProject(project.spaceId ?? null);
-            if (createProjectReturnToSupervised) {
-              setProjectExpanded(project.id, true);
-              await navigate({ to: "/supervised", search: { projectId: project.id } });
+              handleSelectSpaceForIncomingProject(project.spaceId ?? null);
+              if (createProjectReturnToSupervised) {
+                setProjectExpanded(project.id, true);
+                await navigate({ to: "/supervised", search: { projectId: project.id } });
+                return true;
+              }
+              await openExistingProjectFromSnapshot(project.id, snapshot);
               return true;
-            }
-            await openExistingProjectFromSnapshot(project.id, snapshot);
-            return true;
             };
             const requestedProjectId = newProjectId();
             const requestedWorkspaceRoot = joinProjectPath(
@@ -3623,16 +3615,16 @@ export default function Sidebar() {
     [
       activeSpaceId,
       addProjectFromPath,
-    createProjectReturnToSupervised,
-    handleSelectSpaceForIncomingProject,
+      createProjectReturnToSupervised,
+      handleSelectSpaceForIncomingProject,
       homeDir,
       navigate,
       openExistingProjectFromSnapshot,
       projects,
       setProjectExpanded,
-    syncServerShellSnapshot,
-    waitForCancelledGitHubProjectInSnapshot,
-    waitForProjectInSnapshot,
+      syncServerShellSnapshot,
+      waitForCancelledGitHubProjectInSnapshot,
+      waitForProjectInSnapshot,
     ],
   );
 
@@ -3935,8 +3927,7 @@ export default function Sidebar() {
     return byProjectId;
   }, [supervisedRooms]);
   const noProjectSupervisedRooms = useMemo(
-    () =>
-      supervisedRooms.filter((room) => projectById.get(room.projectId)?.kind !== "project"),
+    () => supervisedRooms.filter((room) => projectById.get(room.projectId)?.kind !== "project"),
     [projectById, supervisedRooms],
   );
   const supervisedSearchEntries = useMemo(
@@ -4226,8 +4217,8 @@ export default function Sidebar() {
       addVisibleThreadId(thread.id);
     }
 
-  return [...visibleThreadIdSet];
-}, [
+    return [...visibleThreadIdSet];
+  }, [
     isOnSupervised,
     supervisedRoomThreads,
     pinnedThreads,
@@ -4245,7 +4236,7 @@ export default function Sidebar() {
           : [...visibleSidebarThreadIds, ...visibleChatThreadIds, ...supervisedThreadIds],
       ),
     [activityViewEnabled, supervisedThreadIds, visibleChatThreadIds, visibleSidebarThreadIds],
-);
+  );
   const visibleSidebarThreads = useMemo(
     // Tree source so an active subagent row also gets PR badges and git targets.
     () => sidebarTreeThreads.filter((thread) => visibleSidebarThreadIdSet.has(thread.id)),
@@ -4329,13 +4320,13 @@ export default function Sidebar() {
   }
 
   // Keep hover actions in the same trailing slot used by the timestamp they replace.
-function renderThreadArchiveAction(
+  function renderThreadArchiveAction(
     threadId: ThreadId,
     toneClassName: string,
-  options?: {
+    options?: {
       compact?: boolean;
-  },
-) {
+    },
+  ) {
     return (
       <ThreadArchiveActionButton
         threadId={threadId}
@@ -4898,14 +4889,17 @@ function renderThreadArchiveAction(
 
   function renderSupervisedRoomHistoryRow(room: Room) {
     const isActive = pathname === `/supervised/${room.id}`;
-    const thread = sidebarTreeThreads.find((candidate) => candidate.id === room.id);
+    const roomThreadId = ThreadId.makeUnsafe(room.id);
+    const thread = sidebarTreeThreads.find((candidate) => candidate.id === roomThreadId);
     const provider = thread?.session?.provider ?? thread?.modelSelection.provider ?? null;
-    const taskCount = supervisedRuntimeQuery.data?.tasks.filter(
-      (task) => task.roomId === room.id,
-    ).length ?? 0;
-    const activeRunCount = supervisedRuntimeQuery.data?.runs.filter(
-      (run) => run.roomId === room.id && ["admitted", "queued", "running", "waiting"].includes(run.status),
-    ).length ?? 0;
+    const taskCount =
+      supervisedRuntimeQuery.data?.tasks.filter((task) => task.roomId === room.id).length ?? 0;
+    const activeRunCount =
+      supervisedRuntimeQuery.data?.runs.filter(
+        (run) =>
+          run.roomId === room.id &&
+          ["admitted", "queued", "running", "waiting"].includes(run.status),
+      ).length ?? 0;
     return (
       <div key={room.id} className="group/thread-row relative flex items-center">
         <button
@@ -4935,7 +4929,8 @@ function renderThreadArchiveAction(
               {room.title}
             </span>
             <span className="block truncate text-[length:var(--app-font-size-ui-meta,10px)] text-muted-foreground/48">
-              {room.status} · {taskCount} task{taskCount === 1 ? "" : "s"} · {activeRunCount} active run{activeRunCount === 1 ? "" : "s"}
+              {room.status} · {taskCount} task{taskCount === 1 ? "" : "s"} · {activeRunCount} active
+              run{activeRunCount === 1 ? "" : "s"}
             </span>
           </span>
         </button>
@@ -6190,7 +6185,7 @@ function renderThreadArchiveAction(
                     : "activity"
                   : isOnSupervised
                     ? "supervised"
-                  : "threads"
+                    : "threads"
               }
               className="sidebar-surface-enter"
             >
@@ -6199,10 +6194,10 @@ function renderThreadArchiveAction(
                 <SidebarMenu className="gap-0.5">
                   {isOnSupervised ? (
                     <>
-                  <SidebarPrimaryAction
-                    icon={NewThreadIcon}
-                    iconClassName="size-3.5"
-                    label="New Lead Room"
+                      <SidebarPrimaryAction
+                        icon={NewThreadIcon}
+                        iconClassName="size-3.5"
+                        label="New Lead Room"
                         onClick={handleCreateSupervised}
                       />
                       <SidebarPrimaryAction
@@ -6210,9 +6205,9 @@ function renderThreadArchiveAction(
                         label="Tasks"
                         active={isOnTasks}
                         badge={taskNavigationSignal.badge}
-                    activity={taskNavigationSignal.running}
-                    onClick={handleOpenTasks}
-                  />
+                        activity={taskNavigationSignal.running}
+                        onClick={handleOpenTasks}
+                      />
                     </>
                   ) : (
                     <>
@@ -6224,13 +6219,13 @@ function renderThreadArchiveAction(
                         onMouseEnter={prefetchModelsForPrimaryNewThread}
                         onFocus={prefetchModelsForPrimaryNewThread}
                       />
-                  <SidebarPrimaryAction
-                    icon={ProcessIcon}
+                      <SidebarPrimaryAction
+                        icon={ProcessIcon}
                         label="Tasks"
                         active={isOnTasks}
                         badge={taskNavigationSignal.badge}
-                    activity={taskNavigationSignal.running}
-                    onClick={handleOpenTasks}
+                        activity={taskNavigationSignal.running}
+                        onClick={handleOpenTasks}
                       />
                       <SidebarPrimaryAction
                         icon={IoIosGitCompare}
@@ -6270,9 +6265,7 @@ function renderThreadArchiveAction(
                     settledOverrideByThreadId={settledOverrideByThreadId}
                     settlementEnabled={!isOnSupervised}
                     createActionLabel={
-                      isOnSupervised
-                        ? "Start new Lead Room"
-                        : "Start new chat in last used project"
+                      isOnSupervised ? "Start new Lead Room" : "Start new chat in last used project"
                     }
                     createActionTooltip={isOnSupervised ? "New Lead Room" : "New chat"}
                     threadsHydrated={
@@ -6301,13 +6294,9 @@ function renderThreadArchiveAction(
                           : visualActiveSidebarThreadId) === thread.id,
                       )
                     }
-                    onCreateChat={
-                      isOnSupervised ? handleCreateSupervised : handlePrimaryNewThread
-                    }
+                    onCreateChat={isOnSupervised ? handleCreateSupervised : handlePrimaryNewThread}
                     onAddProject={
-                      isOnSupervised
-                        ? handleStartAddProjectForSupervised
-                        : handleStartAddProject
+                      isOnSupervised ? handleStartAddProjectForSupervised : handleStartAddProject
                     }
                   />
                 </SidebarGroup>
@@ -6362,14 +6351,13 @@ function renderThreadArchiveAction(
                     </div>
                   ) : null}
 
-                  {standardProjects.length === 0 &&
-                  noProjectSupervisedRooms.length === 0 ? (
+                  {standardProjects.length === 0 && noProjectSupervisedRooms.length === 0 ? (
                     <div className="px-2 pt-4 text-center text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/58">
                       {supervisedRuntimeQuery.isPending ? "Loading projects..." : "No projects yet"}
                     </div>
                   ) : null}
-                  </SidebarGroup>
-                ) : (
+                </SidebarGroup>
+              ) : (
                 <SidebarGroup className="px-1.5 py-1.5">
                   <SpaceSwitcher
                     spaces={spaces}
@@ -6469,8 +6457,8 @@ function renderThreadArchiveAction(
             </div>
           </>
         )}
-      {!isOnSettings && !isOnSupervised && !activityViewEnabled && chatsSectionVisible ? (
-        // sidebar-surface-enter: mounts on the Supervised -> Projects switch, so it
+        {!isOnSettings && !isOnSupervised && !activityViewEnabled && chatsSectionVisible ? (
+          // sidebar-surface-enter: mounts on the Supervised -> Projects switch, so it
           // animates in step with the keyed surface wrapper above.
           <SidebarGroup className="sidebar-surface-enter px-1.5 pt-1 pb-2">
             <div className="group/collapsible">
@@ -6667,11 +6655,11 @@ function renderThreadArchiveAction(
         githubProvisioningAvailable={githubProvisioningAvailable}
         spaces={spaces}
         activeSpaceId={activeSpaceId}
-    onOpenChange={(open) => {
-      setCreateProjectDialogOpen(open);
-      if (!open) setCreateProjectReturnToSupervised(false);
-    }}
-    defaultCloneParent={homeDir ?? "~"}
+        onOpenChange={(open) => {
+          setCreateProjectDialogOpen(open);
+          if (!open) setCreateProjectReturnToSupervised(false);
+        }}
+        defaultCloneParent={homeDir ?? "~"}
         onSubmit={handleCreateProjectSubmit}
       />
 
@@ -7155,13 +7143,7 @@ function SidebarSearchPaletteController(props: {
       ];
     });
     return [...ordinaryThreads, ...supervisedThreads];
-  }, [
-    props.supervisedEntries,
-    props.projectById,
-    props.projects,
-    sidebarDisplayThreads,
-    threads,
-  ]);
+  }, [props.supervisedEntries, props.projectById, props.projects, sidebarDisplayThreads, threads]);
 
   return (
     <SidebarSearchPalette

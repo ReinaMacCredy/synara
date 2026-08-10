@@ -22,12 +22,10 @@ vi.mock("@tanstack/react-query", () => ({
 
 describe("SupervisedOperationsDock", () => {
   it("routes an acting-root Supervisor separately from a Room Lead", () => {
-    expect(
-      conversationGroupForTopologyTarget({ kind: "supervisor", sessionId: null }),
-    ).toBe("supervisor");
-    expect(conversationGroupForTopologyTarget({ kind: "lead", sessionId: null })).toBe(
-      "lead",
+    expect(conversationGroupForTopologyTarget({ kind: "supervisor", sessionId: null })).toBe(
+      "supervisor",
     );
+    expect(conversationGroupForTopologyTarget({ kind: "lead", sessionId: null })).toBe("lead");
   });
 
   it("renders a governed signal with its threshold and delivery state", () => {

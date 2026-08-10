@@ -142,6 +142,7 @@ function ChatThreadRouteView() {
           replace: true,
           search: (previous) => ({
             ...stripDiffSearchParams(previous),
+            view: previous.view === "editor" ? ("editor" as const) : undefined,
             splitViewId: undefined,
           }),
         });

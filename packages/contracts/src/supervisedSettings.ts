@@ -80,15 +80,13 @@ export const PutSupervisedModelPreferencesInput = Schema.Struct({
   profile: UserModelPreferenceProfile,
   expectedRevision: Schema.NullOr(NonNegativeInt),
 });
-export type PutSupervisedModelPreferencesInput =
-  typeof PutSupervisedModelPreferencesInput.Type;
+export type PutSupervisedModelPreferencesInput = typeof PutSupervisedModelPreferencesInput.Type;
 
 export const PutSupervisedModelPreferencesResult = Schema.Struct({
   profile: UserModelPreferenceProfile,
   routingRevision: NonNegativeInt,
 });
-export type PutSupervisedModelPreferencesResult =
-  typeof PutSupervisedModelPreferencesResult.Type;
+export type PutSupervisedModelPreferencesResult = typeof PutSupervisedModelPreferencesResult.Type;
 
 export const ModelCapabilityCatalogStatus = Schema.Literals([
   "catalog_matched",

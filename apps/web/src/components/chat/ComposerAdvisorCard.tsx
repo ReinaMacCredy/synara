@@ -208,8 +208,7 @@ export function ComposerAdvisorCardPresence({
   }, [open]);
 
   // Prefer live consultation on the same frame open becomes true (no empty mount).
-  const displayConsultation =
-    open && consultation ? consultation : frozenConsultation;
+  const displayConsultation = open && consultation ? consultation : frozenConsultation;
 
   if (!displayConsultation) {
     return null;

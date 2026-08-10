@@ -361,7 +361,10 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(ORCHESTRATION_WS_METHODS.testSupervisedSubscription, TestSubscriptionInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.inspectSupervisedPlugin, InspectSupervisedPluginInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.installSupervisedPlugin, InstallSupervisedPluginInput),
-  tagRequestBody(ORCHESTRATION_WS_METHODS.reconcileSupervisedRuntime, ReconcileSupervisedRuntimeInput),
+  tagRequestBody(
+    ORCHESTRATION_WS_METHODS.reconcileSupervisedRuntime,
+    ReconcileSupervisedRuntimeInput,
+  ),
   tagRequestBody(ORCHESTRATION_WS_METHODS.getShellSnapshot, OrchestrationGetShellSnapshotInput),
   tagRequestBody(
     ORCHESTRATION_WS_METHODS.getThreadDetailSnapshot,

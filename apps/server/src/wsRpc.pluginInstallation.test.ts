@@ -17,8 +17,8 @@ describe("pluginInstallStepIdempotencyKey", () => {
       ...(step.includes("subscription") ? { subscriptionId: "subscription.example" } : {}),
     };
 
-    expect(
-      pluginInstallStepIdempotencyKey({ ...base, expectedRevision: 4 }),
-    ).not.toBe(pluginInstallStepIdempotencyKey({ ...base, expectedRevision: 5 }));
+    expect(pluginInstallStepIdempotencyKey({ ...base, expectedRevision: 4 })).not.toBe(
+      pluginInstallStepIdempotencyKey({ ...base, expectedRevision: 5 }),
+    );
   });
 });

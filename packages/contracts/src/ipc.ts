@@ -824,9 +824,7 @@ export interface NativeApi {
   };
   orchestration: {
     getSnapshot: () => Promise<OrchestrationReadModel>;
-    getSupervisedRuntime: (
-      input?: GetSupervisedRuntimeInput,
-    ) => Promise<SupervisedRuntimeSnapshot>;
+    getSupervisedRuntime: (input?: GetSupervisedRuntimeInput) => Promise<SupervisedRuntimeSnapshot>;
     getSupervisedSettings: (
       input?: GetSupervisedSettingsInput,
     ) => Promise<SupervisedSettingsSnapshot>;
@@ -839,9 +837,7 @@ export interface NativeApi {
     updateSupervisedToolPolicy: (
       input: UpdateSupervisedToolPolicyInput,
     ) => Promise<UpdateSupervisedToolPolicyResult>;
-    testSupervisedSubscription: (
-      input: TestSubscriptionInput,
-    ) => Promise<TestSubscriptionResult>;
+    testSupervisedSubscription: (input: TestSubscriptionInput) => Promise<TestSubscriptionResult>;
     inspectSupervisedPlugin: (
       input: InspectSupervisedPluginInput,
     ) => Promise<SupervisedPluginInspection>;

@@ -24,13 +24,13 @@ import {
   BackgroundTrayIcon,
   BotIcon,
   CheckIcon,
-    CircleAlertIcon,
-    CircleQuestionIcon,
-    GitHubIcon,
-    GlobeIcon,
-    HammerIcon,
-    type LucideIcon,
-    McpIcon,
+  CircleAlertIcon,
+  CircleQuestionIcon,
+  GitHubIcon,
+  GlobeIcon,
+  HammerIcon,
+  type LucideIcon,
+  McpIcon,
   PencilIcon,
   ZapIcon,
 } from "~/lib/icons";
@@ -53,10 +53,7 @@ import { type ExpandedImagePreview } from "./ExpandedImagePreview";
 import { LinkChipIcon } from "../LinkChipIcon";
 import { SynaraLogo } from "../SynaraLogo";
 import { normalizeCompactToolLabel } from "./MessagesTimeline.logic";
-import {
-  formatToolCallDetailLabel,
-  isSummarizableToolCallEntry,
-} from "./toolCallGroup.logic";
+import { formatToolCallDetailLabel, isSummarizableToolCallEntry } from "./toolCallGroup.logic";
 import { ToolCallDetailsContent } from "./ToolCallDetailsDialog";
 import { DisclosureChevron } from "../ui/DisclosureChevron";
 import { DisclosureRegion } from "../ui/DisclosureRegion";
@@ -446,9 +443,9 @@ function ToolRowTooltip(props: { content: ReactNode; children: ReactElement }) {
 export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
   workEntry: TimelineWorkEntry;
   chatMetaFontSizePx: number;
-    textFontSizePx?: number;
-    density?: "default" | "compact";
-    presentation?: "default" | "summary-detail";
+  textFontSizePx?: number;
+  density?: "default" | "compact";
+  presentation?: "default" | "summary-detail";
   fileDiffStatByPath?: ReadonlyMap<string, { additions: number; deletions: number }>;
   markdownCwd: string | undefined;
   onImageExpand: (preview: ExpandedImagePreview) => void;
@@ -466,8 +463,8 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
     workEntry,
     chatMetaFontSizePx,
     textFontSizePx: textFontSizePxProp,
-      density: densityProp,
-      presentation: presentationProp,
+    density: densityProp,
+    presentation: presentationProp,
     fileDiffStatByPath,
     markdownCwd,
     onImageExpand,
@@ -479,9 +476,9 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
     timestampFormat,
   } = props;
   const textFontSizePx = textFontSizePxProp ?? chatMetaFontSizePx;
-    const density = densityProp ?? "default";
-    const compact = density === "compact";
-    const summaryDetail = presentationProp === "summary-detail";
+  const density = densityProp ?? "default";
+  const compact = density === "compact";
+  const summaryDetail = presentationProp === "summary-detail";
   const isCodexStatusRow = isCodexActivityStatusWorkEntry(workEntry);
   const EntryIcon = workEntryIcon(workEntry);
   // Web-fetch tool calls surface the target site (favicon + URL) instead of the raw
@@ -570,7 +567,8 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
     [workEntry],
   );
   const liveActivityNowMs = useLiveActivityNow(workEntry.liveActivity);
-    const liveActivityMetaText = !summaryDetail && workEntry.liveActivity
+  const liveActivityMetaText =
+    !summaryDetail && workEntry.liveActivity
       ? formatLiveActivityMeta(workEntry.liveActivity, liveActivityNowMs)
       : null;
 
@@ -612,9 +610,9 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
       ? extractFilePathFromDetail(workEntry.detail)
       : null;
   const canOpenReadFile = readFilePath !== null;
-    const canOpenEntryDetails =
-      !summaryDetail &&
-      !canOpenAgentActivity &&
+  const canOpenEntryDetails =
+    !summaryDetail &&
+    !canOpenAgentActivity &&
     Boolean(
       userInputInteraction || workEntry.toolDetails || (workEntry.liveActivity && !canOpenReadFile),
     );

@@ -240,18 +240,18 @@ describe("composerDraftStore project draft thread mapping", () => {
     );
   });
 
-    it("tracks chat and Supervised drafts independently", () => {
-      const store = useComposerDraftStore.getState();
-      const supervisedThreadId = ThreadId.makeUnsafe("thread-supervised");
-      store.setProjectDraftThreadId(projectId, threadId, { entryPoint: "chat" });
-      store.setProjectDraftThreadId(projectId, supervisedThreadId, { entryPoint: "supervised" });
+  it("tracks chat and Supervised drafts independently", () => {
+    const store = useComposerDraftStore.getState();
+    const supervisedThreadId = ThreadId.makeUnsafe("thread-supervised");
+    store.setProjectDraftThreadId(projectId, threadId, { entryPoint: "chat" });
+    store.setProjectDraftThreadId(projectId, supervisedThreadId, { entryPoint: "supervised" });
 
     expect(
       useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, "chat"),
     ).toMatchObject({ threadId, entryPoint: "chat" });
-      expect(
-        useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, "supervised"),
-      ).toMatchObject({ threadId: supervisedThreadId, entryPoint: "supervised" });
+    expect(
+      useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, "supervised"),
+    ).toMatchObject({ threadId: supervisedThreadId, entryPoint: "supervised" });
   });
 
   it("retains a separate Supervised Lead Room draft and its staged handoff source", () => {
@@ -283,8 +283,7 @@ describe("composerDraftStore project draft thread mapping", () => {
       useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, "chat"),
     ).toBeNull();
     expect(
-      useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, "supervised")
-        ?.threadId,
+      useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, "supervised")?.threadId,
     ).toBe(otherThreadId);
     expect(useComposerDraftStore.getState().draftsByThreadId[otherThreadId]?.prompt).toBe(
       "Design the orchestration plan",

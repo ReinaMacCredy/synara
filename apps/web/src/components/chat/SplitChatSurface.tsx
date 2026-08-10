@@ -611,6 +611,7 @@ export function SplitChatSurface(props: { splitViewId: SplitViewId; routeThreadI
         replace: true,
         search: (previous) => ({
           ...stripDiffSearchParams(previous),
+          view: previous.view === "editor" ? ("editor" as const) : undefined,
           splitViewId: undefined,
         }),
       });
@@ -633,6 +634,7 @@ export function SplitChatSurface(props: { splitViewId: SplitViewId; routeThreadI
         replace: true,
         search: (previous) => ({
           ...stripDiffSearchParams(previous),
+          view: previous.view === "editor" ? ("editor" as const) : undefined,
           splitViewId: undefined,
         }),
       });
@@ -660,6 +662,7 @@ export function SplitChatSurface(props: { splitViewId: SplitViewId; routeThreadI
         replace: true,
         search: (previous) => ({
           ...stripDiffSearchParams(previous),
+          view: previous.view === "editor" ? ("editor" as const) : undefined,
           splitViewId: activeSplitView.id,
         }),
       });
@@ -688,6 +691,7 @@ export function SplitChatSurface(props: { splitViewId: SplitViewId; routeThreadI
       replace: true,
       search: (previous) => ({
         ...stripDiffSearchParams(previous),
+        view: previous.view === "editor" ? ("editor" as const) : undefined,
         splitViewId: activeSplitView.id,
       }),
     });
@@ -808,6 +812,7 @@ export function SplitChatSurface(props: { splitViewId: SplitViewId; routeThreadI
         replace: true,
         search: (previous) => ({
           ...stripDiffSearchParams(previous),
+          view: previous.view === "editor" ? ("editor" as const) : undefined,
           splitViewId: undefined,
         }),
       }).then(() => {
@@ -841,6 +846,7 @@ export function SplitChatSurface(props: { splitViewId: SplitViewId; routeThreadI
         replace: true,
         search: (previous) => ({
           ...stripDiffSearchParams(previous),
+          view: previous.view === "editor" ? ("editor" as const) : undefined,
           splitViewId: undefined,
         }),
       });
@@ -854,6 +860,7 @@ export function SplitChatSurface(props: { splitViewId: SplitViewId; routeThreadI
         replace: true,
         search: (previous) => ({
           ...stripDiffSearchParams(previous),
+          view: previous.view === "editor" ? ("editor" as const) : undefined,
           splitViewId: decision.splitViewId,
         }),
       });
@@ -934,6 +941,7 @@ export function SplitChatSurface(props: { splitViewId: SplitViewId; routeThreadI
       replace: true,
       search: (previous) => ({
         ...stripDiffSearchParams(previous),
+        view: previous.view === "editor" ? ("editor" as const) : undefined,
         splitViewId: activeSplitView.id,
       }),
     });

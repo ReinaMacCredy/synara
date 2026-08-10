@@ -52,12 +52,12 @@ describe("rankSettingsSearchEntries", () => {
     const contextResults = rankSettingsSearchEntries("context pressure", 12);
     const reviewResults = rankSettingsSearchEntries("review loop", 12);
 
-    expect(contextResults.some((entry) => entry.id === "supervised-subscriptions:subscriptions")).toBe(
-      true,
-    );
-    expect(reviewResults.some((entry) => entry.id === "supervised-subscriptions:subscriptions")).toBe(
-      true,
-    );
+    expect(
+      contextResults.some((entry) => entry.id === "supervised-subscriptions:subscriptions"),
+    ).toBe(true);
+    expect(
+      reviewResults.some((entry) => entry.id === "supervised-subscriptions:subscriptions"),
+    ).toBe(true);
   });
 
   it("indexes environment instructions and the system UI font row", () => {
@@ -128,10 +128,14 @@ describe("SettingsSidebarNav", () => {
 
   it("keeps every Supervised page in one canonical group", () => {
     const markup = renderToStaticMarkup(
-      <SettingsSidebarNav activeSection="supervised-general" onBack={vi.fn()} onSelectSection={vi.fn()} />,
+      <SettingsSidebarNav
+        activeSection="supervised-general"
+        onBack={vi.fn()}
+        onSelectSection={vi.fn()}
+      />,
     );
 
-    expect((markup.match(/>Supervised</g) ?? [])).toHaveLength(1);
+    expect(markup.match(/>Supervised</g) ?? []).toHaveLength(1);
     expect(markup).not.toContain("Supervised orchestration");
     expect(markup).not.toContain("Supervised runtime");
   });

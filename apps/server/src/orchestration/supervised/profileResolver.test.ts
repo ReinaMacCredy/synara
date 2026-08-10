@@ -16,9 +16,8 @@ it.effect("seeds Lead and Peer Codex presets with independent judgment law", () 
       ["Lead Default", "Peer Implementer", "Peer Reviewer", "Supervisor Default"],
     );
     assert.equal(
-      DEFAULT_SUPERVISED_PROFILES.filter((profile) =>
-        profile.roleHints.includes("supervisor"),
-      ).length,
+      DEFAULT_SUPERVISED_PROFILES.filter((profile) => profile.roleHints.includes("supervisor"))
+        .length,
       1,
     );
     assert.ok(

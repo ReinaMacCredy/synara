@@ -97,16 +97,14 @@ export function supervisedRoomRuns(
   const taskIds = new Set(
     snapshot.tasks.filter((task) => task.roomId === roomId).map((task) => task.id),
   );
-  return snapshot.runs.filter(
-    (run) => run.roomId === roomId || taskIds.has(run.taskId),
-  );
+  return snapshot.runs.filter((run) => run.roomId === roomId || taskIds.has(run.taskId));
 }
 
 export function supervisedRoomPeerSessions(
   snapshot: SupervisedRuntimeSnapshot,
   roomId: string,
-): SupervisedRuntimeSnapshot["modelSessions"] {
-  return snapshot.modelSessions
+): NonNullable<SupervisedRuntimeSnapshot["modelSessions"]> {
+  return (snapshot.modelSessions ?? [])
     .filter((session) => session.roomId === roomId && isPeerModelSessionRole(session.role))
     .toSorted((left, right) => right.updatedAt.localeCompare(left.updatedAt))
     .filter(

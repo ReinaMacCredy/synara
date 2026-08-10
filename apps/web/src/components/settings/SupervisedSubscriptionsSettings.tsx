@@ -3,7 +3,6 @@ import type {
   ProjectId,
   RoomId,
   SubscriptionDefinition,
-  SupervisedCommand,
 } from "@synara/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
@@ -12,6 +11,7 @@ import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { supervisedRuntimeQueryOptions } from "~/lib/supervisedRuntime";
 import { makeSupervisedSyntheticEvent } from "~/lib/supervisedSyntheticEvent";
+import { newCommandId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import {
   SettingsCard,
@@ -65,7 +65,10 @@ export function SupervisedSubscriptionsSettings(props: { readonly active: boolea
 
   const changeState = async (
     subscription: SubscriptionDefinition,
-    type: "supervised.subscription.pause" | "supervised.subscription.enable" | "supervised.subscription.revoke",
+    type:
+      | "supervised.subscription.pause"
+      | "supervised.subscription.enable"
+      | "supervised.subscription.revoke",
   ) => {
     const api = readNativeApi();
     if (!api) return;
@@ -74,14 +77,14 @@ export function SupervisedSubscriptionsSettings(props: { readonly active: boolea
     try {
       await api.orchestration.dispatchCommand({
         type,
-        commandId: crypto.randomUUID(),
+        commandId: newCommandId(),
         actor: { kind: "user", actorId: "owner" },
         aggregateId: subscription.id,
         expectedRevision: subscription.revision,
         idempotencyKey: crypto.randomUUID(),
         createdAt: new Date().toISOString(),
         subscriptionId: subscription.id,
-      } as SupervisedCommand);
+      });
       await query.refetch();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -146,7 +149,10 @@ export function SupervisedSubscriptionsSettings(props: { readonly active: boolea
       },
       debounceMs: 0,
       cooldownMs: Math.round(numericCooldown * 60_000),
-      destination: { kind: "concern", concern: concern.trim() || (contextRule ? "context" : "delivery") },
+      destination: {
+        kind: "concern",
+        concern: concern.trim() || (contextRule ? "context" : "delivery"),
+      },
       allowedActionRequests: contextRule
         ? ["supervised.compaction.request", "supervised.handoff.request"]
         : ["supervised.intervention.propose"],
@@ -173,17 +179,19 @@ export function SupervisedSubscriptionsSettings(props: { readonly active: boolea
     try {
       await api.orchestration.dispatchCommand({
         type: "supervised.subscription.upsert",
-        commandId: crypto.randomUUID(),
+        commandId: newCommandId(),
         actor: { kind: "user", actorId: "owner" },
         aggregateId: id,
         expectedRevision: 0,
         idempotencyKey: crypto.randomUUID(),
         createdAt: now,
         subscription,
-      } as SupervisedCommand);
+      });
       await query.refetch();
       setEditorOpen(false);
-      setPreview(`${subscription.name} is armed. It observes ${scopeLabel(subscription)} without adding authority.`);
+      setPreview(
+        `${subscription.name} is armed. It observes ${scopeLabel(subscription)} without adding authority.`,
+      );
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -261,15 +269,27 @@ export function SupervisedSubscriptionsSettings(props: { readonly active: boolea
             ) : null}
             <label className="space-y-1.5 text-xs text-muted-foreground">
               Threshold
-              <Input inputMode="decimal" value={threshold} onChange={(event) => setThreshold(event.target.value)} />
+              <Input
+                inputMode="decimal"
+                value={threshold}
+                onChange={(event) => setThreshold(event.target.value)}
+              />
             </label>
             <label className="space-y-1.5 text-xs text-muted-foreground">
               Window (minutes)
-              <Input inputMode="decimal" value={windowMinutes} onChange={(event) => setWindowMinutes(event.target.value)} />
+              <Input
+                inputMode="decimal"
+                value={windowMinutes}
+                onChange={(event) => setWindowMinutes(event.target.value)}
+              />
             </label>
             <label className="space-y-1.5 text-xs text-muted-foreground">
               Cooldown (minutes)
-              <Input inputMode="decimal" value={cooldownMinutes} onChange={(event) => setCooldownMinutes(event.target.value)} />
+              <Input
+                inputMode="decimal"
+                value={cooldownMinutes}
+                onChange={(event) => setCooldownMinutes(event.target.value)}
+              />
             </label>
             <label className="space-y-1.5 text-xs text-muted-foreground">
               Destination concern
@@ -282,10 +302,15 @@ export function SupervisedSubscriptionsSettings(props: { readonly active: boolea
                   ? `When the latest Lead context measurement is at least ${threshold}% within ${windowMinutes} minutes. It resets below ${Math.max(0, Number(threshold || 0) - 15)}%.`
                   : `When reviews for the same TaskNode and graph revision exceed ${threshold} within ${windowMinutes} minutes.`}
               </p>
-              <p className="mt-1">Effective authority: observe, wake, and request an allowed typed action. Lead acceptance authority is unchanged.</p>
+              <p className="mt-1">
+                Effective authority: observe, wake, and request an allowed typed action. Lead
+                acceptance authority is unchanged.
+              </p>
             </div>
             <div className="flex justify-end sm:col-span-2">
-              <Button size="sm" onClick={() => void createSubscription()}>Create & enable</Button>
+              <Button size="sm" onClick={() => void createSubscription()}>
+                Create & enable
+              </Button>
             </div>
           </div>
         </SettingsCard>
@@ -305,11 +330,36 @@ export function SupervisedSubscriptionsSettings(props: { readonly active: boolea
               align="start"
               description={
                 <div className="space-y-1">
-                  <div>{conditionLabel(subscription)} · {subscription.aggregation.function} · {subscription.window.durationMs / 60_000}m window</div>
-                  <div>{scopeLabel(subscription)} · deliver to {destinationLabel(subscription)} · reset {subscription.hysteresis.reset.operator} {subscription.hysteresis.reset.value} · cooldown {subscription.cooldownMs / 60_000}m</div>
-                  <div>Authority: observe and request [{subscription.allowedActionRequests.join(", ") || "none"}]. No authority transfer.</div>
-                  {query.data?.signals.find((signal) => signal.subscriptionId === subscription.id) ? (
-                    <div>History: last signal {query.data.signals.find((signal) => signal.subscriptionId === subscription.id)?.state}; delivery {query.data.deliveries.find((delivery) => delivery.subscriptionId === subscription.id)?.status ?? "not queued"}.</div>
+                  <div>
+                    {conditionLabel(subscription)} · {subscription.aggregation.function} ·{" "}
+                    {subscription.window.durationMs / 60_000}m window
+                  </div>
+                  <div>
+                    {scopeLabel(subscription)} · deliver to {destinationLabel(subscription)} · reset{" "}
+                    {subscription.hysteresis.reset.operator} {subscription.hysteresis.reset.value} ·
+                    cooldown {subscription.cooldownMs / 60_000}m
+                  </div>
+                  <div>
+                    Authority: observe and request [
+                    {subscription.allowedActionRequests.join(", ") || "none"}]. No authority
+                    transfer.
+                  </div>
+                  {query.data?.signals.find(
+                    (signal) => signal.subscriptionId === subscription.id,
+                  ) ? (
+                    <div>
+                      History: last signal{" "}
+                      {
+                        query.data.signals.find(
+                          (signal) => signal.subscriptionId === subscription.id,
+                        )?.state
+                      }
+                      ; delivery{" "}
+                      {query.data.deliveries.find(
+                        (delivery) => delivery.subscriptionId === subscription.id,
+                      )?.status ?? "not queued"}
+                      .
+                    </div>
                   ) : (
                     <div>History: never fired.</div>
                   )}

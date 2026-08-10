@@ -291,8 +291,7 @@ function ChatRouteGlobalShortcuts() {
     () => handleNewChat({ fresh: true }),
     [handleNewChat],
   );
-  const isSupervisedMode =
-    pathname === "/supervised" || pathname.startsWith("/supervised/");
+  const isSupervisedMode = pathname === "/supervised" || pathname.startsWith("/supervised/");
 
   useEffect(() => {
     if (!currentProjectId) {

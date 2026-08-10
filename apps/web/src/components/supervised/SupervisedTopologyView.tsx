@@ -1,7 +1,4 @@
-import type {
-  SupervisedGovernanceSnapshot,
-  SupervisedRuntimeSnapshot,
-} from "@synara/contracts";
+import type { SupervisedGovernanceSnapshot, SupervisedRuntimeSnapshot } from "@synara/contracts";
 import { useQuery } from "@tanstack/react-query";
 import {
   Background,
@@ -128,7 +125,10 @@ function formatTopologyRootLabel(root: SupervisedRoomRootProjection): {
   };
 }
 
-function formatTopologyTitle(raw: string, max = 22): {
+function formatTopologyTitle(
+  raw: string,
+  max = 22,
+): {
   readonly title: string;
   readonly fullTitle: string;
 } {
@@ -181,10 +181,10 @@ function buildRoomTopology(
     snapshot.runPolicies.find((candidate) => candidate.id === policyId) ??
     snapshot.runPolicies[0] ??
     null;
-  const workspace = snapshot.contextWorkspaces.find((candidate) => candidate.roomId === roomId) ?? null;
+  const workspace =
+    snapshot.contextWorkspaces.find((candidate) => candidate.roomId === roomId) ?? null;
   const contextRecordCount = workspace
-    ? (snapshot.contextRecords ?? []).filter((record) => record.workspaceId === workspace.id)
-        .length
+    ? (snapshot.contextRecords ?? []).filter((record) => record.workspaceId === workspace.id).length
     : 0;
   const peers = supervisedRoomPeerSessions(snapshot, roomId).slice(0, 4);
 
@@ -275,9 +275,7 @@ function useRoomTopology(roomId: string) {
   const snapshot = query.data?.runtime;
   const projection = useMemo(
     () =>
-      query.data
-        ? buildRoomTopology(query.data.runtime, query.data.governance, roomId)
-        : null,
+      query.data ? buildRoomTopology(query.data.runtime, query.data.governance, roomId) : null,
     [query.data, roomId],
   );
   return { ...query, projection, snapshot };
@@ -370,13 +368,19 @@ export function SupervisedTopologySidebar(props: {
           </div>
           <div className="mt-2 rounded-lg border border-border/60 px-3 py-2.5 text-[10px] text-muted-foreground">
             <div className="flex items-center justify-between gap-3 text-foreground">
-              <span className="truncate font-medium">{projection.policy?.name ?? "No effective policy"}</span>
+              <span className="truncate font-medium">
+                {projection.policy?.name ?? "No effective policy"}
+              </span>
               <StatusDot status={projection.policy ? "active" : "pending"} />
             </div>
             <dl className="mt-2 space-y-1.5">
               <div className="flex justify-between gap-2">
                 <dt>Wall time</dt>
-                <dd>{projection.policy ? `${Math.round(projection.policy.maxWallTimeMs / 60_000)} min` : "—"}</dd>
+                <dd>
+                  {projection.policy
+                    ? `${Math.round(projection.policy.maxWallTimeMs / 60_000)} min`
+                    : "—"}
+                </dd>
               </div>
               <div className="flex justify-between gap-2">
                 <dt>Fan-out</dt>
@@ -632,9 +636,7 @@ function buildTopologyFlowGraph(
   const col = columnX(peers.length);
 
   const peerStackHeight =
-    peers.length === 0
-      ? NODE_HEIGHT
-      : peers.length * NODE_HEIGHT + (peers.length - 1) * ROW_GAP;
+    peers.length === 0 ? NODE_HEIGHT : peers.length * NODE_HEIGHT + (peers.length - 1) * ROW_GAP;
   const stackMid = peerStackHeight / 2;
 
   const nodes: TopologyFlowNode[] = [];
@@ -820,9 +822,7 @@ function peekEnterLabel(kind: SupervisedTopologyOpenTarget["kind"]): string {
   }
 }
 
-function peekLiveState(
-  node: TopologyNode,
-): "streaming" | "waiting" | "idle" | "failed" {
+function peekLiveState(node: TopologyNode): "streaming" | "waiting" | "idle" | "failed" {
   const status = node.status.toLowerCase();
   if (["failed", "error", "stopped"].includes(status)) return "failed";
   if (["running", "healthy"].includes(status)) return "streaming";
@@ -846,7 +846,10 @@ function buildPeekMeta(
       ];
     case "policy":
       return [
-        ["Wall time", projection.policy ? `${Math.round(projection.policy.maxWallTimeMs / 60_000)} min` : "—"],
+        [
+          "Wall time",
+          projection.policy ? `${Math.round(projection.policy.maxWallTimeMs / 60_000)} min` : "—",
+        ],
         ["Fan-out", projection.policy ? String(projection.policy.maxFanOut) : "—"],
         ["Recursive calls", projection.policy ? String(projection.policy.maxRecursiveCalls) : "—"],
       ];
@@ -890,7 +893,10 @@ function buildPeekLiveLines(
 
   switch (node.kind) {
     case "runtime": {
-      push("status", `daemon ${snapshot?.health.status ?? "unknown"} · epoch ${snapshot?.health.daemonEpoch ?? "—"}`);
+      push(
+        "status",
+        `daemon ${snapshot?.health.status ?? "unknown"} · epoch ${snapshot?.health.daemonEpoch ?? "—"}`,
+      );
       push("status", `${projection.activeRunCount} active runs · ${projection.taskCount} tasks`);
       const runIds = new Set(projection.runIds);
       const activeRuns = (snapshot?.runs ?? [])
@@ -1049,7 +1055,10 @@ function TopologyNodePeek(props: {
           <XIcon className="size-3.5" />
         </button>
       </div>
-      <div className="mt-1 truncate px-3 font-mono text-[10px] text-muted-foreground/80" title={fullId}>
+      <div
+        className="mt-1 truncate px-3 font-mono text-[10px] text-muted-foreground/80"
+        title={fullId}
+      >
         {fullId}
       </div>
       <dl className="mt-2.5 space-y-1.5 px-3 text-[11px] text-muted-foreground">
@@ -1076,7 +1085,8 @@ function TopologyNodePeek(props: {
             <span
               className={cn(
                 "size-1.5 rounded-full",
-                liveState === "streaming" && "bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.2)]",
+                liveState === "streaming" &&
+                  "bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.2)]",
                 liveState === "waiting" && "bg-amber-500",
                 liveState === "failed" && "bg-destructive",
                 liveState === "idle" && "bg-muted-foreground/50",
@@ -1142,10 +1152,7 @@ function TopologyNodePeek(props: {
   );
 }
 
-function FitViewOnProjection(props: {
-  readonly revision: number;
-  readonly nodeCount: number;
-}) {
+function FitViewOnProjection(props: { readonly revision: number; readonly nodeCount: number }) {
   const { fitView } = useReactFlow();
   useEffect(() => {
     const sparse = props.nodeCount <= SPARSE_NODE_COUNT;
@@ -1239,12 +1246,7 @@ function TopologyReactFlowGraph(props: {
             } as CSSProperties
           }
         >
-          <Background
-            variant={BackgroundVariant.Dots}
-            gap={20}
-            size={1}
-            color={palette.dots}
-          />
+          <Background variant={BackgroundVariant.Dots} gap={20} size={1} color={palette.dots} />
           <Controls
             showInteractive={false}
             position="bottom-right"
@@ -1404,9 +1406,7 @@ export function SupervisedTopologyCanvas(props: {
               snapshot={query.snapshot}
               anchor={anchor}
               onClose={() => props.onSelectNode(null)}
-              onEnter={
-                selectedOpenTarget ? () => props.onOpenNode(selectedOpenTarget) : null
-              }
+              onEnter={selectedOpenTarget ? () => props.onOpenNode(selectedOpenTarget) : null}
               onSelectParentRoot={
                 selectedNode.kind === "peer" && rootNode
                   ? () => {

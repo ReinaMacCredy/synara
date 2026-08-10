@@ -180,18 +180,20 @@ describe("Shared Supervisor Notebook host path", () => {
     const governance = governanceSnapshot();
     const authorityBefore = structuredClone({
       lead: governance.agentSeats.find((seat) => seat.id === "seat-lead-root"),
-      receipt: governance.authorityReceipts.find(
-        (receipt) => receipt.id === "receipt-lead-root",
-      ),
+      receipt: governance.authorityReceipts.find((receipt) => receipt.id === "receipt-lead-root"),
       leases: governance.rootLeases,
     });
     let entries: SupervisorNotebookEntry[] = [];
     let compactionReceipts: SupervisorNotebookCompactionReceipt[] = [];
     let cursorWrites = 0;
-    const notebookReads: Array<Parameters<SupervisedGovernanceRepositoryShape["getNotebookState"]>[0]> = [];
+    const notebookReads: Array<
+      Parameters<SupervisedGovernanceRepositoryShape["getNotebookState"]>[0]
+    > = [];
     const governanceRepository = {
       getSnapshot: () => Effect.succeed(governance),
-      getNotebookState: (input: Parameters<SupervisedGovernanceRepositoryShape["getNotebookState"]>[0]) =>
+      getNotebookState: (
+        input: Parameters<SupervisedGovernanceRepositoryShape["getNotebookState"]>[0],
+      ) =>
         Effect.sync(() => {
           notebookReads.push(input);
           return { entries, compactionReceipts, cursor: null };
@@ -238,12 +240,8 @@ describe("Shared Supervisor Notebook host path", () => {
     const append = tools.find(
       (tool) => tool.definition.name === "append_supervisor_notebook_entry",
     )!;
-    const search = tools.find(
-      (tool) => tool.definition.name === "search_supervisor_notebook",
-    )!;
-    const compact = tools.find(
-      (tool) => tool.definition.name === "compact_supervisor_notebook",
-    )!;
+    const search = tools.find((tool) => tool.definition.name === "search_supervisor_notebook")!;
+    const compact = tools.find((tool) => tool.definition.name === "compact_supervisor_notebook")!;
 
     const first = await Effect.runPromise(
       append.execute(
@@ -295,11 +293,14 @@ describe("Shared Supervisor Notebook host path", () => {
     const view = searched.value as SupervisorNotebookView;
     assert.equal(search.definition.readOnly, true);
     assert.equal(view.viewerSeatId, "seat-supervisor-b");
-    assert.deepEqual(
-      view.entries.map((entry) => entry.authorSeatId).toSorted(),
-      ["seat-supervisor-a", "seat-supervisor-b"],
+    assert.deepEqual(view.entries.map((entry) => entry.authorSeatId).toSorted(), [
+      "seat-supervisor-a",
+      "seat-supervisor-b",
+    ]);
+    assert.equal(
+      view.entries.some((entry) => entry.id === "notebook-hidden-room"),
+      false,
     );
-    assert.equal(view.entries.some((entry) => entry.id === "notebook-hidden-room"), false);
     assert.equal(cursorWrites, 0);
     const searchRead = notebookReads.find(
       (input) => input.entryIds === undefined && input.roomIds !== undefined,
@@ -317,7 +318,10 @@ describe("Shared Supervisor Notebook host path", () => {
     );
     const retried = await Effect.runPromise(
       compact.execute(
-        { sourceEntryIds: sourceEntryIds.toReversed(), content: "Idempotent shared successor summary." },
+        {
+          sourceEntryIds: sourceEntryIds.toReversed(),
+          content: "Idempotent shared successor summary.",
+        },
         context("b"),
       ),
     );
@@ -331,9 +335,7 @@ describe("Shared Supervisor Notebook host path", () => {
     assert.deepEqual(
       {
         lead: governance.agentSeats.find((seat) => seat.id === "seat-lead-root"),
-        receipt: governance.authorityReceipts.find(
-          (receipt) => receipt.id === "receipt-lead-root",
-        ),
+        receipt: governance.authorityReceipts.find((receipt) => receipt.id === "receipt-lead-root"),
         leases: governance.rootLeases,
       },
       authorityBefore,

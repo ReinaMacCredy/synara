@@ -1965,9 +1965,9 @@ describe("ProviderRuntimeIngestion", () => {
         );
       }),
     );
-    expect(liveThread.activities.filter((activity) => activity.id === stableActivityId)).toHaveLength(
-      1,
-    );
+    expect(
+      liveThread.activities.filter((activity) => activity.id === stableActivityId),
+    ).toHaveLength(1);
 
     harness.emit({
       type: "turn.completed",

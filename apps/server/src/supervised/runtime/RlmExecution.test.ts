@@ -3,7 +3,11 @@ import { describe, it } from "vitest";
 
 import type { OrchestrationThread } from "@synara/contracts";
 
-import { buildRlmSynthesisPrompt, extractRlmThreadResult, promptReceiptHash } from "./RlmExecution.ts";
+import {
+  buildRlmSynthesisPrompt,
+  extractRlmThreadResult,
+  promptReceiptHash,
+} from "./RlmExecution.ts";
 
 const now = "2026-08-09T00:00:00.000Z";
 const thread = {

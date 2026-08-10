@@ -19,9 +19,18 @@ describe("RLM admission", () => {
   });
 
   it("selects recursive at any locked threshold", () => {
-    assert.equal(decideRlmAdmission({ ...base, estimatedContextPercent: 65 }).selectedMode, "recursive");
-    assert.equal(decideRlmAdmission({ ...base, estimatedInputTokens: 24_000 }).selectedMode, "recursive");
-    assert.equal(decideRlmAdmission({ ...base, independentEvidenceBranches: 4 }).selectedMode, "recursive");
+    assert.equal(
+      decideRlmAdmission({ ...base, estimatedContextPercent: 65 }).selectedMode,
+      "recursive",
+    );
+    assert.equal(
+      decideRlmAdmission({ ...base, estimatedInputTokens: 24_000 }).selectedMode,
+      "recursive",
+    );
+    assert.equal(
+      decideRlmAdmission({ ...base, independentEvidenceBranches: 4 }).selectedMode,
+      "recursive",
+    );
   });
 
   it("honors a Human or Lead override and records it", () => {

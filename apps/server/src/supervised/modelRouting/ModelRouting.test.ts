@@ -275,26 +275,19 @@ describe("Supervisor-first model routing", () => {
       inputCostUsdPerMillionTokens: null,
       outputCostUsdPerMillionTokens: null,
     });
-    const failClosed = recommendModels(
-      [unknownCost],
-      undefined,
-      [],
-      { ...constrained, roomPolicy: { allowedModelIds: [unknownCost.id] } },
-    );
+    const failClosed = recommendModels([unknownCost], undefined, [], {
+      ...constrained,
+      roomPolicy: { allowedModelIds: [unknownCost.id] },
+    });
     assert.equal(failClosed.selectedModelId, null);
     assert.match(failClosed.rejectedCandidates[0]!.reasons[0]!, /cost is unknown/);
 
-    const missingEstimate = recommendModels(
-      [alpha],
-      undefined,
-      [],
-      {
-        ...constrained,
-        expectedInputTokens: undefined,
-        expectedOutputTokens: undefined,
-        roomPolicy: { allowedModelIds: [alpha.id] },
-      },
-    );
+    const missingEstimate = recommendModels([alpha], undefined, [], {
+      ...constrained,
+      expectedInputTokens: undefined,
+      expectedOutputTokens: undefined,
+      roomPolicy: { allowedModelIds: [alpha.id] },
+    });
     assert.equal(missingEstimate.selectedModelId, null);
     assert.match(missingEstimate.rejectedCandidates[0]!.reasons[0]!, /cost is unknown/);
   });
@@ -312,7 +305,10 @@ describe("Supervisor-first model routing", () => {
       roomPolicy: { allowedModelIds: [coding.id, ui.id] },
     };
 
-    assert.equal(recommendModels([ui, coding], undefined, [], buildRequest).selectedModelId, coding.id);
+    assert.equal(
+      recommendModels([ui, coding], undefined, [], buildRequest).selectedModelId,
+      coding.id,
+    );
 
     const tiedUpper = model("model-Z");
     const tiedLower = model("model-a");

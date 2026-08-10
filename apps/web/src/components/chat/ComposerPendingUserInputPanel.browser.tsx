@@ -92,11 +92,7 @@ function QuestionFlow({
       onOptionNoteChange={(questionId, optionLabel, value) => {
         setAnswers((current) => ({
           ...current,
-          [questionId]: setPendingUserInputOptionNote(
-            current[questionId],
-            optionLabel,
-            value,
-          ),
+          [questionId]: setPendingUserInputOptionNote(current[questionId], optionLabel, value),
         }));
       }}
       onCustomAnswerChange={(questionId, value) => {
@@ -152,11 +148,7 @@ function AdvisorQuestionFlow({
       onOptionNoteChange={(questionId, optionLabel, value) => {
         setAnswers((current) => ({
           ...current,
-          [questionId]: setPendingUserInputOptionNote(
-            current[questionId],
-            optionLabel,
-            value,
-          ),
+          [questionId]: setPendingUserInputOptionNote(current[questionId], optionLabel, value),
         }));
       }}
       onCustomAnswerChange={(questionId, value) => {
@@ -334,9 +326,7 @@ describe("ComposerPendingUserInputPanel", () => {
       await expect
         .element(page.getByRole("button", { name: "Use A focused starter set" }))
         .toBeInTheDocument();
-      await expect
-        .element(page.getByRole("radio", { name: "A broader collection" }))
-        .toBeChecked();
+      await expect.element(page.getByRole("radio", { name: "A broader collection" })).toBeChecked();
       expect(onSubmit).not.toHaveBeenCalled();
 
       await page.getByRole("button", { name: "Use A focused starter set" }).click();
@@ -380,7 +370,9 @@ describe("ComposerPendingUserInputPanel", () => {
 
     try {
       await expect
-        .poll(() => mounted.container.querySelector('[data-testid="composer-pending-user-input-panel"]'))
+        .poll(() =>
+          mounted.container.querySelector('[data-testid="composer-pending-user-input-panel"]'),
+        )
         .not.toBeNull();
       await expect
         .element(page.getByRole("heading", { name: "How focused should the first release be?" }))
@@ -390,11 +382,10 @@ describe("ComposerPendingUserInputPanel", () => {
 
       // Phase 1: receipt morph while the card is still mounted under the shell.
       await expect
-        .poll(
-          () =>
-            mounted.container.querySelector(
-              '[data-composer-pending-user-input-presence="true"][data-exit-receipt="true"]',
-            ),
+        .poll(() =>
+          mounted.container.querySelector(
+            '[data-composer-pending-user-input-presence="true"][data-exit-receipt="true"]',
+          ),
         )
         .not.toBeNull();
       await expect.element(page.getByRole("status")).toHaveTextContent("Answer sent");

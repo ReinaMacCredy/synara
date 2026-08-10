@@ -16,10 +16,7 @@ import {
   summarizeToolCallGroup,
   type ToolCallGroupSummary,
 } from "./toolCallGroup.logic";
-import {
-  formatAgentActivityEntryPreview,
-  isReasoningUpdateWorkEntry,
-} from "./agentActivity.logic";
+import { formatAgentActivityEntryPreview, isReasoningUpdateWorkEntry } from "./agentActivity.logic";
 import {
   type ChatMessage,
   type ProposedPlan,
@@ -241,7 +238,7 @@ interface TimelineDiffMessage {
 }
 
 export type MessagesTimelineRow =
-    | {
+  | {
       kind: "work";
       id: string;
       createdAt: string;
@@ -285,16 +282,16 @@ export type MessagesTimelineRow =
       state: "working" | "settled";
       showReasoningStatus: boolean;
       reasoningEntries?: WorkLogEntry[];
-        collapsedTurnItems?: CollapsedTurnItem[];
-        collapsedWorkElapsed?: string | null;
-      }
-    | {
-        kind: "reasoning-status";
-        id: string;
-        scopeKey: string;
-        reasoningEntries: WorkLogEntry[];
-      }
-    | {
+      collapsedTurnItems?: CollapsedTurnItem[];
+      collapsedWorkElapsed?: string | null;
+    }
+  | {
+      kind: "reasoning-status";
+      id: string;
+      scopeKey: string;
+      reasoningEntries: WorkLogEntry[];
+    }
+  | {
       // Transient "Preparing worktree..." step card shown during the New
       // worktree first-send setup. `open` drives the shared disclosure close
       // animation while the presentation hook keeps the row mounted.
@@ -548,7 +545,11 @@ export function deriveMessagesTimelineRows(input: {
   }
   const activeReasoningEntries: WorkLogEntry[] = [];
   if (input.isWorking && input.activeTurnId) {
-    for (let index = input.timelineEntries.length - 1; index > latestUserMessageEntryIndex; index -= 1) {
+    for (
+      let index = input.timelineEntries.length - 1;
+      index > latestUserMessageEntryIndex;
+      index -= 1
+    ) {
       const entry = input.timelineEntries[index];
       if (
         entry?.kind !== "work" ||
@@ -570,9 +571,7 @@ export function deriveMessagesTimelineRows(input: {
   const detachedActiveReasoningEntries = activeReasoningBelongsToToolGroup
     ? []
     : activeReasoningEntries;
-  const activeReasoningEntryIds = new Set(
-    detachedActiveReasoningEntries.map((entry) => entry.id),
-  );
+  const activeReasoningEntryIds = new Set(detachedActiveReasoningEntries.map((entry) => entry.id));
   const hasActiveTurnContentAfterUser = input.timelineEntries.some((entry, index) => {
     if (index <= latestUserMessageEntryIndex) return false;
     if (entry.kind === "message") {
@@ -1267,25 +1266,25 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
   if (a.kind !== b.kind || a.id !== b.id) return false;
 
   switch (a.kind) {
-      case "turn-activity": {
+    case "turn-activity": {
       const ba = b as typeof a;
       return (
-          a.createdAt === ba.createdAt &&
-          a.state === ba.state &&
-          a.showReasoningStatus === ba.showReasoningStatus &&
+        a.createdAt === ba.createdAt &&
+        a.state === ba.state &&
+        a.showReasoningStatus === ba.showReasoningStatus &&
         workLogEntryArraysEqual(a.reasoningEntries, ba.reasoningEntries) &&
         a.collapsedWorkElapsed === ba.collapsedWorkElapsed &&
         collapsedTurnItemsEqual(a.collapsedTurnItems, ba.collapsedTurnItems)
-        );
-      }
+      );
+    }
 
-      case "reasoning-status": {
-        const br = b as typeof a;
-        return (
-          a.scopeKey === br.scopeKey &&
-          workLogEntryArraysEqual(a.reasoningEntries, br.reasoningEntries)
-        );
-      }
+    case "reasoning-status": {
+      const br = b as typeof a;
+      return (
+        a.scopeKey === br.scopeKey &&
+        workLogEntryArraysEqual(a.reasoningEntries, br.reasoningEntries)
+      );
+    }
 
     case "worktree-setup": {
       const bw = b as typeof a;

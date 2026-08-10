@@ -1,9 +1,4 @@
-import {
-  CommandId,
-  RoomId,
-  type ProjectId,
-  type ThreadId,
-} from "@synara/contracts";
+import { CommandId, RoomId, type ProjectId, type ThreadId } from "@synara/contracts";
 
 import { useComposerDraftStore } from "../composerDraftStore";
 import { buildThreadHandoffImportedMessages } from "../lib/threadHandoff";
@@ -43,8 +38,7 @@ export function ensureSupervisedDraft(input: EnsureSupervisedDraftInput): Thread
   if (existing) {
     const existingDraft = drafts.draftThreadsByThreadId[existing.threadId];
     drafts.setDraftThreadContext(existing.threadId, {
-      supervisionMode:
-        input.supervisionMode ?? existingDraft?.supervisionMode ?? "orchestrate",
+      supervisionMode: input.supervisionMode ?? existingDraft?.supervisionMode ?? "orchestrate",
       ...(stagedHandoff
         ? {
             supervisedSourceThreadId: stagedHandoff.sourceThreadId,

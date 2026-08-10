@@ -329,9 +329,7 @@ describe("SidebarActivityView", () => {
     expect(rootRow.parentElement?.querySelector('button[aria-label="Done"]')).toBeNull();
     expect(rootRow.parentElement?.querySelector('button[aria-label="Undo"]')).toBeNull();
     expect(document.body.textContent).not.toContain("Done");
-    expect(
-      page.getByRole("button", { name: "Start new Lead Room" }).element(),
-    ).toBeTruthy();
+    expect(page.getByRole("button", { name: "Start new Lead Room" }).element()).toBeTruthy();
     await mounted.unmount();
   });
 

@@ -13,9 +13,7 @@ import type {
 
 const liveRootStatuses = new Set(["active", "transferring", "releasing"]);
 
-const roomTransitions: Readonly<
-  Record<Room["status"], ReadonlySet<Room["status"]>>
-> = {
+const roomTransitions: Readonly<Record<Room["status"], ReadonlySet<Room["status"]>>> = {
   draft: new Set(["provisioning"]),
   provisioning: new Set(["ready", "failed"]),
   ready: new Set(["active"]),
@@ -80,10 +78,7 @@ const handoffTransitions: Readonly<
 };
 
 const interventionTransitions: Readonly<
-  Record<
-    DirectIntervention["lifecycleState"],
-    ReadonlySet<DirectIntervention["lifecycleState"]>
-  >
+  Record<DirectIntervention["lifecycleState"], ReadonlySet<DirectIntervention["lifecycleState"]>>
 > = {
   opened: new Set(["delivered", "failed"]),
   delivered: new Set(["acknowledged", "failed"]),
@@ -264,7 +259,8 @@ export function assertExclusiveRootLeases(snapshot: SupervisedGovernanceSnapshot
   const seen = new Set<string>();
   for (const lease of snapshot.rootLeases) {
     if (!liveRootStatuses.has(lease.status)) continue;
-    if (seen.has(lease.roomId)) throw new Error(`Room ${lease.roomId} has multiple live Root leases.`);
+    if (seen.has(lease.roomId))
+      throw new Error(`Room ${lease.roomId} has multiple live Root leases.`);
     seen.add(lease.roomId);
   }
 }
@@ -292,7 +288,8 @@ export function transferRootAuthority(
 ): SupervisedGovernanceSnapshot {
   assertExclusiveRootLeases(snapshot);
   const existingNext = snapshot.rootLeases.find((lease) => lease.id === input.nextLeaseId);
-  if (existingNext?.status === "active" && existingNext.holderSeatId === input.toSeatId) return snapshot;
+  if (existingNext?.status === "active" && existingNext.holderSeatId === input.toSeatId)
+    return snapshot;
 
   const currentLease = snapshot.rootLeases.find(
     (lease) =>
@@ -324,7 +321,8 @@ export function transferRootAuthority(
   const toReceipt = snapshot.authorityReceipts.find(
     (receipt) => receipt.id === toSeat.authorityReceiptId,
   );
-  if (!fromReceipt || !toReceipt) throw new Error("Both Root transfer seats need authority receipts.");
+  if (!fromReceipt || !toReceipt)
+    throw new Error("Both Root transfer seats need authority receipts.");
 
   const previousReceipt = {
     ...fromReceipt,
@@ -335,7 +333,8 @@ export function transferRootAuthority(
   const nextReceipt = {
     ...toReceipt,
     id: input.nextReceiptId,
-    effectiveRole: toSeat.identityRole === "supervisor" ? ("acting_root" as const) : ("lead" as const),
+    effectiveRole:
+      toSeat.identityRole === "supervisor" ? ("acting_root" as const) : ("lead" as const),
     rootLeaseIds: [...new Set([...toReceipt.rootLeaseIds, input.nextLeaseId])],
     issuedAt: input.at,
   };
@@ -382,11 +381,7 @@ export function transferRootAuthority(
             }
           : seat,
     ),
-    authorityReceipts: [
-      ...snapshot.authorityReceipts,
-      previousReceipt,
-      nextReceipt,
-    ],
+    authorityReceipts: [...snapshot.authorityReceipts, previousReceipt, nextReceipt],
     rootLeases: upsert(upsert(snapshot.rootLeases, releasedLease), nextLease),
     handoffs: upsert(snapshot.handoffs, transferredHandoff),
     roleAssumptions: snapshot.roleAssumptions.map((assumption) =>

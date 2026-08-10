@@ -38,10 +38,7 @@ const modelSelectionFor = (profile: ProfileSnapshot): ModelSelection =>
     options: profile.runtime.providerOptions ?? {},
   }) as ModelSelection;
 
-const importedHandoffMessages = (
-  source: OrchestrationThread,
-  rotation: LeadRotation,
-) => {
+const importedHandoffMessages = (source: OrchestrationThread, rotation: LeadRotation) => {
   const messages = source.messages.flatMap((message) =>
     (message.role === "user" || message.role === "assistant") &&
     message.createdAt <= rotation.createdAt
@@ -154,11 +151,7 @@ export const makeLeadRotationReactor = Effect.gen(function* () {
     });
   });
 
-  const fail = Effect.fnUntraced(function* (
-    rotation: LeadRotation,
-    detail: string,
-    at: string,
-  ) {
+  const fail = Effect.fnUntraced(function* (rotation: LeadRotation, detail: string, at: string) {
     if (rotation.state === "failed" || rotation.state === "completed") return;
     yield* advance(rotation, "failed", at, detail);
     const current = yield* load(rotation.id);
@@ -453,7 +446,4 @@ export const makeLeadRotationReactor = Effect.gen(function* () {
   } satisfies LeadRotationReactorShape;
 });
 
-export const LeadRotationReactorLive = Layer.effect(
-  LeadRotationReactor,
-  makeLeadRotationReactor,
-);
+export const LeadRotationReactorLive = Layer.effect(LeadRotationReactor, makeLeadRotationReactor);

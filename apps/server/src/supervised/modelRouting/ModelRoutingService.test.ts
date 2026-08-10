@@ -247,10 +247,7 @@ describe("ModelRoutingService persistence", () => {
     assert.equal(reloaded.snapshot.modelTelemetryAggregates[0]!.successCount, 1);
     assert.equal(reloaded.snapshot.workspaces[0]!.id, seed.workspaces[0]!.id);
     assert.equal(reloaded.snapshot.agentSeats[0]!.id, seed.agentSeats[0]!.id);
-    assert.equal(
-      reloaded.snapshot.authorityReceipts[0]!.id,
-      seed.authorityReceipts[0]!.id,
-    );
+    assert.equal(reloaded.snapshot.authorityReceipts[0]!.id, seed.authorityReceipts[0]!.id);
     assert.equal(reloaded.ownState.preferenceProfile?.userId, "user-routing");
     assert.equal(reloaded.otherState.preferenceProfile, null);
   });
@@ -488,9 +485,7 @@ describe("ModelRoutingService persistence", () => {
         const persisted = yield* repository.getSnapshot();
         const authorityAfter = structuredClone({
           lead: persisted.agentSeats.find((seat) => seat.id === "seat-lead-authority"),
-          receipt: persisted.authorityReceipts.find(
-            (receipt) => receipt.id === "authority-lead",
-          ),
+          receipt: persisted.authorityReceipts.find((receipt) => receipt.id === "authority-lead"),
           leases: persisted.rootLeases,
         });
         return {

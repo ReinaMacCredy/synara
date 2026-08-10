@@ -348,35 +348,40 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     id: "supervised-models:routing",
     section: "supervised-models",
     title: "Model routing preferences",
-    keywords: "ratings relative preference preferred avoid priority defaults fallbacks owner notes selection why",
+    keywords:
+      "ratings relative preference preferred avoid priority defaults fallbacks owner notes selection why",
     target: null,
   },
   {
     id: "supervised-notebook:entries",
     section: "supervised-notebook",
     title: "Shared notebook",
-    keywords: "concern scope compaction supersession redaction evidence cursors promotion candidates",
+    keywords:
+      "concern scope compaction supersession redaction evidence cursors promotion candidates",
     target: null,
   },
   {
     id: "supervised-authority:mandates",
     section: "supervised-authority",
     title: "Mandates & authority",
-    keywords: "Human directives standing mandates Root leases effective receipt intervention dry run audit",
+    keywords:
+      "Human directives standing mandates Root leases effective receipt intervention dry run audit",
     target: null,
   },
   {
     id: "supervised-lifecycle:seats",
     section: "supervised-lifecycle",
     title: "Agent lifecycle",
-    keywords: "Workspace Room AgentSeat provider session handoff role assumption Lead replacement recovery",
+    keywords:
+      "Workspace Room AgentSeat provider session handoff role assumption Lead replacement recovery",
     target: null,
   },
   {
     id: "supervised-tools:registry",
     section: "supervised-tools",
     title: "System tools",
-    keywords: "canonical ID schema enabled disabled revoked read mutate roles scope authority RunPolicy invocation receipt",
+    keywords:
+      "canonical ID schema enabled disabled revoked read mutate roles scope authority RunPolicy invocation receipt",
     target: null,
   },
   {

@@ -118,6 +118,7 @@ export function activateThreadFromSidebarIntent(
     params: { threadId: activation.threadId },
     search: (previous) => ({
       ...previous,
+      view: previous.view === "editor" ? ("editor" as const) : undefined,
       splitViewId: activation.splitViewId,
     }),
   });
@@ -148,9 +149,9 @@ function resolveSidechatSplitActivation(
 function activateSidechatSplit(
   input: ThreadActivationControllerInput,
   activation: {
-      threadId: ThreadId;
-      sourceThreadId: ThreadId;
-      ownerProjectId: ProjectId;
+    threadId: ThreadId;
+    sourceThreadId: ThreadId;
+    ownerProjectId: ProjectId;
   },
 ): void {
   input.prewarmThreadDetailForIntent(activation.sourceThreadId);
@@ -175,6 +176,7 @@ function activateSidechatSplit(
     params: { threadId: activation.threadId },
     search: (previous) => ({
       ...previous,
+      view: previous.view === "editor" ? ("editor" as const) : undefined,
       splitViewId,
     }),
   });
@@ -206,6 +208,7 @@ function activateThreadSingle(input: ThreadActivationControllerInput, threadId: 
     params: { threadId },
     search: (previous) => ({
       ...previous,
+      view: previous.view === "editor" ? ("editor" as const) : undefined,
       splitViewId: undefined,
     }),
   });

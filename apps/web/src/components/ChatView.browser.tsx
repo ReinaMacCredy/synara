@@ -3455,9 +3455,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 8_000, interval: 16 },
       );
       const findSentTurnActivityRow = () => {
-        const rows = Array.from(
-          document.querySelectorAll<HTMLElement>("[data-timeline-row-kind]"),
-        );
+        const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-timeline-row-kind]"));
         const sentRowIndex = rows.findIndex(
           (row) =>
             row.dataset.timelineRowKind === "message" && row.dataset.messageId === sentMessageId,
@@ -7883,9 +7881,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           );
           expect(
             activityRows.some(
-              (row) =>
-                row !== settledActivityRow &&
-                row.dataset.turnWorkState === "working",
+              (row) => row !== settledActivityRow && row.dataset.turnWorkState === "working",
             ),
           ).toBe(true);
         },
@@ -7941,9 +7937,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           );
           expect(
             activityRows.some(
-              (row) =>
-                row !== settledActivityRow &&
-                row.dataset.turnWorkState === "working",
+              (row) => row !== settledActivityRow && row.dataset.turnWorkState === "working",
             ),
           ).toBe(true);
         },

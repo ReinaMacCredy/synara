@@ -56,9 +56,7 @@ export function readEditorViewState(threadId: string): EditorViewStateSnapshot |
       ? entry.expandedDirectories.filter((path): path is string => typeof path === "string")
       : [],
     centerMode:
-      entry.centerMode === "file" || entry.centerMode === "topology"
-        ? entry.centerMode
-        : "diff",
+      entry.centerMode === "file" || entry.centerMode === "topology" ? entry.centerMode : "diff",
   };
 }
 

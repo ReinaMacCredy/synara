@@ -80,7 +80,8 @@ const orderNotebookEntriesForInsert = (
   entries: ReadonlyArray<SupervisorNotebookEntry>,
 ): ReadonlyArray<SupervisorNotebookEntry> => {
   const remaining = entries.toSorted(
-    (left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+    (left, right) =>
+      left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
   );
   const ordered: SupervisorNotebookEntry[] = [];
   const inserted = new Set<string>();
@@ -469,28 +470,27 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
       };
     }).pipe(Effect.mapError(persistenceError("SupervisedGovernance.getNotebookState")));
 
-  const appendNotebookEntry: SupervisedGovernanceRepositoryShape["appendNotebookEntry"] =
-    (entry) =>
-      sql
-        .withTransaction(
-          Effect.gen(function* () {
-            if (entry.supersedesEntryId === entry.id) {
-              return yield* Effect.fail(new Error("Notebook entry cannot supersede itself."));
-            }
-            if (entry.supersedesEntryId !== null) {
-              const supersededRows = yield* sql<{ readonly count: number }>`
+  const appendNotebookEntry: SupervisedGovernanceRepositoryShape["appendNotebookEntry"] = (entry) =>
+    sql
+      .withTransaction(
+        Effect.gen(function* () {
+          if (entry.supersedesEntryId === entry.id) {
+            return yield* Effect.fail(new Error("Notebook entry cannot supersede itself."));
+          }
+          if (entry.supersedesEntryId !== null) {
+            const supersededRows = yield* sql<{ readonly count: number }>`
                 SELECT COUNT(*) AS count
                 FROM projection_supervised_notebook_entries
                 WHERE entry_id = ${entry.supersedesEntryId}
                   AND workspace_id = ${entry.workspaceId}
               `;
-              if ((supersededRows[0]?.count ?? 0) === 0) {
-                return yield* Effect.fail(
-                  new Error("Superseded notebook entry is unavailable in this workspace."),
-                );
-              }
+            if ((supersededRows[0]?.count ?? 0) === 0) {
+              return yield* Effect.fail(
+                new Error("Superseded notebook entry is unavailable in this workspace."),
+              );
             }
-            yield* sql`
+          }
+          yield* sql`
               INSERT OR IGNORE INTO projection_supervised_notebook_entries (
                 entry_id, workspace_id, room_id, task_node_id, concern, kind,
                 author_seat_id, supersedes_entry_id, created_at, entity_json
@@ -500,17 +500,17 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
                 ${entry.createdAt}, ${JSON.stringify(entry)}
               )
             `;
-            const changedRows = yield* sql<{ readonly changed: number }>`SELECT changes() AS changed`;
-            if ((changedRows[0]?.changed ?? 0) === 0) return false;
-            yield* sql`
+          const changedRows = yield* sql<{ readonly changed: number }>`SELECT changes() AS changed`;
+          if ((changedRows[0]?.changed ?? 0) === 0) return false;
+          yield* sql`
               UPDATE supervised_governance_state
               SET revision = revision + 1, updated_at = ${entry.createdAt}
               WHERE singleton_id = 1
             `;
-            return true;
-          }),
-        )
-        .pipe(Effect.mapError(persistenceError("SupervisedGovernance.appendNotebookEntry")));
+          return true;
+        }),
+      )
+      .pipe(Effect.mapError(persistenceError("SupervisedGovernance.appendNotebookEntry")));
 
   const appendNotebookCompaction: SupervisedGovernanceRepositoryShape["appendNotebookCompaction"] =
     (input) =>
@@ -643,13 +643,17 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
           excluded.last_created_at = projection_supervised_notebook_cursors.last_created_at AND
           excluded.last_entry_id > projection_supervised_notebook_cursors.last_entry_id
         )
-    `.pipe(Effect.asVoid, Effect.mapError(persistenceError("SupervisedGovernance.putNotebookCursor")));
+    `.pipe(
+      Effect.asVoid,
+      Effect.mapError(persistenceError("SupervisedGovernance.putNotebookCursor")),
+    );
 
   const replaceSnapshot: SupervisedGovernanceRepositoryShape["replaceSnapshot"] = (snapshot) =>
-    sql.withTransaction(
-      Effect.gen(function* () {
-        yield* advanceRevision(snapshot.revision, snapshot.updatedAt);
-        yield* sql`
+    sql
+      .withTransaction(
+        Effect.gen(function* () {
+          yield* advanceRevision(snapshot.revision, snapshot.updatedAt);
+          yield* sql`
           UPDATE supervised_governance_state
           SET orchestration_json = ${JSON.stringify({
             ...snapshot.orchestration,
@@ -657,28 +661,28 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
           })}
           WHERE singleton_id = 1
         `;
-        yield* sql`DELETE FROM supervised_model_selection_receipts`;
-        yield* sql`DELETE FROM supervised_model_telemetry_aggregates`;
-        yield* sql`DELETE FROM supervised_user_model_preference_profiles`;
-        yield* sql`DELETE FROM supervised_model_capability_profiles`;
-        yield* sql`DELETE FROM projection_supervised_notebook_compactions`;
-        yield* sql`DELETE FROM projection_supervised_notebook_cursors`;
-        yield* sql`DELETE FROM projection_supervised_notebook_entries`;
-        yield* sql`DELETE FROM projection_supervised_direct_interventions`;
-        yield* sql`DELETE FROM projection_supervised_lead_replacements`;
-        yield* sql`DELETE FROM projection_supervised_role_assumptions`;
-        yield* sql`DELETE FROM projection_supervised_handoffs`;
-        yield* sql`DELETE FROM projection_supervised_provider_sessions`;
-        yield* sql`DELETE FROM projection_supervised_standing_mandates`;
-        yield* sql`DELETE FROM projection_supervised_human_directives`;
-        yield* sql`DELETE FROM projection_supervised_root_authority_leases`;
-        yield* sql`DELETE FROM projection_supervised_agent_seats`;
-        yield* sql`DELETE FROM projection_supervised_authority_receipts`;
-        yield* sql`DELETE FROM projection_supervised_workspaces`;
+          yield* sql`DELETE FROM supervised_model_selection_receipts`;
+          yield* sql`DELETE FROM supervised_model_telemetry_aggregates`;
+          yield* sql`DELETE FROM supervised_user_model_preference_profiles`;
+          yield* sql`DELETE FROM supervised_model_capability_profiles`;
+          yield* sql`DELETE FROM projection_supervised_notebook_compactions`;
+          yield* sql`DELETE FROM projection_supervised_notebook_cursors`;
+          yield* sql`DELETE FROM projection_supervised_notebook_entries`;
+          yield* sql`DELETE FROM projection_supervised_direct_interventions`;
+          yield* sql`DELETE FROM projection_supervised_lead_replacements`;
+          yield* sql`DELETE FROM projection_supervised_role_assumptions`;
+          yield* sql`DELETE FROM projection_supervised_handoffs`;
+          yield* sql`DELETE FROM projection_supervised_provider_sessions`;
+          yield* sql`DELETE FROM projection_supervised_standing_mandates`;
+          yield* sql`DELETE FROM projection_supervised_human_directives`;
+          yield* sql`DELETE FROM projection_supervised_root_authority_leases`;
+          yield* sql`DELETE FROM projection_supervised_agent_seats`;
+          yield* sql`DELETE FROM projection_supervised_authority_receipts`;
+          yield* sql`DELETE FROM projection_supervised_workspaces`;
 
-        yield* Effect.forEach(
-          snapshot.workspaces,
-          (workspace) => sql`
+          yield* Effect.forEach(
+            snapshot.workspaces,
+            (workspace) => sql`
             INSERT INTO projection_supervised_workspaces (
               workspace_id, owner_namespace, lifecycle_state, revision, updated_at, entity_json
             ) VALUES (
@@ -686,11 +690,11 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
               ${workspace.revision}, ${workspace.updatedAt}, ${JSON.stringify(workspace)}
             )
           `,
-          { concurrency: 1, discard: true },
-        );
-        yield* Effect.forEach(
-          snapshot.authorityReceipts,
-          (receipt) => sql`
+            { concurrency: 1, discard: true },
+          );
+          yield* Effect.forEach(
+            snapshot.authorityReceipts,
+            (receipt) => sql`
             INSERT INTO projection_supervised_authority_receipts (
               receipt_id, actor_seat_id, identity_role, effective_role,
               issued_at, expires_at, revoked_at, entity_json
@@ -699,11 +703,11 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
               ${receipt.issuedAt}, ${receipt.expiresAt}, ${receipt.revokedAt}, ${JSON.stringify(receipt)}
             )
           `,
-          { concurrency: 1, discard: true },
-        );
-        yield* Effect.forEach(
-          snapshot.agentSeats,
-          (seat) => sql`
+            { concurrency: 1, discard: true },
+          );
+          yield* Effect.forEach(
+            snapshot.agentSeats,
+            (seat) => sql`
             INSERT INTO projection_supervised_agent_seats (
               seat_id, workspace_id, identity_role, effective_role, profile_id,
               lifecycle_state, work_state, authority_receipt_id, revision, updated_at, entity_json
@@ -713,11 +717,11 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
               ${seat.revision}, ${seat.updatedAt}, ${JSON.stringify(seat)}
             )
           `,
-          { concurrency: 1, discard: true },
-        );
-        yield* Effect.forEach(
-          snapshot.providerSessions,
-          (session) => sql`
+            { concurrency: 1, discard: true },
+          );
+          yield* Effect.forEach(
+            snapshot.providerSessions,
+            (session) => sql`
             INSERT INTO projection_supervised_provider_sessions (
               provider_session_id, workspace_id, seat_id, lifecycle_state,
               revision, updated_at, entity_json
@@ -726,11 +730,11 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
               ${session.revision}, ${session.updatedAt}, ${JSON.stringify(session)}
             )
           `,
-          { concurrency: 1, discard: true },
-        );
-        yield* Effect.forEach(
-          snapshot.rootLeases,
-          (lease) => sql`
+            { concurrency: 1, discard: true },
+          );
+          yield* Effect.forEach(
+            snapshot.rootLeases,
+            (lease) => sql`
             INSERT INTO projection_supervised_root_authority_leases (
               lease_id, workspace_id, room_id, holder_seat_id, status,
               authority_receipt_id, revision, updated_at, entity_json
@@ -739,11 +743,11 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
               ${lease.acquiredUnderReceiptId}, ${lease.revision}, ${lease.updatedAt}, ${JSON.stringify(lease)}
             )
           `,
-          { concurrency: 1, discard: true },
-        );
-        yield* Effect.forEach(
-          snapshot.handoffs,
-          (handoff) => sql`
+            { concurrency: 1, discard: true },
+          );
+          yield* Effect.forEach(
+            snapshot.handoffs,
+            (handoff) => sql`
             INSERT INTO projection_supervised_handoffs (
               handoff_id, workspace_id, room_id, from_seat_id, to_seat_id,
               lifecycle_state, revision, updated_at, entity_json
@@ -753,11 +757,11 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
               ${handoff.updatedAt}, ${JSON.stringify(handoff)}
             )
           `,
-          { concurrency: 1, discard: true },
-        );
-        yield* Effect.forEach(
-          snapshot.roleAssumptions,
-          (assumption) => sql`
+            { concurrency: 1, discard: true },
+          );
+          yield* Effect.forEach(
+            snapshot.roleAssumptions,
+            (assumption) => sql`
             INSERT INTO projection_supervised_role_assumptions (
               role_assumption_id, workspace_id, room_id, actor_seat_id,
               lifecycle_state, revision, updated_at, entity_json
@@ -767,11 +771,11 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
               ${assumption.updatedAt}, ${JSON.stringify(assumption)}
             )
           `,
-          { concurrency: 1, discard: true },
-        );
-        yield* Effect.forEach(
-          snapshot.leadReplacements,
-          (replacement) => sql`
+            { concurrency: 1, discard: true },
+          );
+          yield* Effect.forEach(
+            snapshot.leadReplacements,
+            (replacement) => sql`
             INSERT INTO projection_supervised_lead_replacements (
               replacement_id, workspace_id, room_id, previous_lead_seat_id,
               replacement_lead_seat_id, lifecycle_state, revision, updated_at, entity_json
@@ -782,11 +786,11 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
               ${JSON.stringify(replacement)}
             )
           `,
-          { concurrency: 1, discard: true },
-        );
-        yield* Effect.forEach(
-          snapshot.humanDirectives,
-          (directive) => sql`
+            { concurrency: 1, discard: true },
+          );
+          yield* Effect.forEach(
+            snapshot.humanDirectives,
+            (directive) => sql`
             INSERT INTO projection_supervised_human_directives (
               directive_id, workspace_id, room_id, status, revision, updated_at, entity_json
             ) VALUES (
@@ -794,11 +798,11 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
               ${directive.revision}, ${directive.updatedAt}, ${JSON.stringify(directive)}
             )
           `,
-          { concurrency: 1, discard: true },
-        );
-        yield* Effect.forEach(
-          snapshot.standingMandates,
-          (mandate) => sql`
+            { concurrency: 1, discard: true },
+          );
+          yield* Effect.forEach(
+            snapshot.standingMandates,
+            (mandate) => sql`
             INSERT INTO projection_supervised_standing_mandates (
               mandate_id, workspace_id, source_directive_id, subject_seat_id,
               status, revision, updated_at, entity_json
@@ -807,11 +811,11 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
               ${mandate.status}, ${mandate.revision}, ${mandate.updatedAt}, ${JSON.stringify(mandate)}
             )
           `,
-          { concurrency: 1, discard: true },
-        );
-        yield* Effect.forEach(
-          snapshot.directInterventions,
-          (intervention) => sql`
+            { concurrency: 1, discard: true },
+          );
+          yield* Effect.forEach(
+            snapshot.directInterventions,
+            (intervention) => sql`
             INSERT INTO projection_supervised_direct_interventions (
               intervention_id, workspace_id, room_id, supervisor_seat_id,
               target_peer_seat_id, root_holder_seat_id, lifecycle_state,
@@ -823,11 +827,11 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
               ${intervention.revision}, ${intervention.updatedAt}, ${JSON.stringify(intervention)}
             )
           `,
-          { concurrency: 1, discard: true },
-        );
-        yield* Effect.forEach(
-          orderNotebookEntriesForInsert(snapshot.notebookEntries),
-          (entry) => sql`
+            { concurrency: 1, discard: true },
+          );
+          yield* Effect.forEach(
+            orderNotebookEntriesForInsert(snapshot.notebookEntries),
+            (entry) => sql`
             INSERT INTO projection_supervised_notebook_entries (
               entry_id, workspace_id, room_id, task_node_id, concern, kind,
               author_seat_id, supersedes_entry_id, created_at, entity_json
@@ -837,11 +841,11 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
               ${entry.createdAt}, ${JSON.stringify(entry)}
             )
           `,
-          { concurrency: 1, discard: true },
-        );
-        yield* Effect.forEach(
-          snapshot.notebookCursors,
-          (cursor) => sql`
+            { concurrency: 1, discard: true },
+          );
+          yield* Effect.forEach(
+            snapshot.notebookCursors,
+            (cursor) => sql`
             INSERT INTO projection_supervised_notebook_cursors (
               cursor_id, workspace_id, seat_id, last_created_at, last_entry_id, updated_at, entity_json
             ) VALUES (
@@ -849,11 +853,11 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
               ${cursor.lastEntryId}, ${cursor.updatedAt}, ${JSON.stringify(cursor)}
             )
           `,
-          { concurrency: 1, discard: true },
-        );
-        yield* Effect.forEach(
-          snapshot.notebookCompactionReceipts,
-          (receipt) => sql`
+            { concurrency: 1, discard: true },
+          );
+          yield* Effect.forEach(
+            snapshot.notebookCompactionReceipts,
+            (receipt) => sql`
             INSERT INTO projection_supervised_notebook_compactions (
               receipt_id, workspace_id, summary_entry_id, created_by_seat_id,
               created_at, entity_json
@@ -862,11 +866,11 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
               ${receipt.createdBySeatId}, ${receipt.createdAt}, ${JSON.stringify(receipt)}
             )
           `,
-          { concurrency: 1, discard: true },
-        );
-        yield* Effect.forEach(
-          snapshot.modelCapabilityProfiles,
-          (profile) => sql`
+            { concurrency: 1, discard: true },
+          );
+          yield* Effect.forEach(
+            snapshot.modelCapabilityProfiles,
+            (profile) => sql`
             INSERT INTO supervised_model_capability_profiles (
               profile_id, provider, model, version, available, revision, updated_at, entity_json
             ) VALUES (
@@ -874,11 +878,11 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
               ${profile.available ? 1 : 0}, ${profile.revision}, ${profile.updatedAt}, ${JSON.stringify(profile)}
             )
           `,
-          { concurrency: 1, discard: true },
-        );
-        yield* Effect.forEach(
-          snapshot.userModelPreferenceProfiles,
-          (profile) => sql`
+            { concurrency: 1, discard: true },
+          );
+          yield* Effect.forEach(
+            snapshot.userModelPreferenceProfiles,
+            (profile) => sql`
             INSERT INTO supervised_user_model_preference_profiles (
               preference_profile_id, user_id, revision, updated_at, entity_json
             ) VALUES (
@@ -886,11 +890,11 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
               ${profile.updatedAt}, ${JSON.stringify(profile)}
             )
           `,
-          { concurrency: 1, discard: true },
-        );
-        yield* Effect.forEach(
-          snapshot.modelTelemetryAggregates,
-          (aggregate) => sql`
+            { concurrency: 1, discard: true },
+          );
+          yield* Effect.forEach(
+            snapshot.modelTelemetryAggregates,
+            (aggregate) => sql`
             INSERT INTO supervised_model_telemetry_aggregates (
               aggregate_id, model_profile_id, category, sample_count,
               confidence, revision, updated_at, entity_json
@@ -900,11 +904,11 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
               ${aggregate.updatedAt}, ${JSON.stringify(aggregate)}
             )
           `,
-          { concurrency: 1, discard: true },
-        );
-        yield* Effect.forEach(
-          snapshot.modelSelectionReceipts,
-          (receipt) => sql`
+            { concurrency: 1, discard: true },
+          );
+          yield* Effect.forEach(
+            snapshot.modelSelectionReceipts,
+            (receipt) => sql`
             INSERT INTO supervised_model_selection_receipts (
               receipt_id, workspace_id, room_id, task_node_id, actor_seat_id,
               selected_model_id, created_at, entity_json
@@ -914,18 +918,20 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
               ${JSON.stringify(receipt)}
             )
           `,
-          { concurrency: 1, discard: true },
-        );
-      }),
-    ).pipe(Effect.mapError(persistenceError("SupervisedGovernance.replaceSnapshot")));
+            { concurrency: 1, discard: true },
+          );
+        }),
+      )
+      .pipe(Effect.mapError(persistenceError("SupervisedGovernance.replaceSnapshot")));
 
-  const replaceOrchestration: SupervisedGovernanceRepositoryShape["replaceOrchestration"] =
-    (input) =>
-      sql
-        .withTransaction(
-          Effect.gen(function* () {
-            yield* advanceRevision(input.expectedRevision, input.updatedAt);
-            yield* sql`
+  const replaceOrchestration: SupervisedGovernanceRepositoryShape["replaceOrchestration"] = (
+    input,
+  ) =>
+    sql
+      .withTransaction(
+        Effect.gen(function* () {
+          yield* advanceRevision(input.expectedRevision, input.updatedAt);
+          yield* sql`
               UPDATE supervised_governance_state
               SET orchestration_json = ${JSON.stringify({
                 ...input.orchestration,
@@ -933,11 +939,9 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
               })}
               WHERE singleton_id = 1
             `;
-          }),
-        )
-        .pipe(
-          Effect.mapError(persistenceError("SupervisedGovernance.replaceOrchestration")),
-        );
+        }),
+      )
+      .pipe(Effect.mapError(persistenceError("SupervisedGovernance.replaceOrchestration")));
 
   const putModelCapabilityProfile: SupervisedGovernanceRepositoryShape["putModelCapabilityProfile"] =
     (input) =>
@@ -1041,9 +1045,7 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
             `;
           }),
         )
-        .pipe(
-          Effect.mapError(persistenceError("SupervisedGovernance.putModelTelemetryAggregate")),
-        );
+        .pipe(Effect.mapError(persistenceError("SupervisedGovernance.putModelTelemetryAggregate")));
 
   return SupervisedGovernanceRepository.of({
     getSnapshot,

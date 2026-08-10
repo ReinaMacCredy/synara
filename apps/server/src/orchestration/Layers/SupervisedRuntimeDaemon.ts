@@ -18,7 +18,19 @@ import type {
   SupervisedRuntimeSnapshot,
 } from "@synara/contracts";
 import { CommandId, ControlPlaneEvent, EvidenceId, MessageId } from "@synara/contracts";
-import { Effect, Exit, Fiber, Layer, Option, Queue, Ref, Schema, Scope, Semaphore, Stream } from "effect";
+import {
+  Effect,
+  Exit,
+  Fiber,
+  Layer,
+  Option,
+  Queue,
+  Ref,
+  Schema,
+  Scope,
+  Semaphore,
+  Stream,
+} from "effect";
 
 import { SupervisedRuntimeRepository } from "../../persistence/Services/SupervisedRuntimeRepository.ts";
 import type { RlmReconciliationState } from "../../persistence/Services/SupervisedRuntimeRepository.ts";
@@ -107,9 +119,10 @@ function shortestRunRecoveryPath(
   to: Run["status"],
 ): ReadonlyArray<Run["status"]> | null {
   if (from === to) return [];
-  const pending: Array<{ readonly status: Run["status"]; readonly path: ReadonlyArray<Run["status"]> }> = [
-    { status: from, path: [] },
-  ];
+  const pending: Array<{
+    readonly status: Run["status"];
+    readonly path: ReadonlyArray<Run["status"]>;
+  }> = [{ status: from, path: [] }];
   const visited = new Set<Run["status"]>([from]);
   while (pending.length > 0) {
     const current = pending.shift()!;
@@ -173,9 +186,7 @@ export function orchestrationContextEvent(
   const room =
     trace?.role === "lead"
       ? runtime.rooms.find((candidate) => candidate.id === trace.roomId)
-      : runtime.rooms.find(
-          (candidate) => candidate.leadSeatId === projectedLead!.seatId,
-        );
+      : runtime.rooms.find((candidate) => candidate.leadSeatId === projectedLead!.seatId);
   if (!room) return null;
   const payload = activity.payload as Record<string, unknown>;
   const usedTokens =
@@ -224,9 +235,7 @@ export function orchestrationContextEvent(
       activeObligations: [],
       unsummarizedEvidenceRefs:
         trace?.role === "lead"
-          ? trace.items
-              .filter((item) => item.type === "evidence")
-              .map((item) => item.evidenceId)
+          ? trace.items.filter((item) => item.type === "evidence").map((item) => item.evidenceId)
           : [],
     },
     provenance: {
@@ -247,8 +256,7 @@ export function orchestrationReviewEvent(
   if (
     !eventIntervention ||
     !eventReconciliation ||
-    (eventReconciliation.status !== "accepted" &&
-      eventReconciliation.status !== "rejected") ||
+    (eventReconciliation.status !== "accepted" && eventReconciliation.status !== "rejected") ||
     eventReconciliation.taskNodeRevisionId === null
   ) {
     return null;
@@ -297,9 +305,7 @@ export function orchestrationReviewEvent(
     sequence: 0,
     eventId: event.eventId,
     schemaId:
-      type === "ReviewCompleted"
-        ? "schema-review-completed-v1"
-        : "schema-review-rejected-v1",
+      type === "ReviewCompleted" ? "schema-review-completed-v1" : "schema-review-rejected-v1",
     schemaVersion: "1.0.0",
     type,
     scope: { kind: "task_node", taskNodeId: taskNode.id },
@@ -467,7 +473,12 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
   ]);
   const terminalRunStatuses = new Set<Run["status"]>(["succeeded", "failed", "cancelled"]);
 
-  const daemonCommandBase = (aggregateId: string, expectedRevision: number, suffix: string, at: string) => ({
+  const daemonCommandBase = (
+    aggregateId: string,
+    expectedRevision: number,
+    suffix: string,
+    at: string,
+  ) => ({
     commandId: CommandId.makeUnsafe(
       stableId("command:rlm-daemon", { aggregateId, expectedRevision, suffix }),
     ),
@@ -518,9 +529,8 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
     EvidenceId.makeUnsafe(stableId("evidence:rlm-session", sessionId));
 
   const responseFromTrace = (trace: ModelSessionTrace): string | null =>
-    trace.items
-      .filter((item) => item.type === "message" && item.role === "assistant")
-      .at(-1)?.content ?? null;
+    trace.items.filter((item) => item.type === "message" && item.role === "assistant").at(-1)
+      ?.content ?? null;
 
   const mergeSessionUsage = (
     trace: ModelSessionTrace,
@@ -567,9 +577,7 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
     at: string,
   ) =>
     [
-      ...items.filter(
-        (item) => !(item.type === "evidence" && item.evidenceId === evidenceId),
-      ),
+      ...items.filter((item) => !(item.type === "evidence" && item.evidenceId === evidenceId)),
       {
         id: `${evidenceId}:transcript`,
         type: "evidence" as const,
@@ -848,8 +856,7 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
                   }
               : {
                   ...branch,
-                  providerSessionId:
-                    result.providerSessionId ?? branch.providerSessionId,
+                  providerSessionId: result.providerSessionId ?? branch.providerSessionId,
                   status: "running" as const,
                   updatedAt: at,
                   revision: branch.revision + 1,
@@ -898,7 +905,11 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
           currentBranches.push(updated);
           continue;
         }
-        if (result.status === "failed" || result.status === "cancelled" || result.status === "completed") {
+        if (
+          result.status === "failed" ||
+          result.status === "cancelled" ||
+          result.status === "completed"
+        ) {
           const at = new Date().toISOString();
           if (branch.retryCount < policy.maxRetries) {
             const decision = sideEffectPolicyDecision(1);
@@ -998,12 +1009,11 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
         `${branch.title}: branch exhausted ${branch.retryCount} retries.`.slice(0, 512),
       );
       let episode = initialEpisode;
-      const nextBranchStatus: RlmEpisode["status"] =
-        allBranchesTerminal
-          ? completedBranches.length > 0
-            ? "synthesizing"
-            : "failed"
-          : "branches_running";
+      const nextBranchStatus: RlmEpisode["status"] = allBranchesTerminal
+        ? completedBranches.length > 0
+          ? "synthesizing"
+          : "failed"
+        : "branches_running";
       const branchProjectionChanged =
         episode.status !== nextBranchStatus ||
         episode.completedBranchCount !== completedBranches.length ||
@@ -1053,16 +1063,20 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
         const synthesisBranches = completedBranches.flatMap((branch) => {
           const response = branchResults.get(branch.id)?.response ?? responseFromTrace(branch);
           return response
-            ? [{ title: branch.title, modelSessionId: branch.id, response, evidenceId: evidenceIdFor(branch.id) }]
+            ? [
+                {
+                  title: branch.title,
+                  modelSessionId: branch.id,
+                  response,
+                  evidenceId: evidenceIdFor(branch.id),
+                },
+              ]
             : [];
         });
         if (synthesisBranches.length !== completedBranches.length) continue;
         const decision = sideEffectPolicyDecision();
         if (!decision.allowed) {
-          yield* stallEpisode(
-            episode,
-            `RunPolicy stopped RLM root synthesis: ${decision.reason}`,
-          );
+          yield* stallEpisode(episode, `RunPolicy stopped RLM root synthesis: ${decision.reason}`);
           continue;
         }
         const at = new Date().toISOString();
@@ -1072,8 +1086,7 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
         });
         const runningRoot: ModelSessionTrace = {
           ...root,
-          providerSessionId:
-            rootDetail.value.session?.providerSessionId ?? root.providerSessionId,
+          providerSessionId: rootDetail.value.session?.providerSessionId ?? root.providerSessionId,
           status: "running",
           promptHash: promptReceiptHash(prompt),
           inputSummary: prompt,
@@ -1122,8 +1135,7 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
         yield* upsertModelSession(completedRoot, at, "root-completed");
         episode = {
           ...episode,
-          status:
-            failedBranches.length > 0 ? "partially_completed" : "completed",
+          status: failedBranches.length > 0 ? "partially_completed" : "completed",
           evidenceRefs: [...new Set([...episode.evidenceRefs, evidenceId])],
           updatedAt: at,
           revision: episode.revision + 1,
@@ -1160,10 +1172,7 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
         if (root.retryCount < policy.maxRetries) {
           const decision = sideEffectPolicyDecision(1);
           if (!decision.allowed) {
-            yield* stallEpisode(
-              episode,
-              `RunPolicy stopped RLM root retry: ${decision.reason}`,
-            );
+            yield* stallEpisode(episode, `RunPolicy stopped RLM root retry: ${decision.reason}`);
             continue;
           }
           const retryRoot: ModelSessionTrace = {
@@ -1339,7 +1348,10 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
   const parseHarnessPatchEvaluation = (
     patch: HarnessPatch,
     event: ControlPlaneEvent,
-  ): { readonly phase: "sandbox" | "canary"; readonly evaluation: HarnessPatchEvaluation } | null => {
+  ): {
+    readonly phase: "sandbox" | "canary";
+    readonly evaluation: HarnessPatchEvaluation;
+  } | null => {
     if (event.type !== "HarnessPatchEvaluated") return null;
     const payload = event.payload as Record<string, unknown>;
     if (payload.patchId !== patch.id) return null;
@@ -1828,12 +1840,15 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
       "health",
       Effect.gen(function* () {
         const after = yield* repository.getDaemonSnapshot();
-        const queued = after.deliveries.filter((delivery) => delivery.status !== "delivered").length;
+        const queued = after.deliveries.filter(
+          (delivery) => delivery.status !== "delivered",
+        ).length;
         yield* repository.setHealth(
           {
             ...after.health,
             status:
-              phaseFailures.length > 0 || after.deadLetters.some((letter) => letter.status === "open")
+              phaseFailures.length > 0 ||
+              after.deadLetters.some((letter) => letter.status === "open")
                 ? "degraded"
                 : "healthy",
             journalLag: 0,
@@ -1851,10 +1866,9 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
   });
 
   const ingest: SupervisedRuntimeDaemonShape["ingest"] = (event) =>
-    repository.appendControlPlaneEvent(event).pipe(
-      Effect.andThen(Queue.offer(reconcileWake, undefined)),
-      Effect.asVoid,
-    );
+    repository
+      .appendControlPlaneEvent(event)
+      .pipe(Effect.andThen(Queue.offer(reconcileWake, undefined)), Effect.asVoid);
 
   const wake: SupervisedRuntimeDaemonShape["wake"] = Queue.offer(reconcileWake, undefined).pipe(
     Effect.asVoid,

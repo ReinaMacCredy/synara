@@ -1,11 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import type {
-  ControlPlaneEvent,
-  PluginInstallation,
-  RunPolicy,
-} from "@synara/contracts";
+import type { ControlPlaneEvent, PluginInstallation, RunPolicy } from "@synara/contracts";
 
 import { evaluateRunPolicy, type RunResourceUsage } from "./RunPolicy.ts";
 import { PersistentKernel, type KernelExecutionResult } from "./KernelRuntime.ts";
@@ -103,7 +99,11 @@ function parseResult(value: unknown): PluginHandlerResult {
       return candidate as unknown as PluginSignalCandidate;
     }),
     commandRequests: commandRequests.map((candidate) => {
-      if (!isRecord(candidate) || typeof candidate.type !== "string" || !isRecord(candidate.payload)) {
+      if (
+        !isRecord(candidate) ||
+        typeof candidate.type !== "string" ||
+        !isRecord(candidate.payload)
+      ) {
         throw new Error("Plugin command request is invalid.");
       }
       return candidate as unknown as PluginCommandRequest;
@@ -207,7 +207,9 @@ export class GovernedPluginRuntime {
       if (!this.installation.grant.allowedActionRequests.includes(request.type)) {
         throw new Error(`Plugin command request '${request.type}' is outside its grant.`);
       }
-      const decision = evaluateRunPolicy(this.runPolicy, this.usage, { pluginAction: request.type });
+      const decision = evaluateRunPolicy(this.runPolicy, this.usage, {
+        pluginAction: request.type,
+      });
       if (!decision.allowed) throw new Error(decision.reason);
     }
   }
@@ -247,10 +249,7 @@ export class GovernedPluginRuntime {
       const source = await this.executableSource();
       if (!source) return emptyResult();
       const execution = await executeWithin(
-        this.kernel.execute(
-          source,
-          filteredEvent(event, this.installation.grant.payloadFields),
-        ),
+        this.kernel.execute(source, filteredEvent(event, this.installation.grant.payloadFields)),
         Math.min(
           this.runPolicy.maxWallTimeMs,
           this.runPolicy.maxPluginHandlerMs,

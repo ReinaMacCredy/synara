@@ -280,23 +280,21 @@ it.effect("returns revisioned summary and full graph with an explicit projection
   }).pipe(Effect.provide(TestLayer)),
 );
 
-it.effect(
-  "keeps a bound thread focused on its task and direct steps",
-  () =>
-    Effect.gen(function* () {
-      const query = yield* TaskProcessQuery;
-      const child = yield* query.getSessionProgress({ threadId: childThreadId, limit: 16 });
-      expect(child.progress).not.toBeNull();
-      assert.deepStrictEqual(
-        child.progress!.visibleTasks.map(({ task: item }) => item.task.id),
-        [parentTask.task.id, childTask.task.id],
-      );
-      assert.equal(child.progress!.visibleTasks[1]?.blockedByTitles[0], parentTask.task.title);
-      assert.equal(child.progress!.completedCount, 0);
-      assert.equal(child.progress!.totalCount, 2);
-      assert.deepStrictEqual(
-        child.progress!.boundThreads.map((thread) => thread.provider),
-        ["codex", "claudeAgent"],
-      );
-    }).pipe(Effect.provide(TestLayer)),
+it.effect("keeps a bound thread focused on its task and direct steps", () =>
+  Effect.gen(function* () {
+    const query = yield* TaskProcessQuery;
+    const child = yield* query.getSessionProgress({ threadId: childThreadId, limit: 16 });
+    expect(child.progress).not.toBeNull();
+    assert.deepStrictEqual(
+      child.progress!.visibleTasks.map(({ task: item }) => item.task.id),
+      [parentTask.task.id, childTask.task.id],
+    );
+    assert.equal(child.progress!.visibleTasks[1]?.blockedByTitles[0], parentTask.task.title);
+    assert.equal(child.progress!.completedCount, 0);
+    assert.equal(child.progress!.totalCount, 2);
+    assert.deepStrictEqual(
+      child.progress!.boundThreads.map((thread) => thread.provider),
+      ["codex", "claudeAgent"],
+    );
+  }).pipe(Effect.provide(TestLayer)),
 );

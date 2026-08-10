@@ -68,11 +68,7 @@ import {
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE } from "./types";
 
 const DraftThreadEnvModeSchema = Schema.Literals(["local", "worktree"]);
-const DraftThreadEntryPointSchema = Schema.Literals([
-  "chat",
-  "terminal",
-  "supervised",
-]);
+const DraftThreadEntryPointSchema = Schema.Literals(["chat", "terminal", "supervised"]);
 
 function cloneBrowserAnnotation(annotation: BrowserAnnotationDraft): BrowserAnnotationDraft {
   return {

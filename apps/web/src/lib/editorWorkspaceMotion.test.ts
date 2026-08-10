@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  EDITOR_WORKSPACE_EXIT_MS,
-  editorWorkspaceMotionClassName,
-} from "./editorWorkspaceMotion";
+import { EDITOR_WORKSPACE_EXIT_MS, editorWorkspaceMotionClassName } from "./editorWorkspaceMotion";
 
 describe("editor workspace motion", () => {
   it("uses one shared enter and exit contract for every workspace surface", () => {

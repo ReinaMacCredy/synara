@@ -60,7 +60,10 @@ describe("shared supervisor notebook projections", () => {
     const protectedEntry = entry("protected", { protectionClass: "secret" });
 
     const first = build([original, replacement, otherWorkspace, protectedEntry]);
-    assert.deepEqual(first.entries.map((candidate) => candidate.id), [replacement.id]);
+    assert.deepEqual(
+      first.entries.map((candidate) => candidate.id),
+      [replacement.id],
+    );
 
     const newer = entry("newer", { createdAt: "2026-08-10T00:00:00.000Z" });
     const incremental = buildSupervisorNotebookView({
@@ -73,7 +76,10 @@ describe("shared supervisor notebook projections", () => {
       limit: 20,
       createdAt: "2026-08-10T00:00:01.000Z",
     });
-    assert.deepEqual(incremental.entries.map((candidate) => candidate.id), [newer.id]);
+    assert.deepEqual(
+      incremental.entries.map((candidate) => candidate.id),
+      [newer.id],
+    );
   });
 
   it("retains source evidence and does not hide sources behind an inaccessible summary", () => {
@@ -88,7 +94,10 @@ describe("shared supervisor notebook projections", () => {
     });
 
     const visible = build([sourceA, sourceB, planned.summaryEntry], [planned.receipt]);
-    assert.deepEqual(visible.entries.map((candidate) => candidate.id), [planned.summaryEntry.id]);
+    assert.deepEqual(
+      visible.entries.map((candidate) => candidate.id),
+      [planned.summaryEntry.id],
+    );
     assert.deepEqual(planned.summaryEntry.evidenceRefs, ["evidence:a", "evidence:b"]);
     assert.deepEqual(planned.receipt.sourceEntryIds, [sourceA.id, sourceB.id]);
 
@@ -133,11 +142,7 @@ describe("shared supervisor notebook projections", () => {
     });
 
     assert.equal(first.summaryEntry.taskNodeId, sourceA.taskNodeId);
-    assert.deepEqual(first.summaryEntry.evidenceRefs, [
-      "evidence:a",
-      "evidence:b",
-      "evidence:z",
-    ]);
+    assert.deepEqual(first.summaryEntry.evidenceRefs, ["evidence:a", "evidence:b", "evidence:z"]);
     assert.deepEqual(first.receipt.evidenceRefs, first.summaryEntry.evidenceRefs);
     assert.deepEqual(first.receipt.sourceEntryIds, [sourceA.id, sourceB.id]);
     assert.equal(retry.summaryEntry.id, first.summaryEntry.id);

@@ -93,10 +93,7 @@ const encodeCursor = (payload: CursorPayload): string =>
 function decodeCursor(value: unknown, grant: HandoffSourceReadGrant, operation: string): number {
   if (value === undefined) return 0;
   if (typeof value !== "string") {
-    throw new HostToolError(
-      "handoff_cursor_invalid",
-      "The handoff cursor must be a string.",
-    );
+    throw new HostToolError("handoff_cursor_invalid", "The handoff cursor must be a string.");
   }
   try {
     const decoded = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as CursorPayload;
@@ -202,10 +199,7 @@ export function makeHandoffDestinationTools(input: {
       );
       if (Option.isNone(sourceOption)) {
         return yield* Effect.fail(
-          new HostToolError(
-            "handoff_source_missing",
-            "The handoff source is no longer available.",
-          ),
+          new HostToolError("handoff_source_missing", "The handoff source is no longer available."),
         );
       }
       const source = sourceOption.value;
@@ -246,9 +240,7 @@ export function makeHandoffDestinationTools(input: {
   const executeSafely = (
     effect: Effect.Effect<HostToolExecutionResult, unknown>,
   ): Effect.Effect<HostToolExecutionResult> =>
-    effect.pipe(
-      Effect.catchCause((cause) => Effect.succeed(hostToolFailure(Cause.squash(cause)))),
-    );
+    effect.pipe(Effect.catchCause((cause) => Effect.succeed(hostToolFailure(Cause.squash(cause)))));
 
   return [
     {
@@ -314,10 +306,7 @@ export function makeHandoffDestinationTools(input: {
             }
             if (view !== "transcript" && view !== "tail_since_cursor") {
               return hostToolFailure(
-                new HostToolError(
-                  "handoff_view_invalid",
-                  `Unknown handoff view '${view}'.`,
-                ),
+                new HostToolError("handoff_view_invalid", `Unknown handoff view '${view}'.`),
               );
             }
             const offset = decodeCursor(args.cursor, source.grant, view);

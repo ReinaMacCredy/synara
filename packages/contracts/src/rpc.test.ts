@@ -28,9 +28,7 @@ describe("WS RPC contracts", () => {
     );
     expect(WsFeatureRpcGroup.requests.has(ORCHESTRATION_WS_METHODS.getTaskProcessGraph)).toBe(true);
     expect(
-      WsFeatureRpcGroup.requests.has(
-        ORCHESTRATION_WS_METHODS.putSupervisedModelCapabilityProfile,
-      ),
+      WsFeatureRpcGroup.requests.has(ORCHESTRATION_WS_METHODS.putSupervisedModelCapabilityProfile),
     ).toBe(true);
     expect(WsFeatureRpcGroup.requests.has("studio.listThreadOutputs")).toBe(false);
   });

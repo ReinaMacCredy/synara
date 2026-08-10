@@ -1,4 +1,7 @@
-import { ADVISOR_CONSULTATION_MARKER, buildAdvisorConsultationPrompt } from "@synara/shared/advisor";
+import {
+  ADVISOR_CONSULTATION_MARKER,
+  buildAdvisorConsultationPrompt,
+} from "@synara/shared/advisor";
 import { describe, expect, it } from "vitest";
 
 import type { WorkLogEntry } from "../session-logic";

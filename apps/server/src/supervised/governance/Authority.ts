@@ -63,18 +63,16 @@ function commandRoomId(
       const claim = runtime.workClaims.find((candidate) => candidate.id === command.claimId);
       return claim === undefined
         ? null
-        : runtime.runs.find((run) => run.id === claim.runId)?.roomId ?? null;
+        : (runtime.runs.find((run) => run.id === claim.runId)?.roomId ?? null);
     }
     case "supervised.lease.grant":
       return runtime.runs.find((run) => run.id === command.lease.runId)?.roomId ?? null;
     case "supervised.lease.revoke":
     case "supervised.lease.expire": {
-      const lease = runtime.capabilityLeases.find(
-        (candidate) => candidate.id === command.leaseId,
-      );
+      const lease = runtime.capabilityLeases.find((candidate) => candidate.id === command.leaseId);
       return lease === undefined
         ? null
-        : runtime.runs.find((run) => run.id === lease.runId)?.roomId ?? null;
+        : (runtime.runs.find((run) => run.id === lease.runId)?.roomId ?? null);
     }
     case "supervised.peer.create":
     case "supervised.work.assign":
@@ -143,11 +141,7 @@ export function validateSupervisedSeatAuthority(input: {
   const createsSupervisorRoom =
     seat.identityRole === "supervisor" &&
     (command.type === "supervised.room.create" || command.type === "supervised.lead.create");
-  if (
-    roomId !== null &&
-    !createsSupervisorRoom &&
-    !receipt.roomScopes.includes(roomId as never)
-  ) {
+  if (roomId !== null && !createsSupervisorRoom && !receipt.roomScopes.includes(roomId as never)) {
     return "The authority receipt does not cover the command Room.";
   }
   if (roomId !== null && rootOwnedCommands.has(command.type)) {
@@ -155,7 +149,9 @@ export function validateSupervisedSeatAuthority(input: {
       (lease) =>
         lease.roomId === roomId &&
         lease.holderSeatId === seat.id &&
-        (lease.status === "active" || lease.status === "transferring" || lease.status === "releasing"),
+        (lease.status === "active" ||
+          lease.status === "transferring" ||
+          lease.status === "releasing"),
     );
     if (!rootLease || !receipt.rootLeaseIds.includes(rootLease.id)) {
       return "The command requires the Room's current Root authority lease.";

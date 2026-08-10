@@ -485,8 +485,7 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
         dispatched
           .filter(
             (command) =>
-              command.type === "supervised.run.transition" &&
-              command.runId === "run-interrupted",
+              command.type === "supervised.run.transition" && command.runId === "run-interrupted",
           )
           .map((command) => command.status),
         ["recovering", "running"],
@@ -574,11 +573,15 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
       assert.equal(signals.length, 2);
       assert.equal(signals.filter((signal) => signal.state === "triggered").length, 1);
       assert.ok(signals.every((signal) => signal.context.leadSeatId === "lead-1"));
-      assert.equal(snapshot.rooms.length, 0, "signal delivery must not create or transfer Room authority");
+      assert.equal(
+        snapshot.rooms.length,
+        0,
+        "signal delivery must not create or transfer Room authority",
+      );
     }),
   );
 
-    it.effect("redrives observe-only delivery and resolves its DeadLetter after success", () =>
+  it.effect("redrives observe-only delivery and resolves its DeadLetter after success", () =>
     Effect.gen(function* () {
       delivered.length = 0;
       const daemon = yield* SupervisedRuntimeDaemon;
@@ -651,121 +654,131 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
       yield* repository.applyDomainEvent({ ...redrive, sequence: 1 });
       yield* daemon.reconcile;
       const after = yield* repository.getSnapshot({ includeDisabled: true });
-      assert.equal(after.deliveries.find((candidate) => candidate.id === delivery.id)?.status, "delivered");
-      assert.equal(after.deadLetters.find((candidate) => candidate.id === letter.id)?.status, "resolved");
+      assert.equal(
+        after.deliveries.find((candidate) => candidate.id === delivery.id)?.status,
+        "delivered",
+      );
+      assert.equal(
+        after.deadLetters.find((candidate) => candidate.id === letter.id)?.status,
+        "resolved",
+      );
       assert.equal(delivered.length, 1);
-      }),
-    );
+    }),
+  );
 
-    it.effect("rolls a failed Harness Patch canary back without mutating its base policy", () =>
-      Effect.gen(function* () {
-        dispatched.length = 0;
-        const daemon = yield* SupervisedRuntimeDaemon;
-        const repository = yield* SupervisedRuntimeRepository;
-        const basePolicyHash = SUPERVISED_BASE_POLICY_HASH;
-        const patch = {
-          id: "patch-daemon-rollback" as const,
-          name: "Require evidence before completion",
-          patchType: "evaluation" as const,
-          scope: { kind: "project" as const, projectId: "project-patch" as const },
-          content: "Require an evidence receipt before completion.",
+  it.effect("rolls a failed Harness Patch canary back without mutating its base policy", () =>
+    Effect.gen(function* () {
+      dispatched.length = 0;
+      const daemon = yield* SupervisedRuntimeDaemon;
+      const repository = yield* SupervisedRuntimeRepository;
+      const basePolicyHash = SUPERVISED_BASE_POLICY_HASH;
+      const patch = {
+        id: "patch-daemon-rollback" as const,
+        name: "Require evidence before completion",
+        patchType: "evaluation" as const,
+        scope: { kind: "project" as const, projectId: "project-patch" as const },
+        content: "Require an evidence receipt before completion.",
+        basePolicyHash,
+        status: "canary" as const,
+        observationEvidenceRefs: ["evidence-observed" as const],
+        evaluationEvidenceRefs: ["evidence-sandbox" as const],
+        sandboxEvaluation: {
+          passed: true,
           basePolicyHash,
-          status: "canary" as const,
-          observationEvidenceRefs: ["evidence-observed" as const],
-          evaluationEvidenceRefs: ["evidence-sandbox" as const],
-          sandboxEvaluation: {
-            passed: true,
-            basePolicyHash,
-            evidenceRefs: ["evidence-sandbox" as const],
-            regressions: [],
-            evaluatedBy: { kind: "daemon" as const, actorId: "sandbox" },
-            evaluatedAt: at(1),
-            eventId: "event-sandbox-passed" as const,
-            controlPlaneSequence: 1,
-          },
-          approval: {
-            approvedBy: { kind: "user" as const, actorId: "owner" },
-            approvedAt: at(2),
-          },
-          canary: {
-            startedAt: at(2),
-            failureThreshold: 1,
-            observedFailures: 0,
-            successfulEvaluations: 0,
-            evidenceRefs: [],
-            lastEvaluationAt: null,
-            lastControlPlaneSequence: 0,
-          },
-          rollback: null,
+          evidenceRefs: ["evidence-sandbox" as const],
+          regressions: [],
+          evaluatedBy: { kind: "daemon" as const, actorId: "sandbox" },
+          evaluatedAt: at(1),
+          eventId: "event-sandbox-passed" as const,
+          controlPlaneSequence: 1,
+        },
+        approval: {
+          approvedBy: { kind: "user" as const, actorId: "owner" },
+          approvedAt: at(2),
+        },
+        canary: {
+          startedAt: at(2),
+          failureThreshold: 1,
+          observedFailures: 0,
+          successfulEvaluations: 0,
+          evidenceRefs: [],
+          lastEvaluationAt: null,
           lastControlPlaneSequence: 0,
-          version: 1,
-          revision: 4,
-          createdBy: { kind: "seat" as const, actorId: "supervisor-1", seatId: "supervisor-1" as const },
-          activatedBy: { kind: "user" as const, actorId: "owner" },
-          createdAt: at(0),
-          updatedAt: at(2),
-        };
-        yield* repository.applyDomainEvent({
-          sequence: 91,
-          eventId: "domain-patch-canary",
-          type: "supervised.patch-upserted",
-          aggregateKind: "harness_patch",
-          aggregateId: patch.id,
-          payload: {
-            acceptedRevision: patch.revision,
-            actor: { kind: "user", actorId: "owner" },
-            patch,
-          },
-          occurredAt: at(2),
-          commandId: "command-patch-canary",
+        },
+        rollback: null,
+        lastControlPlaneSequence: 0,
+        version: 1,
+        revision: 4,
+        createdBy: {
+          kind: "seat" as const,
+          actorId: "supervisor-1",
+          seatId: "supervisor-1" as const,
+        },
+        activatedBy: { kind: "user" as const, actorId: "owner" },
+        createdAt: at(0),
+        updatedAt: at(2),
+      };
+      yield* repository.applyDomainEvent({
+        sequence: 91,
+        eventId: "domain-patch-canary",
+        type: "supervised.patch-upserted",
+        aggregateKind: "harness_patch",
+        aggregateId: patch.id,
+        payload: {
+          acceptedRevision: patch.revision,
+          actor: { kind: "user", actorId: "owner" },
+          patch,
+        },
+        occurredAt: at(2),
+        commandId: "command-patch-canary",
+        causationEventId: null,
+        correlationId: "command-patch-canary",
+        metadata: { schemaVersion: "1.0.0" },
+      } as never);
+      yield* daemon.ingest(
+        Schema.decodeUnknownSync(ControlPlaneEvent)({
+          sequence: 0,
+          eventId: "event-canary-failed",
+          schemaId: "schema-harness-patch-evaluated-v1",
+          schemaVersion: "1.0.0",
+          type: "HarnessPatchEvaluated",
+          scope: patch.scope,
+          subjectId: patch.id,
+          eventTime: at(3),
+          recordedAt: at(3),
+          revision: patch.revision,
           causationEventId: null,
-          correlationId: "command-patch-canary",
-          metadata: { schemaVersion: "1.0.0" },
-        } as never);
-        yield* daemon.ingest(
-          Schema.decodeUnknownSync(ControlPlaneEvent)({
-            sequence: 0,
-            eventId: "event-canary-failed",
-            schemaId: "schema-harness-patch-evaluated-v1",
-            schemaVersion: "1.0.0",
-            type: "HarnessPatchEvaluated",
-            scope: patch.scope,
-            subjectId: patch.id,
-            eventTime: at(3),
-            recordedAt: at(3),
-            revision: patch.revision,
-            causationEventId: null,
-            correlationId: null,
-            payload: {
-              patchId: patch.id,
-              phase: "canary",
-              passed: false,
-              basePolicyHash,
-              evidenceRefs: ["evidence-canary-failed"],
-              regressions: ["Completion accepted without evidence"],
-            },
-            provenance: {
-              actor: { kind: "daemon", actorId: "harness-canary" },
-              source: "isolated-canary",
-              confidence: 1,
-            },
-          }),
-        );
-        yield* daemon.reconcile;
+          correlationId: null,
+          payload: {
+            patchId: patch.id,
+            phase: "canary",
+            passed: false,
+            basePolicyHash,
+            evidenceRefs: ["evidence-canary-failed"],
+            regressions: ["Completion accepted without evidence"],
+          },
+          provenance: {
+            actor: { kind: "daemon", actorId: "harness-canary" },
+            source: "isolated-canary",
+            confidence: 1,
+          },
+        }),
+      );
+      yield* daemon.reconcile;
 
-        const rollbackCommand = dispatched.find(
-          (command) =>
-            command.type === "supervised.patch.upsert" &&
-            command.patch.id === patch.id &&
-            command.patch.status === "rolled_back",
-        );
-        assert.ok(rollbackCommand && rollbackCommand.type === "supervised.patch.upsert");
-        assert.equal(rollbackCommand.patch.basePolicyHash, basePolicyHash);
-        assert.equal(rollbackCommand.patch.rollback?.evidenceRefs[0], "evidence-canary-failed");
-      }),
-    );
+      const rollbackCommand = dispatched.find(
+        (command) =>
+          command.type === "supervised.patch.upsert" &&
+          command.patch.id === patch.id &&
+          command.patch.status === "rolled_back",
+      );
+      assert.ok(rollbackCommand && rollbackCommand.type === "supervised.patch.upsert");
+      assert.equal(rollbackCommand.patch.basePolicyHash, basePolicyHash);
+      assert.equal(rollbackCommand.patch.rollback?.evidenceRefs[0], "evidence-canary-failed");
+    }),
+  );
 
-    it.effect("starts root synthesis only after real branch transcripts are retained", () =>
+  it.effect("starts root synthesis only after real branch transcripts are retained", () =>
     Effect.gen(function* () {
       dispatched.length = 0;
       threadDetails.clear();
@@ -773,35 +786,36 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
       const repository = yield* SupervisedRuntimeRepository;
       const sql = yield* SqlClient.SqlClient;
       const createdAt = "2026-08-09T01:00:00.000Z";
-      const policy = builtInSubscriptions(createdAt).length > 0
-        ? (yield* repository.getSnapshot({ includeDisabled: true })).runPolicies[0]
-        : undefined;
+      const policy =
+        builtInSubscriptions(createdAt).length > 0
+          ? (yield* repository.getSnapshot({ includeDisabled: true })).runPolicies[0]
+          : undefined;
       const runPolicy = {
         ...(policy ?? {
-        id: "policy-rlm-daemon",
-        name: "RLM daemon",
-        maxWallTimeMs: 60_000,
-        maxRecursiveCalls: 4,
-        maxFanOut: 4,
-        maxRetries: 2,
-        maxKernelMemoryMiB: 256,
-        maxKernelOutputBytes: 1_000_000,
-        maxPluginHandlerMs: 30_000,
-        maxPluginQueueDepth: 100,
-        maxSubscriptions: 100,
-        maxPlugins: 20,
-        maxEventRatePerMinute: 1_000,
-        maxAggregationWindowMs: 60_000,
-        maxAggregationSamples: 1_000,
-        maxCostUsd: null,
-        replayBehavior: "observe_only" as const,
-        allowedCapabilities: [],
-        allowedPluginActions: [],
-        circuitBreakerFailureCount: 3,
-        circuitBreakerResetMs: 1_000,
-        revision: 0,
-        createdAt,
-        updatedAt: createdAt,
+          id: "policy-rlm-daemon",
+          name: "RLM daemon",
+          maxWallTimeMs: 60_000,
+          maxRecursiveCalls: 4,
+          maxFanOut: 4,
+          maxRetries: 2,
+          maxKernelMemoryMiB: 256,
+          maxKernelOutputBytes: 1_000_000,
+          maxPluginHandlerMs: 30_000,
+          maxPluginQueueDepth: 100,
+          maxSubscriptions: 100,
+          maxPlugins: 20,
+          maxEventRatePerMinute: 1_000,
+          maxAggregationWindowMs: 60_000,
+          maxAggregationSamples: 1_000,
+          maxCostUsd: null,
+          replayBehavior: "observe_only" as const,
+          allowedCapabilities: [],
+          allowedPluginActions: [],
+          circuitBreakerFailureCount: 3,
+          circuitBreakerResetMs: 1_000,
+          revision: 0,
+          createdAt,
+          updatedAt: createdAt,
         }),
         maxWallTimeMs: 7 * 24 * 60 * 60 * 1_000,
       };
@@ -937,7 +951,12 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
           rlmEpisode: episode,
         },
       });
-      const trace = (id: string, threadId: string, role: "rlm_root" | "rlm_branch", title: string) => ({
+      const trace = (
+        id: string,
+        threadId: string,
+        role: "rlm_root" | "rlm_branch",
+        title: string,
+      ) => ({
         id,
         roomId: "room-rlm-daemon",
         runId: "run-rlm-daemon",
@@ -1001,72 +1020,79 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
           },
         });
       }
-      const branchThread = (id: string, answer: string, withTerminalSources = false) => ({
-        id,
-        modelSelection: { provider: "codex", model: "gpt-5.6-sol", options: { reasoningEffort: "high" } },
-        runtimeMode: "full-access",
-        interactionMode: "default",
-        latestTurn: {
-          turnId: `${id}:turn`,
-          state: "completed",
-          requestedAt: createdAt,
-          startedAt: createdAt,
-          completedAt: "2026-08-09T01:00:02.000Z",
-          assistantMessageId: `${id}:assistant`,
-        },
-        messages: [
-          {
-            id: `${id}:assistant`,
-            role: "assistant",
-            text: answer,
-            turnId: `${id}:turn`,
-            streaming: false,
-            createdAt: "2026-08-09T01:00:02.000Z",
-            updatedAt: "2026-08-09T01:00:02.000Z",
+      const branchThread = (id: string, answer: string, withTerminalSources = false) =>
+        ({
+          id,
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5.6-sol",
+            options: { reasoningEffort: "high" },
           },
-        ],
-        activities: withTerminalSources
-          ? [
-              {
-                id: `${id}:context-event`,
-                tone: "info",
-                kind: "context-window.updated",
-                summary: "Context window updated",
-                payload: { usedTokens: 1_000, maxTokens: 128_000, usedPercent: 0.78125 },
-                turnId: `${id}:turn`,
-                createdAt: "2026-08-09T01:00:01.000Z",
-              },
-              {
-                id: `${id}:terminal-event`,
-                tone: "info",
-                kind: "turn.completed",
-                summary: "Turn completed",
-                payload: {
-                  state: "completed",
-                  modelUsage: { "gpt-5.6-sol": { inputTokens: 100, outputTokens: 25 } },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          latestTurn: {
+            turnId: `${id}:turn`,
+            state: "completed",
+            requestedAt: createdAt,
+            startedAt: createdAt,
+            completedAt: "2026-08-09T01:00:02.000Z",
+            assistantMessageId: `${id}:assistant`,
+          },
+          messages: [
+            {
+              id: `${id}:assistant`,
+              role: "assistant",
+              text: answer,
+              turnId: `${id}:turn`,
+              streaming: false,
+              createdAt: "2026-08-09T01:00:02.000Z",
+              updatedAt: "2026-08-09T01:00:02.000Z",
+            },
+          ],
+          activities: withTerminalSources
+            ? [
+                {
+                  id: `${id}:context-event`,
+                  tone: "info",
+                  kind: "context-window.updated",
+                  summary: "Context window updated",
+                  payload: { usedTokens: 1_000, maxTokens: 128_000, usedPercent: 0.78125 },
+                  turnId: `${id}:turn`,
+                  createdAt: "2026-08-09T01:00:01.000Z",
                 },
-                turnId: `${id}:turn`,
-                createdAt: "2026-08-09T01:00:02.000Z",
-              },
-            ]
-          : [],
-        session: {
-          status: "ready",
-          lastError: null,
-        },
-      }) as OrchestrationThread;
+                {
+                  id: `${id}:terminal-event`,
+                  tone: "info",
+                  kind: "turn.completed",
+                  summary: "Turn completed",
+                  payload: {
+                    state: "completed",
+                    modelUsage: { "gpt-5.6-sol": { inputTokens: 100, outputTokens: 25 } },
+                  },
+                  turnId: `${id}:turn`,
+                  createdAt: "2026-08-09T01:00:02.000Z",
+                },
+              ]
+            : [],
+          session: {
+            status: "ready",
+            lastError: null,
+          },
+        }) as OrchestrationThread;
       threadDetails.set("thread-rlm-a", branchThread("thread-rlm-a", "Visible evidence A."));
       threadDetails.set("thread-rlm-b", branchThread("thread-rlm-b", "Visible evidence B."));
 
       const reconciliationState = yield* repository.getRlmReconciliationState();
-      assert.deepEqual(reconciliationState.runs.map((candidate) => candidate.id), [
-        "run-rlm-daemon",
-      ]);
-      assert.equal(reconciliationState.runPolicies[0]?.id, runPolicy.id);
       assert.deepEqual(
-        reconciliationState.modelSessions.map((candidate) => candidate.id).sort(),
-        ["session-rlm-a", "session-rlm-b", "session-rlm-root"],
+        reconciliationState.runs.map((candidate) => candidate.id),
+        ["run-rlm-daemon"],
       );
+      assert.equal(reconciliationState.runPolicies[0]?.id, runPolicy.id);
+      assert.deepEqual(reconciliationState.modelSessions.map((candidate) => candidate.id).sort(), [
+        "session-rlm-a",
+        "session-rlm-b",
+        "session-rlm-root",
+      ]);
 
       yield* daemon.reconcile;
 
@@ -1082,19 +1108,10 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
         ),
         false,
       );
-      assert.equal(
-        dispatched.filter((command) => command.type === "thread.turn.start").length,
-        2,
-      );
+      assert.equal(dispatched.filter((command) => command.type === "thread.turn.start").length, 2);
 
-      threadDetails.set(
-        "thread-rlm-a",
-        branchThread("thread-rlm-a", "Visible evidence A.", true),
-      );
-      threadDetails.set(
-        "thread-rlm-b",
-        branchThread("thread-rlm-b", "Visible evidence B.", true),
-      );
+      threadDetails.set("thread-rlm-a", branchThread("thread-rlm-a", "Visible evidence A.", true));
+      threadDetails.set("thread-rlm-b", branchThread("thread-rlm-b", "Visible evidence B.", true));
       dispatched.length = 0;
       yield* daemon.reconcile;
 
@@ -1161,7 +1178,11 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
 
       threadDetails.set("thread-rlm-root", {
         id: "thread-rlm-root",
-        modelSelection: { provider: "codex", model: "gpt-5.6-sol", options: { reasoningEffort: "high" } },
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5.6-sol",
+          options: { reasoningEffort: "high" },
+        },
         runtimeMode: "full-access",
         interactionMode: "default",
         latestTurn: null,
@@ -1210,9 +1231,7 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
       assert.deepEqual(
         dispatched
           .filter((command) => command.type === "supervised.run.transition")
-          .map((command) =>
-            command.type === "supervised.run.transition" ? command.status : null,
-          ),
+          .map((command) => (command.type === "supervised.run.transition" ? command.status : null)),
         ["reviewing", "succeeded"],
       );
       yield* applySupervisedDispatches(dispatched);
@@ -1234,155 +1253,156 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
         retained.evidence.filter((candidate) => candidate.modelSessionId !== null).length,
         3,
       );
-        threadDetails.clear();
-        yield* sql`DELETE FROM projection_projects WHERE project_id = 'project-rlm-daemon'`;
-      }),
-    );
+      threadDetails.clear();
+      yield* sql`DELETE FROM projection_projects WHERE project_id = 'project-rlm-daemon'`;
+    }),
+  );
 
-    it.effect("defers excess deliveries when a subscription reaches its per-minute quota", () =>
-      Effect.gen(function* () {
-        const daemon = yield* SupervisedRuntimeDaemon;
-        const repository = yield* SupervisedRuntimeRepository;
-        const subscription = {
-          ...builtInSubscriptions(at(0))[0]!,
-          id: "subscription-rate-limit" as const,
-          rateLimitPerMinute: 1,
-        };
-        yield* repository.upsertSubscription(subscription);
-        for (const suffix of ["a", "b"] as const) {
-          const signal = {
-            id: `signal-rate-${suffix}` as const,
-            kind: "ReviewLoopSuspected",
-            subscriptionId: subscription.id,
-            scope: { kind: "global" as const },
-            subjectId: `rate-${suffix}`,
-            state: "triggered" as const,
-            measuredValue: 4,
-            threshold: { operator: "gt" as const, value: 3 },
-            sourceEventIds: [`event-rate-${suffix}` as const],
-            metricSampleIds: [],
-            aggregationReceiptHash: `sha256:${suffix.repeat(64)}` as never,
-            context: {},
-            triggeredAt: at(0),
-            resetAt: null,
-            revision: 0,
-          };
-          yield* repository.upsertSignal(signal);
-          yield* repository.enqueueDelivery({
-            id: `delivery-rate-${suffix}` as const,
-            subscriptionId: subscription.id,
-            signalId: signal.id,
-            dedupeKey: `rate-${suffix}`,
-            status: "queued",
-            attemptCount: 0,
-            availableAt: at(0),
-            deliveredAt: null,
-            lastError: null,
-            payloadHash: `sha256:${suffix.repeat(64)}` as never,
-            replay: false,
-            replayBehavior: "observe_only",
-            createdAt: at(0),
-            updatedAt: at(0),
-          });
-        }
-
-        yield* daemon.reconcile;
-        const snapshot = yield* repository.getSnapshot({ includeDisabled: true });
-        const deliveries = snapshot.deliveries.filter(
-          (delivery) => delivery.subscriptionId === subscription.id,
-        );
-        assert.equal(deliveries.filter((delivery) => delivery.status === "delivered").length, 1);
-        const deferred = deliveries.find((delivery) => delivery.status === "queued");
-        assert.ok(deferred);
-        assert.match(deferred.lastError ?? "", /rate limit/);
-        assert.ok(deferred.availableAt > new Date().toISOString());
-      }),
-    );
-
-    it.effect("dead-letters a new signal when its durable subscription queue is full", () =>
-      Effect.gen(function* () {
-        const daemon = yield* SupervisedRuntimeDaemon;
-        const repository = yield* SupervisedRuntimeRepository;
-        const subscription = {
-          ...builtInSubscriptions(at(0))[0]!,
-          id: "subscription-queue-limit" as const,
-          selector: { sourceKind: "event" as const, names: ["QueueDepthEvent"] },
-          aggregation: { function: "count" as const, field: null, groupBy: ["subjectId"] },
-          condition: { operator: "gte" as const, value: 1 },
-          hysteresis: {
-            trigger: { operator: "gte" as const, value: 1 },
-            reset: { operator: "lt" as const, value: 1 },
-          },
-          maxQueueDepth: 1,
-        };
-        const existingSignal = {
-          id: "signal-queue-existing" as const,
-          kind: "QueueDepth",
+  it.effect("defers excess deliveries when a subscription reaches its per-minute quota", () =>
+    Effect.gen(function* () {
+      const daemon = yield* SupervisedRuntimeDaemon;
+      const repository = yield* SupervisedRuntimeRepository;
+      const subscription = {
+        ...builtInSubscriptions(at(0))[0]!,
+        id: "subscription-rate-limit" as const,
+        rateLimitPerMinute: 1,
+      };
+      yield* repository.upsertSubscription(subscription);
+      for (const suffix of ["a", "b"] as const) {
+        const signal = {
+          id: `signal-rate-${suffix}` as const,
+          kind: "ReviewLoopSuspected",
           subscriptionId: subscription.id,
           scope: { kind: "global" as const },
-          subjectId: "queue-existing",
+          subjectId: `rate-${suffix}`,
           state: "triggered" as const,
-          measuredValue: 1,
-          threshold: subscription.condition,
-          sourceEventIds: ["event-queue-existing" as const],
+          measuredValue: 4,
+          threshold: { operator: "gt" as const, value: 3 },
+          sourceEventIds: [`event-rate-${suffix}` as const],
           metricSampleIds: [],
-          aggregationReceiptHash: `sha256:${"f".repeat(64)}` as const,
+          aggregationReceiptHash: `sha256:${suffix.repeat(64)}` as never,
           context: {},
           triggeredAt: at(0),
           resetAt: null,
           revision: 0,
         };
-        yield* repository.upsertSubscription(subscription);
-        yield* repository.upsertSignal(existingSignal);
+        yield* repository.upsertSignal(signal);
         yield* repository.enqueueDelivery({
-          id: "delivery-queue-existing" as const,
+          id: `delivery-rate-${suffix}` as const,
           subscriptionId: subscription.id,
-          signalId: existingSignal.id,
-          dedupeKey: "queue-existing",
+          signalId: signal.id,
+          dedupeKey: `rate-${suffix}`,
           status: "queued",
           attemptCount: 0,
-          availableAt: "2099-01-01T00:00:00.000Z",
+          availableAt: at(0),
           deliveredAt: null,
           lastError: null,
-          payloadHash: `sha256:${"f".repeat(64)}` as const,
+          payloadHash: `sha256:${suffix.repeat(64)}` as never,
           replay: false,
           replayBehavior: "observe_only",
           createdAt: at(0),
           updatedAt: at(0),
         });
-        yield* daemon.ingest(
-          Schema.decodeUnknownSync(ControlPlaneEvent)({
-            sequence: 0,
-            eventId: "event-queue-new",
-            schemaId: "schema-queue-depth",
-            schemaVersion: "1.0.0",
-            type: "QueueDepthEvent",
-            scope: { kind: "global" },
-            subjectId: "queue-new",
-            eventTime: at(5),
-            recordedAt: at(5),
-            revision: 0,
-            causationEventId: null,
-            correlationId: null,
-            payload: {},
-            provenance: {
-              actor: { kind: "daemon", actorId: "queue-test" },
-              source: "queue-test",
-              confidence: 1,
-            },
-          }),
-        );
-        yield* daemon.reconcile;
+      }
 
-        const snapshot = yield* repository.getSnapshot({ includeDisabled: true });
-        const deadLetter = snapshot.deadLetters.find(
-          (letter) =>
-            letter.subscriptionId === subscription.id && letter.deliveryId !== "delivery-queue-existing",
-        );
-        assert.ok(deadLetter);
-        assert.match(deadLetter.reason, /queue depth/);
-      }),
-    );
+      yield* daemon.reconcile;
+      const snapshot = yield* repository.getSnapshot({ includeDisabled: true });
+      const deliveries = snapshot.deliveries.filter(
+        (delivery) => delivery.subscriptionId === subscription.id,
+      );
+      assert.equal(deliveries.filter((delivery) => delivery.status === "delivered").length, 1);
+      const deferred = deliveries.find((delivery) => delivery.status === "queued");
+      assert.ok(deferred);
+      assert.match(deferred.lastError ?? "", /rate limit/);
+      assert.ok(deferred.availableAt > new Date().toISOString());
+    }),
+  );
+
+  it.effect("dead-letters a new signal when its durable subscription queue is full", () =>
+    Effect.gen(function* () {
+      const daemon = yield* SupervisedRuntimeDaemon;
+      const repository = yield* SupervisedRuntimeRepository;
+      const subscription = {
+        ...builtInSubscriptions(at(0))[0]!,
+        id: "subscription-queue-limit" as const,
+        selector: { sourceKind: "event" as const, names: ["QueueDepthEvent"] },
+        aggregation: { function: "count" as const, field: null, groupBy: ["subjectId"] },
+        condition: { operator: "gte" as const, value: 1 },
+        hysteresis: {
+          trigger: { operator: "gte" as const, value: 1 },
+          reset: { operator: "lt" as const, value: 1 },
+        },
+        maxQueueDepth: 1,
+      };
+      const existingSignal = {
+        id: "signal-queue-existing" as const,
+        kind: "QueueDepth",
+        subscriptionId: subscription.id,
+        scope: { kind: "global" as const },
+        subjectId: "queue-existing",
+        state: "triggered" as const,
+        measuredValue: 1,
+        threshold: subscription.condition,
+        sourceEventIds: ["event-queue-existing" as const],
+        metricSampleIds: [],
+        aggregationReceiptHash: `sha256:${"f".repeat(64)}` as const,
+        context: {},
+        triggeredAt: at(0),
+        resetAt: null,
+        revision: 0,
+      };
+      yield* repository.upsertSubscription(subscription);
+      yield* repository.upsertSignal(existingSignal);
+      yield* repository.enqueueDelivery({
+        id: "delivery-queue-existing" as const,
+        subscriptionId: subscription.id,
+        signalId: existingSignal.id,
+        dedupeKey: "queue-existing",
+        status: "queued",
+        attemptCount: 0,
+        availableAt: "2099-01-01T00:00:00.000Z",
+        deliveredAt: null,
+        lastError: null,
+        payloadHash: `sha256:${"f".repeat(64)}` as const,
+        replay: false,
+        replayBehavior: "observe_only",
+        createdAt: at(0),
+        updatedAt: at(0),
+      });
+      yield* daemon.ingest(
+        Schema.decodeUnknownSync(ControlPlaneEvent)({
+          sequence: 0,
+          eventId: "event-queue-new",
+          schemaId: "schema-queue-depth",
+          schemaVersion: "1.0.0",
+          type: "QueueDepthEvent",
+          scope: { kind: "global" },
+          subjectId: "queue-new",
+          eventTime: at(5),
+          recordedAt: at(5),
+          revision: 0,
+          causationEventId: null,
+          correlationId: null,
+          payload: {},
+          provenance: {
+            actor: { kind: "daemon", actorId: "queue-test" },
+            source: "queue-test",
+            confidence: 1,
+          },
+        }),
+      );
+      yield* daemon.reconcile;
+
+      const snapshot = yield* repository.getSnapshot({ includeDisabled: true });
+      const deadLetter = snapshot.deadLetters.find(
+        (letter) =>
+          letter.subscriptionId === subscription.id &&
+          letter.deliveryId !== "delivery-queue-existing",
+      );
+      assert.ok(deadLetter);
+      assert.match(deadLetter.reason, /queue depth/);
+    }),
+  );
 });
 
 type ScenarioJReviewStatus = "accepted" | "rejected";
@@ -1673,9 +1693,7 @@ const scenarioJEngineLayer = Layer.succeed(OrchestrationEngineService, {
       return { sequence: 10_000 + scenarioJDispatched.length };
     }),
   getReadModel: () => Effect.sync(() => scenarioJReadModel),
-  getEventHighWaterSequence: Effect.sync(
-    () => scenarioJCommittedEvents.at(-1)?.sequence ?? 0,
-  ),
+  getEventHighWaterSequence: Effect.sync(() => scenarioJCommittedEvents.at(-1)?.sequence ?? 0),
   readEventsThrough: (fromSequenceExclusive: number, throughSequenceInclusive: number) =>
     Stream.fromIterable(
       scenarioJCommittedEvents.filter(
@@ -1861,9 +1879,7 @@ scenarioJProductionLayer("Scenario J committed review signal path", (it) => {
             "evidence-review-4",
           ],
         });
-        const wake = scenarioJDispatched.find(
-          (command) => command.type === "thread.turn.start",
-        );
+        const wake = scenarioJDispatched.find((command) => command.type === "thread.turn.start");
         assert.equal(wake?.type, "thread.turn.start");
         if (wake?.type !== "thread.turn.start") return;
         assert.equal(wake.threadId, "thread-supervisor-delivery");
@@ -1923,8 +1939,7 @@ scenarioJProductionLayer("Scenario J committed review signal path", (it) => {
         assert.deepEqual(beforeSupervisorReceipt?.rootLeaseIds, []);
         assert.deepEqual(beforeLeadReceipt?.rootLeaseIds, ["root-lease-review"]);
         assert.equal(
-          scenarioJReadModel.supervised.rooms.find((room) => room.id === "room-review")
-            ?.leadSeatId,
+          scenarioJReadModel.supervised.rooms.find((room) => room.id === "room-review")?.leadSeatId,
           "lead-review",
         );
         assert.equal(

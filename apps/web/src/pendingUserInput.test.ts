@@ -120,10 +120,10 @@ describe("togglePendingUserInputOptionSelection", () => {
         { selectedOptionLabels: ["CLI", "Desktop"] },
         "CLI",
       ),
-      ).toEqual({
-        customAnswer: "",
-        selectedOptionLabels: ["Desktop"],
-      });
+    ).toEqual({
+      customAnswer: "",
+      selectedOptionLabels: ["Desktop"],
+    });
   });
 
   it("preserves per-option note drafts while the selected option changes", () => {

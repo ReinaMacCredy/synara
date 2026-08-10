@@ -951,7 +951,10 @@ export default function DiffPanel({
         to: "/$threadId",
         params: { threadId: activeThreadContext.id },
         search: (previous) => {
-          const rest = stripDiffSearchParams(previous);
+          const rest = {
+            ...stripDiffSearchParams(previous),
+            view: previous.view === "editor" ? ("editor" as const) : undefined,
+          };
           return {
             ...rest,
             panel: "diff",

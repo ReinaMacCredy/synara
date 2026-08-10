@@ -34,10 +34,7 @@ it.effect("requires a visible completion after Supervisor tool activity", () =>
       },
     });
 
-    assert.match(
-      instruction,
-      /Every human-authored turn must end with a concise visible response/,
-    );
+    assert.match(instruction, /Every human-authored turn must end with a concise visible response/);
     assert.match(instruction, /Never finish a human turn with tool activity alone/);
     assert.match(instruction, /direct bounded Peer work/);
     assert.doesNotMatch(

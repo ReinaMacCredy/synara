@@ -139,9 +139,7 @@ export const AgentSeat = Schema.Struct({
   workState: AgentWorkState,
   authorityReceiptId: EffectiveAuthorityReceiptId,
   threadId: Schema.optional(Schema.NullOr(ThreadId)).pipe(Schema.withDecodingDefault(() => null)),
-  projectId: Schema.optional(Schema.NullOr(ProjectId)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
+  projectId: Schema.optional(Schema.NullOr(ProjectId)).pipe(Schema.withDecodingDefault(() => null)),
   profileSnapshotId: Schema.optional(Schema.NullOr(ProfileSnapshotId)).pipe(
     Schema.withDecodingDefault(() => null),
   ),
@@ -259,7 +257,9 @@ export const GovernanceHandoff = Schema.Struct({
   fromSeatId: AgentSeatId,
   toSeatId: AgentSeatId,
   lifecycleState: GovernanceHandoffLifecycle,
-  scope: Schema.Array(CanonicalAuthorityScope).check(Schema.isMinLength(1)).check(Schema.isMaxLength(256)),
+  scope: Schema.Array(CanonicalAuthorityScope)
+    .check(Schema.isMinLength(1))
+    .check(Schema.isMaxLength(256)),
   summary: Schema.NullOr(BoundedText),
   evidenceRefs: Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(512)),
   preparedAt: Schema.NullOr(IsoDateTime),
@@ -342,7 +342,9 @@ export const HumanDirective = Schema.Struct({
   workspaceId: SupervisedWorkspaceId,
   roomId: Schema.NullOr(RoomId),
   text: BoundedText,
-  scope: Schema.Array(CanonicalAuthorityScope).check(Schema.isMinLength(1)).check(Schema.isMaxLength(128)),
+  scope: Schema.Array(CanonicalAuthorityScope)
+    .check(Schema.isMinLength(1))
+    .check(Schema.isMaxLength(128)),
   status: HumanDirectiveStatus,
   sourceMessageId: Schema.NullOr(TrimmedNonEmptyString),
   issuedAt: IsoDateTime,
@@ -353,14 +355,22 @@ export const HumanDirective = Schema.Struct({
 });
 export type HumanDirective = typeof HumanDirective.Type;
 
-export const StandingMandateStatus = Schema.Literals(["active", "paused", "fulfilled", "revoked", "expired"]);
+export const StandingMandateStatus = Schema.Literals([
+  "active",
+  "paused",
+  "fulfilled",
+  "revoked",
+  "expired",
+]);
 export const StandingMandate = Schema.Struct({
   id: StandingMandateId,
   workspaceId: SupervisedWorkspaceId,
   sourceDirectiveId: HumanDirectiveId,
   subjectSeatId: Schema.NullOr(AgentSeatId),
   concern: ShortText,
-  scope: Schema.Array(CanonicalAuthorityScope).check(Schema.isMinLength(1)).check(Schema.isMaxLength(128)),
+  scope: Schema.Array(CanonicalAuthorityScope)
+    .check(Schema.isMinLength(1))
+    .check(Schema.isMaxLength(128)),
   allowedCommands: Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(256)),
   status: StandingMandateStatus,
   grantedAt: IsoDateTime,
@@ -444,15 +454,14 @@ export const SupervisorNotebookCompactionReceipt = Schema.Struct({
   id: SupervisorNotebookCompactionReceiptId,
   workspaceId: SupervisedWorkspaceId,
   summaryEntryId: SupervisorNotebookEntryId,
-  sourceEntryIds: Schema.Array(SupervisorNotebookEntryId).check(Schema.isMinLength(1)).check(
-    Schema.isMaxLength(512),
-  ),
+  sourceEntryIds: Schema.Array(SupervisorNotebookEntryId)
+    .check(Schema.isMinLength(1))
+    .check(Schema.isMaxLength(512)),
   evidenceRefs: Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(512)),
   createdBySeatId: AgentSeatId,
   createdAt: IsoDateTime,
 });
-export type SupervisorNotebookCompactionReceipt =
-  typeof SupervisorNotebookCompactionReceipt.Type;
+export type SupervisorNotebookCompactionReceipt = typeof SupervisorNotebookCompactionReceipt.Type;
 
 export const SupervisorNotebookView = Schema.Struct({
   workspaceId: SupervisedWorkspaceId,
@@ -513,7 +522,9 @@ export const ModelCapabilityProfile = Schema.Struct({
   failureRate: Schema.optional(Confidence).pipe(Schema.withDecodingDefault(() => 0)),
   retryRate: Schema.optional(Confidence).pipe(Schema.withDecodingDefault(() => 0)),
   scores: ModelCapabilityScores,
-  provenance: Schema.Array(TrimmedNonEmptyString).check(Schema.isMinLength(1)).check(Schema.isMaxLength(32)),
+  provenance: Schema.Array(TrimmedNonEmptyString)
+    .check(Schema.isMinLength(1))
+    .check(Schema.isMaxLength(32)),
   confidence: Confidence,
   revision: NonNegativeInt,
   updatedAt: IsoDateTime,
@@ -594,7 +605,9 @@ export const ModelSelectionReceipt = Schema.Struct({
   taskNodeId: Schema.NullOr(TaskNodeId),
   actorSeatId: AgentSeatId,
   selectedModelId: ModelCapabilityProfileId,
-  candidateModelIds: Schema.Array(ModelCapabilityProfileId).check(Schema.isMinLength(1)).check(Schema.isMaxLength(128)),
+  candidateModelIds: Schema.Array(ModelCapabilityProfileId)
+    .check(Schema.isMinLength(1))
+    .check(Schema.isMaxLength(128)),
   hardConstraints: Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(128)),
   explanation: BoundedText,
   rejectedReasons: Schema.Record(ModelCapabilityProfileId, BoundedText),
@@ -908,7 +921,9 @@ export const SupervisedGovernanceSnapshot = Schema.Struct({
 });
 export type SupervisedGovernanceSnapshot = typeof SupervisedGovernanceSnapshot.Type;
 
-export const emptySupervisedGovernanceSnapshot = (updatedAt: string): SupervisedGovernanceSnapshot => ({
+export const emptySupervisedGovernanceSnapshot = (
+  updatedAt: string,
+): SupervisedGovernanceSnapshot => ({
   revision: 0,
   workspaces: [],
   agentSeats: [],

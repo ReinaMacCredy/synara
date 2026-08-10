@@ -27,7 +27,11 @@ describe("Advisor consultation contract", () => {
     expect(extractAdvisorConsultationOrigin(agentPrompt)).toBe("agent");
     expect(extractAdvisorConsultationQuestion(agentPrompt)).toBe("Ship tonight?");
 
-    const pendingPrompt = buildAdvisorConsultationPrompt("Pick an option", null, "pending-user-input");
+    const pendingPrompt = buildAdvisorConsultationPrompt(
+      "Pick an option",
+      null,
+      "pending-user-input",
+    );
     expect(extractAdvisorConsultationOrigin(pendingPrompt)).toBe("pending-user-input");
   });
 

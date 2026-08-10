@@ -1631,9 +1631,7 @@ describe("OrchestrationEngine", () => {
       status: "active",
       graphRevision: 0,
     });
-    const governanceAfterLead = await system.run(
-      supervisedGovernanceRepository.getSnapshot(),
-    );
+    const governanceAfterLead = await system.run(supervisedGovernanceRepository.getSnapshot());
     const leadSeat = governanceAfterLead.agentSeats.find(
       (candidate) => candidate.id === leadSeatId,
     )!;
@@ -1683,9 +1681,7 @@ describe("OrchestrationEngine", () => {
               title: "Implement",
               description: "Implement the bounded change.",
               lifecycle: "ready",
-              activeRevisionId: TaskNodeRevisionId.makeUnsafe(
-                "revision-supervisor-first-plan",
-              ),
+              activeRevisionId: TaskNodeRevisionId.makeUnsafe("revision-supervisor-first-plan"),
               graphRevision: 1,
               revision: 0,
               createdAt,
@@ -1712,9 +1708,7 @@ describe("OrchestrationEngine", () => {
               title: "Verify",
               description: "Verify the observable behavior.",
               lifecycle: "planned",
-              activeRevisionId: TaskNodeRevisionId.makeUnsafe(
-                "revision-supervisor-first-verify",
-              ),
+              activeRevisionId: TaskNodeRevisionId.makeUnsafe("revision-supervisor-first-verify"),
               graphRevision: 1,
               revision: 0,
               createdAt,
@@ -1742,12 +1736,8 @@ describe("OrchestrationEngine", () => {
       roomId,
       activeGraphRevision: 1,
     });
-    expect(
-      readModel.supervised.taskNodes.filter((node) => node.taskId === taskId),
-    ).toHaveLength(2);
-    const governanceForPeerWork = await system.run(
-      supervisedGovernanceRepository.getSnapshot(),
-    );
+    expect(readModel.supervised.taskNodes.filter((node) => node.taskId === taskId)).toHaveLength(2);
+    const governanceForPeerWork = await system.run(supervisedGovernanceRepository.getSnapshot());
     const currentSupervisorSeat = governanceForPeerWork.agentSeats.find(
       (candidate) => candidate.id === supervisorSeatId,
     )!;
@@ -1810,9 +1800,7 @@ describe("OrchestrationEngine", () => {
       }),
     );
 
-    const governanceAfterPeer = await system.run(
-      supervisedGovernanceRepository.getSnapshot(),
-    );
+    const governanceAfterPeer = await system.run(supervisedGovernanceRepository.getSnapshot());
     const peerSeat = governanceAfterPeer.agentSeats.find(
       (candidate) => candidate.threadId === peerThreadId,
     )!;
@@ -1833,12 +1821,8 @@ describe("OrchestrationEngine", () => {
     )!;
     expect(currentLeadReceipt.allowedCommands).toContain("supervised.task.delegate");
     expect(currentLeadReceipt.allowedCommands).toContain("supervised.review.accept");
-    expect(currentSupervisorReceipt.allowedCommands).not.toContain(
-      "supervised.task.delegate",
-    );
-    expect(currentSupervisorReceipt.allowedCommands).not.toContain(
-      "supervised.review.accept",
-    );
+    expect(currentSupervisorReceipt.allowedCommands).not.toContain("supervised.task.delegate");
+    expect(currentSupervisorReceipt.allowedCommands).not.toContain("supervised.review.accept");
 
     const runPolicyId = RunPolicyId.makeUnsafe("policy-supervisor-first-task-node");
     await system.run(
@@ -1871,9 +1855,7 @@ describe("OrchestrationEngine", () => {
       roomId,
       taskId,
       taskNodeId: firstNodeId,
-      taskNodeRevisionId: TaskNodeRevisionId.makeUnsafe(
-        "revision-supervisor-first-plan",
-      ),
+      taskNodeRevisionId: TaskNodeRevisionId.makeUnsafe("revision-supervisor-first-plan"),
       ownerSeatId: peerSeat.id,
       policyId: runPolicy.id,
       status: "queued" as const,
@@ -1963,9 +1945,7 @@ describe("OrchestrationEngine", () => {
       }),
     );
 
-    const taskNodeEvidenceId = EvidenceId.makeUnsafe(
-      "evidence-supervisor-first-task-node",
-    );
+    const taskNodeEvidenceId = EvidenceId.makeUnsafe("evidence-supervisor-first-task-node");
     await system.run(
       engine.dispatch({
         type: "supervised.run.submit",
@@ -2037,12 +2017,8 @@ describe("OrchestrationEngine", () => {
     ).toBeDefined();
 
     const interventionId = InterventionId.makeUnsafe("intervention-supervisor-peer-work");
-    const notificationId = LeadNotificationId.makeUnsafe(
-      "notification-supervisor-peer-work",
-    );
-    const reconciliationId = ReconciliationId.makeUnsafe(
-      "reconciliation-supervisor-peer-work",
-    );
+    const notificationId = LeadNotificationId.makeUnsafe("notification-supervisor-peer-work");
+    const reconciliationId = ReconciliationId.makeUnsafe("reconciliation-supervisor-peer-work");
     const peerWorkActor = {
       kind: "seat" as const,
       actorId: supervisorThreadId,
@@ -2148,14 +2124,10 @@ describe("OrchestrationEngine", () => {
       readModel.supervised.interventions.find((item) => item.id === interventionId),
     ).toMatchObject({ status: "reconciled", evidenceRefs: [evidenceId] });
     expect(
-      readModel.supervised.leadNotifications.find(
-        (item) => item.interventionId === interventionId,
-      ),
+      readModel.supervised.leadNotifications.find((item) => item.interventionId === interventionId),
     ).toMatchObject({ status: "delivered" });
     expect(
-      readModel.supervised.reconciliations.find(
-        (item) => item.interventionId === interventionId,
-      ),
+      readModel.supervised.reconciliations.find((item) => item.interventionId === interventionId),
     ).toMatchObject({ status: "accepted", taskNodeRevisionId: null });
     expect(
       readModel.supervised.workClaims.filter((claim) => claim.status === "active"),
@@ -2208,11 +2180,7 @@ describe("OrchestrationEngine", () => {
       events
         .filter((event) => event.commandId === "command-lead-delegate-task-node")
         .map((event) => event.type),
-    ).toEqual([
-      "supervised.run-requested",
-      "thread.message-sent",
-      "thread.turn-start-requested",
-    ]);
+    ).toEqual(["supervised.run-requested", "thread.message-sent", "thread.turn-start-requested"]);
     expect(
       events
         .filter((event) => event.commandId === "command-peer-start-task-node-run")
@@ -2321,9 +2289,7 @@ describe("OrchestrationEngine", () => {
       governanceAfterAssumption.rootLeases.filter(
         (lease) => lease.roomId === roomId && lease.status === "active",
       ),
-    ).toEqual([
-      expect.objectContaining({ holderSeatId: supervisorSeatId }),
-    ]);
+    ).toEqual([expect.objectContaining({ holderSeatId: supervisorSeatId })]);
     expect(governanceAfterAssumption.roleAssumptions).toEqual([
       expect.objectContaining({
         roomId,
@@ -2386,9 +2352,7 @@ describe("OrchestrationEngine", () => {
           roomId,
           taskId,
           taskNodeId: secondNodeId,
-          taskNodeRevisionId: TaskNodeRevisionId.makeUnsafe(
-            "revision-supervisor-first-verify",
-          ),
+          taskNodeRevisionId: TaskNodeRevisionId.makeUnsafe("revision-supervisor-first-verify"),
           ownerSeatId: peerSeat.id,
           policyId: runPolicy.id,
           status: "queued",
@@ -2416,11 +2380,7 @@ describe("OrchestrationEngine", () => {
       assumptionEvents
         .filter((event) => event.commandId === "command-owner-authorize-supervisor-root")
         .map((event) => event.type),
-    ).toEqual([
-      "supervised.room-updated",
-      "thread.message-sent",
-      "thread.turn-start-requested",
-    ]);
+    ).toEqual(["supervised.room-updated", "thread.message-sent", "thread.turn-start-requested"]);
     await system.dispose();
   });
 

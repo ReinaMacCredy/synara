@@ -123,9 +123,7 @@ describe("Supervised settings tool projection", () => {
       definitions: [],
       policies: [revoked],
       receipts: [],
-      authorityReceipts: [
-        { ...authorityReceipt, expiresAt: "2026-08-09T09:59:59.000Z" },
-      ],
+      authorityReceipts: [{ ...authorityReceipt, expiresAt: "2026-08-09T09:59:59.000Z" }],
       defaultUpdatedAt: now,
       at: now,
     });

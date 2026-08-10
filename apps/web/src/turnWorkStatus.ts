@@ -6,10 +6,7 @@
 
 import type { ThreadId, TurnId } from "@synara/contracts";
 
-import {
-  deriveActiveWorkStartedAt,
-  isLatestTurnSettled,
-} from "./session-logic";
+import { deriveActiveWorkStartedAt, isLatestTurnSettled } from "./session-logic";
 
 type TurnState = "error" | "running" | "interrupted" | "completed";
 
@@ -236,16 +233,13 @@ export function deriveTurnWorkStatus(input: {
   const sessionForSettle = input.session
     ? ({
         orchestrationStatus: input.session.orchestrationStatus ?? "ready",
-        ...(input.session.activeTurnId != null
-          ? { activeTurnId: input.session.activeTurnId }
-          : {}),
+        ...(input.session.activeTurnId != null ? { activeTurnId: input.session.activeTurnId } : {}),
       } as Parameters<typeof isLatestTurnSettled>[1])
     : null;
   const latestTurnSettled = isLatestTurnSettled(latestTurnForSettle, sessionForSettle);
   // Match morning ChatView: localDispatch | connecting | hasLiveTurn | unsettled latest turn.
   // Awaiting-answer covers remount gaps only (user tail, no live session signals yet).
-  const latestTurnInProgress =
-    Boolean(input.latestTurn?.requestedAt) && !latestTurnSettled;
+  const latestTurnInProgress = Boolean(input.latestTurn?.requestedAt) && !latestTurnSettled;
 
   const awaitingAnswer = hasOpenUserTurnAwaitingAnswer({
     messages: input.messages,
@@ -255,8 +249,7 @@ export function deriveTurnWorkStatus(input: {
 
   // Streaming assistant keeps the live Working row even if session status
   // briefly leaves "running" (provider status flaps can otherwise cause a blank flick).
-  const streamingOpenTurn =
-    input.hasStreamingAssistantText === true && lastRole === "assistant";
+  const streamingOpenTurn = input.hasStreamingAssistantText === true && lastRole === "assistant";
 
   const activeTurnInProgress =
     input.localDispatchActive ||
@@ -275,9 +268,7 @@ export function deriveTurnWorkStatus(input: {
   // and kills the smooth Working→Worked handoff).
   // Only skip the user boundary on a provisional new send that has no user row yet.
   const userMessageStartedAt =
-    (workStatusInFlight || input.hasLiveTurnTail) &&
-    userBoundary &&
-    !provisionalNewSend
+    (workStatusInFlight || input.hasLiveTurnTail) && userBoundary && !provisionalNewSend
       ? userBoundary.createdAt
       : null;
 
@@ -300,9 +291,7 @@ export function deriveTurnWorkStatus(input: {
       const derivedMs = Date.parse(derivedStartedAt);
       const persistedMs = Date.parse(input.persistedStartedAtForTurn);
       activeWorkStartedAt =
-        Number.isFinite(derivedMs) &&
-        Number.isFinite(persistedMs) &&
-        persistedMs < derivedMs
+        Number.isFinite(derivedMs) && Number.isFinite(persistedMs) && persistedMs < derivedMs
           ? input.persistedStartedAtForTurn
           : derivedStartedAt;
     } else {

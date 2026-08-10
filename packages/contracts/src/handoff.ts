@@ -37,10 +37,7 @@ export type HandoffAttemptId = typeof HandoffAttemptId.Type;
 export const HandoffGrantId = makeHandoffId("HandoffGrantId");
 export type HandoffGrantId = typeof HandoffGrantId.Type;
 
-export const HandoffConversationMode = Schema.Literals([
-  "project",
-  "supervised",
-]);
+export const HandoffConversationMode = Schema.Literals(["project", "supervised"]);
 export type HandoffConversationMode = typeof HandoffConversationMode.Type;
 
 export const HandoffRuntimeSelection = Schema.Struct({

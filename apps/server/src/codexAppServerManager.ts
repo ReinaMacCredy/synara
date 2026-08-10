@@ -758,15 +758,8 @@ export function resolveCodexModelForAccount(
   return CODEX_DEFAULT_MODEL;
 }
 
-export function buildCodexAppServerArgs(
-  profileConfigArgs: ReadonlyArray<string> = [],
-): string[] {
-  return [
-    "app-server",
-    "--enable",
-    "default_mode_request_user_input",
-    ...profileConfigArgs,
-  ];
+export function buildCodexAppServerArgs(profileConfigArgs: ReadonlyArray<string> = []): string[] {
+  return ["app-server", "--enable", "default_mode_request_user_input", ...profileConfigArgs];
 }
 
 function spawnCodexAppServer(input: {
@@ -1140,20 +1133,15 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       const defaultSupervisedInstruction = input.supervisedContext
         ? supervisedInstructionForSession(input.supervisedContext)
         : undefined;
-      const combinedNativeInstruction = [
-        defaultSupervisedInstruction,
-        defaultHandoffInstruction,
-      ]
+      const combinedNativeInstruction = [defaultSupervisedInstruction, defaultHandoffInstruction]
         .filter((value): value is string => typeof value === "string" && value.length > 0)
         .join("\n\n");
       const nativeInstruction =
         input.developerInstructions ??
         (combinedNativeInstruction.length > 0 ? combinedNativeInstruction : undefined);
-      const needsHostTools =
-        input.supervisedContext != null || input.handoffContext != null;
+      const needsHostTools = input.supervisedContext != null || input.handoffContext != null;
       const nativeToolRuntime =
-        input.nativeToolRuntime ??
-        (needsHostTools ? this.hostToolRuntime : undefined);
+        input.nativeToolRuntime ?? (needsHostTools ? this.hostToolRuntime : undefined);
       const isNativeToolSession = nativeToolRuntime !== undefined;
       if (needsHostTools && !nativeToolRuntime) {
         throw new Error("Native Synara tool runtime is unavailable.");
@@ -1260,9 +1248,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
               sandbox: input.supervisedContext.profileSnapshot.runtime.sandboxMode,
             }
           : mapCodexRuntimeMode(input.runtimeMode ?? "full-access")),
-        ...(nativeInstruction !== undefined
-          ? { developerInstructions: nativeInstruction }
-          : {}),
+        ...(nativeInstruction !== undefined ? { developerInstructions: nativeInstruction } : {}),
       };
 
       const dynamicTools = context.hostToolRuntime

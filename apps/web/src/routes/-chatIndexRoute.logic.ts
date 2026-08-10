@@ -43,11 +43,7 @@ export function resolveChatIndexRestoreRoute(input: {
   readonly rememberedSplitViewThreadIds: readonly ThreadId[] | undefined;
   readonly landingSpace: ChatIndexLandingSpace | null;
 }): LastThreadRoute | null {
-  const {
-    draftProjectIdByThreadId,
-    landingSpace,
-    sidebarThreadSummaryById,
-  } = input;
+  const { draftProjectIdByThreadId, landingSpace, sidebarThreadSummaryById } = input;
 
   const availableThreadIds = new Set<string>();
   for (const threadId of [...input.threadIds, ...draftProjectIdByThreadId.keys()]) {

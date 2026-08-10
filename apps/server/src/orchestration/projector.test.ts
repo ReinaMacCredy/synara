@@ -171,9 +171,7 @@ describe("orchestration projector", () => {
       model = await Effect.runPromise(projectEvent(model, event));
     }
 
-    expect(model.supervised.contextWorkspaces.map(({ id }) => id)).toEqual([
-      "context-workspace-1",
-    ]);
+    expect(model.supervised.contextWorkspaces.map(({ id }) => id)).toEqual(["context-workspace-1"]);
     expect(model.supervised.evidence.map(({ id }) => id)).toEqual(["evidence-1"]);
     expect(model.supervised.rlmEpisodes.map(({ id }) => id)).toEqual(["rlm-episode-1"]);
     expect(model.supervised.modelSessions.map(({ id }) => id)).toEqual(["model-session-1"]);

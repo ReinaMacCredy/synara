@@ -198,8 +198,9 @@ function ModelsPanel({
     setDraft((current) => current ?? emptyPreference());
   }, [persisted?.id, persisted?.revision]);
 
-  const updateDraft = (update: (current: UserModelPreferenceProfileType) => UserModelPreferenceProfileType) =>
-    setDraft((current) => update(current ?? emptyPreference()));
+  const updateDraft = (
+    update: (current: UserModelPreferenceProfileType) => UserModelPreferenceProfileType,
+  ) => setDraft((current) => update(current ?? emptyPreference()));
 
   const save = async () => {
     const api = readNativeApi();
@@ -263,8 +264,7 @@ function ModelsPanel({
     }
   };
 
-  const modelName = (id: string) =>
-    profiles.find((profile) => profile.id === id)?.model ?? id;
+  const modelName = (id: string) => profiles.find((profile) => profile.id === id)?.model ?? id;
   const draftReady = draft ?? emptyPreference();
 
   return (
@@ -299,8 +299,9 @@ function ModelsPanel({
                   description={
                     <span>
                       {profile.provider} · context {profile.contextCapacity.toLocaleString()} ·
-                      coding {profile.scores.coding}/10 · architecture {profile.scores.architecture}/10
-                      · review {profile.scores.review}/10 · confidence {Math.round(profile.confidence * 100)}%
+                      coding {profile.scores.coding}/10 · architecture {profile.scores.architecture}
+                      /10 · review {profile.scores.review}/10 · confidence{" "}
+                      {Math.round(profile.confidence * 100)}%
                       <br />
                       provenance: {profile.provenance.join(", ")}
                     </span>
@@ -385,12 +386,14 @@ function ModelsPanel({
 
           <SettingsSectionShell title="Routing priorities">
             <SettingsCard>
-              {(
-                ["quality", "speed", "cost", "contextCapacity"] as const
-              ).map((priority) => (
+              {(["quality", "speed", "cost", "contextCapacity"] as const).map((priority) => (
                 <SettingsRow
                   key={priority}
-                  title={priority === "contextCapacity" ? "Context capacity" : priority[0]!.toUpperCase() + priority.slice(1)}
+                  title={
+                    priority === "contextCapacity"
+                      ? "Context capacity"
+                      : priority[0]!.toUpperCase() + priority.slice(1)
+                  }
                   description="Relative owner priority used by the durable model-routing scorer."
                   control={
                     <Input
@@ -434,19 +437,48 @@ function ModelsPanel({
           <SettingsSectionShell title="Relative preference">
             <SettingsCard divided={false}>
               <div className="grid gap-3 p-4 sm:grid-cols-2">
-                <Input value={relativeCategory} onChange={(event) => setRelativeCategory(event.target.value)} placeholder="Task category" />
-                <Input value={relativeReason} onChange={(event) => setRelativeReason(event.target.value)} placeholder="Reason (optional)" />
-                <select className={SELECT_CLASS_NAME} value={relativePreferred} onChange={(event) => setRelativePreferred(event.target.value)}>
+                <Input
+                  value={relativeCategory}
+                  onChange={(event) => setRelativeCategory(event.target.value)}
+                  placeholder="Task category"
+                />
+                <Input
+                  value={relativeReason}
+                  onChange={(event) => setRelativeReason(event.target.value)}
+                  placeholder="Reason (optional)"
+                />
+                <select
+                  className={SELECT_CLASS_NAME}
+                  value={relativePreferred}
+                  onChange={(event) => setRelativePreferred(event.target.value)}
+                >
                   <option value="">Preferred model…</option>
-                  {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.model}</option>)}
+                  {profiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>
+                      {profile.model}
+                    </option>
+                  ))}
                 </select>
-                <select className={SELECT_CLASS_NAME} value={relativeOver} onChange={(event) => setRelativeOver(event.target.value)}>
+                <select
+                  className={SELECT_CLASS_NAME}
+                  value={relativeOver}
+                  onChange={(event) => setRelativeOver(event.target.value)}
+                >
                   <option value="">Over model…</option>
-                  {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.model}</option>)}
+                  {profiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>
+                      {profile.model}
+                    </option>
+                  ))}
                 </select>
                 <Button
                   size="sm"
-                  disabled={!relativeCategory.trim() || !relativePreferred || !relativeOver || relativePreferred === relativeOver}
+                  disabled={
+                    !relativeCategory.trim() ||
+                    !relativePreferred ||
+                    !relativeOver ||
+                    relativePreferred === relativeOver
+                  }
                   onClick={() => {
                     updateDraft((current) => ({
                       ...current,
@@ -471,7 +503,22 @@ function ModelsPanel({
                   key={`${preference.category}-${preference.preferredModelId}-${preference.overModelId}-${index}`}
                   title={`${modelName(preference.preferredModelId)} over ${modelName(preference.overModelId)}`}
                   description={`${preference.category}${preference.reason ? ` · ${preference.reason}` : ""}`}
-                  actions={<Button size="sm" variant="ghost" onClick={() => updateDraft((current) => ({ ...current, relativePreferences: current.relativePreferences.filter((_, candidate) => candidate !== index) }))}>Remove</Button>}
+                  actions={
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() =>
+                        updateDraft((current) => ({
+                          ...current,
+                          relativePreferences: current.relativePreferences.filter(
+                            (_, candidate) => candidate !== index,
+                          ),
+                        }))
+                      }
+                    >
+                      Remove
+                    </Button>
+                  }
                 />
               ))}
             </SettingsCard>
@@ -480,29 +527,58 @@ function ModelsPanel({
           <SettingsSectionShell title="Preferred and avoid categories">
             <SettingsCard divided={false}>
               <div className="grid gap-3 p-4 sm:grid-cols-[1fr_1fr_1fr_auto]">
-                <Input value={ruleCategory} onChange={(event) => setRuleCategory(event.target.value)} placeholder="Task category" />
-                <select className={SELECT_CLASS_NAME} value={ruleModel} onChange={(event) => setRuleModel(event.target.value)}>
+                <Input
+                  value={ruleCategory}
+                  onChange={(event) => setRuleCategory(event.target.value)}
+                  placeholder="Task category"
+                />
+                <select
+                  className={SELECT_CLASS_NAME}
+                  value={ruleModel}
+                  onChange={(event) => setRuleModel(event.target.value)}
+                >
                   <option value="">Model…</option>
-                  {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.model}</option>)}
+                  {profiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>
+                      {profile.model}
+                    </option>
+                  ))}
                 </select>
-                <select className={SELECT_CLASS_NAME} value={ruleMode} onChange={(event) => setRuleMode(event.target.value as typeof ruleMode)}>
+                <select
+                  className={SELECT_CLASS_NAME}
+                  value={ruleMode}
+                  onChange={(event) => setRuleMode(event.target.value as typeof ruleMode)}
+                >
                   <option value="preferred">Preferred</option>
                   <option value="avoid">Avoid</option>
                 </select>
-                <Button size="sm" disabled={!ruleCategory.trim() || !ruleModel} onClick={() => updateDraft((current) => {
-                  const target = ruleMode === "preferred" ? current.preferredFor : current.avoidFor;
-                  const existing = target[ruleCategory.trim()] ?? [];
-                  return {
-                    ...current,
-                    [ruleMode === "preferred" ? "preferredFor" : "avoidFor"]: {
-                      ...target,
-                      [ruleCategory.trim()]: [...new Set([...existing, ruleModel as ModelCapabilityProfileId])],
-                    },
-                  };
-                })}>Add rule</Button>
+                <Button
+                  size="sm"
+                  disabled={!ruleCategory.trim() || !ruleModel}
+                  onClick={() =>
+                    updateDraft((current) => {
+                      const target =
+                        ruleMode === "preferred" ? current.preferredFor : current.avoidFor;
+                      const existing = target[ruleCategory.trim()] ?? [];
+                      return {
+                        ...current,
+                        [ruleMode === "preferred" ? "preferredFor" : "avoidFor"]: {
+                          ...target,
+                          [ruleCategory.trim()]: [
+                            ...new Set([...existing, ruleModel as ModelCapabilityProfileId]),
+                          ],
+                        },
+                      };
+                    })
+                  }
+                >
+                  Add rule
+                </Button>
               </div>
               {(["preferred", "avoid"] as const).flatMap((mode) =>
-                Object.entries(mode === "preferred" ? draftReady.preferredFor : draftReady.avoidFor).flatMap(([category, ids]) =>
+                Object.entries(
+                  mode === "preferred" ? draftReady.preferredFor : draftReady.avoidFor,
+                ).flatMap(([category, ids]) =>
                   ids.map((id) => (
                     <SettingsListRow
                       key={`${mode}-${category}-${id}`}
@@ -537,7 +613,9 @@ function ModelsPanel({
               )}
             </SettingsCard>
           </SettingsSectionShell>
-          <Button disabled={busy} onClick={() => void save()}>{busy ? "Saving…" : "Save routing rules"}</Button>
+          <Button disabled={busy} onClick={() => void save()}>
+            {busy ? "Saving…" : "Save routing rules"}
+          </Button>
         </div>
       ) : null}
 
@@ -553,16 +631,22 @@ function ModelsPanel({
                   <select
                     className={`${SELECT_CLASS_NAME} sm:w-56`}
                     value={draftReady.defaultModels[role] ?? ""}
-                    onChange={(event) => updateDraft((current) => ({
-                      ...current,
-                      defaultModels: {
-                        ...current.defaultModels,
-                        [role]: event.target.value || undefined,
-                      },
-                    }))}
+                    onChange={(event) =>
+                      updateDraft((current) => ({
+                        ...current,
+                        defaultModels: {
+                          ...current.defaultModels,
+                          [role]: event.target.value || undefined,
+                        },
+                      }))
+                    }
                   >
                     <option value="">No default</option>
-                    {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.model}</option>)}
+                    {profiles.map((profile) => (
+                      <option key={profile.id} value={profile.id}>
+                        {profile.model}
+                      </option>
+                    ))}
                   </select>
                 }
               />
@@ -572,16 +656,44 @@ function ModelsPanel({
           <SettingsSectionShell title="Fallback chains">
             <SettingsCard divided={false}>
               <div className="grid gap-3 p-4 sm:grid-cols-[1fr_1fr_auto]">
-                <Input value={fallbackCategory} onChange={(event) => setFallbackCategory(event.target.value)} placeholder="Task category" />
-                <select className={SELECT_CLASS_NAME} value={fallbackModel} onChange={(event) => setFallbackModel(event.target.value)}>
+                <Input
+                  value={fallbackCategory}
+                  onChange={(event) => setFallbackCategory(event.target.value)}
+                  placeholder="Task category"
+                />
+                <select
+                  className={SELECT_CLASS_NAME}
+                  value={fallbackModel}
+                  onChange={(event) => setFallbackModel(event.target.value)}
+                >
                   <option value="">Model…</option>
-                  {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.model}</option>)}
+                  {profiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>
+                      {profile.model}
+                    </option>
+                  ))}
                 </select>
-                <Button size="sm" disabled={!fallbackCategory.trim() || !fallbackModel} onClick={() => updateDraft((current) => {
-                  const category = fallbackCategory.trim();
-                  const chain = current.fallbackChains[category] ?? [];
-                  return { ...current, fallbackChains: { ...current.fallbackChains, [category]: [...new Set([...chain, fallbackModel as ModelCapabilityProfileId])] } };
-                })}>Add fallback</Button>
+                <Button
+                  size="sm"
+                  disabled={!fallbackCategory.trim() || !fallbackModel}
+                  onClick={() =>
+                    updateDraft((current) => {
+                      const category = fallbackCategory.trim();
+                      const chain = current.fallbackChains[category] ?? [];
+                      return {
+                        ...current,
+                        fallbackChains: {
+                          ...current.fallbackChains,
+                          [category]: [
+                            ...new Set([...chain, fallbackModel as ModelCapabilityProfileId]),
+                          ],
+                        },
+                      };
+                    })
+                  }
+                >
+                  Add fallback
+                </Button>
               </div>
               {Object.entries(draftReady.fallbackChains).flatMap(([category, ids]) =>
                 ids.map((id, index) => (
@@ -603,7 +715,10 @@ function ModelsPanel({
                         const chain = [...(current.fallbackChains[category] ?? [])];
                         const [moved] = chain.splice(draggedFallback.index, 1);
                         if (moved) chain.splice(index, 0, moved);
-                        return { ...current, fallbackChains: { ...current.fallbackChains, [category]: chain } };
+                        return {
+                          ...current,
+                          fallbackChains: { ...current.fallbackChains, [category]: chain },
+                        };
                       });
                       setDraggedFallback(null);
                     }}
@@ -611,14 +726,34 @@ function ModelsPanel({
                     <SettingsListRow
                       title={`${index + 1}. ${modelName(id)}`}
                       description={`${category} · drag to reorder`}
-                      actions={<Button size="sm" variant="ghost" onClick={() => updateDraft((current) => ({ ...current, fallbackChains: { ...current.fallbackChains, [category]: (current.fallbackChains[category] ?? []).filter((candidate) => candidate !== id) } }))}>Remove</Button>}
+                      actions={
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() =>
+                            updateDraft((current) => ({
+                              ...current,
+                              fallbackChains: {
+                                ...current.fallbackChains,
+                                [category]: (current.fallbackChains[category] ?? []).filter(
+                                  (candidate) => candidate !== id,
+                                ),
+                              },
+                            }))
+                          }
+                        >
+                          Remove
+                        </Button>
+                      }
                     />
                   </div>
                 )),
               )}
             </SettingsCard>
           </SettingsSectionShell>
-          <Button disabled={busy} onClick={() => void save()}>{busy ? "Saving…" : "Save defaults & fallbacks"}</Button>
+          <Button disabled={busy} onClick={() => void save()}>
+            {busy ? "Saving…" : "Save defaults & fallbacks"}
+          </Button>
         </div>
       ) : null}
 
@@ -643,7 +778,13 @@ function ModelsPanel({
                       <span>
                         {receipt.explanation}
                         <br />
-                        {receipt.rankedCandidates.slice(0, 3).map((candidate) => `${candidate.rank}. ${modelName(candidate.modelId)} (${candidate.totalScore})`).join(" · ")}
+                        {(receipt.rankedCandidates ?? [])
+                          .slice(0, 3)
+                          .map(
+                            (candidate) =>
+                              `${candidate.rank}. ${modelName(candidate.modelId)} (${candidate.totalScore})`,
+                          )
+                          .join(" · ")}
                         <br />
                         {formatTime(receipt.createdAt)} · routing revision {receipt.routingRevision}
                       </span>
@@ -667,8 +808,14 @@ function NotebookPanel({ snapshot }: { readonly snapshot: SupervisedSettingsSnap
   const [search, setSearch] = useState("");
   const [concern, setConcern] = useState("all");
   const [scope, setScope] = useState("all");
+  const notebookCompactionReceipts = snapshot.governance.notebookCompactionReceipts ?? [];
+  const notebookCursors = snapshot.governance.notebookCursors ?? [];
   const concerns = [...new Set(snapshot.governance.notebookEntries.map((entry) => entry.concern))];
-  const scopes = [...new Set(snapshot.governance.notebookEntries.map((entry) => entry.roomId ?? entry.workspaceId))];
+  const scopes = [
+    ...new Set(
+      snapshot.governance.notebookEntries.map((entry) => entry.roomId ?? entry.workspaceId),
+    ),
+  ];
   const entries = useMemo(() => {
     const normalized = search.trim().toLocaleLowerCase();
     return snapshot.governance.notebookEntries.filter((entry) => {
@@ -681,20 +828,44 @@ function NotebookPanel({ snapshot }: { readonly snapshot: SupervisedSettingsSnap
     });
   }, [concern, scope, search, snapshot.governance.notebookEntries]);
   const promotions = entries.filter(
-    (entry) => !entry.redactedAt && entry.confidence >= 0.8 && ["lesson", "decision"].includes(entry.kind),
+    (entry) =>
+      !entry.redactedAt && entry.confidence >= 0.8 && ["lesson", "decision"].includes(entry.kind),
   );
 
   return (
     <div className="space-y-8">
       <div className="grid gap-3 sm:grid-cols-[1fr_180px_180px]">
-        <Input aria-label="Search shared notebook" placeholder="Search content or evidence…" value={search} onChange={(event) => setSearch(event.target.value)} />
-        <select aria-label="Notebook concern" className={SELECT_CLASS_NAME} value={concern} onChange={(event) => setConcern(event.target.value)}>
+        <Input
+          aria-label="Search shared notebook"
+          placeholder="Search content or evidence…"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
+        <select
+          aria-label="Notebook concern"
+          className={SELECT_CLASS_NAME}
+          value={concern}
+          onChange={(event) => setConcern(event.target.value)}
+        >
           <option value="all">All concerns</option>
-          {concerns.map((value) => <option key={value} value={value}>{value}</option>)}
+          {concerns.map((value) => (
+            <option key={value} value={value}>
+              {value}
+            </option>
+          ))}
         </select>
-        <select aria-label="Notebook scope" className={SELECT_CLASS_NAME} value={scope} onChange={(event) => setScope(event.target.value)}>
+        <select
+          aria-label="Notebook scope"
+          className={SELECT_CLASS_NAME}
+          value={scope}
+          onChange={(event) => setScope(event.target.value)}
+        >
           <option value="all">All scopes</option>
-          {scopes.map((value) => <option key={value} value={value}>{value}</option>)}
+          {scopes.map((value) => (
+            <option key={value} value={value}>
+              {value}
+            </option>
+          ))}
         </select>
       </div>
 
@@ -719,7 +890,9 @@ function NotebookPanel({ snapshot }: { readonly snapshot: SupervisedSettingsSnap
                     {supervisorNotebookEntryByline(entry)}
                     <br />
                     evidence: {entry.evidenceRefs.slice(0, 5).join(", ") || "none"}
-                    {entry.evidenceRefs.length > 5 ? ` · +${entry.evidenceRefs.length - 5} more` : ""}
+                    {entry.evidenceRefs.length > 5
+                      ? ` · +${entry.evidenceRefs.length - 5} more`
+                      : ""}
                     {entry.supersedesEntryId ? ` · supersedes ${entry.supersedesEntryId}` : ""}
                   </span>
                 }
@@ -731,11 +904,13 @@ function NotebookPanel({ snapshot }: { readonly snapshot: SupervisedSettingsSnap
       </SettingsSectionShell>
 
       <SettingsSectionShell title="Compaction status">
-        {snapshot.governance.notebookCompactionReceipts.length === 0 ? (
-          <SettingsEmptyState layout="status">No notebook compaction receipt exists.</SettingsEmptyState>
+        {notebookCompactionReceipts.length === 0 ? (
+          <SettingsEmptyState layout="status">
+            No notebook compaction receipt exists.
+          </SettingsEmptyState>
         ) : (
           <SettingsCard>
-            {snapshot.governance.notebookCompactionReceipts.map((receipt) => (
+            {notebookCompactionReceipts.map((receipt) => (
               <SettingsListRow
                 key={receipt.id}
                 title={`Summary ${receipt.summaryEntryId}`}
@@ -748,11 +923,13 @@ function NotebookPanel({ snapshot }: { readonly snapshot: SupervisedSettingsSnap
       </SettingsSectionShell>
 
       <SettingsSectionShell title="Per-seat cursors">
-        {snapshot.governance.notebookCursors.length === 0 ? (
-          <SettingsEmptyState layout="status">No AgentSeat has advanced a notebook cursor.</SettingsEmptyState>
+        {notebookCursors.length === 0 ? (
+          <SettingsEmptyState layout="status">
+            No AgentSeat has advanced a notebook cursor.
+          </SettingsEmptyState>
         ) : (
           <SettingsCard>
-            {snapshot.governance.notebookCursors.map((cursor) => (
+            {notebookCursors.map((cursor) => (
               <SettingsListRow
                 key={cursor.id}
                 title={`Seat ${cursor.seatId}`}
@@ -768,7 +945,11 @@ function NotebookPanel({ snapshot }: { readonly snapshot: SupervisedSettingsSnap
         <SettingsRow
           title="Supersession links"
           description="History remains visible when a newer entry supersedes an earlier entry."
-          control={statusValue(String(snapshot.governance.notebookEntries.filter((entry) => entry.supersedesEntryId).length))}
+          control={statusValue(
+            String(
+              snapshot.governance.notebookEntries.filter((entry) => entry.supersedesEntryId).length,
+            ),
+          )}
         />
       </SettingsSection>
 
@@ -780,7 +961,12 @@ function NotebookPanel({ snapshot }: { readonly snapshot: SupervisedSettingsSnap
         ) : (
           <SettingsCard>
             {promotions.map((entry) => (
-              <SettingsListRow key={entry.id} title={entry.concern} description={entry.content} actions={statusValue(`${Math.round(entry.confidence * 100)}%`)} />
+              <SettingsListRow
+                key={entry.id}
+                title={entry.concern}
+                description={entry.content}
+                actions={statusValue(`${Math.round(entry.confidence * 100)}%`)}
+              />
             ))}
           </SettingsCard>
         )}
@@ -791,6 +977,7 @@ function NotebookPanel({ snapshot }: { readonly snapshot: SupervisedSettingsSnap
 
 function AuthorityPanel({ snapshot }: { readonly snapshot: SupervisedSettingsSnapshot }) {
   const governance = snapshot.governance;
+  const runtimeAudit = snapshot.runtime.audit ?? [];
   const [receiptId, setReceiptId] = useState(governance.authorityReceipts[0]?.id ?? "");
   const [command, setCommand] = useState("");
   const receipt = governance.authorityReceipts.find((candidate) => candidate.id === receiptId);
@@ -809,11 +996,18 @@ function AuthorityPanel({ snapshot }: { readonly snapshot: SupervisedSettingsSna
     <div className="space-y-8">
       <SettingsSectionShell title="Human directives">
         {governance.humanDirectives.length === 0 ? (
-          <SettingsEmptyState layout="status">No durable Human directive exists.</SettingsEmptyState>
+          <SettingsEmptyState layout="status">
+            No durable Human directive exists.
+          </SettingsEmptyState>
         ) : (
           <SettingsCard>
             {governance.humanDirectives.map((directive) => (
-              <SettingsListRow key={directive.id} title={directive.text} description={`${directive.scope.length} scopes · issued ${formatTime(directive.issuedAt)}`} actions={statusValue(directive.status)} />
+              <SettingsListRow
+                key={directive.id}
+                title={directive.text}
+                description={`${directive.scope.length} scopes · issued ${formatTime(directive.issuedAt)}`}
+                actions={statusValue(directive.status)}
+              />
             ))}
           </SettingsCard>
         )}
@@ -825,7 +1019,12 @@ function AuthorityPanel({ snapshot }: { readonly snapshot: SupervisedSettingsSna
         ) : (
           <SettingsCard>
             {governance.standingMandates.map((mandate) => (
-              <SettingsListRow key={mandate.id} title={mandate.concern} description={`${mandate.allowedCommands.length} commands · ${mandate.scope.length} scopes`} actions={statusValue(mandate.status)} />
+              <SettingsListRow
+                key={mandate.id}
+                title={mandate.concern}
+                description={`${mandate.allowedCommands.length} commands · ${mandate.scope.length} scopes`}
+                actions={statusValue(mandate.status)}
+              />
             ))}
           </SettingsCard>
         )}
@@ -834,13 +1033,25 @@ function AuthorityPanel({ snapshot }: { readonly snapshot: SupervisedSettingsSna
       <SettingsSectionShell title="Root leases & interventions">
         <SettingsCard>
           {governance.rootLeases.map((lease) => (
-            <SettingsListRow key={lease.id} title={`Root · Room ${lease.roomId}`} description={`holder ${lease.holderSeatId} · receipt ${lease.acquiredUnderReceiptId}`} actions={statusValue(lease.status)} />
+            <SettingsListRow
+              key={lease.id}
+              title={`Root · Room ${lease.roomId}`}
+              description={`holder ${lease.holderSeatId} · receipt ${lease.acquiredUnderReceiptId}`}
+              actions={statusValue(lease.status)}
+            />
           ))}
           {governance.directInterventions.map((intervention) => (
-            <SettingsListRow key={intervention.id} title={intervention.workRequest} description={`target ${intervention.targetPeerSeatId} · Root ${intervention.rootHolderSeatId} · evidence ${intervention.evidenceRefs.length}`} actions={statusValue(intervention.lifecycleState)} />
+            <SettingsListRow
+              key={intervention.id}
+              title={intervention.workRequest}
+              description={`target ${intervention.targetPeerSeatId} · Root ${intervention.rootHolderSeatId} · evidence ${intervention.evidenceRefs.length}`}
+              actions={statusValue(intervention.lifecycleState)}
+            />
           ))}
           {governance.rootLeases.length === 0 && governance.directInterventions.length === 0 ? (
-            <SettingsEmptyState layout="status">No Root lease or direct intervention is recorded.</SettingsEmptyState>
+            <SettingsEmptyState layout="status">
+              No Root lease or direct intervention is recorded.
+            </SettingsEmptyState>
           ) : null}
         </SettingsCard>
       </SettingsSectionShell>
@@ -848,11 +1059,25 @@ function AuthorityPanel({ snapshot }: { readonly snapshot: SupervisedSettingsSna
       <SettingsSectionShell title="Effective authority preview">
         <SettingsCard divided={false}>
           <div className="grid gap-3 p-4 sm:grid-cols-2">
-            <select className={SELECT_CLASS_NAME} aria-label="Authority receipt" value={receiptId} onChange={(event) => setReceiptId(event.target.value)}>
+            <select
+              className={SELECT_CLASS_NAME}
+              aria-label="Authority receipt"
+              value={receiptId}
+              onChange={(event) => setReceiptId(event.target.value)}
+            >
               <option value="">Select authority receipt…</option>
-              {governance.authorityReceipts.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.effectiveRole} · {candidate.actorSeatId}</option>)}
+              {governance.authorityReceipts.map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {candidate.effectiveRole} · {candidate.actorSeatId}
+                </option>
+              ))}
             </select>
-            <Input aria-label="Dry-run command" value={command} onChange={(event) => setCommand(event.target.value)} placeholder="Dry-run internal command ID" />
+            <Input
+              aria-label="Dry-run command"
+              value={command}
+              onChange={(event) => setCommand(event.target.value)}
+              placeholder="Dry-run internal command ID"
+            />
           </div>
           {receipt ? (
             <SettingsListRow
@@ -861,22 +1086,42 @@ function AuthorityPanel({ snapshot }: { readonly snapshot: SupervisedSettingsSna
               actions={statusValue(effective ? "effective" : "revoked or expired")}
             />
           ) : null}
-          {dryRun ? <SettingsListRow title="Dry-run result" description={command.trim()} actions={statusValue(dryRun)} /> : null}
+          {dryRun ? (
+            <SettingsListRow
+              title="Dry-run result"
+              description={command.trim()}
+              actions={statusValue(dryRun)}
+            />
+          ) : null}
         </SettingsCard>
       </SettingsSectionShell>
 
       <SettingsSection title="Authority audit">
-        <SettingsRow title="Immutable receipts" description="Authority is read from durable EffectiveAuthorityReceipts, never inferred from active UI state." control={statusValue(String(governance.authorityReceipts.length))} />
-        <SettingsRow title="Intervention policy" description="Material direct intervention must notify the current Root holder and reconcile back through Lead authority." control={statusValue("Fail closed")} />
-        <SettingsRow title="Runtime audit entries" description="Owner control-plane actions and outcomes recorded by the Supervised runtime." control={statusValue(String(snapshot.runtime.audit.length))} />
+        <SettingsRow
+          title="Immutable receipts"
+          description="Authority is read from durable EffectiveAuthorityReceipts, never inferred from active UI state."
+          control={statusValue(String(governance.authorityReceipts.length))}
+        />
+        <SettingsRow
+          title="Intervention policy"
+          description="Material direct intervention must notify the current Root holder and reconcile back through Lead authority."
+          control={statusValue("Fail closed")}
+        />
+        <SettingsRow
+          title="Runtime audit entries"
+          description="Owner control-plane actions and outcomes recorded by the Supervised runtime."
+          control={statusValue(String(runtimeAudit.length))}
+        />
       </SettingsSection>
 
       <SettingsSectionShell title="Recent authority audit history">
-        {snapshot.runtime.audit.length === 0 ? (
-          <SettingsEmptyState layout="status">No Supervised runtime audit entry exists.</SettingsEmptyState>
+        {runtimeAudit.length === 0 ? (
+          <SettingsEmptyState layout="status">
+            No Supervised runtime audit entry exists.
+          </SettingsEmptyState>
         ) : (
           <SettingsCard>
-            {[...snapshot.runtime.audit]
+            {[...runtimeAudit]
               .sort((left, right) => right.sequence - left.sequence)
               .slice(0, 50)
               .map((entry) => (
@@ -896,14 +1141,27 @@ function AuthorityPanel({ snapshot }: { readonly snapshot: SupervisedSettingsSna
 
 function LifecyclePanel({ snapshot }: { readonly snapshot: SupervisedSettingsSnapshot }) {
   const governance = snapshot.governance;
+  const providerSessions = governance.providerSessions ?? [];
+  const handoffs = governance.handoffs ?? [];
+  const roleAssumptions = governance.roleAssumptions ?? [];
+  const leadReplacements = governance.leadReplacements ?? [];
   return (
     <div className="space-y-8">
       <SettingsSectionShell title="Supervised Workspaces">
         {governance.workspaces.length === 0 ? (
-          <SettingsEmptyState layout="status">No durable Supervised Workspace exists.</SettingsEmptyState>
+          <SettingsEmptyState layout="status">
+            No durable Supervised Workspace exists.
+          </SettingsEmptyState>
         ) : (
           <SettingsCard>
-            {governance.workspaces.map((workspace) => <SettingsListRow key={workspace.id} title={workspace.title} description={`${workspace.ownerNamespace} · revision ${workspace.revision} · updated ${formatTime(workspace.updatedAt)}`} actions={statusValue(workspace.lifecycleState)} />)}
+            {governance.workspaces.map((workspace) => (
+              <SettingsListRow
+                key={workspace.id}
+                title={workspace.title}
+                description={`${workspace.ownerNamespace} · revision ${workspace.revision} · updated ${formatTime(workspace.updatedAt)}`}
+                actions={statusValue(workspace.lifecycleState)}
+              />
+            ))}
           </SettingsCard>
         )}
       </SettingsSectionShell>
@@ -928,22 +1186,71 @@ function LifecyclePanel({ snapshot }: { readonly snapshot: SupervisedSettingsSna
       <SettingsSectionShell title="AgentSeats & provider sessions">
         <SettingsCard>
           {governance.agentSeats.map((seat) => (
-            <SettingsListRow key={seat.id} title={`${seat.identityRole} · ${seat.effectiveRole}`} description={`${seat.id} · ${seat.workState} · Rooms ${seat.roomIds.length} · provider session ${seat.providerSessionId ?? "none"}`} actions={statusValue(seat.lifecycleState)} />
+            <SettingsListRow
+              key={seat.id}
+              title={`${seat.identityRole} · ${seat.effectiveRole}`}
+              description={`${seat.id} · ${seat.workState} · Rooms ${seat.roomIds.length} · provider session ${seat.providerSessionId ?? "none"}`}
+              actions={statusValue(seat.lifecycleState)}
+            />
           ))}
-          {governance.providerSessions.map((session) => (
-            <SettingsListRow key={session.id} title={`${session.provider} session`} description={`${session.id} · seat ${session.seatId} · native ${session.nativeSessionId ?? "not assigned"}`} actions={statusValue(session.lifecycleState)} />
+          {providerSessions.map((session) => (
+            <SettingsListRow
+              key={session.id}
+              title={`${session.provider} session`}
+              description={`${session.id} · seat ${session.seatId} · native ${session.nativeSessionId ?? "not assigned"}`}
+              actions={statusValue(session.lifecycleState)}
+            />
           ))}
-          {governance.agentSeats.length === 0 && governance.providerSessions.length === 0 ? <SettingsEmptyState layout="status">No governed seat or provider session exists.</SettingsEmptyState> : null}
+          {governance.agentSeats.length === 0 && providerSessions.length === 0 ? (
+            <SettingsEmptyState layout="status">
+              No governed seat or provider session exists.
+            </SettingsEmptyState>
+          ) : null}
         </SettingsCard>
       </SettingsSectionShell>
 
       <SettingsSectionShell title="Handoffs, role assumptions & Lead replacement">
         <SettingsCard>
-          {governance.handoffs.map((handoff) => <SettingsListRow key={handoff.id} title={`Handoff ${handoff.fromSeatId} → ${handoff.toSeatId}`} description={`Room ${handoff.roomId} · evidence ${handoff.evidenceRefs.length} · revision ${handoff.revision}`} actions={statusValue(handoff.lifecycleState)} />)}
-          {governance.roleAssumptions.map((assumption) => <SettingsListRow key={assumption.id} title={`${assumption.operation} Root role`} description={`${assumption.previousRootSeatId} → ${assumption.actorSeatId} · handoff ${assumption.handoffId}`} actions={statusValue(assumption.lifecycleState)} />)}
-          {governance.leadReplacements.map((replacement) => <SettingsListRow key={replacement.id} title={`Replace Lead ${replacement.previousLeadSeatId}`} description={`replacement ${replacement.replacementLeadSeatId} · handoff ${replacement.handoffId}`} actions={statusValue(replacement.lifecycleState)} />)}
-          {governance.directInterventions.map((intervention) => <SettingsListRow key={intervention.id} title={`Intervention ${intervention.targetPeerSeatId}`} description={`Room ${intervention.roomId} · Root ${intervention.rootHolderSeatId} · evidence ${intervention.evidenceRefs.length}`} actions={statusValue(intervention.lifecycleState)} />)}
-          {governance.handoffs.length === 0 && governance.roleAssumptions.length === 0 && governance.leadReplacements.length === 0 && governance.directInterventions.length === 0 ? <SettingsEmptyState layout="status">No lifecycle transition is currently retained.</SettingsEmptyState> : null}
+          {handoffs.map((handoff) => (
+            <SettingsListRow
+              key={handoff.id}
+              title={`Handoff ${handoff.fromSeatId} → ${handoff.toSeatId}`}
+              description={`Room ${handoff.roomId} · evidence ${handoff.evidenceRefs.length} · revision ${handoff.revision}`}
+              actions={statusValue(handoff.lifecycleState)}
+            />
+          ))}
+          {roleAssumptions.map((assumption) => (
+            <SettingsListRow
+              key={assumption.id}
+              title={`${assumption.operation} Root role`}
+              description={`${assumption.previousRootSeatId} → ${assumption.actorSeatId} · handoff ${assumption.handoffId}`}
+              actions={statusValue(assumption.lifecycleState)}
+            />
+          ))}
+          {leadReplacements.map((replacement) => (
+            <SettingsListRow
+              key={replacement.id}
+              title={`Replace Lead ${replacement.previousLeadSeatId}`}
+              description={`replacement ${replacement.replacementLeadSeatId} · handoff ${replacement.handoffId}`}
+              actions={statusValue(replacement.lifecycleState)}
+            />
+          ))}
+          {governance.directInterventions.map((intervention) => (
+            <SettingsListRow
+              key={intervention.id}
+              title={`Intervention ${intervention.targetPeerSeatId}`}
+              description={`Room ${intervention.roomId} · Root ${intervention.rootHolderSeatId} · evidence ${intervention.evidenceRefs.length}`}
+              actions={statusValue(intervention.lifecycleState)}
+            />
+          ))}
+          {handoffs.length === 0 &&
+          roleAssumptions.length === 0 &&
+          leadReplacements.length === 0 &&
+          governance.directInterventions.length === 0 ? (
+            <SettingsEmptyState layout="status">
+              No lifecycle transition is currently retained.
+            </SettingsEmptyState>
+          ) : null}
         </SettingsCard>
       </SettingsSectionShell>
     </div>
@@ -958,6 +1265,7 @@ function ToolsPanel({
   readonly refetch: () => Promise<unknown>;
 }) {
   const [search, setSearch] = useState("");
+  const runtimeAudit = snapshot.runtime.audit ?? [];
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -994,16 +1302,29 @@ function ToolsPanel({
   return (
     <div className="space-y-8">
       <div className="grid gap-3 sm:grid-cols-[1fr_1fr]">
-        <Input aria-label="Search system tools" placeholder="Search canonical ID, role, or capability…" value={search} onChange={(event) => setSearch(event.target.value)} />
-        <Input aria-label="Tool policy reason" maxLength={32_768} placeholder="Owner policy reason (optional)" value={reason} onChange={(event) => setReason(event.target.value)} />
+        <Input
+          aria-label="Search system tools"
+          placeholder="Search canonical ID, role, or capability…"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
+        <Input
+          aria-label="Tool policy reason"
+          maxLength={32_768}
+          placeholder="Owner policy reason (optional)"
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+        />
       </div>
       <SettingsSectionShell title="Canonical tool registry">
         {tools.length === 0 ? (
-          <SettingsEmptyState layout="status">No canonical tool matches this search.</SettingsEmptyState>
+          <SettingsEmptyState layout="status">
+            No canonical tool matches this search.
+          </SettingsEmptyState>
         ) : (
           <SettingsCard>
             {tools.map((tool) => {
-              const audits = snapshot.runtime.audit
+              const audits = runtimeAudit
                 .filter((entry) => entry.targetId === tool.id)
                 .sort((left, right) => right.sequence - left.sequence);
               const lastAudit = audits[0] ?? null;
@@ -1025,25 +1346,51 @@ function ToolsPanel({
                       <br />
                       adapters: {tool.providerToolNames.join(", ") || "none"}
                       <br />
-                      {tool.readOnly ? "read" : "mutate"} · roles {tool.allowedRoles.join(", ")} · commands {tool.internalCommands.join(", ") || "none"}
+                      {tool.readOnly ? "read" : "mutate"} · roles {tool.allowedRoles.join(", ")} ·
+                      commands {tool.internalCommands.join(", ") || "none"}
                       <br />
                       scopes: {scopeSummary || "no active grants"} · authority receipt required
                       <br />
-                      health {tool.health} · RunPolicy r{runPolicy?.revision ?? 0} · recent receipts {tool.successCount} succeeded / {tool.failureCount} failed · audit {audits.length}
+                      health {tool.health} · RunPolicy r{runPolicy?.revision ?? 0} · recent receipts{" "}
+                      {tool.successCount} succeeded / {tool.failureCount} failed · audit{" "}
+                      {audits.length}
                       <br />
-                      last invocation: {tool.lastInvocation ? `${tool.lastInvocation.state} at ${formatTime(tool.lastInvocation.requestedAt)}` : "never"}
+                      last invocation:{" "}
+                      {tool.lastInvocation
+                        ? `${tool.lastInvocation.state} at ${formatTime(tool.lastInvocation.requestedAt)}`
+                        : "never"}
                       <br />
-                      last audit: {lastAudit ? `${lastAudit.action} · ${lastAudit.outcome} at ${formatTime(lastAudit.occurredAt)}` : "none"}
+                      last audit:{" "}
+                      {lastAudit
+                        ? `${lastAudit.action} · ${lastAudit.outcome} at ${formatTime(lastAudit.occurredAt)}`
+                        : "none"}
                       {tool.policy.reason ? ` · reason: ${tool.policy.reason}` : ""}
                     </span>
                   }
                   actions={
                     <div className="flex flex-wrap items-center justify-end gap-2">
                       {statusValue(`${tool.policy.state} · r${tool.policy.revision}`)}
-                      <Button size="sm" variant="outline" disabled={busy === tool.id || tool.policy.state === "revoked"} onClick={() => void updatePolicy(tool, tool.policy.state === "enabled" ? "disabled" : "enabled")}>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busy === tool.id || tool.policy.state === "revoked"}
+                        onClick={() =>
+                          void updatePolicy(
+                            tool,
+                            tool.policy.state === "enabled" ? "disabled" : "enabled",
+                          )
+                        }
+                      >
                         {tool.policy.state === "enabled" ? "Disable" : "Enable"}
                       </Button>
-                      <Button size="sm" variant="ghost" disabled={busy === tool.id || tool.policy.state === "revoked"} onClick={() => void updatePolicy(tool, "revoked")}>Revoke</Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={busy === tool.id || tool.policy.state === "revoked"}
+                        onClick={() => void updatePolicy(tool, "revoked")}
+                      >
+                        Revoke
+                      </Button>
                     </div>
                   }
                 />
@@ -1053,11 +1400,25 @@ function ToolsPanel({
         )}
       </SettingsSectionShell>
       <SettingsSection title="Policy bounds">
-        <SettingsRow title="Injection" description="Disabled or revoked canonical intents are removed before provider tool injection." control={statusValue("Server enforced")} />
-        <SettingsRow title="Execution" description="Every direct server execution rechecks durable policy before authority and handler dispatch." control={statusValue("Fail closed")} />
-        <SettingsRow title="RunPolicy" description="Tool calls remain bounded by immutable authority receipts, allowed commands, Room scope, and the active RunPolicy snapshot." control={statusValue(runPolicy ? `revision ${runPolicy.revision}` : "default bounds")} />
+        <SettingsRow
+          title="Injection"
+          description="Disabled or revoked canonical intents are removed before provider tool injection."
+          control={statusValue("Server enforced")}
+        />
+        <SettingsRow
+          title="Execution"
+          description="Every direct server execution rechecks durable policy before authority and handler dispatch."
+          control={statusValue("Fail closed")}
+        />
+        <SettingsRow
+          title="RunPolicy"
+          description="Tool calls remain bounded by immutable authority receipts, allowed commands, Room scope, and the active RunPolicy snapshot."
+          control={statusValue(runPolicy ? `revision ${runPolicy.revision}` : "default bounds")}
+        />
       </SettingsSection>
-      <div className="min-h-5 text-[11px] text-muted-foreground" aria-live="polite">{feedback}</div>
+      <div className="min-h-5 text-[11px] text-muted-foreground" aria-live="polite">
+        {feedback}
+      </div>
     </div>
   );
 }
@@ -1069,7 +1430,9 @@ export function SupervisedGovernanceSettingsPanel(props: {
   const query = useQuery({ ...supervisedSettingsQueryOptions(), enabled: props.active });
   if (!props.active) return null;
   if (query.isLoading) {
-    return <SettingsEmptyState layout="status">Loading durable Supervised settings…</SettingsEmptyState>;
+    return (
+      <SettingsEmptyState layout="status">Loading durable Supervised settings…</SettingsEmptyState>
+    );
   }
   if (!query.data || query.error) {
     return (

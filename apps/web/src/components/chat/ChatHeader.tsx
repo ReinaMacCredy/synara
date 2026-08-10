@@ -912,8 +912,8 @@ export function ChatHeader({
         {environment ? (
           <>
             <EnvironmentToggle environment={environment} />
-              {diffToggleControl}
-              {rightPanelToggleControl}
+            {diffToggleControl}
+            {rightPanelToggleControl}
           </>
         ) : (
           <>
@@ -935,8 +935,8 @@ export function ChatHeader({
                 onRegisterCommitAndPushTrigger={onRegisterCommitAndPushTrigger}
               />
             ) : null}
-              {diffToggleControl}
-              {rightPanelToggleControl}
+            {diffToggleControl}
+            {rightPanelToggleControl}
           </>
         )}
       </div>

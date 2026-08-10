@@ -56,11 +56,14 @@ describe("canonical Supervised governance decider", () => {
     assert.equal(event.type, "supervised.profile-created");
     assert.equal(event.metadata.schemaVersion, "supervised-governance/v1");
 
-    const projected = projectSupervisedGovernanceEvent(
-      emptySupervisedOrchestrationSnapshot(now),
-      { ...event, sequence: 1 },
+    const projected = projectSupervisedGovernanceEvent(emptySupervisedOrchestrationSnapshot(now), {
+      ...event,
+      sequence: 1,
+    });
+    assert.deepStrictEqual(
+      projected.profiles.map((candidate) => candidate.id),
+      [profile.id],
     );
-    assert.deepStrictEqual(projected.profiles.map((candidate) => candidate.id), [profile.id]);
     assert.equal(projected.revision, 1);
 
     assert.throws(

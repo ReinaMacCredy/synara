@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { it } from "vitest";
 
-import type { SupervisorNotebookEntry } from "@synara/contracts";
+import { SupervisorNotebookEntry } from "@synara/contracts";
+import { Schema } from "effect";
 
 import { supervisorNotebookEntryByline } from "./SupervisedGovernanceSettingsPanel";
 
 it("shows the durable Supervisor author seat in each notebook entry byline", () => {
-  const entry = {
+  const entry = Schema.decodeUnknownSync(SupervisorNotebookEntry)({
     id: "notebook-entry",
     workspaceId: "workspace-1",
     roomId: "room-1",
@@ -21,7 +22,7 @@ it("shows the durable Supervisor author seat in each notebook entry byline", () 
     protectionClass: "internal",
     redactedAt: null,
     createdAt: "2026-08-10T00:00:00.000Z",
-  } as SupervisorNotebookEntry;
+  });
 
   assert.equal(
     supervisorNotebookEntryByline(entry),

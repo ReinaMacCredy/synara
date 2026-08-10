@@ -5,10 +5,7 @@ import {
 import { Effect, Layer, Option, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import {
-  toPersistenceDecodeCauseError,
-  toPersistenceSqlError,
-} from "../Errors.ts";
+import { toPersistenceDecodeCauseError, toPersistenceSqlError } from "../Errors.ts";
 import {
   SupervisedToolReceiptRepository,
   type SupervisedToolReceiptRepositoryShape,
@@ -21,8 +18,7 @@ const makeSupervisedToolReceiptRepository = Effect.gen(function* () {
 
   const decodeReceipt = (entityJson: string, operation: string) =>
     Effect.try({
-      try: () =>
-        Schema.decodeUnknownSync(SupervisedToolInvocationReceipt)(JSON.parse(entityJson)),
+      try: () => Schema.decodeUnknownSync(SupervisedToolInvocationReceipt)(JSON.parse(entityJson)),
       catch: toPersistenceDecodeCauseError(operation),
     });
 
@@ -41,7 +37,10 @@ const makeSupervisedToolReceiptRepository = Effect.gen(function* () {
       );
     }).pipe(
       Effect.mapError((error) =>
-        error && typeof error === "object" && "_tag" in error && error._tag === "PersistenceDecodeError"
+        error &&
+        typeof error === "object" &&
+        "_tag" in error &&
+        error._tag === "PersistenceDecodeError"
           ? error
           : toPersistenceSqlError("SupervisedToolReceiptRepository.listRecent:query")(error),
       ),
@@ -63,7 +62,10 @@ const makeSupervisedToolReceiptRepository = Effect.gen(function* () {
       return Option.some(receipt);
     }).pipe(
       Effect.mapError((error) =>
-        error && typeof error === "object" && "_tag" in error && error._tag === "PersistenceDecodeError"
+        error &&
+        typeof error === "object" &&
+        "_tag" in error &&
+        error._tag === "PersistenceDecodeError"
           ? error
           : toPersistenceSqlError("SupervisedToolReceiptRepository.getById:query")(error),
       ),

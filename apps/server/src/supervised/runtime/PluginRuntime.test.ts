@@ -31,7 +31,13 @@ const installation = {
     subscriptions: [],
     requestedCapabilities: ["event.read", "signal.propose", "command.request"],
     requestedPayloadFields: ["role", "contextUsagePercent"],
-    resourceLimits: { maxRuntimeMs: 100, maxMemoryMiB: 64, maxOutputBytes: 1_024, maxConcurrentHandlers: 1, maxQueueDepth: 10 },
+    resourceLimits: {
+      maxRuntimeMs: 100,
+      maxMemoryMiB: 64,
+      maxOutputBytes: 1_024,
+      maxConcurrentHandlers: 1,
+      maxQueueDepth: 10,
+    },
     provenance: { source: "test", contentHash: hash, signature: null },
   },
   grant: {
@@ -52,12 +58,12 @@ const installation = {
   updatedAt: now,
   revision: 0,
 } as PluginInstallation;
-  const policy = {
-    allowedCapabilities: ["event.read"],
-    allowedPluginActions: ["supervised.compaction.request"],
-    maxWallTimeMs: 1_000,
-    maxPluginHandlerMs: 100,
-    circuitBreakerFailureCount: 2,
+const policy = {
+  allowedCapabilities: ["event.read"],
+  allowedPluginActions: ["supervised.compaction.request"],
+  maxWallTimeMs: 1_000,
+  maxPluginHandlerMs: 100,
+  circuitBreakerFailureCount: 2,
   circuitBreakerResetMs: 10_000,
 } as RunPolicy;
 const usage = {
@@ -98,11 +104,7 @@ describe("GovernedPluginRuntime", () => {
         ...installation,
         grant: {
           ...installation.grant,
-          capabilities: [
-            ...installation.grant.capabilities,
-            "network.connect",
-            "filesystem.write",
-          ],
+          capabilities: [...installation.grant.capabilities, "network.connect", "filesystem.write"],
         },
       } as PluginInstallation,
       "/tmp/plugin-1",
@@ -114,7 +116,11 @@ describe("GovernedPluginRuntime", () => {
       async (options) => {
         kernelOptions = options;
         return {
-          execute: async () => ({ result: { observations: [], signals: [], commandRequests: [] }, stdout: "", outputBytes: 0 }),
+          execute: async () => ({
+            result: { observations: [], signals: [], commandRequests: [] },
+            stdout: "",
+            outputBytes: 0,
+          }),
           stop: () => undefined,
         };
       },
@@ -136,7 +142,9 @@ describe("GovernedPluginRuntime", () => {
           result: {
             observations: [],
             signals: [],
-            commandRequests: [{ type: "supervised.compaction.request", payload: { leadSeatId: "lead-1" } }],
+            commandRequests: [
+              { type: "supervised.compaction.request", payload: { leadSeatId: "lead-1" } },
+            ],
           },
           stdout: "",
           outputBytes: 10,
@@ -171,7 +179,10 @@ describe("GovernedPluginRuntime", () => {
       },
       async () => "async function handle() {}",
     );
-    await assert.rejects(() => runtime.handle({ ...event, schemaVersion: "2.0.0" }), /does not support schema/);
+    await assert.rejects(
+      () => runtime.handle({ ...event, schemaVersion: "2.0.0" }),
+      /does not support schema/,
+    );
   });
 
   it("does not grant command authority through a subscription", async () => {
@@ -201,7 +212,7 @@ describe("GovernedPluginRuntime", () => {
     await assert.rejects(() => runtime.handle(event), /outside its grant/);
   });
 
-    it("rejects observation output without metric.emit capability", async () => {
+  it("rejects observation output without metric.emit capability", async () => {
     const runtime = new GovernedPluginRuntime(
       installation,
       "/tmp/plugin-1",
@@ -230,32 +241,32 @@ describe("GovernedPluginRuntime", () => {
       async () => "async function handle() {}",
     );
 
-      await assert.rejects(() => runtime.handle(event), /without metric.emit capability/);
-    });
-
-    it("stops an isolated handler that exceeds the tighter plugin timeout", async () => {
-      let stopped = false;
-      const runtime = new GovernedPluginRuntime(
-        {
-          ...installation,
-          manifest: {
-            ...installation.manifest,
-            resourceLimits: { ...installation.manifest.resourceLimits, maxRuntimeMs: 5 },
-          },
-        },
-        "/tmp/plugin-1",
-        policy,
-        usage,
-        async () => ({
-          execute: () => new Promise(() => undefined),
-          stop: () => {
-            stopped = true;
-          },
-        }),
-        async () => "async function handle() {}",
-      );
-
-      await assert.rejects(() => runtime.handle(event), /5ms time limit/);
-      assert.equal(stopped, true);
-    });
+    await assert.rejects(() => runtime.handle(event), /without metric.emit capability/);
   });
+
+  it("stops an isolated handler that exceeds the tighter plugin timeout", async () => {
+    let stopped = false;
+    const runtime = new GovernedPluginRuntime(
+      {
+        ...installation,
+        manifest: {
+          ...installation.manifest,
+          resourceLimits: { ...installation.manifest.resourceLimits, maxRuntimeMs: 5 },
+        },
+      },
+      "/tmp/plugin-1",
+      policy,
+      usage,
+      async () => ({
+        execute: () => new Promise(() => undefined),
+        stop: () => {
+          stopped = true;
+        },
+      }),
+      async () => "async function handle() {}",
+    );
+
+    await assert.rejects(() => runtime.handle(event), /5ms time limit/);
+    assert.equal(stopped, true);
+  });
+});

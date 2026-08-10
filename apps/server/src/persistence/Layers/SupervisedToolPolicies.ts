@@ -1,14 +1,8 @@
-import {
-  SupervisedToolPolicy,
-  type SupervisedIntentToolId,
-} from "@synara/contracts";
+import { SupervisedToolPolicy, type SupervisedIntentToolId } from "@synara/contracts";
 import { Effect, Layer, Option, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import {
-  toPersistenceDecodeCauseError,
-  toPersistenceSqlError,
-} from "../Errors.ts";
+import { toPersistenceDecodeCauseError, toPersistenceSqlError } from "../Errors.ts";
 import {
   SupervisedToolPolicyRepository,
   type SupervisedToolPolicyRepositoryShape,
@@ -39,7 +33,10 @@ const makeSupervisedToolPolicyRepository = Effect.gen(function* () {
       );
     }).pipe(
       Effect.mapError((error) =>
-        error && typeof error === "object" && "_tag" in error && error._tag === "PersistenceDecodeError"
+        error &&
+        typeof error === "object" &&
+        "_tag" in error &&
+        error._tag === "PersistenceDecodeError"
           ? error
           : toPersistenceSqlError("SupervisedToolPolicyRepository.list:query")(error),
       ),
@@ -55,44 +52,45 @@ const makeSupervisedToolPolicyRepository = Effect.gen(function* () {
       const row = rows[0];
       if (!row) return Option.none();
       return Option.some(
-        yield* decodePolicy(
-          row.entityJson,
-          "SupervisedToolPolicyRepository.getByToolId:decode",
-        ),
+        yield* decodePolicy(row.entityJson, "SupervisedToolPolicyRepository.getByToolId:decode"),
       );
     }).pipe(
       Effect.mapError((error) =>
-        error && typeof error === "object" && "_tag" in error && error._tag === "PersistenceDecodeError"
+        error &&
+        typeof error === "object" &&
+        "_tag" in error &&
+        error._tag === "PersistenceDecodeError"
           ? error
           : toPersistenceSqlError("SupervisedToolPolicyRepository.getByToolId:query")(error),
       ),
     );
 
   const put: SupervisedToolPolicyRepositoryShape["put"] = (input) =>
-    sql.withTransaction(
-      Effect.gen(function* () {
-        const current = yield* getByToolId(input.policy.toolId);
-        const currentRevision = Option.isSome(current) ? current.value.revision : 0;
-        if (Option.isSome(current) && current.value.state === "revoked") {
-          return yield* Effect.fail(
-            toPersistenceSqlError("SupervisedToolPolicyRepository.put:revoked")(
-              new Error(`Tool policy '${input.policy.toolId}' is permanently revoked.`),
-            ),
-          );
-        }
-        if (
-          currentRevision !== input.expectedRevision ||
-          input.policy.revision !== currentRevision + 1
-        ) {
-          return yield* Effect.fail(
-            toPersistenceSqlError("SupervisedToolPolicyRepository.put:conflict")(
-              new Error(
-                `Tool policy '${input.policy.toolId}' revision conflict: expected ${input.expectedRevision}, current ${currentRevision}.`,
+    sql
+      .withTransaction(
+        Effect.gen(function* () {
+          const current = yield* getByToolId(input.policy.toolId);
+          const currentRevision = Option.isSome(current) ? current.value.revision : 0;
+          if (Option.isSome(current) && current.value.state === "revoked") {
+            return yield* Effect.fail(
+              toPersistenceSqlError("SupervisedToolPolicyRepository.put:revoked")(
+                new Error(`Tool policy '${input.policy.toolId}' is permanently revoked.`),
               ),
-            ),
-          );
-        }
-        yield* sql`
+            );
+          }
+          if (
+            currentRevision !== input.expectedRevision ||
+            input.policy.revision !== currentRevision + 1
+          ) {
+            return yield* Effect.fail(
+              toPersistenceSqlError("SupervisedToolPolicyRepository.put:conflict")(
+                new Error(
+                  `Tool policy '${input.policy.toolId}' revision conflict: expected ${input.expectedRevision}, current ${currentRevision}.`,
+                ),
+              ),
+            );
+          }
+          yield* sql`
           INSERT INTO supervised_tool_policies (
             canonical_tool_id, state, revision, reason, updated_at, revoked_at, entity_json
           ) VALUES (
@@ -108,7 +106,7 @@ const makeSupervisedToolPolicyRepository = Effect.gen(function* () {
             revoked_at = excluded.revoked_at,
             entity_json = excluded.entity_json
         `;
-        yield* sql`
+          yield* sql`
           INSERT INTO supervised_runtime_audit (
             action, actor_json, target_kind, target_id, outcome, detail_json, occurred_at
           ) VALUES (
@@ -117,15 +115,16 @@ const makeSupervisedToolPolicyRepository = Effect.gen(function* () {
             ${input.audit.occurredAt}
           )
         `;
-        return input.policy;
-      }),
-    ).pipe(
-      Effect.mapError((error) =>
-        error && typeof error === "object" && "_tag" in error
-          ? error
-          : toPersistenceSqlError("SupervisedToolPolicyRepository.put:query")(error),
-      ),
-    );
+          return input.policy;
+        }),
+      )
+      .pipe(
+        Effect.mapError((error) =>
+          error && typeof error === "object" && "_tag" in error
+            ? error
+            : toPersistenceSqlError("SupervisedToolPolicyRepository.put:query")(error),
+        ),
+      );
 
   return { list, getByToolId, put } satisfies SupervisedToolPolicyRepositoryShape;
 });

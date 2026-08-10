@@ -36,9 +36,7 @@ export const deriveExecutionHealth = (
     (binding) => input.runtimeByThread?.get(binding.threadId) ?? "unknown",
   );
   if (runtimeStates.includes("running")) return "running";
-  if (
-    runtimeStates.includes("waiting")
-  ) {
+  if (runtimeStates.includes("waiting")) {
     return "waiting";
   }
 
@@ -70,10 +68,7 @@ export const deriveExecutionHealth = (
     }
   }
 
-  if (
-    input.task.lifecycle === "in_progress" ||
-    input.task.lifecycle === "review"
-  ) {
+  if (input.task.lifecycle === "in_progress" || input.task.lifecycle === "review") {
     return "running";
   }
   return "idle";

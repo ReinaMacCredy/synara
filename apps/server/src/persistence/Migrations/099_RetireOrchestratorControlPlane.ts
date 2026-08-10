@@ -24,18 +24,18 @@ export default Effect.gen(function* () {
         FROM projection_threads
         WHERE creation_source = 'orchestrator_native'
       `;
-        if (yield* tableExists(sql, "projection_orchestrator_roots")) {
-          yield* sql`
+      if (yield* tableExists(sql, "projection_orchestrator_roots")) {
+        yield* sql`
             INSERT OR IGNORE INTO migration_099_legacy_threads (thread_id)
             SELECT root_thread_id FROM projection_orchestrator_roots
           `;
-        }
-        if (yield* tableExists(sql, "projection_orchestrator_ownership_edges")) {
-          yield* sql`
+      }
+      if (yield* tableExists(sql, "projection_orchestrator_ownership_edges")) {
+        yield* sql`
             INSERT OR IGNORE INTO migration_099_legacy_threads (thread_id)
             SELECT child_thread_id FROM projection_orchestrator_ownership_edges
           `;
-        }
+      }
 
       yield* sql`
         CREATE TEMP TABLE migration_099_legacy_processes (
@@ -185,10 +185,10 @@ export default Effect.gen(function* () {
         DELETE FROM orchestration_events
         WHERE sequence IN (SELECT sequence FROM migration_099_legacy_events)
       `;
-        if (yield* tableExists(sql, "projection_orchestrator_roots")) {
-          yield* sql`UPDATE projection_orchestrator_roots SET active_process_id = NULL`;
-        }
-        yield* sql`
+      if (yield* tableExists(sql, "projection_orchestrator_roots")) {
+        yield* sql`UPDATE projection_orchestrator_roots SET active_process_id = NULL`;
+      }
+      yield* sql`
           DELETE FROM projection_threads
           WHERE thread_id IN (SELECT thread_id FROM migration_099_legacy_threads)
       `;
@@ -204,13 +204,13 @@ export default Effect.gen(function* () {
       yield* sql`DROP TABLE IF EXISTS projection_orchestrator_ownership_edges`;
       yield* sql`DROP TABLE IF EXISTS projection_orchestrator_runs`;
       yield* sql`DROP TABLE IF EXISTS orchestrator_artifacts`;
-        yield* sql`DROP TABLE IF EXISTS projection_orchestrator_roots`;
-        yield* sql`DROP TABLE IF EXISTS orchestrator_migration_purge_log`;
+      yield* sql`DROP TABLE IF EXISTS projection_orchestrator_roots`;
+      yield* sql`DROP TABLE IF EXISTS orchestrator_migration_purge_log`;
 
-        yield* sql`
+      yield* sql`
           DELETE FROM projection_task_processes
           WHERE process_id IN (SELECT process_id FROM migration_099_legacy_processes)
         `;
-      }),
+    }),
   );
 });

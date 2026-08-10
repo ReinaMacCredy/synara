@@ -127,7 +127,9 @@ function aggregate(subscription: SubscriptionDefinition, samples: ReadonlyArray<
     case "sum":
       return values.reduce((total, value) => total + value, 0);
     case "avg":
-      return values.length === 0 ? 0 : values.reduce((total, value) => total + value, 0) / values.length;
+      return values.length === 0
+        ? 0
+        : values.reduce((total, value) => total + value, 0) / values.length;
     case "min":
       return values.length === 0 ? 0 : Math.min(...values);
     case "max":
@@ -146,7 +148,8 @@ function aggregate(subscription: SubscriptionDefinition, samples: ReadonlyArray<
 function signalKind(subscription: SubscriptionDefinition): DerivedSignal["kind"] {
   const names = new Set(subscription.selector.names);
   if (names.has("ReviewCompleted") || names.has("ReviewRejected")) return "ReviewLoopSuspected";
-  if (names.has("contextUsagePercent") || names.has("agent.context.measured")) return "ContextPressureHigh";
+  if (names.has("contextUsagePercent") || names.has("agent.context.measured"))
+    return "ContextPressureHigh";
   if (names.has("noProgressDuration") || names.has("RunStalled")) return "RunProgressStalled";
   if (names.has("budgetBurnRate") || names.has("BudgetConsumed")) return "BudgetBurnAnomaly";
   if (names.has("failureRate") || names.has("RunFailed")) return "RepeatedFailureDetected";
@@ -166,11 +169,18 @@ function reviewContext(samples: ReadonlyArray<WindowSample>) {
     taskNodeId: fieldValue(last?.event ?? first!.event, "taskNodeId") ?? null,
     roomId: fieldValue(last?.event ?? first!.event, "roomId") ?? null,
     leadSeatId: fieldValue(last?.event ?? first!.event, "leadSeatId") ?? null,
-    graphRevision: fieldValue(last?.event ?? first!.event, "graphRevision") ?? last?.event.revision ?? null,
+    graphRevision:
+      fieldValue(last?.event ?? first!.event, "graphRevision") ?? last?.event.revision ?? null,
     reviewCount: samples.length,
-    reviewerSeatIds: [...new Set(samples.map((sample) => fieldValue(sample.event, "reviewerSeatId")).filter(Boolean))],
+    reviewerSeatIds: [
+      ...new Set(
+        samples.map((sample) => fieldValue(sample.event, "reviewerSeatId")).filter(Boolean),
+      ),
+    ],
     rejectionReasons: reasons,
-    repeatedProblems: [...reasonCounts.entries()].filter(([, count]) => count > 1).map(([reason]) => reason),
+    repeatedProblems: [...reasonCounts.entries()]
+      .filter(([, count]) => count > 1)
+      .map(([reason]) => reason),
     elapsedMs:
       first && last ? Math.max(0, Date.parse(last.eventTime) - Date.parse(first.eventTime)) : 0,
     costUsd: samples.reduce((total, sample) => {
@@ -181,7 +191,9 @@ function reviewContext(samples: ReadonlyArray<WindowSample>) {
       ...new Set(
         samples.flatMap((sample) => {
           const refs = fieldValue(sample.event, "evidenceRefs");
-          return Array.isArray(refs) ? refs.filter((ref): ref is string => typeof ref === "string") : [];
+          return Array.isArray(refs)
+            ? refs.filter((ref): ref is string => typeof ref === "string")
+            : [];
         }),
       ),
     ],
@@ -204,17 +216,39 @@ function evaluateAt(
 ): SubscriptionEvaluationResult {
   const reasons: string[] = [];
   if (subscription.state !== "enabled") {
-    return { matched: false, state: prior, metricSamples: [], triggeredSignals: [], resetSignals: [], reasons: ["Subscription is not enabled."] };
+    return {
+      matched: false,
+      state: prior,
+      metricSamples: [],
+      triggeredSignals: [],
+      resetSignals: [],
+      reasons: ["Subscription is not enabled."],
+    };
   }
   if (!selectorMatches(subscription, event) || !scopeMatches(subscription, event)) {
-    return { matched: false, state: prior, metricSamples: [], triggeredSignals: [], resetSignals: [], reasons: ["Selector or scope did not match."] };
+    return {
+      matched: false,
+      state: prior,
+      metricSamples: [],
+      triggeredSignals: [],
+      resetSignals: [],
+      reasons: ["Selector or scope did not match."],
+    };
   }
   if (!subscription.where.every((filter) => filterMatches(event, filter))) {
-    return { matched: false, state: prior, metricSamples: [], triggeredSignals: [], resetSignals: [], reasons: ["Filter did not match."] };
+    return {
+      matched: false,
+      state: prior,
+      metricSamples: [],
+      triggeredSignals: [],
+      resetSignals: [],
+      reasons: ["Filter did not match."],
+    };
   }
   const value = numericValue(subscription, event);
   if (value === null) {
-    const candidateField = subscription.aggregation.field ?? subscription.selector.names[0] ?? "<none>";
+    const candidateField =
+      subscription.aggregation.field ?? subscription.selector.names[0] ?? "<none>";
     const candidate = candidateField === "<none>" ? undefined : fieldValue(event, candidateField);
     return {
       matched: false,
@@ -262,10 +296,22 @@ function evaluateAt(
     activeSignal: null,
   };
   if (priorGroup.samples.some((sample) => sample.eventId === event.eventId)) {
-    return { matched: true, state: prior, metricSamples: [], triggeredSignals: [], resetSignals: [], reasons: ["Duplicate event was deduplicated."] };
+    return {
+      matched: true,
+      state: prior,
+      metricSamples: [],
+      triggeredSignals: [],
+      resetSignals: [],
+      reasons: ["Duplicate event was deduplicated."],
+    };
   }
-  const candidateSamples = [...priorGroup.samples, { eventId: event.eventId, sequence: event.sequence, eventTime: event.eventTime, value, event }]
-    .sort((left, right) => Date.parse(left.eventTime) - Date.parse(right.eventTime) || left.sequence - right.sequence);
+  const candidateSamples = [
+    ...priorGroup.samples,
+    { eventId: event.eventId, sequence: event.sequence, eventTime: event.eventTime, value, event },
+  ].sort(
+    (left, right) =>
+      Date.parse(left.eventTime) - Date.parse(right.eventTime) || left.sequence - right.sequence,
+  );
   const watermark = Math.max(...candidateSamples.map((sample) => Date.parse(sample.eventTime)));
   const cutoff = watermark - subscription.window.durationMs - subscription.window.allowedLatenessMs;
   const samples = candidateSamples
@@ -273,25 +319,41 @@ function evaluateAt(
     .slice(-subscription.window.maxSamples);
   const aggregatedValue = aggregate(subscription, samples);
   const sourceEventIds = samples.map((sample) => sample.event.eventId);
-  const receiptHash = hash({ subscriptionId: subscription.id, key, sourceEventIds, aggregatedValue });
+  const receiptHash = hash({
+    subscriptionId: subscription.id,
+    key,
+    sourceEventIds,
+    aggregatedValue,
+  });
   const metricSample: MetricSample = {
-    id: stableId("metric", { subscriptionId: subscription.id, key, sourceEventIds }) as MetricSample["id"],
+    id: stableId("metric", {
+      subscriptionId: subscription.id,
+      key,
+      sourceEventIds,
+    }) as MetricSample["id"],
     metric: subscription.selector.names[0] ?? event.type,
     scope: event.scope,
     subjectId: event.subjectId,
     value: aggregatedValue,
-    unit: subscription.aggregation.function === "count" ? "count" : String(fieldValue(event, "unit") ?? "value"),
+    unit:
+      subscription.aggregation.function === "count"
+        ? "count"
+        : String(fieldValue(event, "unit") ?? "value"),
     eventTime: new Date(watermark).toISOString(),
     computedAt: event.recordedAt,
     sourceEventIds,
     aggregationReceiptHash: receiptHash as MetricSample["aggregationReceiptHash"],
     quality: String(fieldValue(event, "quality") ?? "exact") as MetricSample["quality"],
-    confidence: typeof fieldValue(event, "confidence") === "number" ? (fieldValue(event, "confidence") as number) : event.provenance.confidence,
+    confidence:
+      typeof fieldValue(event, "confidence") === "number"
+        ? (fieldValue(event, "confidence") as number)
+        : event.provenance.confidence,
     source: `subscription:${subscription.id}`,
     revision: event.revision,
   };
   const nowMs = Date.parse(event.recordedAt);
-  const eligible = priorGroup.nextEligibleAt === null || nowMs >= Date.parse(priorGroup.nextEligibleAt);
+  const eligible =
+    priorGroup.nextEligibleAt === null || nowMs >= Date.parse(priorGroup.nextEligibleAt);
   const conditionTrue = thresholdMatches(aggregatedValue, subscription.hysteresis.trigger);
   const resetTrue = thresholdMatches(aggregatedValue, subscription.hysteresis.reset);
   let group: SubscriptionGroupState = { ...priorGroup, samples };
@@ -313,7 +375,12 @@ function evaluateAt(
     if (debounced) {
       const kind = signalKind(subscription);
       const signal: DerivedSignal = {
-        id: stableId("signal", { subscriptionId: subscription.id, key, watermark, receiptHash }) as DerivedSignal["id"],
+        id: stableId("signal", {
+          subscriptionId: subscription.id,
+          key,
+          watermark,
+          receiptHash,
+        }) as DerivedSignal["id"],
         kind,
         subscriptionId: subscription.id,
         scope: event.scope,
@@ -337,7 +404,9 @@ function evaluateAt(
         pendingSince: null,
         nextEligibleAt: new Date(nowMs + subscription.cooldownMs).toISOString(),
       };
-      reasons.push(`Measured ${aggregatedValue} crossed ${subscription.condition.operator} ${subscription.condition.value}.`);
+      reasons.push(
+        `Measured ${aggregatedValue} crossed ${subscription.condition.operator} ${subscription.condition.value}.`,
+      );
     } else {
       group = { ...group, pendingSince };
       reasons.push("Condition is waiting for debounce duration.");
@@ -408,7 +477,9 @@ export function evaluateSyntheticSubscriptionTest(
   const resetSignals: DerivedSignal[] = [];
   const reasons: string[] = [];
   for (let index = 0; index < sampleCount; index += 1) {
-    const eventTime = new Date(baseTime + index * Math.max(1, subscription.debounceMs)).toISOString();
+    const eventTime = new Date(
+      baseTime + index * Math.max(1, subscription.debounceMs),
+    ).toISOString();
     result = evaluateSubscriptionEvent(subscription, state, {
       ...normalizedEvent,
       sequence: normalizedEvent.sequence + index,

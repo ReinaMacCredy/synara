@@ -1,14 +1,15 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
 
-import type { HarnessPatch } from "@synara/contracts";
+import { HarnessPatch } from "@synara/contracts";
+import { Schema } from "effect";
 
 import {
   harnessPatchLifecycleSummary,
   harnessPatchScopeLabel,
 } from "./SupervisedRuntimeSettingsPanel";
 
-const patch = {
+const patch = Schema.decodeUnknownSync(HarnessPatch)({
   id: "patch-settings",
   name: "Review evidence first",
   patchType: "evaluation",
@@ -38,7 +39,7 @@ const patch = {
   activatedBy: null,
   createdAt: "2026-08-10T00:00:00.000Z",
   updatedAt: "2026-08-10T00:02:00.000Z",
-} as HarnessPatch;
+});
 
 describe("SupervisedRuntimeSettingsPanel Harness Patch lifecycle", () => {
   it("states that awaiting approval requires explicit Human action", () => {
@@ -50,7 +51,7 @@ describe("SupervisedRuntimeSettingsPanel Harness Patch lifecycle", () => {
   });
 
   it("reports real canary counters and retained rollback reasons", () => {
-    const canary = {
+    const canary = Schema.decodeUnknownSync(HarnessPatch)({
       ...patch,
       status: "canary",
       approval: {
@@ -67,13 +68,13 @@ describe("SupervisedRuntimeSettingsPanel Harness Patch lifecycle", () => {
         lastControlPlaneSequence: 2,
       },
       activatedBy: { kind: "user", actorId: "owner" },
-    } as HarnessPatch;
+    });
     assert.deepEqual(harnessPatchLifecycleSummary(canary), {
       label: "Canary",
       detail: "2 passed · 1/3 failed",
     });
 
-    const rolledBack = {
+    const rolledBack = Schema.decodeUnknownSync(HarnessPatch)({
       ...canary,
       status: "rolled_back",
       rollback: {
@@ -82,7 +83,7 @@ describe("SupervisedRuntimeSettingsPanel Harness Patch lifecycle", () => {
         rolledBackBy: { kind: "daemon", actorId: "runtime" },
         rolledBackAt: "2026-08-10T00:05:00.000Z",
       },
-    } as HarnessPatch;
+    });
     assert.deepEqual(harnessPatchLifecycleSummary(rolledBack), {
       label: "Rolled back",
       detail: "Canary failure threshold reached.",

@@ -138,9 +138,7 @@ describe("supervised topology projection", () => {
   it("shows only real, latest Peer model sessions for the selected Room", () => {
     const snapshot = {
       ...emptySupervisedRuntimeSnapshot(now),
-      peerSpecialties: [
-        { id: "retained-config-without-runtime-session", allowedScopes: [] },
-      ],
+      peerSpecialties: [{ id: "retained-config-without-runtime-session", allowedScopes: [] }],
       modelSessions: [
         {
           id: "peer-old",

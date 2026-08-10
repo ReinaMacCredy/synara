@@ -25,11 +25,13 @@ export function supervisedRuntimeTraceEntries(
   const evidence = snapshot.evidence ?? [];
   const rlmModelSessions = modelSessions.filter((session) => session.rlmEpisodeId !== null);
   const rlmModelSessionIds = new Set(rlmModelSessions.map((session) => session.id));
-  const rlmEvidence = evidence.filter(
-    (entry) => entry.modelSessionId !== null && rlmModelSessionIds.has(entry.modelSessionId),
-  );
+  const rlmEvidence = evidence.filter((entry) => {
+    const modelSessionId = entry.modelSessionId;
+    return modelSessionId != null && rlmModelSessionIds.has(modelSessionId);
+  });
+  const audit = snapshot.audit ?? [];
   return [
-    ...snapshot.audit.map((entry) => ({
+    ...audit.map((entry) => ({
       id: `audit:${entry.sequence}`,
       kind: "audit" as const,
       title: `${entry.action} · ${entry.outcome}`,
@@ -159,9 +161,10 @@ export function formatSupervisedRuntimeDiagnostics(input: {
   const evidence = runtime.evidence ?? [];
   const rlmModelSessions = modelSessions.filter((session) => session.rlmEpisodeId !== null);
   const rlmModelSessionIds = new Set(rlmModelSessions.map((session) => session.id));
-  const rlmEvidence = evidence.filter(
-    (entry) => entry.modelSessionId !== null && rlmModelSessionIds.has(entry.modelSessionId),
-  );
+  const rlmEvidence = evidence.filter((entry) => {
+    const modelSessionId = entry.modelSessionId;
+    return modelSessionId != null && rlmModelSessionIds.has(modelSessionId);
+  });
   return JSON.stringify(
     {
       generatedAt: server.generatedAt,

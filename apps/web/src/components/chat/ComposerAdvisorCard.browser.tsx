@@ -101,11 +101,10 @@ describe("ComposerAdvisorCard", () => {
 
     await expect.element(page.getByTestId("composer-advisor-card")).toBeVisible();
     await expect
-      .poll(
-        () =>
-          mounted.container
-            .querySelector("[data-composer-advisor-card-presence]")
-            ?.getAttribute("data-composer-advisor-card-presence"),
+      .poll(() =>
+        mounted.container
+          .querySelector("[data-composer-advisor-card-presence]")
+          ?.getAttribute("data-composer-advisor-card-presence"),
       )
       .toBe("open");
 

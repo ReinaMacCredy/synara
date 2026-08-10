@@ -50,9 +50,7 @@ function authorityBlock(context: ProviderSupervisedSessionContext): string {
   ].join("\n");
 }
 
-export function supervisedInstructionForSession(
-  context: ProviderSupervisedSessionContext,
-): string {
+export function supervisedInstructionForSession(context: ProviderSupervisedSessionContext): string {
   const identity = [
     context.supervisorSeatId ? `Supervisor seat: ${context.supervisorSeatId}.` : null,
     context.leadSeatId ? `Lead seat: ${context.leadSeatId}.` : null,

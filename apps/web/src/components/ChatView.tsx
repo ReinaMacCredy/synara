@@ -151,10 +151,7 @@ import {
 } from "../lib/advisorConsultation";
 
 import { ensureHomeChatProject, isHomeChatContainerProject } from "../lib/chatProjects";
-import {
-  resolveFirstSendTarget,
-  resolvesFirstSendTargetToProject,
-} from "../lib/chatFirstSend";
+import { resolveFirstSendTarget, resolvesFirstSendTargetToProject } from "../lib/chatFirstSend";
 import { ensureSupervisedRoom } from "../hooks/useHandleNewSupervised";
 import { readActiveSpaceId } from "../spacesUiStore";
 import {
@@ -543,9 +540,7 @@ import {
 } from "./chat/ComposerProfilePicker";
 import { ContextWindowMeter } from "./chat/ContextWindowMeter";
 import { ComposerInputBanners } from "./chat/ComposerInputBanners";
-import {
-  ComposerPendingUserInputPanelPresence,
-} from "./chat/ComposerPendingUserInputPanel";
+import { ComposerPendingUserInputPanelPresence } from "./chat/ComposerPendingUserInputPanel";
 import { ComposerVoiceButton } from "./chat/ComposerVoiceButton";
 import { ComposerVoiceRecorderBar } from "./chat/ComposerVoiceRecorderBar";
 import { ComposerReferenceAttachments } from "./chat/ComposerReferenceAttachments";
@@ -1438,15 +1433,15 @@ export default function ChatView({
   const supervisedOrchestration = useStore((store) => store.supervisedOrchestration);
   const supervisedSeats = supervisedOrchestration.agentSeats;
   const supervisorSeats = useMemo(
-    () => supervisedSeats.filter((seat) => seat.identityRole === "supervisor"),
+    () => (supervisedSeats ?? []).filter((seat) => seat.identityRole === "supervisor"),
     [supervisedSeats],
   );
   const leadSeats = useMemo(
-    () => supervisedSeats.filter((seat) => seat.identityRole === "lead"),
+    () => (supervisedSeats ?? []).filter((seat) => seat.identityRole === "lead"),
     [supervisedSeats],
   );
   const peerSeats = useMemo(
-    () => supervisedSeats.filter((seat) => seat.identityRole === "peer"),
+    () => (supervisedSeats ?? []).filter((seat) => seat.identityRole === "peer"),
     [supervisedSeats],
   );
   const markWorkflowRunPaused = useWorkflowRunUiStore((store) => store.markPaused);
@@ -1970,9 +1965,7 @@ export default function ChatView({
   );
   const selectedSupervisionProfile = useMemo(() => {
     return (
-      supervisionProfilesForDraft.find(
-        (profile) => profile.id === draftThread?.profilePresetId,
-      ) ??
+      supervisionProfilesForDraft.find((profile) => profile.id === draftThread?.profilePresetId) ??
       supervisionProfilesForDraft[0] ??
       null
     );
@@ -1982,27 +1975,14 @@ export default function ChatView({
     if (supervisorSeats.some((seat) => seat.threadId === threadId)) {
       return "Supervisor" as const;
     }
-    if (
-      leadSeats.some((seat) => seat.threadId === threadId)
-    ) {
+    if (leadSeats.some((seat) => seat.threadId === threadId)) {
       return "Lead" as const;
     }
-    if (
-      peerSeats.some(
-        (peer) => peer.threadId === threadId && peer.lifecycleState === "active",
-      )
-    ) {
+    if (peerSeats.some((peer) => peer.threadId === threadId && peer.lifecycleState === "active")) {
       return "Peer" as const;
     }
     return null;
-  }, [
-    isServerThread,
-    supervisedMode,
-    supervisorSeats,
-    leadSeats,
-    peerSeats,
-    threadId,
-  ]);
+  }, [isServerThread, supervisedMode, supervisorSeats, leadSeats, peerSeats, threadId]);
   const durableSupervisionProfileSnapshot = useMemo(() => {
     if (!isServerThread || !supervisedMode) return null;
     const seat =
@@ -3444,11 +3424,7 @@ export default function ChatView({
   }, []);
   const serverMessages = activeThread?.messages;
   const emptyLeadTurnMessage = useMemo<ChatMessage | null>(() => {
-    if (
-      durableSupervisionRole !== "Lead" ||
-      !latestTurnSettled ||
-      !activeLatestTurn?.completedAt
-    ) {
+    if (durableSupervisionRole !== "Lead" || !latestTurnSettled || !activeLatestTurn?.completedAt) {
       return null;
     }
     if (
@@ -3533,9 +3509,7 @@ export default function ChatView({
       ? [...serverMessagesWithPreviewHandoff, emptyLeadTurnMessage]
       : serverMessagesWithPreviewHandoff;
     const withPending =
-      pendingMessages.length === 0
-        ? withLeadFallback
-        : [...withLeadFallback, ...pendingMessages];
+      pendingMessages.length === 0 ? withLeadFallback : [...withLeadFallback, ...pendingMessages];
     return setupBubbles.length === 0 ? withPending : [...withPending, ...setupBubbles];
   }, [
     activeThread?.sidechatSourceThreadId,
@@ -4358,7 +4332,10 @@ export default function ChatView({
       params: { threadId },
       replace: true,
       search: (previous) => {
-        const rest = stripDiffSearchParams(previous);
+        const rest = {
+          ...stripDiffSearchParams(previous),
+          view: previous.view === "editor" ? ("editor" as const) : undefined,
+        };
         return diffOpen
           ? { ...rest, panel: undefined, diff: undefined }
           : { ...rest, panel: "diff", diff: "1" };
@@ -4375,7 +4352,10 @@ export default function ChatView({
       params: { threadId },
       replace: true,
       search: (previous) => {
-        const rest = stripDiffSearchParams(previous);
+        const rest = {
+          ...stripDiffSearchParams(previous),
+          view: previous.view === "editor" ? ("editor" as const) : undefined,
+        };
         return browserOpen ? { ...rest, panel: undefined } : { ...rest, panel: "browser" };
       },
     });
@@ -4401,6 +4381,7 @@ export default function ChatView({
         replace: true,
         search: (previous) => ({
           ...stripDiffSearchParams(previous),
+          view: previous.view === "editor" ? ("editor" as const) : undefined,
           panel: "browser",
         }),
       });
@@ -5734,10 +5715,7 @@ export default function ChatView({
     // space accounts for the composer inset itself. Applying the generic
     // bottom-restick compensation as well would move the row upward by exactly
     // the inset delta once a late composer measurement lands.
-    if (
-      tailAnchor?.threadId === threadId &&
-      autoFollowThreadIdRef.current === threadId
-    ) {
+    if (tailAnchor?.threadId === threadId && autoFollowThreadIdRef.current === threadId) {
       return;
     }
 
@@ -7585,11 +7563,11 @@ export default function ChatView({
     ) {
       return false;
     }
-  if (queuedTurn === undefined) {
-    sendPreflightInFlightRef.current = true;
-    await waitForPendingComposerImages();
-    sendPreflightInFlightRef.current = false;
-    let stagedHandoff = useComposerDraftStore.getState().draftsByThreadId[threadId]?.handoffDraft;
+    if (queuedTurn === undefined) {
+      sendPreflightInFlightRef.current = true;
+      await waitForPendingComposerImages();
+      sendPreflightInFlightRef.current = false;
+      let stagedHandoff = useComposerDraftStore.getState().draftsByThreadId[threadId]?.handoffDraft;
       while (stagedHandoff?.preparationState === "preparing" && stagedHandoff.attemptId) {
         await new Promise((resolve) => window.setTimeout(resolve, 500));
         const latest = await api.orchestration.getHandoffPreparation({
@@ -7616,9 +7594,9 @@ export default function ChatView({
           title: "Handoff packet is not ready",
           description: stagedHandoff.error ?? "Retry preparation or choose source-link-only.",
         });
-      return false;
+        return false;
+      }
     }
-  }
     if (activePendingProgress) {
       const activeQuestion = activePendingProgress.activeQuestion;
       const liveComposerSnapshot = composerEditorRef.current?.readSnapshot() ?? null;
@@ -7963,8 +7941,7 @@ export default function ChatView({
     }
     if (isSupervisedRoomDraft && supervisionDraftMode === "supervise") {
       const activeLead = leadSeats.find(
-        (lead) =>
-          lead.projectId === draftThread?.projectId && lead.lifecycleState !== "retired",
+        (lead) => lead.projectId === draftThread?.projectId && lead.lifecycleState !== "retired",
       );
       if (activeLead?.threadId) {
         await navigate({
@@ -7975,12 +7952,9 @@ export default function ChatView({
       }
     }
     const promoteToLead = isSupervisedRoomDraft && supervisionDraftMode === "supervise";
-    const promoteToSupervisor =
-      isSupervisedRoomDraft && supervisionDraftMode === "orchestrate";
+    const promoteToSupervisor = isSupervisedRoomDraft && supervisionDraftMode === "orchestrate";
     const promoteToSupervisedSeat = promoteToLead || promoteToSupervisor;
-    const supervisionProfileForSend = promoteToSupervisedSeat
-      ? selectedSupervisionProfile
-      : null;
+    const supervisionProfileForSend = promoteToSupervisedSeat ? selectedSupervisionProfile : null;
     if (promoteToSupervisedSeat && supervisionProfileForSend === null) {
       setStoreThreadError(activeThread.id, "Choose an active Supervised profile before sending.");
       return false;
@@ -8203,7 +8177,7 @@ export default function ChatView({
       targetProjectCwd: targetProjectCwdForSend,
       targetProjectScripts: targetProjectScriptsForSend,
       targetProjectDefaultModelSelection: targetProjectDefaultModelSelectionForSend,
-      } = firstSendTarget.kind === "create-project"
+    } = firstSendTarget.kind === "create-project"
       ? {
           targetProjectId: activeProject.id,
           targetProjectKind: activeProject.kind,
@@ -8211,8 +8185,8 @@ export default function ChatView({
           targetProjectScripts: activeProject.kind === "project" ? activeProject.scripts : [],
           targetProjectDefaultModelSelection: activeProject.defaultModelSelection ?? null,
         }
-        : firstSendTarget.target;
-      let nextRuntimeModeForSend = runtimeModeForSend;
+      : firstSendTarget.target;
+    let nextRuntimeModeForSend = runtimeModeForSend;
     let nextThreadEnvMode = envModeForSend;
     let nextThreadBranch = activeThread.branch;
     let nextThreadWorktreePath = activeThread.worktreePath;
@@ -8944,8 +8918,7 @@ export default function ChatView({
                     initialMission: {
                       id: SupervisionMissionId.makeUnsafe(randomUUID()),
                       supervisorSeatId: promotedSupervisorSeatId,
-                      brief:
-                        outgoingMessageText.trim().length > 0 ? outgoingMessageText : title,
+                      brief: outgoingMessageText.trim().length > 0 ? outgoingMessageText : title,
                       focus: `Coordinate the requested outcome for Project ${targetProjectIdForSend}.`,
                       scope: [{ kind: "project" as const, projectId: targetProjectIdForSend }],
                       grants: [
@@ -11429,7 +11402,10 @@ export default function ChatView({
         to: "/$threadId",
         params: { threadId },
         search: (previous) => {
-          const rest = stripDiffSearchParams(previous);
+          const rest = {
+            ...stripDiffSearchParams(previous),
+            view: previous.view === "editor" ? ("editor" as const) : undefined,
+          };
           return filePath
             ? {
                 ...rest,
@@ -11458,7 +11434,10 @@ export default function ChatView({
         search: (previous) =>
           isEditorRail
             ? { ...stripDiffSearchParams(previous), view: "editor" }
-            : stripDiffSearchParams(previous),
+            : {
+                ...stripDiffSearchParams(previous),
+                view: previous.view === "editor" ? ("editor" as const) : undefined,
+              },
       });
     },
     [isEditorRail, navigate],
@@ -12677,17 +12656,17 @@ export default function ChatView({
           showDiffToggle={!inspectOnly && !isEditorRail && !onAdjacentRightDockOpenChange}
           diffOpen={resolvedDiffOpen}
           diffDisabledReason={diffDisabledReason}
-    rightPanelToggle={
+          rightPanelToggle={
             onAdjacentRightDockOpenChange
               ? {
                   open: adjacentRightDockOpen,
                   onOpenChange: onAdjacentRightDockOpenChange,
                 }
-        : null
-    }
-    environment={inspectOnly || isEditorRail ? null : environmentHeaderState}
-    rightDockOpen={rightDockOpen}
-    {...(onToggleRightDock ? { onToggleRightDock } : {})}
+              : null
+          }
+          environment={inspectOnly || isEditorRail ? null : environmentHeaderState}
+          rightDockOpen={rightDockOpen}
+          {...(onToggleRightDock ? { onToggleRightDock } : {})}
           surfaceMode={surfaceMode}
           chatLayoutAction={
             !inspectOnly && surfaceMode === "single" && onSplitSurface

@@ -101,7 +101,9 @@ schemaLayer("migration 100 Supervisor-first governance", (it) => {
       const receipt = Schema.decodeUnknownSync(EffectiveAuthorityReceipt)(
         JSON.parse(receiptRows[0]!.entityJson),
       );
-      const lease = Schema.decodeUnknownSync(RootAuthorityLease)(JSON.parse(leaseRows[0]!.entityJson));
+      const lease = Schema.decodeUnknownSync(RootAuthorityLease)(
+        JSON.parse(leaseRows[0]!.entityJson),
+      );
 
       assert.equal(seat.identityRole, "lead");
       assert.deepStrictEqual(seat.roomIds, ["room-1"]);

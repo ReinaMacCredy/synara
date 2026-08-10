@@ -101,7 +101,10 @@ describe("server-owned Lead Room lifecycle", () => {
   it("only enters ready and active after the provider reports ready", async () => {
     const events = await Effect.runPromise(
       decideSupervisedRoomLifecycleForThreadCommand({
-        command: sessionSet("ready") as Extract<OrchestrationCommand, { type: "thread.session.set" }>,
+        command: sessionSet("ready") as Extract<
+          OrchestrationCommand,
+          { type: "thread.session.set" }
+        >,
         projectId,
         governance,
         runtime: {
@@ -111,13 +114,19 @@ describe("server-owned Lead Room lifecycle", () => {
       }),
     );
 
-    assert.deepEqual(events.map((event) => event.payload.room?.status), ["ready", "active"]);
+    assert.deepEqual(
+      events.map((event) => event.payload.room?.status),
+      ["ready", "active"],
+    );
   });
 
   it("fails provisioning when provider startup fails", async () => {
     const events = await Effect.runPromise(
       decideSupervisedRoomLifecycleForThreadCommand({
-        command: sessionSet("error") as Extract<OrchestrationCommand, { type: "thread.session.set" }>,
+        command: sessionSet("error") as Extract<
+          OrchestrationCommand,
+          { type: "thread.session.set" }
+        >,
         projectId,
         governance,
         runtime: {

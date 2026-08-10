@@ -881,19 +881,16 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         for (const decision of Array.isArray(supervisedBootstrapDecision)
           ? supervisedBootstrapDecision
           : [supervisedBootstrapDecision]) {
-            const projectedDecision = {
-              ...decision,
-              sequence: commandDeciderReadModel.snapshotSequence,
-            };
-            commandDeciderReadModel = yield* projectEvent(
-              commandDeciderReadModel,
-              projectedDecision,
-            );
-            governanceDecisionState = projectSupervisedGovernanceDecisionEvent(
-              governanceDecisionState,
-              projectedDecision,
-            );
-          }
+          const projectedDecision = {
+            ...decision,
+            sequence: commandDeciderReadModel.snapshotSequence,
+          };
+          commandDeciderReadModel = yield* projectEvent(commandDeciderReadModel, projectedDecision);
+          governanceDecisionState = projectSupervisedGovernanceDecisionEvent(
+            governanceDecisionState,
+            projectedDecision,
+          );
+        }
         governance = reconcileGovernanceProjection({
           governance,
           state: governanceDecisionState,
@@ -907,9 +904,8 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           ? yield* decideSupervisedRoomLifecycleForThreadCommand({
               command,
               projectId:
-                commandDeciderReadModel.threads.find(
-                  (thread) => thread.id === command.threadId,
-                )?.projectId ?? null,
+                commandDeciderReadModel.threads.find((thread) => thread.id === command.threadId)
+                  ?.projectId ?? null,
               governance,
               runtime: commandDeciderReadModel.supervised,
             })
@@ -997,8 +993,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                   candidate.id === command.supervisorSeatId &&
                   candidate.identityRole === "supervisor" &&
                   candidate.threadId === supervisor?.activeThreadId &&
-                  (candidate.lifecycleState === "ready" ||
-                    candidate.lifecycleState === "active"),
+                  (candidate.lifecycleState === "ready" || candidate.lifecycleState === "active"),
               );
               if (
                 !project ||
@@ -1086,9 +1081,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                 },
               });
               let governanceStateWithLead = governanceDecisionState;
-              for (const decision of Array.isArray(leadDecision)
-                ? leadDecision
-                : [leadDecision]) {
+              for (const decision of Array.isArray(leadDecision) ? leadDecision : [leadDecision]) {
                 governanceStateWithLead = projectSupervisedGovernanceDecisionEvent(
                   governanceStateWithLead,
                   {
@@ -1125,9 +1118,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                 command.initialPrompt === undefined
                   ? []
                   : yield* (() => {
-                      const messageId = MessageId.makeUnsafe(
-                        `lead:${command.leadSeatId}:initial`,
-                      );
+                      const messageId = MessageId.makeUnsafe(`lead:${command.leadSeatId}:initial`);
                       return decideOrchestrationCommand({
                         command: {
                           type: "thread.turn.start",
@@ -1262,398 +1253,288 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                   ...(Array.isArray(turnDecision) ? turnDecision : [turnDecision]),
                 ];
               })
-          : command.type === "supervised.task-graph.create"
-            ? yield* Effect.gen(function* () {
-                const room = commandDeciderReadModel.supervised.rooms.find(
-                  (candidate) => candidate.id === command.task.roomId,
-                );
-                const nextGraphRevision = (room?.graphRevision ?? -1) + 1;
-                const nodeIds = new Set(command.nodes.map(({ taskNode }) => taskNode.id));
-                const graphShapeValid =
-                  room !== undefined &&
-                  room.leadSeatId !== null &&
-                  command.task.revision === 0 &&
-                  command.task.activeGraphRevision === nextGraphRevision &&
-                  nodeIds.size === command.nodes.length &&
-                  command.nodes.every(({ taskNode, taskNodeRevision }) =>
-                    taskNode.taskId === command.task.id &&
-                    taskNode.roomId === command.task.roomId &&
-                    taskNode.revision === 0 &&
-                    taskNode.graphRevision === nextGraphRevision &&
-                    taskNode.activeRevisionId === taskNodeRevision.id &&
-                    taskNodeRevision.taskNodeId === taskNode.id &&
-                    taskNodeRevision.graphRevision === nextGraphRevision &&
-                    taskNodeRevision.dependencyNodeIds.every(
-                      (dependencyId) =>
-                        dependencyId !== taskNode.id && nodeIds.has(dependencyId),
-                    )
-                  );
-                if (!graphShapeValid) {
-                  return yield* new OrchestrationCommandInvariantError({
-                    commandType: command.type,
-                    detail:
-                      "Task Graph creation requires one fresh Task, unique in-graph nodes, and a single next graph revision.",
-                  });
-                }
-                const dependenciesByNode = new Map(
-                  command.nodes.map(({ taskNode, taskNodeRevision }) => [
-                    taskNode.id,
-                    taskNodeRevision.dependencyNodeIds,
-                  ]),
-                );
-                const visiting = new Set<string>();
-                const visited = new Set<string>();
-                const hasCycle = (nodeId: string): boolean => {
-                  if (visiting.has(nodeId)) return true;
-                  if (visited.has(nodeId)) return false;
-                  visiting.add(nodeId);
-                  for (const dependencyId of dependenciesByNode.get(nodeId) ?? []) {
-                    if (hasCycle(dependencyId)) return true;
-                  }
-                  visiting.delete(nodeId);
-                  visited.add(nodeId);
-                  return false;
-                };
-                if ([...nodeIds].some(hasCycle)) {
-                  return yield* new OrchestrationCommandInvariantError({
-                    commandType: command.type,
-                    detail: "Task Graph dependencies must be acyclic.",
-                  });
-                }
-
-                let graphReadModel = commandDeciderReadModel;
-                const decisions: Array<Omit<OrchestrationEvent, "sequence">> = [];
-                const decideAndProject = (
-                  nestedCommand: Extract<
-                    SupervisedCommand,
-                    {
-                      readonly type:
-                        | "supervised.room.update"
-                        | "supervised.task.create"
-                        | "supervised.task-node.commit";
-                    }
-                  >,
-                ) =>
-                  Effect.gen(function* () {
-                    const decision = yield* decideSupervisedCommand({
-                      command: nestedCommand,
-                      state: graphReadModel.supervised,
-                      governance,
-                    });
-                    for (const next of Array.isArray(decision) ? decision : [decision]) {
-                      decisions.push(next);
-                      graphReadModel = yield* projectEvent(graphReadModel, {
-                        ...next,
-                        sequence: graphReadModel.snapshotSequence,
-                      });
-                    }
-                  });
-                const nestedBase = {
-                  commandId: command.commandId,
-                  actor: command.actor,
-                  ...(command.authorityReceiptId === undefined
-                    ? {}
-                    : { authorityReceiptId: command.authorityReceiptId }),
-                  createdAt: command.createdAt,
-                };
-                yield* decideAndProject({
-                  ...nestedBase,
-                  type: "supervised.room.update",
-                  aggregateId: room!.id,
-                  expectedRevision: room!.revision,
-                  idempotencyKey: `task-graph-room:${command.task.id}`,
-                  room: {
-                    ...room!,
-                    graphRevision: nextGraphRevision,
-                    updatedAt: command.createdAt,
-                  },
-                });
-                yield* decideAndProject({
-                  ...nestedBase,
-                  type: "supervised.task.create",
-                  aggregateId: command.task.id,
-                  expectedRevision: 0,
-                  idempotencyKey: `task-graph-task:${command.task.id}`,
-                  task: command.task,
-                });
-                for (const { taskNode, taskNodeRevision } of command.nodes) {
-                  yield* decideAndProject({
-                    ...nestedBase,
-                    type: "supervised.task-node.commit",
-                    aggregateId: command.task.id,
-                    expectedRevision: 0,
-                    idempotencyKey: `task-graph-node:${taskNode.id}`,
-                    taskNode,
-                    taskNodeRevision,
-                  });
-                }
-                return decisions;
-              })
-            : command.type === "supervised.task.delegate"
+            : command.type === "supervised.task-graph.create"
               ? yield* Effect.gen(function* () {
-                  yield* validateSagaAuthority(command);
                   const room = commandDeciderReadModel.supervised.rooms.find(
-                    (candidate) =>
-                      candidate.id === command.roomId &&
-                      candidate.projectId === command.projectId &&
-                      candidate.leadSeatId === command.leadSeatId &&
-                      candidate.status === "active",
+                    (candidate) => candidate.id === command.task.roomId,
                   );
-                  const task = commandDeciderReadModel.supervised.tasks.find(
-                    (candidate) =>
-                      candidate.id === command.run.taskId && candidate.roomId === command.roomId,
-                  );
-                  const taskNode = commandDeciderReadModel.supervised.taskNodes.find(
-                    (candidate) =>
-                      candidate.id === command.run.taskNodeId &&
-                      candidate.taskId === task?.id &&
-                      candidate.roomId === command.roomId,
-                  );
-                  const taskNodeRevision = commandDeciderReadModel.supervised.taskNodeRevisions.find(
-                    (candidate) => candidate.id === taskNode?.activeRevisionId,
-                  );
-                  const root = activeRootForRoom(command.roomId);
-                  const peer = governanceDecisionState.peers.find(
-                    (candidate) =>
-                      candidate.threadId === command.peerThreadId &&
-                      candidate.projectId === command.projectId &&
-                      candidate.leadSeatId === command.leadSeatId &&
-                      candidate.rootThreadId === command.leadThreadId &&
-                      candidate.status === "active",
-                  );
-                  const peerSeat = governance.agentSeats.find(
-                    (candidate) =>
-                      candidate.identityRole === "peer" &&
-                      candidate.threadId === command.peerThreadId &&
-                      candidate.roomIds.includes(command.roomId) &&
-                      (candidate.lifecycleState === "ready" ||
-                        candidate.lifecycleState === "active"),
-                  );
-                  const peerThread = commandDeciderReadModel.threads.find(
-                    (candidate) =>
-                      candidate.id === command.peerThreadId &&
-                      candidate.projectId === command.projectId &&
-                      candidate.deletedAt === null,
-                  );
-                  const hasActiveRun = commandDeciderReadModel.supervised.runs.some(
-                    (candidate) =>
-                      candidate.taskNodeId === taskNode?.id &&
-                      !["succeeded", "failed", "cancelled"].includes(candidate.status),
-                  );
-                  if (
-                    !room ||
-                    !task ||
-                    !taskNode ||
-                    !taskNodeRevision ||
-                    !root ||
-                    root.seat.id !== command.leadSeatId ||
-                    root.seat.threadId !== command.leadThreadId ||
-                    root.room.projectId !== command.projectId ||
-                    !peer ||
-                    !peerSeat ||
-                    !peerThread ||
-                    hasActiveRun ||
-                    command.actor.kind !== "seat" ||
-                    command.actor.seatId !== command.leadSeatId ||
-                    command.actor.actorId !== command.leadThreadId ||
-                    taskNode.lifecycle !== "ready" ||
-                    command.run.roomId !== room.id ||
-                    command.run.taskNodeRevisionId !== taskNodeRevision.id ||
-                    command.run.ownerSeatId !== peerSeat.id ||
-                    command.run.status !== "queued"
-                  ) {
+                  const nextGraphRevision = (room?.graphRevision ?? -1) + 1;
+                  const nodeIds = new Set(command.nodes.map(({ taskNode }) => taskNode.id));
+                  const graphShapeValid =
+                    room !== undefined &&
+                    room.leadSeatId !== null &&
+                    command.task.revision === 0 &&
+                    command.task.activeGraphRevision === nextGraphRevision &&
+                    nodeIds.size === command.nodes.length &&
+                    command.nodes.every(
+                      ({ taskNode, taskNodeRevision }) =>
+                        taskNode.taskId === command.task.id &&
+                        taskNode.roomId === command.task.roomId &&
+                        taskNode.revision === 0 &&
+                        taskNode.graphRevision === nextGraphRevision &&
+                        taskNode.activeRevisionId === taskNodeRevision.id &&
+                        taskNodeRevision.taskNodeId === taskNode.id &&
+                        taskNodeRevision.graphRevision === nextGraphRevision &&
+                        taskNodeRevision.dependencyNodeIds.every(
+                          (dependencyId) =>
+                            dependencyId !== taskNode.id && nodeIds.has(dependencyId),
+                        ),
+                    );
+                  if (!graphShapeValid) {
                     return yield* new OrchestrationCommandInvariantError({
                       commandType: command.type,
                       detail:
-                        "TaskNode delegation requires the current Root holder, an active scoped Peer, one ready active revision, and no existing live Run.",
+                        "Task Graph creation requires one fresh Task, unique in-graph nodes, and a single next graph revision.",
                     });
                   }
-                  const runDecision = yield* decideSupervisedCommand({
-                    command: {
-                      ...command,
-                      type: "supervised.run.request",
-                      aggregateId: command.run.id,
-                      expectedRevision: 0,
-                      idempotencyKey: `task-delegate-run:${command.run.id}`,
-                      run: command.run,
-                    },
-                    state: commandDeciderReadModel.supervised,
-                    governance,
-                  });
-                  const readModelWithRun = yield* projectEvent(commandDeciderReadModel, {
-                    ...(Array.isArray(runDecision) ? runDecision[0]! : runDecision),
-                    sequence: commandDeciderReadModel.snapshotSequence,
-                  });
-                  const messageId = MessageId.makeUnsafe(
-                    `task-node:${taskNode.id}:run:${command.run.id}:assignment`,
+                  const dependenciesByNode = new Map(
+                    command.nodes.map(({ taskNode, taskNodeRevision }) => [
+                      taskNode.id,
+                      taskNodeRevision.dependencyNodeIds,
+                    ]),
                   );
-                  const turnDecision = yield* decideOrchestrationCommand({
-                    command: {
-                      type: "thread.turn.start",
-                      commandId: command.commandId,
-                      threadId: command.peerThreadId,
-                      message: {
-                        messageId,
-                        role: "thread",
-                        text: [
-                          "<synara_supervised_task_node_assignment>",
-                          JSON.stringify({
-                            roomId: room.id,
-                            taskId: task.id,
-                            taskNodeId: taskNode.id,
-                            taskNodeRevisionId: taskNodeRevision.id,
-                            runId: command.run.id,
-                            rootLeadSeatId: command.leadSeatId,
-                            rootLeadThreadId: command.leadThreadId,
-                            scope: taskNodeRevision.scope,
-                            acceptanceCriteria: taskNodeRevision.acceptanceCriteria,
-                            workRequest: command.workRequest,
-                          }),
-                          "This is a durable TaskNode delegation. Root ownership remains with the current Root holder.",
-                          "Call start_task_node_run before executing, then call publish_task_node_evidence with the retained Run id when the acceptance evidence is ready.",
-                          "</synara_supervised_task_node_assignment>",
-                        ].join("\n"),
-                        attachments: [],
-                      },
-                      dispatchMode: "queue",
-                      dispatchOrigin: "agent",
-                      threadOrigin: {
-                        messageId,
-                        rootThreadId: command.leadThreadId,
-                        senderThreadId: command.leadThreadId,
-                        targetThreadId: command.peerThreadId,
-                        assignmentId: taskNode.id,
-                        runId: command.run.id,
-                        correlationId: command.commandId,
-                        replyToMessageId: null,
-                        hopCount: 0,
-                        artifactRefs: [],
-                      },
-                      runtimeMode: peerThread.runtimeMode,
-                      interactionMode: peerThread.interactionMode,
-                      createdAt: command.createdAt,
+                  const visiting = new Set<string>();
+                  const visited = new Set<string>();
+                  const hasCycle = (nodeId: string): boolean => {
+                    if (visiting.has(nodeId)) return true;
+                    if (visited.has(nodeId)) return false;
+                    visiting.add(nodeId);
+                    for (const dependencyId of dependenciesByNode.get(nodeId) ?? []) {
+                      if (hasCycle(dependencyId)) return true;
+                    }
+                    visiting.delete(nodeId);
+                    visited.add(nodeId);
+                    return false;
+                  };
+                  if ([...nodeIds].some(hasCycle)) {
+                    return yield* new OrchestrationCommandInvariantError({
+                      commandType: command.type,
+                      detail: "Task Graph dependencies must be acyclic.",
+                    });
+                  }
+
+                  let graphReadModel = commandDeciderReadModel;
+                  const decisions: Array<Omit<OrchestrationEvent, "sequence">> = [];
+                  const decideAndProject = (
+                    nestedCommand: Extract<
+                      SupervisedCommand,
+                      {
+                        readonly type:
+                          | "supervised.room.update"
+                          | "supervised.task.create"
+                          | "supervised.task-node.commit";
+                      }
+                    >,
+                  ) =>
+                    Effect.gen(function* () {
+                      const decision = yield* decideSupervisedCommand({
+                        command: nestedCommand,
+                        state: graphReadModel.supervised,
+                        governance,
+                      });
+                      for (const next of Array.isArray(decision) ? decision : [decision]) {
+                        decisions.push(next);
+                        graphReadModel = yield* projectEvent(graphReadModel, {
+                          ...next,
+                          sequence: graphReadModel.snapshotSequence,
+                        });
+                      }
+                    });
+                  const nestedBase = {
+                    commandId: command.commandId,
+                    actor: command.actor,
+                    ...(command.authorityReceiptId === undefined
+                      ? {}
+                      : { authorityReceiptId: command.authorityReceiptId }),
+                    createdAt: command.createdAt,
+                  };
+                  yield* decideAndProject({
+                    ...nestedBase,
+                    type: "supervised.room.update",
+                    aggregateId: room!.id,
+                    expectedRevision: room!.revision,
+                    idempotencyKey: `task-graph-room:${command.task.id}`,
+                    room: {
+                      ...room!,
+                      graphRevision: nextGraphRevision,
+                      updatedAt: command.createdAt,
                     },
-                    readModel: readModelWithRun,
-                    workspacePaths: deciderWorkspacePaths,
                   });
-                  return [
-                    ...(Array.isArray(runDecision) ? runDecision : [runDecision]),
-                    ...(Array.isArray(turnDecision) ? turnDecision : [turnDecision]),
-                  ];
+                  yield* decideAndProject({
+                    ...nestedBase,
+                    type: "supervised.task.create",
+                    aggregateId: command.task.id,
+                    expectedRevision: 0,
+                    idempotencyKey: `task-graph-task:${command.task.id}`,
+                    task: command.task,
+                  });
+                  for (const { taskNode, taskNodeRevision } of command.nodes) {
+                    yield* decideAndProject({
+                      ...nestedBase,
+                      type: "supervised.task-node.commit",
+                      aggregateId: command.task.id,
+                      expectedRevision: 0,
+                      idempotencyKey: `task-graph-node:${taskNode.id}`,
+                      taskNode,
+                      taskNodeRevision,
+                    });
+                  }
+                  return decisions;
                 })
-              : command.type === "supervised.run.start"
+              : command.type === "supervised.task.delegate"
                 ? yield* Effect.gen(function* () {
                     yield* validateSagaAuthority(command);
-                    const run = commandDeciderReadModel.supervised.runs.find(
-                      (candidate) => candidate.id === command.runId,
+                    const room = commandDeciderReadModel.supervised.rooms.find(
+                      (candidate) =>
+                        candidate.id === command.roomId &&
+                        candidate.projectId === command.projectId &&
+                        candidate.leadSeatId === command.leadSeatId &&
+                        candidate.status === "active",
                     );
-                    const taskNode = run?.taskNodeId
-                      ? commandDeciderReadModel.supervised.taskNodes.find(
-                          (candidate) => candidate.id === run.taskNodeId,
-                        )
-                      : undefined;
-                    const taskNodeRevision = taskNode
-                      ? commandDeciderReadModel.supervised.taskNodeRevisions.find(
-                          (candidate) => candidate.id === taskNode.activeRevisionId,
-                        )
-                      : undefined;
+                    const task = commandDeciderReadModel.supervised.tasks.find(
+                      (candidate) =>
+                        candidate.id === command.run.taskId && candidate.roomId === command.roomId,
+                    );
+                    const taskNode = commandDeciderReadModel.supervised.taskNodes.find(
+                      (candidate) =>
+                        candidate.id === command.run.taskNodeId &&
+                        candidate.taskId === task?.id &&
+                        candidate.roomId === command.roomId,
+                    );
+                    const taskNodeRevision =
+                      commandDeciderReadModel.supervised.taskNodeRevisions.find(
+                        (candidate) => candidate.id === taskNode?.activeRevisionId,
+                      );
+                    const root = activeRootForRoom(command.roomId);
+                    const peer = governanceDecisionState.peers.find(
+                      (candidate) =>
+                        candidate.threadId === command.peerThreadId &&
+                        candidate.projectId === command.projectId &&
+                        candidate.leadSeatId === command.leadSeatId &&
+                        candidate.rootThreadId === command.leadThreadId &&
+                        candidate.status === "active",
+                    );
+                    const peerSeat = governance.agentSeats.find(
+                      (candidate) =>
+                        candidate.identityRole === "peer" &&
+                        candidate.threadId === command.peerThreadId &&
+                        candidate.roomIds.includes(command.roomId) &&
+                        (candidate.lifecycleState === "ready" ||
+                          candidate.lifecycleState === "active"),
+                    );
+                    const peerThread = commandDeciderReadModel.threads.find(
+                      (candidate) =>
+                        candidate.id === command.peerThreadId &&
+                        candidate.projectId === command.projectId &&
+                        candidate.deletedAt === null,
+                    );
+                    const hasActiveRun = commandDeciderReadModel.supervised.runs.some(
+                      (candidate) =>
+                        candidate.taskNodeId === taskNode?.id &&
+                        !["succeeded", "failed", "cancelled"].includes(candidate.status),
+                    );
                     if (
-                      !run ||
+                      !room ||
+                      !task ||
                       !taskNode ||
                       !taskNodeRevision ||
+                      !root ||
+                      root.seat.id !== command.leadSeatId ||
+                      root.seat.threadId !== command.leadThreadId ||
+                      root.room.projectId !== command.projectId ||
+                      !peer ||
+                      !peerSeat ||
+                      !peerThread ||
+                      hasActiveRun ||
                       command.actor.kind !== "seat" ||
-                      command.actor.seatId !== run.ownerSeatId ||
-                      run.status !== "queued" ||
+                      command.actor.seatId !== command.leadSeatId ||
+                      command.actor.actorId !== command.leadThreadId ||
                       taskNode.lifecycle !== "ready" ||
-                      command.claim.runId !== run.id ||
-                      command.claim.taskNodeId !== taskNode.id ||
-                      command.claim.taskNodeRevisionId !== taskNodeRevision.id ||
-                      command.claim.ownerSeatId !== run.ownerSeatId ||
-                      command.claim.status !== "active"
+                      command.run.roomId !== room.id ||
+                      command.run.taskNodeRevisionId !== taskNodeRevision.id ||
+                      command.run.ownerSeatId !== peerSeat.id ||
+                      command.run.status !== "queued"
                     ) {
                       return yield* new OrchestrationCommandInvariantError({
                         commandType: command.type,
                         detail:
-                          "Run start requires its assigned Peer, queued Run, ready active TaskNode revision, and matching active WorkClaim.",
+                          "TaskNode delegation requires the current Root holder, an active scoped Peer, one ready active revision, and no existing live Run.",
                       });
                     }
-                    let graphReadModel = commandDeciderReadModel;
-                    const decisions: Array<Omit<OrchestrationEvent, "sequence">> = [];
-                    const decideAndProject = (
-                      nestedCommand: Extract<
-                        SupervisedCommand,
-                        {
-                          readonly type:
-                            | "supervised.claim.acquire"
-                            | "supervised.run.transition"
-                            | "supervised.task-node.commit";
-                        }
-                      >,
-                    ) =>
-                      Effect.gen(function* () {
-                        const decision = yield* decideSupervisedCommand({
-                          command: nestedCommand,
-                          state: graphReadModel.supervised,
-                          governance,
-                        });
-                        for (const next of Array.isArray(decision) ? decision : [decision]) {
-                          decisions.push(next);
-                          graphReadModel = yield* projectEvent(graphReadModel, {
-                            ...next,
-                            sequence: graphReadModel.snapshotSequence,
-                          });
-                        }
-                      });
-                    const nestedBase = {
-                      commandId: command.commandId,
-                      actor: command.actor,
-                      ...(command.authorityReceiptId === undefined
-                        ? {}
-                        : { authorityReceiptId: command.authorityReceiptId }),
-                      createdAt: command.createdAt,
-                    };
-                    yield* decideAndProject({
-                      ...nestedBase,
-                      type: "supervised.claim.acquire",
-                      aggregateId: command.claim.id,
-                      expectedRevision: 0,
-                      idempotencyKey: `run-start-claim:${run.id}`,
-                      claim: command.claim,
-                    });
-                    for (const status of ["admitted", "starting", "running"] as const) {
-                      const currentRun = graphReadModel.supervised.runs.find(
-                        (candidate) => candidate.id === run.id,
-                      )!;
-                      yield* decideAndProject({
-                        ...nestedBase,
-                        type: "supervised.run.transition",
-                        aggregateId: run.id,
-                        expectedRevision: currentRun.revision,
-                        idempotencyKey: `run-start:${run.id}:${status}`,
-                        runId: run.id,
-                        status,
-                        reason: "Assigned Peer acquired the durable WorkClaim.",
-                      });
-                    }
-                    const currentTaskNode = graphReadModel.supervised.taskNodes.find(
-                      (candidate) => candidate.id === taskNode.id,
-                    )!;
-                    yield* decideAndProject({
-                      ...nestedBase,
-                      type: "supervised.task-node.commit",
-                      aggregateId: taskNode.taskId,
-                      expectedRevision: currentTaskNode.revision,
-                      idempotencyKey: `run-start-task-node:${run.id}`,
-                      taskNode: {
-                        ...currentTaskNode,
-                        lifecycle: "running",
-                        updatedAt: command.createdAt,
+                    const runDecision = yield* decideSupervisedCommand({
+                      command: {
+                        ...command,
+                        type: "supervised.run.request",
+                        aggregateId: command.run.id,
+                        expectedRevision: 0,
+                        idempotencyKey: `task-delegate-run:${command.run.id}`,
+                        run: command.run,
                       },
-                      taskNodeRevision,
+                      state: commandDeciderReadModel.supervised,
+                      governance,
                     });
-                    return decisions;
+                    const readModelWithRun = yield* projectEvent(commandDeciderReadModel, {
+                      ...(Array.isArray(runDecision) ? runDecision[0]! : runDecision),
+                      sequence: commandDeciderReadModel.snapshotSequence,
+                    });
+                    const messageId = MessageId.makeUnsafe(
+                      `task-node:${taskNode.id}:run:${command.run.id}:assignment`,
+                    );
+                    const turnDecision = yield* decideOrchestrationCommand({
+                      command: {
+                        type: "thread.turn.start",
+                        commandId: command.commandId,
+                        threadId: command.peerThreadId,
+                        message: {
+                          messageId,
+                          role: "thread",
+                          text: [
+                            "<synara_supervised_task_node_assignment>",
+                            JSON.stringify({
+                              roomId: room.id,
+                              taskId: task.id,
+                              taskNodeId: taskNode.id,
+                              taskNodeRevisionId: taskNodeRevision.id,
+                              runId: command.run.id,
+                              rootLeadSeatId: command.leadSeatId,
+                              rootLeadThreadId: command.leadThreadId,
+                              scope: taskNodeRevision.scope,
+                              acceptanceCriteria: taskNodeRevision.acceptanceCriteria,
+                              workRequest: command.workRequest,
+                            }),
+                            "This is a durable TaskNode delegation. Root ownership remains with the current Root holder.",
+                            "Call start_task_node_run before executing, then call publish_task_node_evidence with the retained Run id when the acceptance evidence is ready.",
+                            "</synara_supervised_task_node_assignment>",
+                          ].join("\n"),
+                          attachments: [],
+                        },
+                        dispatchMode: "queue",
+                        dispatchOrigin: "agent",
+                        threadOrigin: {
+                          messageId,
+                          rootThreadId: command.leadThreadId,
+                          senderThreadId: command.leadThreadId,
+                          targetThreadId: command.peerThreadId,
+                          assignmentId: taskNode.id,
+                          runId: command.run.id,
+                          correlationId: command.commandId,
+                          replyToMessageId: null,
+                          hopCount: 0,
+                          artifactRefs: [],
+                        },
+                        runtimeMode: peerThread.runtimeMode,
+                        interactionMode: peerThread.interactionMode,
+                        createdAt: command.createdAt,
+                      },
+                      readModel: readModelWithRun,
+                      workspacePaths: deciderWorkspacePaths,
+                    });
+                    return [
+                      ...(Array.isArray(runDecision) ? runDecision : [runDecision]),
+                      ...(Array.isArray(turnDecision) ? turnDecision : [turnDecision]),
+                    ];
                   })
-                : command.type === "supervised.run.submit"
+                : command.type === "supervised.run.start"
                   ? yield* Effect.gen(function* () {
                       yield* validateSagaAuthority(command);
                       const run = commandDeciderReadModel.supervised.runs.find(
@@ -1669,37 +1550,24 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                             (candidate) => candidate.id === taskNode.activeRevisionId,
                           )
                         : undefined;
-                      const claim = commandDeciderReadModel.supervised.workClaims.find(
-                        (candidate) => candidate.id === command.claimId,
-                      );
-                      const room = run
-                        ? commandDeciderReadModel.supervised.rooms.find(
-                            (candidate) => candidate.id === run.roomId,
-                          )
-                        : undefined;
-                      const root = room ? activeRootForRoom(room.id) : null;
                       if (
                         !run ||
                         !taskNode ||
                         !taskNodeRevision ||
-                        !claim ||
-                        !room ||
-                        !root ||
                         command.actor.kind !== "seat" ||
                         command.actor.seatId !== run.ownerSeatId ||
-                        run.status !== "running" ||
-                        taskNode.lifecycle !== "running" ||
-                        claim.status !== "active" ||
-                        claim.runId !== run.id ||
-                        claim.taskNodeRevisionId !== run.taskNodeRevisionId ||
-                        command.evidence.scope.kind !== "room" ||
-                        command.evidence.scope.roomId !== run.roomId ||
-                        command.evidence.createdBy.seatId !== run.ownerSeatId
+                        run.status !== "queued" ||
+                        taskNode.lifecycle !== "ready" ||
+                        command.claim.runId !== run.id ||
+                        command.claim.taskNodeId !== taskNode.id ||
+                        command.claim.taskNodeRevisionId !== taskNodeRevision.id ||
+                        command.claim.ownerSeatId !== run.ownerSeatId ||
+                        command.claim.status !== "active"
                       ) {
                         return yield* new OrchestrationCommandInvariantError({
                           commandType: command.type,
                           detail:
-                            "Run submission requires the assigned Peer, running TaskNode, active matching WorkClaim, scoped evidence, and current Root holder.",
+                            "Run start requires its assigned Peer, queued Run, ready active TaskNode revision, and matching active WorkClaim.",
                         });
                       }
                       let graphReadModel = commandDeciderReadModel;
@@ -1709,10 +1577,9 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                           SupervisedCommand,
                           {
                             readonly type:
-                              | "supervised.evidence.publish"
+                              | "supervised.claim.acquire"
                               | "supervised.run.transition"
-                              | "supervised.task-node.commit"
-                              | "supervised.claim.release";
+                              | "supervised.task-node.commit";
                           }
                         >,
                       ) =>
@@ -1740,110 +1607,46 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                       };
                       yield* decideAndProject({
                         ...nestedBase,
-                        type: "supervised.evidence.publish",
-                        aggregateId: command.evidence.id,
+                        type: "supervised.claim.acquire",
+                        aggregateId: command.claim.id,
                         expectedRevision: 0,
-                        idempotencyKey: `run-submit-evidence:${run.id}:${command.evidence.id}`,
-                        evidence: command.evidence,
+                        idempotencyKey: `run-start-claim:${run.id}`,
+                        claim: command.claim,
                       });
-                      yield* decideAndProject({
-                        ...nestedBase,
-                        type: "supervised.run.transition",
-                        aggregateId: run.id,
-                        expectedRevision: run.revision,
-                        idempotencyKey: `run-submit-reviewing:${run.id}:${run.revision}`,
-                        runId: run.id,
-                        status: "reviewing",
-                        reason: "Assigned Peer published durable acceptance evidence.",
-                      });
-                      const reviewRevision = {
-                        ...taskNodeRevision,
-                        id: TaskNodeRevisionId.makeUnsafe(
-                          `task-node-revision:${taskNode.id}:evidence:${command.evidence.id}`,
-                        ),
-                        evidenceRefs: [
-                          ...new Set([...taskNodeRevision.evidenceRefs, command.evidence.id]),
-                        ],
-                        createdBy: command.actor,
-                        createdAt: command.createdAt,
-                      };
+                      for (const status of ["admitted", "starting", "running"] as const) {
+                        const currentRun = graphReadModel.supervised.runs.find(
+                          (candidate) => candidate.id === run.id,
+                        )!;
+                        yield* decideAndProject({
+                          ...nestedBase,
+                          type: "supervised.run.transition",
+                          aggregateId: run.id,
+                          expectedRevision: currentRun.revision,
+                          idempotencyKey: `run-start:${run.id}:${status}`,
+                          runId: run.id,
+                          status,
+                          reason: "Assigned Peer acquired the durable WorkClaim.",
+                        });
+                      }
+                      const currentTaskNode = graphReadModel.supervised.taskNodes.find(
+                        (candidate) => candidate.id === taskNode.id,
+                      )!;
                       yield* decideAndProject({
                         ...nestedBase,
                         type: "supervised.task-node.commit",
                         aggregateId: taskNode.taskId,
-                        expectedRevision: taskNode.revision,
-                        idempotencyKey: `run-submit-task-node:${run.id}:${command.evidence.id}`,
+                        expectedRevision: currentTaskNode.revision,
+                        idempotencyKey: `run-start-task-node:${run.id}`,
                         taskNode: {
-                          ...taskNode,
-                          lifecycle: "review",
-                          activeRevisionId: reviewRevision.id,
+                          ...currentTaskNode,
+                          lifecycle: "running",
                           updatedAt: command.createdAt,
                         },
-                        taskNodeRevision: reviewRevision,
+                        taskNodeRevision,
                       });
-                      yield* decideAndProject({
-                        ...nestedBase,
-                        type: "supervised.claim.release",
-                        aggregateId: claim.id,
-                        expectedRevision: claim.revision,
-                        idempotencyKey: `run-submit-claim-release:${run.id}:${claim.id}`,
-                        claimId: claim.id,
-                      });
-                      const messageId = MessageId.makeUnsafe(
-                        `task-node:${taskNode.id}:run:${run.id}:review`,
-                      );
-                      const turnDecision = yield* decideOrchestrationCommand({
-                        command: {
-                          type: "thread.turn.start",
-                          commandId: command.commandId,
-                          threadId: root.thread.id,
-                          message: {
-                            messageId,
-                            role: "thread",
-                            text: [
-                              "<synara_supervised_task_node_review>",
-                              JSON.stringify({
-                                roomId: room.id,
-                                taskId: taskNode.taskId,
-                                taskNodeId: taskNode.id,
-                                taskNodeRevisionId: reviewRevision.id,
-                                runId: run.id,
-                                peerSeatId: run.ownerSeatId,
-                                evidenceId: command.evidence.id,
-                                summary: command.evidence.summary,
-                              }),
-                              "Root ownership remains with this Root holder. Review the evidence and call accept_task_node only if the acceptance criteria are satisfied.",
-                              "</synara_supervised_task_node_review>",
-                            ].join("\n"),
-                            attachments: [],
-                          },
-                          dispatchMode: "queue",
-                          dispatchOrigin: "agent",
-                          threadOrigin: {
-                            messageId,
-                            rootThreadId: root.thread.id,
-                            senderThreadId: ThreadId.makeUnsafe(command.actor.actorId),
-                            targetThreadId: root.thread.id,
-                            assignmentId: taskNode.id,
-                            runId: run.id,
-                            correlationId: command.commandId,
-                            replyToMessageId: null,
-                            hopCount: 0,
-                            artifactRefs: [command.evidence.id],
-                          },
-                          runtimeMode: root.thread.runtimeMode,
-                          interactionMode: root.thread.interactionMode,
-                          createdAt: command.createdAt,
-                        },
-                        readModel: graphReadModel,
-                        workspacePaths: deciderWorkspacePaths,
-                      });
-                      return [
-                        ...decisions,
-                        ...(Array.isArray(turnDecision) ? turnDecision : [turnDecision]),
-                      ];
+                      return decisions;
                     })
-                  : command.type === "supervised.review.accept"
+                  : command.type === "supervised.run.submit"
                     ? yield* Effect.gen(function* () {
                         yield* validateSagaAuthority(command);
                         const run = commandDeciderReadModel.supervised.runs.find(
@@ -1859,37 +1662,37 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                               (candidate) => candidate.id === taskNode.activeRevisionId,
                             )
                           : undefined;
+                        const claim = commandDeciderReadModel.supervised.workClaims.find(
+                          (candidate) => candidate.id === command.claimId,
+                        );
                         const room = run
                           ? commandDeciderReadModel.supervised.rooms.find(
                               (candidate) => candidate.id === run.roomId,
                             )
                           : undefined;
-                        const evidence = commandDeciderReadModel.supervised.evidence.find(
-                          (candidate) => candidate.id === command.evidenceId,
-                        );
-                        const activeClaim = commandDeciderReadModel.supervised.workClaims.find(
-                          (candidate) =>
-                            candidate.runId === run?.id && candidate.status === "active",
-                        );
+                        const root = room ? activeRootForRoom(room.id) : null;
                         if (
                           !run ||
                           !taskNode ||
                           !taskNodeRevision ||
+                          !claim ||
                           !room ||
-                          !evidence ||
-                          activeClaim ||
+                          !root ||
                           command.actor.kind !== "seat" ||
-                          command.actor.seatId !== room.leadSeatId ||
-                          run.status !== "reviewing" ||
-                          taskNode.lifecycle !== "review" ||
-                          !taskNodeRevision.evidenceRefs.includes(evidence.id) ||
-                          evidence.scope.kind !== "room" ||
-                          evidence.scope.roomId !== room.id
+                          command.actor.seatId !== run.ownerSeatId ||
+                          run.status !== "running" ||
+                          taskNode.lifecycle !== "running" ||
+                          claim.status !== "active" ||
+                          claim.runId !== run.id ||
+                          claim.taskNodeRevisionId !== run.taskNodeRevisionId ||
+                          command.evidence.scope.kind !== "room" ||
+                          command.evidence.scope.roomId !== run.roomId ||
+                          command.evidence.createdBy.seatId !== run.ownerSeatId
                         ) {
                           return yield* new OrchestrationCommandInvariantError({
                             commandType: command.type,
                             detail:
-                              "TaskNode acceptance requires the current Root Lead, reviewing Run, released WorkClaim, and attached Room evidence.",
+                              "Run submission requires the assigned Peer, running TaskNode, active matching WorkClaim, scoped evidence, and current Root holder.",
                           });
                         }
                         let graphReadModel = commandDeciderReadModel;
@@ -1899,8 +1702,10 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                             SupervisedCommand,
                             {
                               readonly type:
+                                | "supervised.evidence.publish"
                                 | "supervised.run.transition"
-                                | "supervised.task-node.commit";
+                                | "supervised.task-node.commit"
+                                | "supervised.claim.release";
                             }
                           >,
                         ) =>
@@ -1928,436 +1733,631 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                         };
                         yield* decideAndProject({
                           ...nestedBase,
+                          type: "supervised.evidence.publish",
+                          aggregateId: command.evidence.id,
+                          expectedRevision: 0,
+                          idempotencyKey: `run-submit-evidence:${run.id}:${command.evidence.id}`,
+                          evidence: command.evidence,
+                        });
+                        yield* decideAndProject({
+                          ...nestedBase,
                           type: "supervised.run.transition",
                           aggregateId: run.id,
                           expectedRevision: run.revision,
-                          idempotencyKey: `run-accept:${run.id}:${evidence.id}`,
+                          idempotencyKey: `run-submit-reviewing:${run.id}:${run.revision}`,
                           runId: run.id,
-                          status: "succeeded",
-                          reason: "Current Root Lead accepted the durable evidence.",
+                          status: "reviewing",
+                          reason: "Assigned Peer published durable acceptance evidence.",
                         });
+                        const reviewRevision = {
+                          ...taskNodeRevision,
+                          id: TaskNodeRevisionId.makeUnsafe(
+                            `task-node-revision:${taskNode.id}:evidence:${command.evidence.id}`,
+                          ),
+                          evidenceRefs: [
+                            ...new Set([...taskNodeRevision.evidenceRefs, command.evidence.id]),
+                          ],
+                          createdBy: command.actor,
+                          createdAt: command.createdAt,
+                        };
                         yield* decideAndProject({
                           ...nestedBase,
                           type: "supervised.task-node.commit",
                           aggregateId: taskNode.taskId,
                           expectedRevision: taskNode.revision,
-                          idempotencyKey: `task-node-accept:${taskNode.id}:${evidence.id}`,
+                          idempotencyKey: `run-submit-task-node:${run.id}:${command.evidence.id}`,
                           taskNode: {
                             ...taskNode,
-                            lifecycle: "accepted",
+                            lifecycle: "review",
+                            activeRevisionId: reviewRevision.id,
                             updatedAt: command.createdAt,
                           },
-                          taskNodeRevision,
+                          taskNodeRevision: reviewRevision,
                         });
-                        const plannedDependents = graphReadModel.supervised.taskNodes.filter(
-                          (candidate) =>
-                            candidate.taskId === taskNode.taskId &&
-                            candidate.lifecycle === "planned" &&
-                            graphReadModel.supervised.taskNodeRevisions
-                              .find((revision) => revision.id === candidate.activeRevisionId)
-                              ?.dependencyNodeIds.includes(taskNode.id),
+                        yield* decideAndProject({
+                          ...nestedBase,
+                          type: "supervised.claim.release",
+                          aggregateId: claim.id,
+                          expectedRevision: claim.revision,
+                          idempotencyKey: `run-submit-claim-release:${run.id}:${claim.id}`,
+                          claimId: claim.id,
+                        });
+                        const messageId = MessageId.makeUnsafe(
+                          `task-node:${taskNode.id}:run:${run.id}:review`,
                         );
-                        for (const dependent of plannedDependents) {
-                          const revision = graphReadModel.supervised.taskNodeRevisions.find(
-                            (candidate) => candidate.id === dependent.activeRevisionId,
+                        const turnDecision = yield* decideOrchestrationCommand({
+                          command: {
+                            type: "thread.turn.start",
+                            commandId: command.commandId,
+                            threadId: root.thread.id,
+                            message: {
+                              messageId,
+                              role: "thread",
+                              text: [
+                                "<synara_supervised_task_node_review>",
+                                JSON.stringify({
+                                  roomId: room.id,
+                                  taskId: taskNode.taskId,
+                                  taskNodeId: taskNode.id,
+                                  taskNodeRevisionId: reviewRevision.id,
+                                  runId: run.id,
+                                  peerSeatId: run.ownerSeatId,
+                                  evidenceId: command.evidence.id,
+                                  summary: command.evidence.summary,
+                                }),
+                                "Root ownership remains with this Root holder. Review the evidence and call accept_task_node only if the acceptance criteria are satisfied.",
+                                "</synara_supervised_task_node_review>",
+                              ].join("\n"),
+                              attachments: [],
+                            },
+                            dispatchMode: "queue",
+                            dispatchOrigin: "agent",
+                            threadOrigin: {
+                              messageId,
+                              rootThreadId: root.thread.id,
+                              senderThreadId: ThreadId.makeUnsafe(command.actor.actorId),
+                              targetThreadId: root.thread.id,
+                              assignmentId: taskNode.id,
+                              runId: run.id,
+                              correlationId: command.commandId,
+                              replyToMessageId: null,
+                              hopCount: 0,
+                              artifactRefs: [command.evidence.id],
+                            },
+                            runtimeMode: root.thread.runtimeMode,
+                            interactionMode: root.thread.interactionMode,
+                            createdAt: command.createdAt,
+                          },
+                          readModel: graphReadModel,
+                          workspacePaths: deciderWorkspacePaths,
+                        });
+                        return [
+                          ...decisions,
+                          ...(Array.isArray(turnDecision) ? turnDecision : [turnDecision]),
+                        ];
+                      })
+                    : command.type === "supervised.review.accept"
+                      ? yield* Effect.gen(function* () {
+                          yield* validateSagaAuthority(command);
+                          const run = commandDeciderReadModel.supervised.runs.find(
+                            (candidate) => candidate.id === command.runId,
                           );
-                          const allDependenciesAccepted = revision?.dependencyNodeIds.every(
-                            (dependencyId) =>
-                              graphReadModel.supervised.taskNodes.find(
-                                (candidate) => candidate.id === dependencyId,
-                              )?.lifecycle === "accepted",
+                          const taskNode = run?.taskNodeId
+                            ? commandDeciderReadModel.supervised.taskNodes.find(
+                                (candidate) => candidate.id === run.taskNodeId,
+                              )
+                            : undefined;
+                          const taskNodeRevision = taskNode
+                            ? commandDeciderReadModel.supervised.taskNodeRevisions.find(
+                                (candidate) => candidate.id === taskNode.activeRevisionId,
+                              )
+                            : undefined;
+                          const room = run
+                            ? commandDeciderReadModel.supervised.rooms.find(
+                                (candidate) => candidate.id === run.roomId,
+                              )
+                            : undefined;
+                          const evidence = commandDeciderReadModel.supervised.evidence.find(
+                            (candidate) => candidate.id === command.evidenceId,
                           );
-                          if (!revision || !allDependenciesAccepted) continue;
+                          const activeClaim = commandDeciderReadModel.supervised.workClaims.find(
+                            (candidate) =>
+                              candidate.runId === run?.id && candidate.status === "active",
+                          );
+                          if (
+                            !run ||
+                            !taskNode ||
+                            !taskNodeRevision ||
+                            !room ||
+                            !evidence ||
+                            activeClaim ||
+                            command.actor.kind !== "seat" ||
+                            command.actor.seatId !== room.leadSeatId ||
+                            run.status !== "reviewing" ||
+                            taskNode.lifecycle !== "review" ||
+                            !taskNodeRevision.evidenceRefs.includes(evidence.id) ||
+                            evidence.scope.kind !== "room" ||
+                            evidence.scope.roomId !== room.id
+                          ) {
+                            return yield* new OrchestrationCommandInvariantError({
+                              commandType: command.type,
+                              detail:
+                                "TaskNode acceptance requires the current Root Lead, reviewing Run, released WorkClaim, and attached Room evidence.",
+                            });
+                          }
+                          let graphReadModel = commandDeciderReadModel;
+                          const decisions: Array<Omit<OrchestrationEvent, "sequence">> = [];
+                          const decideAndProject = (
+                            nestedCommand: Extract<
+                              SupervisedCommand,
+                              {
+                                readonly type:
+                                  | "supervised.run.transition"
+                                  | "supervised.task-node.commit";
+                              }
+                            >,
+                          ) =>
+                            Effect.gen(function* () {
+                              const decision = yield* decideSupervisedCommand({
+                                command: nestedCommand,
+                                state: graphReadModel.supervised,
+                                governance,
+                              });
+                              for (const next of Array.isArray(decision) ? decision : [decision]) {
+                                decisions.push(next);
+                                graphReadModel = yield* projectEvent(graphReadModel, {
+                                  ...next,
+                                  sequence: graphReadModel.snapshotSequence,
+                                });
+                              }
+                            });
+                          const nestedBase = {
+                            commandId: command.commandId,
+                            actor: command.actor,
+                            ...(command.authorityReceiptId === undefined
+                              ? {}
+                              : { authorityReceiptId: command.authorityReceiptId }),
+                            createdAt: command.createdAt,
+                          };
+                          yield* decideAndProject({
+                            ...nestedBase,
+                            type: "supervised.run.transition",
+                            aggregateId: run.id,
+                            expectedRevision: run.revision,
+                            idempotencyKey: `run-accept:${run.id}:${evidence.id}`,
+                            runId: run.id,
+                            status: "succeeded",
+                            reason: "Current Root Lead accepted the durable evidence.",
+                          });
                           yield* decideAndProject({
                             ...nestedBase,
                             type: "supervised.task-node.commit",
-                            aggregateId: dependent.taskId,
-                            expectedRevision: dependent.revision,
-                            idempotencyKey: `task-node-ready:${dependent.id}:${taskNode.id}`,
+                            aggregateId: taskNode.taskId,
+                            expectedRevision: taskNode.revision,
+                            idempotencyKey: `task-node-accept:${taskNode.id}:${evidence.id}`,
                             taskNode: {
-                              ...dependent,
-                              lifecycle: "ready",
+                              ...taskNode,
+                              lifecycle: "accepted",
                               updatedAt: command.createdAt,
                             },
-                            taskNodeRevision: revision,
+                            taskNodeRevision,
                           });
-                        }
-                        return decisions;
-                      })
-            : command.type === "supervised.peer.create"
-          ? yield* Effect.gen(function* () {
-              if (command.profileSnapshot === undefined) {
-                return yield* new OrchestrationCommandInvariantError({
-                  commandType: command.type,
-                  detail: "Server-resolved Peer profile snapshot is required.",
-                });
-              }
-              const room = commandDeciderReadModel.supervised.rooms.find(
-                (candidate) =>
-                  candidate.id === command.roomId &&
-                  candidate.projectId === command.projectId &&
-                  candidate.leadSeatId === command.leadSeatId,
-              );
-              const root = activeRootForRoom(command.roomId);
-              if (
-                !room ||
-                !root ||
-                root.seat.id !== command.leadSeatId ||
-                root.thread.id !== command.leadThreadId ||
-                root.room.projectId !== command.projectId
-              ) {
-                return yield* new OrchestrationCommandInvariantError({
-                  commandType: command.type,
-                  detail: "Peer creation requires the Room's active Root authority.",
-                });
-              }
-              const runtimeMode =
-                command.profileSnapshot.runtime.sandboxMode === "danger-full-access"
-                  ? ("full-access" as const)
-                  : ("approval-required" as const);
-              const threadDecision = yield* decideOrchestrationCommand({
-                command: {
-                  type: "thread.create",
-                  commandId: command.commandId,
-                  threadId: command.threadId,
-                  projectId: command.projectId,
-                  title: command.title,
-                  modelSelection: {
-                    provider: command.profileSnapshot.runtime.provider,
-                    model: command.profileSnapshot.runtime.model,
-                    options: command.profileSnapshot.runtime.providerOptions ?? {},
-                  } as never,
-                  runtimeMode,
-                  interactionMode: "default",
-                  envMode: "local",
-                  branch: null,
-                  worktreePath: null,
-                  workingDirectory: command.workingDirectory,
-                  parentThreadId: command.leadThreadId,
-                  creationSource: "supervised_native",
-                  sourceThreadId: ThreadId.makeUnsafe(command.actor.actorId),
-                  subagentAgentId: null,
-                  subagentNickname: null,
-                  subagentRole: "peer",
-                  lastKnownPr: null,
-                  createdAt: command.createdAt,
-                },
-                readModel: commandDeciderReadModel,
-                workspacePaths: deciderWorkspacePaths,
-              });
-              const readModelWithThread = yield* projectEvent(commandDeciderReadModel, {
-                ...threadDecision,
-                sequence: commandDeciderReadModel.snapshotSequence,
-              });
-              const peerDecision = yield* decideSupervisedGovernanceCommand({
-                state: governanceDecisionState,
-                command: {
-                  type: "supervised.peer.bind",
-                  commandId: command.commandId,
-                  aggregateId: SupervisedGovernanceAggregateId.makeUnsafe("supervised"),
-                  actor: {
-                    kind: "thread",
-                    actorId: command.actor.actorId,
-                    threadId: ThreadId.makeUnsafe(command.actor.actorId),
-                  },
-                  expectedRevision: 0,
-                  createdAt: command.createdAt,
-                  profilePresetId: command.profilePresetId,
-                  profileSnapshot: command.profileSnapshot,
-                  peer: {
-                    threadId: command.threadId,
-                    projectId: command.projectId,
-                    leadSeatId: command.leadSeatId,
-                    rootThreadId: command.leadThreadId,
-                    profileSnapshotId: command.profileSnapshot.id,
-                    status: "active",
-                    createdAt: command.createdAt,
-                    updatedAt: command.createdAt,
-                    archivedAt: null,
-                    revision: 0,
-                  },
-                },
-              });
-              const peerSpecialtyDecision = yield* decideSupervisedCommand({
-                command,
-                state: readModelWithThread.supervised,
-                governance,
-              });
-              const turnDecision =
-                command.initialPrompt === undefined
-                  ? []
-                  : yield* (() => {
-                      const messageId = MessageId.makeUnsafe(
-                        `peer:${command.peerSpecialty.id}:initial`,
-                      );
-                      return decideOrchestrationCommand({
-                        command: {
-                          type: "thread.turn.start",
-                          commandId: command.commandId,
-                          threadId: command.threadId,
-                          message: {
-                            messageId,
-                            role: "thread",
-                            text: command.initialPrompt,
-                            attachments: [],
-                          },
-                          dispatchMode: "queue",
-                          dispatchOrigin: "agent",
-                          threadOrigin: {
-                            messageId,
-                            rootThreadId: command.leadThreadId,
-                            senderThreadId: ThreadId.makeUnsafe(command.actor.actorId),
-                            targetThreadId: command.threadId,
-                            assignmentId: command.peerSpecialty.id,
-                            runId: null,
-                            correlationId: command.commandId,
-                            replyToMessageId: null,
-                            hopCount: 0,
-                            artifactRefs: [],
-                          },
-                          runtimeMode,
-                          interactionMode: "default",
-                          createdAt: command.createdAt,
-                        },
-                        readModel: readModelWithThread,
-                        workspacePaths: deciderWorkspacePaths,
-                      });
-                    })();
-              return [
-                threadDecision,
-                ...(Array.isArray(peerDecision) ? peerDecision : [peerDecision]),
-                ...(Array.isArray(peerSpecialtyDecision)
-                  ? peerSpecialtyDecision
-                  : [peerSpecialtyDecision]),
-                ...(Array.isArray(turnDecision) ? turnDecision : [turnDecision]),
-              ];
-            })
-          : command.type === "supervised.work.assign"
-            ? yield* Effect.gen(function* () {
-                const room = commandDeciderReadModel.supervised.rooms.find(
-                  (candidate) =>
-                    candidate.id === command.roomId &&
-                    candidate.projectId === command.projectId &&
-                    candidate.leadSeatId === command.leadSeatId,
-                );
-                const root = activeRootForRoom(command.roomId);
-                const peer = governanceDecisionState.peers.find(
-                  (candidate) =>
-                    candidate.threadId === command.peerThreadId &&
-                    candidate.projectId === command.projectId &&
-                    candidate.leadSeatId === command.leadSeatId &&
-                    candidate.rootThreadId === command.leadThreadId &&
-                    candidate.status === "active",
-                );
-                const peerThread = commandDeciderReadModel.threads.find(
-                  (candidate) =>
-                    candidate.id === command.peerThreadId &&
-                    candidate.projectId === command.projectId &&
-                    candidate.deletedAt === null,
-                );
-                if (
-                  !room ||
-                  !root ||
-                  root.seat.id !== command.leadSeatId ||
-                  root.thread.id !== command.leadThreadId ||
-                  !peer ||
-                  !peerThread
-                ) {
-                  return yield* new OrchestrationCommandInvariantError({
-                    commandType: command.type,
-                    detail:
-                      "Bounded Peer work requires the current Room, Root holder, active Peer binding, and provider thread.",
-                  });
-                }
-                const interventionDecision = yield* decideSupervisedCommand({
-                  command,
-                  state: commandDeciderReadModel.supervised,
-                  governance,
-                });
-                const messageId = MessageId.makeUnsafe(
-                  `intervention:${command.intervention.id}:assignment`,
-                );
-                const turnDecision = yield* decideOrchestrationCommand({
-                  command: {
-                    type: "thread.turn.start",
-                    commandId: command.commandId,
-                    threadId: command.peerThreadId,
-                    message: {
-                      messageId,
-                      role: "thread",
-                      text: [
-                        "<synara_supervised_assignment>",
-                        JSON.stringify({
-                          interventionId: command.intervention.id,
-                          roomId: command.roomId,
-                          rootLeadSeatId: command.leadSeatId,
-                          rootLeadThreadId: command.leadThreadId,
-                          requestedBySeatId: command.actor.seatId ?? null,
-                          material: command.intervention.material,
-                          workRequest: command.intervention.reason,
-                        }),
-                        "This is bounded work and does not transfer TaskNode or Root ownership.",
-                        "After completing the request, call publish_peer_evidence with this interventionId.",
-                        "</synara_supervised_assignment>",
-                      ].join("\n"),
-                      attachments: [],
-                    },
-                    dispatchMode: "queue",
-                    dispatchOrigin: "agent",
-                    threadOrigin: {
-                      messageId,
-                      rootThreadId: command.leadThreadId,
-                      senderThreadId: ThreadId.makeUnsafe(command.actor.actorId),
-                      targetThreadId: command.peerThreadId,
-                      assignmentId: command.intervention.id,
-                      runId: null,
-                      correlationId: command.commandId,
-                      replyToMessageId: null,
-                      hopCount: 0,
-                      artifactRefs: [],
-                    },
-                    runtimeMode: peerThread.runtimeMode,
-                    interactionMode: peerThread.interactionMode,
-                    createdAt: command.createdAt,
-                  },
-                  readModel: commandDeciderReadModel,
-                  workspacePaths: deciderWorkspacePaths,
-                });
-                return [
-                  ...(Array.isArray(interventionDecision)
-                    ? interventionDecision
-                    : [interventionDecision]),
-                  ...(Array.isArray(turnDecision) ? turnDecision : [turnDecision]),
-                ];
-              })
-            : command.type === "supervised.work.complete"
-              ? yield* Effect.gen(function* () {
-                  const intervention = commandDeciderReadModel.supervised.interventions.find(
-                    (candidate) => candidate.id === command.interventionId,
-                  );
-                  const room = intervention
-                    ? commandDeciderReadModel.supervised.rooms.find(
-                        (candidate) =>
-                          candidate.id === intervention.roomId &&
-                          candidate.leadSeatId !== null,
-                      )
-                    : undefined;
-                  const root = room ? activeRootForRoom(room.id) : null;
-                  if (!intervention || !room || !root) {
-                    return yield* new OrchestrationCommandInvariantError({
-                      commandType: command.type,
-                      detail:
-                        "Peer evidence completion requires the current intervention, Room, and active Root thread.",
-                    });
-                  }
-                  const completionDecision = yield* decideSupervisedCommand({
-                    command,
-                    state: commandDeciderReadModel.supervised,
-                    governance,
-                  });
-                  const messageId = MessageId.makeUnsafe(
-                    `intervention:${intervention.id}:lead-notification`,
-                  );
-                  const turnDecision = yield* decideOrchestrationCommand({
-                    command: {
-                      type: "thread.turn.start",
-                      commandId: command.commandId,
-                      threadId: root.thread.id,
-                      message: {
-                        messageId,
-                        role: "thread",
-                        text: [
-                          "<synara_supervised_peer_evidence>",
-                          JSON.stringify({
-                            interventionId: intervention.id,
-                            roomId: intervention.roomId,
-                            peerThreadId: intervention.specialistThreadId,
-                            evidenceId: command.evidence.id,
-                            material: intervention.material,
-                            summary: command.evidence.summary,
-                          }),
-                          intervention.material
-                            ? "Review the evidence and call reconcile_peer_intervention before changing canonical Room state."
-                            : "The bounded investigation made no canonical Room mutation; the intervention was reconciled without ownership changes.",
-                          "</synara_supervised_peer_evidence>",
-                        ].join("\n"),
-                        attachments: [],
-                      },
-                      dispatchMode: "queue",
-                      dispatchOrigin: "agent",
-                      threadOrigin: {
-                        messageId,
-                        rootThreadId: root.thread.id,
-                        senderThreadId: ThreadId.makeUnsafe(command.actor.actorId),
-                        targetThreadId: root.thread.id,
-                        assignmentId: intervention.id,
-                        runId: null,
-                        correlationId: command.commandId,
-                        replyToMessageId: null,
-                        hopCount: 0,
-                        artifactRefs: [command.evidence.id],
-                      },
-                      runtimeMode: root.thread.runtimeMode,
-                      interactionMode: root.thread.interactionMode,
-                      createdAt: command.createdAt,
-                    },
-                    readModel: commandDeciderReadModel,
-                    workspacePaths: deciderWorkspacePaths,
-                  });
-                  return [
-                    ...(Array.isArray(completionDecision)
-                      ? completionDecision
-                      : [completionDecision]),
-                    ...(Array.isArray(turnDecision) ? turnDecision : [turnDecision]),
-                  ];
-                })
-          : Schema.is(SupervisedGovernanceCommand)(command)
-            ? yield* decideSupervisedGovernanceCommand({
-                command,
-                state: governanceDecisionState,
-              })
-            : Schema.is(SupervisedCommand)(command)
-              ? yield* decideSupervisedCommand({
-                  command,
-                  state: commandDeciderReadModel.supervised,
-                  governance,
-                })
-              : Schema.is(TaskProcessCommand)(command)
-                ? yield* Effect.gen(function* () {
-                    const storedEvents = yield* eventStore
-                      .readAggregateEvents({
-                        aggregateKind: "task_process",
-                        aggregateId: command.processId,
-                      })
-                      .pipe(
-                        Effect.mapError((error) =>
-                          makeCommandInternalError(
-                            command,
-                            `Failed to load TaskProcess aggregate: ${error.message}`,
-                          ),
-                        ),
-                      );
-                    const taskProcessEvents = storedEvents.filter(
-                      Schema.is(TaskProcessDomainEvent),
-                    );
-                    if (taskProcessEvents.length !== storedEvents.length) {
-                      return yield* makeCommandInternalError(
-                        command,
-                        "TaskProcess stream contains an event with the wrong aggregate schema.",
-                      );
-                    }
-                    const state = replayTaskProcessEvents(taskProcessEvents);
-                    return yield* decideTaskProcessCommand({
-                      command,
-                      state,
-                      readModel: commandDeciderReadModel,
-                    });
-                  })
-                : yield* decideOrchestrationCommand({
-                    command,
-                    readModel: commandDeciderReadModel,
-                    workspacePaths: deciderWorkspacePaths,
-                  });
+                          const plannedDependents = graphReadModel.supervised.taskNodes.filter(
+                            (candidate) =>
+                              candidate.taskId === taskNode.taskId &&
+                              candidate.lifecycle === "planned" &&
+                              graphReadModel.supervised.taskNodeRevisions
+                                .find((revision) => revision.id === candidate.activeRevisionId)
+                                ?.dependencyNodeIds.includes(taskNode.id),
+                          );
+                          for (const dependent of plannedDependents) {
+                            const revision = graphReadModel.supervised.taskNodeRevisions.find(
+                              (candidate) => candidate.id === dependent.activeRevisionId,
+                            );
+                            const allDependenciesAccepted = revision?.dependencyNodeIds.every(
+                              (dependencyId) =>
+                                graphReadModel.supervised.taskNodes.find(
+                                  (candidate) => candidate.id === dependencyId,
+                                )?.lifecycle === "accepted",
+                            );
+                            if (!revision || !allDependenciesAccepted) continue;
+                            yield* decideAndProject({
+                              ...nestedBase,
+                              type: "supervised.task-node.commit",
+                              aggregateId: dependent.taskId,
+                              expectedRevision: dependent.revision,
+                              idempotencyKey: `task-node-ready:${dependent.id}:${taskNode.id}`,
+                              taskNode: {
+                                ...dependent,
+                                lifecycle: "ready",
+                                updatedAt: command.createdAt,
+                              },
+                              taskNodeRevision: revision,
+                            });
+                          }
+                          return decisions;
+                        })
+                      : command.type === "supervised.peer.create"
+                        ? yield* Effect.gen(function* () {
+                            if (command.profileSnapshot === undefined) {
+                              return yield* new OrchestrationCommandInvariantError({
+                                commandType: command.type,
+                                detail: "Server-resolved Peer profile snapshot is required.",
+                              });
+                            }
+                            const room = commandDeciderReadModel.supervised.rooms.find(
+                              (candidate) =>
+                                candidate.id === command.roomId &&
+                                candidate.projectId === command.projectId &&
+                                candidate.leadSeatId === command.leadSeatId,
+                            );
+                            const root = activeRootForRoom(command.roomId);
+                            if (
+                              !room ||
+                              !root ||
+                              root.seat.id !== command.leadSeatId ||
+                              root.thread.id !== command.leadThreadId ||
+                              root.room.projectId !== command.projectId
+                            ) {
+                              return yield* new OrchestrationCommandInvariantError({
+                                commandType: command.type,
+                                detail: "Peer creation requires the Room's active Root authority.",
+                              });
+                            }
+                            const runtimeMode =
+                              command.profileSnapshot.runtime.sandboxMode === "danger-full-access"
+                                ? ("full-access" as const)
+                                : ("approval-required" as const);
+                            const threadDecision = yield* decideOrchestrationCommand({
+                              command: {
+                                type: "thread.create",
+                                commandId: command.commandId,
+                                threadId: command.threadId,
+                                projectId: command.projectId,
+                                title: command.title,
+                                modelSelection: {
+                                  provider: command.profileSnapshot.runtime.provider,
+                                  model: command.profileSnapshot.runtime.model,
+                                  options: command.profileSnapshot.runtime.providerOptions ?? {},
+                                } as never,
+                                runtimeMode,
+                                interactionMode: "default",
+                                envMode: "local",
+                                branch: null,
+                                worktreePath: null,
+                                workingDirectory: command.workingDirectory,
+                                parentThreadId: command.leadThreadId,
+                                creationSource: "supervised_native",
+                                sourceThreadId: ThreadId.makeUnsafe(command.actor.actorId),
+                                subagentAgentId: null,
+                                subagentNickname: null,
+                                subagentRole: "peer",
+                                lastKnownPr: null,
+                                createdAt: command.createdAt,
+                              },
+                              readModel: commandDeciderReadModel,
+                              workspacePaths: deciderWorkspacePaths,
+                            });
+                            const readModelWithThread = yield* projectEvent(
+                              commandDeciderReadModel,
+                              {
+                                ...threadDecision,
+                                sequence: commandDeciderReadModel.snapshotSequence,
+                              },
+                            );
+                            const peerDecision = yield* decideSupervisedGovernanceCommand({
+                              state: governanceDecisionState,
+                              command: {
+                                type: "supervised.peer.bind",
+                                commandId: command.commandId,
+                                aggregateId:
+                                  SupervisedGovernanceAggregateId.makeUnsafe("supervised"),
+                                actor: {
+                                  kind: "thread",
+                                  actorId: command.actor.actorId,
+                                  threadId: ThreadId.makeUnsafe(command.actor.actorId),
+                                },
+                                expectedRevision: 0,
+                                createdAt: command.createdAt,
+                                profilePresetId: command.profilePresetId,
+                                profileSnapshot: command.profileSnapshot,
+                                peer: {
+                                  threadId: command.threadId,
+                                  projectId: command.projectId,
+                                  leadSeatId: command.leadSeatId,
+                                  rootThreadId: command.leadThreadId,
+                                  profileSnapshotId: command.profileSnapshot.id,
+                                  status: "active",
+                                  createdAt: command.createdAt,
+                                  updatedAt: command.createdAt,
+                                  archivedAt: null,
+                                  revision: 0,
+                                },
+                              },
+                            });
+                            const peerSpecialtyDecision = yield* decideSupervisedCommand({
+                              command,
+                              state: readModelWithThread.supervised,
+                              governance,
+                            });
+                            const turnDecision =
+                              command.initialPrompt === undefined
+                                ? []
+                                : yield* (() => {
+                                    const messageId = MessageId.makeUnsafe(
+                                      `peer:${command.peerSpecialty.id}:initial`,
+                                    );
+                                    return decideOrchestrationCommand({
+                                      command: {
+                                        type: "thread.turn.start",
+                                        commandId: command.commandId,
+                                        threadId: command.threadId,
+                                        message: {
+                                          messageId,
+                                          role: "thread",
+                                          text: command.initialPrompt,
+                                          attachments: [],
+                                        },
+                                        dispatchMode: "queue",
+                                        dispatchOrigin: "agent",
+                                        threadOrigin: {
+                                          messageId,
+                                          rootThreadId: command.leadThreadId,
+                                          senderThreadId: ThreadId.makeUnsafe(
+                                            command.actor.actorId,
+                                          ),
+                                          targetThreadId: command.threadId,
+                                          assignmentId: command.peerSpecialty.id,
+                                          runId: null,
+                                          correlationId: command.commandId,
+                                          replyToMessageId: null,
+                                          hopCount: 0,
+                                          artifactRefs: [],
+                                        },
+                                        runtimeMode,
+                                        interactionMode: "default",
+                                        createdAt: command.createdAt,
+                                      },
+                                      readModel: readModelWithThread,
+                                      workspacePaths: deciderWorkspacePaths,
+                                    });
+                                  })();
+                            return [
+                              threadDecision,
+                              ...(Array.isArray(peerDecision) ? peerDecision : [peerDecision]),
+                              ...(Array.isArray(peerSpecialtyDecision)
+                                ? peerSpecialtyDecision
+                                : [peerSpecialtyDecision]),
+                              ...(Array.isArray(turnDecision) ? turnDecision : [turnDecision]),
+                            ];
+                          })
+                        : command.type === "supervised.work.assign"
+                          ? yield* Effect.gen(function* () {
+                              const room = commandDeciderReadModel.supervised.rooms.find(
+                                (candidate) =>
+                                  candidate.id === command.roomId &&
+                                  candidate.projectId === command.projectId &&
+                                  candidate.leadSeatId === command.leadSeatId,
+                              );
+                              const root = activeRootForRoom(command.roomId);
+                              const peer = governanceDecisionState.peers.find(
+                                (candidate) =>
+                                  candidate.threadId === command.peerThreadId &&
+                                  candidate.projectId === command.projectId &&
+                                  candidate.leadSeatId === command.leadSeatId &&
+                                  candidate.rootThreadId === command.leadThreadId &&
+                                  candidate.status === "active",
+                              );
+                              const peerThread = commandDeciderReadModel.threads.find(
+                                (candidate) =>
+                                  candidate.id === command.peerThreadId &&
+                                  candidate.projectId === command.projectId &&
+                                  candidate.deletedAt === null,
+                              );
+                              if (
+                                !room ||
+                                !root ||
+                                root.seat.id !== command.leadSeatId ||
+                                root.thread.id !== command.leadThreadId ||
+                                !peer ||
+                                !peerThread
+                              ) {
+                                return yield* new OrchestrationCommandInvariantError({
+                                  commandType: command.type,
+                                  detail:
+                                    "Bounded Peer work requires the current Room, Root holder, active Peer binding, and provider thread.",
+                                });
+                              }
+                              const interventionDecision = yield* decideSupervisedCommand({
+                                command,
+                                state: commandDeciderReadModel.supervised,
+                                governance,
+                              });
+                              const messageId = MessageId.makeUnsafe(
+                                `intervention:${command.intervention.id}:assignment`,
+                              );
+                              const turnDecision = yield* decideOrchestrationCommand({
+                                command: {
+                                  type: "thread.turn.start",
+                                  commandId: command.commandId,
+                                  threadId: command.peerThreadId,
+                                  message: {
+                                    messageId,
+                                    role: "thread",
+                                    text: [
+                                      "<synara_supervised_assignment>",
+                                      JSON.stringify({
+                                        interventionId: command.intervention.id,
+                                        roomId: command.roomId,
+                                        rootLeadSeatId: command.leadSeatId,
+                                        rootLeadThreadId: command.leadThreadId,
+                                        requestedBySeatId: command.actor.seatId ?? null,
+                                        material: command.intervention.material,
+                                        workRequest: command.intervention.reason,
+                                      }),
+                                      "This is bounded work and does not transfer TaskNode or Root ownership.",
+                                      "After completing the request, call publish_peer_evidence with this interventionId.",
+                                      "</synara_supervised_assignment>",
+                                    ].join("\n"),
+                                    attachments: [],
+                                  },
+                                  dispatchMode: "queue",
+                                  dispatchOrigin: "agent",
+                                  threadOrigin: {
+                                    messageId,
+                                    rootThreadId: command.leadThreadId,
+                                    senderThreadId: ThreadId.makeUnsafe(command.actor.actorId),
+                                    targetThreadId: command.peerThreadId,
+                                    assignmentId: command.intervention.id,
+                                    runId: null,
+                                    correlationId: command.commandId,
+                                    replyToMessageId: null,
+                                    hopCount: 0,
+                                    artifactRefs: [],
+                                  },
+                                  runtimeMode: peerThread.runtimeMode,
+                                  interactionMode: peerThread.interactionMode,
+                                  createdAt: command.createdAt,
+                                },
+                                readModel: commandDeciderReadModel,
+                                workspacePaths: deciderWorkspacePaths,
+                              });
+                              return [
+                                ...(Array.isArray(interventionDecision)
+                                  ? interventionDecision
+                                  : [interventionDecision]),
+                                ...(Array.isArray(turnDecision) ? turnDecision : [turnDecision]),
+                              ];
+                            })
+                          : command.type === "supervised.work.complete"
+                            ? yield* Effect.gen(function* () {
+                                const intervention =
+                                  commandDeciderReadModel.supervised.interventions.find(
+                                    (candidate) => candidate.id === command.interventionId,
+                                  );
+                                const room = intervention
+                                  ? commandDeciderReadModel.supervised.rooms.find(
+                                      (candidate) =>
+                                        candidate.id === intervention.roomId &&
+                                        candidate.leadSeatId !== null,
+                                    )
+                                  : undefined;
+                                const root = room ? activeRootForRoom(room.id) : null;
+                                if (!intervention || !room || !root) {
+                                  return yield* new OrchestrationCommandInvariantError({
+                                    commandType: command.type,
+                                    detail:
+                                      "Peer evidence completion requires the current intervention, Room, and active Root thread.",
+                                  });
+                                }
+                                const completionDecision = yield* decideSupervisedCommand({
+                                  command,
+                                  state: commandDeciderReadModel.supervised,
+                                  governance,
+                                });
+                                const messageId = MessageId.makeUnsafe(
+                                  `intervention:${intervention.id}:lead-notification`,
+                                );
+                                const turnDecision = yield* decideOrchestrationCommand({
+                                  command: {
+                                    type: "thread.turn.start",
+                                    commandId: command.commandId,
+                                    threadId: root.thread.id,
+                                    message: {
+                                      messageId,
+                                      role: "thread",
+                                      text: [
+                                        "<synara_supervised_peer_evidence>",
+                                        JSON.stringify({
+                                          interventionId: intervention.id,
+                                          roomId: intervention.roomId,
+                                          peerThreadId: intervention.specialistThreadId,
+                                          evidenceId: command.evidence.id,
+                                          material: intervention.material,
+                                          summary: command.evidence.summary,
+                                        }),
+                                        intervention.material
+                                          ? "Review the evidence and call reconcile_peer_intervention before changing canonical Room state."
+                                          : "The bounded investigation made no canonical Room mutation; the intervention was reconciled without ownership changes.",
+                                        "</synara_supervised_peer_evidence>",
+                                      ].join("\n"),
+                                      attachments: [],
+                                    },
+                                    dispatchMode: "queue",
+                                    dispatchOrigin: "agent",
+                                    threadOrigin: {
+                                      messageId,
+                                      rootThreadId: root.thread.id,
+                                      senderThreadId: ThreadId.makeUnsafe(command.actor.actorId),
+                                      targetThreadId: root.thread.id,
+                                      assignmentId: intervention.id,
+                                      runId: null,
+                                      correlationId: command.commandId,
+                                      replyToMessageId: null,
+                                      hopCount: 0,
+                                      artifactRefs: [command.evidence.id],
+                                    },
+                                    runtimeMode: root.thread.runtimeMode,
+                                    interactionMode: root.thread.interactionMode,
+                                    createdAt: command.createdAt,
+                                  },
+                                  readModel: commandDeciderReadModel,
+                                  workspacePaths: deciderWorkspacePaths,
+                                });
+                                return [
+                                  ...(Array.isArray(completionDecision)
+                                    ? completionDecision
+                                    : [completionDecision]),
+                                  ...(Array.isArray(turnDecision) ? turnDecision : [turnDecision]),
+                                ];
+                              })
+                            : Schema.is(SupervisedGovernanceCommand)(command)
+                              ? yield* decideSupervisedGovernanceCommand({
+                                  command,
+                                  state: governanceDecisionState,
+                                })
+                              : Schema.is(SupervisedCommand)(command)
+                                ? yield* decideSupervisedCommand({
+                                    command,
+                                    state: commandDeciderReadModel.supervised,
+                                    governance,
+                                  })
+                                : Schema.is(TaskProcessCommand)(command)
+                                  ? yield* Effect.gen(function* () {
+                                      const storedEvents = yield* eventStore
+                                        .readAggregateEvents({
+                                          aggregateKind: "task_process",
+                                          aggregateId: command.processId,
+                                        })
+                                        .pipe(
+                                          Effect.mapError((error) =>
+                                            makeCommandInternalError(
+                                              command,
+                                              `Failed to load TaskProcess aggregate: ${error.message}`,
+                                            ),
+                                          ),
+                                        );
+                                      const taskProcessEvents = storedEvents.filter(
+                                        Schema.is(TaskProcessDomainEvent),
+                                      );
+                                      if (taskProcessEvents.length !== storedEvents.length) {
+                                        return yield* makeCommandInternalError(
+                                          command,
+                                          "TaskProcess stream contains an event with the wrong aggregate schema.",
+                                        );
+                                      }
+                                      const state = replayTaskProcessEvents(taskProcessEvents);
+                                      return yield* decideTaskProcessCommand({
+                                        command,
+                                        state,
+                                        readModel: commandDeciderReadModel,
+                                      });
+                                    })
+                                  : yield* decideOrchestrationCommand({
+                                      command,
+                                      readModel: commandDeciderReadModel,
+                                      workspacePaths: deciderWorkspacePaths,
+                                    });
       const eventBase = [
         ...(threadBootstrapDecision === null ? [] : [threadBootstrapDecision]),
         ...(supervisedBootstrapDecision === null

@@ -23,8 +23,7 @@ export function ToolCallGroupSummaryRow(props: {
   live?: boolean;
   renderChildren: () => ReactNode;
 }) {
-  const { summary, headline, open, onToggle, fontSizePx, live = false, renderChildren } =
-    props;
+  const { summary, headline, open, onToggle, fontSizePx, live = false, renderChildren } = props;
   const [keepChildrenMounted, setKeepChildrenMounted] = useState(open);
 
   useEffect(() => {
@@ -54,11 +53,11 @@ export function ToolCallGroupSummaryRow(props: {
         <span className="flex size-5 shrink-0 items-center justify-center" aria-hidden>
           <Wrench className="size-[18px]" strokeWidth={2} />
         </span>
-          <AnimatedTextSwap
-            phrase={headline ?? summary.label}
-            shimmer={live}
-            rootData={{ "data-tool-summary-swap": "true" }}
-          />
+        <AnimatedTextSwap
+          phrase={headline ?? summary.label}
+          shimmer={live}
+          rootData={{ "data-tool-summary-swap": "true" }}
+        />
         <DisclosureChevron
           open={open}
           className="text-muted-foreground/55 opacity-0 transition-opacity duration-150 group-hover/tool-summary:opacity-100 group-focus-visible/tool-summary:opacity-100"

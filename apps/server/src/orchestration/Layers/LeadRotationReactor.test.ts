@@ -65,9 +65,7 @@ const makeRotation = (replacementThreadId: ThreadId): LeadRotation => ({
   missionId: ids.missionId,
   predecessorThreadId: ids.leadThreadId,
   replacementThreadId,
-  replacementProfileSnapshotId: ProfileSnapshotId.makeUnsafe(
-    `snapshot:${replacementThreadId}`,
-  ),
+  replacementProfileSnapshotId: ProfileSnapshotId.makeUnsafe(`snapshot:${replacementThreadId}`),
   state: "requested",
   error: null,
   createdAt,
@@ -182,9 +180,7 @@ describe("LeadRotationReactor", () => {
             grants: ["lead.replace"],
             endCondition: { kind: "manual" },
             status: "active",
-            sourceMessageId: MessageId.makeUnsafe(
-              "message-bootstrap-primary-supervisor-rotation",
-            ),
+            sourceMessageId: MessageId.makeUnsafe("message-bootstrap-primary-supervisor-rotation"),
             createdAt,
             updatedAt: createdAt,
             completedAt: null,
@@ -195,9 +191,7 @@ describe("LeadRotationReactor", () => {
       }),
     );
 
-    const governanceAfterSupervisor = await runtime.runPromise(
-      governanceRepository.getSnapshot(),
-    );
+    const governanceAfterSupervisor = await runtime.runPromise(governanceRepository.getSnapshot());
     const supervisorSeat = governanceAfterSupervisor.agentSeats.find(
       (seat) => seat.id === ids.supervisorSeatId,
     )!;
@@ -252,12 +246,8 @@ describe("LeadRotationReactor", () => {
     actorThreadId: ThreadId,
     commandIdValue: string,
   ) {
-    const governance = await fixture.runtime.runPromise(
-      fixture.governanceRepository.getSnapshot(),
-    );
-    const leadRevision = governance.agentSeats.find(
-      (seat) => seat.id === ids.leadSeatId,
-    )?.revision;
+    const governance = await fixture.runtime.runPromise(fixture.governanceRepository.getSnapshot());
+    const leadRevision = governance.agentSeats.find((seat) => seat.id === ids.leadSeatId)?.revision;
     if (leadRevision === undefined) throw new Error("Lead decision state is unavailable.");
     const replacementProfileSnapshot = resolveProfilePreset({
       preset: fixture.leadPreset,
@@ -287,18 +277,13 @@ describe("LeadRotationReactor", () => {
     const fixture = await createFixture(false);
     const rotation = makeRotation(ThreadId.makeUnsafe("lead:replacement-authority"));
     const before = await fixture.runtime.runPromise(fixture.governanceRepository.getSnapshot());
-    const beforeRoom = (await fixture.runtime.runPromise(fixture.engine.getReadModel())).supervised.rooms.find(
-      (room) => room.id === ids.roomId,
-    );
+    const beforeRoom = (
+      await fixture.runtime.runPromise(fixture.engine.getReadModel())
+    ).supervised.rooms.find((room) => room.id === ids.roomId);
     const beforeLease = before.rootLeases.find((lease) => lease.roomId === ids.roomId);
 
     await expect(
-      requestRotation(
-        fixture,
-        rotation,
-        ids.leadThreadId,
-        "command-lead-cannot-replace-itself",
-      ),
+      requestRotation(fixture, rotation, ids.leadThreadId, "command-lead-cannot-replace-itself"),
     ).rejects.toThrow("active lead.replace mission grant is required");
 
     const afterRejected = await fixture.runtime.runPromise(
@@ -312,9 +297,9 @@ describe("LeadRotationReactor", () => {
     expect(rejectedReadModel.supervised.rooms.find((room) => room.id === ids.roomId)).toEqual(
       beforeRoom,
     );
-    expect(
-      afterRejected.agentSeats.find((seat) => seat.id === ids.leadSeatId)?.threadId,
-    ).toBe(ids.leadThreadId);
+    expect(afterRejected.agentSeats.find((seat) => seat.id === ids.leadSeatId)?.threadId).toBe(
+      ids.leadThreadId,
+    );
 
     await requestRotation(
       fixture,
@@ -338,9 +323,9 @@ describe("LeadRotationReactor", () => {
     const rotation = makeRotation(ThreadId.makeUnsafe("lead:replacement-failure-recovery"));
     const before = await fixture.runtime.runPromise(fixture.governanceRepository.getSnapshot());
     const initialLease = before.rootLeases.find((lease) => lease.roomId === ids.roomId)!;
-    const initialRoom = (await fixture.runtime.runPromise(fixture.engine.getReadModel())).supervised.rooms.find(
-      (room) => room.id === ids.roomId,
-    )!;
+    const initialRoom = (
+      await fixture.runtime.runPromise(fixture.engine.getReadModel())
+    ).supervised.rooms.find((room) => room.id === ids.roomId)!;
 
     await requestRotation(
       fixture,
@@ -454,9 +439,7 @@ describe("LeadRotationReactor", () => {
             activity.payload.detail === "forced replacement provisioning failure",
         ),
     ).toBe(true);
-    expect(
-      failedGovernance.agentSeats.find((seat) => seat.id === ids.leadSeatId),
-    ).toMatchObject({
+    expect(failedGovernance.agentSeats.find((seat) => seat.id === ids.leadSeatId)).toMatchObject({
       threadId: ids.leadThreadId,
       lifecycleState: "active",
     });
@@ -472,9 +455,9 @@ describe("LeadRotationReactor", () => {
         threadId: ids.leadThreadId,
       })?.seatId,
     ).toBe(ids.leadSeatId);
-    expect(
-      failedGovernance.rootLeases.find((lease) => lease.id === initialLease.id),
-    ).toEqual(initialLease);
+    expect(failedGovernance.rootLeases.find((lease) => lease.id === initialLease.id)).toEqual(
+      initialLease,
+    );
     const supervisor = failedGovernance.agentSeats.find(
       (seat) => seat.id === ids.supervisorSeatId,
     )!;
@@ -535,7 +518,8 @@ describe("LeadRotationReactor", () => {
     await vi.waitFor(async () => {
       const readModel = await fixture.runtime.runPromise(fixture.engine.getReadModel());
       expect(
-        readModel.threads.filter((thread) => thread.id === rotation.replacementThreadId)[0]
+        readModel.threads
+          .filter((thread) => thread.id === rotation.replacementThreadId)[0]
           ?.messages.filter((message) =>
             message.id.startsWith(`lead-rotation:${rotation.id}:bootstrap:`),
           ),
@@ -598,13 +582,13 @@ describe("LeadRotationReactor", () => {
     const completedGovernance = await fixture.runtime.runPromise(
       fixture.governanceRepository.getSnapshot(),
     );
-    expect(
-      completedGovernance.agentSeats.find((seat) => seat.id === ids.leadSeatId),
-    ).toMatchObject({
-      threadId: rotation.replacementThreadId,
-      predecessorThreadIds: [ids.leadThreadId],
-      lifecycleState: "active",
-    });
+    expect(completedGovernance.agentSeats.find((seat) => seat.id === ids.leadSeatId)).toMatchObject(
+      {
+        threadId: rotation.replacementThreadId,
+        predecessorThreadIds: [ids.leadThreadId],
+        lifecycleState: "active",
+      },
+    );
     expect(
       resolveProjectedSupervisedCaller({
         governance: completedGovernance,

@@ -2,11 +2,9 @@ import {
   DEFAULT_SUPERVISED_RUN_POLICY,
   type AuthorityScope,
   type HarnessPatch,
-  type PluginCapability,
   type ProjectId,
   type RoomId,
   type RunPolicy,
-  type SupervisedCommand,
   type SupervisedPluginInspection,
 } from "@synara/contracts";
 import { useQuery } from "@tanstack/react-query";
@@ -22,6 +20,7 @@ import {
   supervisedRuntimeTraceEntries,
   type SupervisedRuntimeTraceKind,
 } from "~/lib/supervisedRuntimeDiagnostics";
+import { newCommandId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import {
   SettingsCard,
@@ -31,6 +30,8 @@ import {
   SettingsSection,
   SettingsSectionShell,
 } from "./SettingsPanelPrimitives";
+
+type PluginCapability = SupervisedPluginInspection["manifest"]["requestedCapabilities"][number];
 
 const value = (text: string) => (
   <span className="text-xs tabular-nums text-foreground/80">{text}</span>
@@ -67,7 +68,7 @@ export function harnessPatchLifecycleSummary(patch: HarnessPatch): {
   readonly label: string;
   readonly detail: string;
 } {
-  const observationCount = patch.observationEvidenceRefs.length;
+  const observationCount = (patch.observationEvidenceRefs ?? []).length;
   const evaluationCount = patch.evaluationEvidenceRefs.length;
   switch (patch.status) {
     case "observed":
@@ -109,8 +110,7 @@ export function harnessPatchLifecycleSummary(patch: HarnessPatch): {
       return {
         label: HARNESS_PATCH_STATUS_LABEL[patch.status],
         detail:
-          patch.sandboxEvaluation?.regressions.join(" · ") ||
-          "Sandbox evaluation did not pass",
+          patch.sandboxEvaluation?.regressions.join(" · ") || "Sandbox evaluation did not pass",
       };
     case "rolled_back":
       return {
@@ -257,14 +257,14 @@ export function SupervisedRuntimeSettingsPanel(props: {
     try {
       await api.orchestration.dispatchCommand({
         type: "supervised.run-policy.upsert",
-        commandId: crypto.randomUUID(),
+        commandId: newCommandId(),
         actor: { kind: "user", actorId: "owner" },
         aggregateId: runPolicy.id,
         expectedRevision: currentPolicy?.revision ?? 0,
         idempotencyKey: crypto.randomUUID(),
         createdAt: now,
         runPolicy,
-      } as SupervisedCommand);
+      });
       await query.refetch();
       setFeedback(
         restoreDefaults ? "RunPolicy defaults restored." : "RunPolicy saved for future Runs.",
@@ -368,14 +368,14 @@ export function SupervisedRuntimeSettingsPanel(props: {
     try {
       await api.orchestration.dispatchCommand({
         type,
-        commandId: crypto.randomUUID(),
+        commandId: newCommandId(),
         actor: { kind: "user", actorId: "owner" },
         aggregateId: plugin.pluginId,
         expectedRevision: plugin.revision,
         idempotencyKey: crypto.randomUUID(),
         createdAt: new Date().toISOString(),
         pluginId: plugin.pluginId,
-      } as SupervisedCommand);
+      });
       await query.refetch();
     } catch (cause) {
       setFeedback(cause instanceof Error ? cause.message : String(cause));
@@ -396,7 +396,7 @@ export function SupervisedRuntimeSettingsPanel(props: {
     try {
       await api.orchestration.dispatchCommand({
         type: "supervised.delivery.redrive",
-        commandId: crypto.randomUUID(),
+        commandId: newCommandId(),
         actor: { kind: "user", actorId: "owner" },
         aggregateId: delivery.id,
         expectedRevision: delivery.attemptCount,
@@ -404,7 +404,7 @@ export function SupervisedRuntimeSettingsPanel(props: {
         createdAt: new Date().toISOString(),
         deadLetterId: letter.id,
         replayBehavior: "observe_only",
-      } as SupervisedCommand);
+      });
       await query.refetch();
     } catch (cause) {
       setFeedback(cause instanceof Error ? cause.message : String(cause));
@@ -497,14 +497,14 @@ export function SupervisedRuntimeSettingsPanel(props: {
     try {
       await api.orchestration.dispatchCommand({
         type: "supervised.plugin.reset-circuit",
-        commandId: crypto.randomUUID(),
+        commandId: newCommandId(),
         actor: { kind: "user", actorId: "owner" },
         aggregateId: plugin.pluginId,
         expectedRevision: plugin.revision,
         idempotencyKey: crypto.randomUUID(),
         createdAt: new Date().toISOString(),
         pluginId: plugin.pluginId,
-      } as SupervisedCommand);
+      });
       await query.refetch();
       setFeedback(`${plugin.manifest.name} circuit reset.`);
     } catch (cause) {
@@ -526,9 +526,10 @@ export function SupervisedRuntimeSettingsPanel(props: {
   }
   const snapshot = query.data;
   const health = snapshot.health;
-  const harnessPatches = [...snapshot.harnessPatches].sort(
+  const harnessPatches = [...(snapshot.harnessPatches ?? [])].sort(
     (left, right) =>
-      right.updatedAt.localeCompare(left.updatedAt) || right.revision - left.revision,
+      right.updatedAt.localeCompare(left.updatedAt) ||
+      (right.revision ?? 0) - (left.revision ?? 0),
   );
   const activeHarnessPatchCount = harnessPatches.filter(
     (patch) => patch.status === "canary" || patch.status === "promoted",
@@ -577,49 +578,51 @@ export function SupervisedRuntimeSettingsPanel(props: {
       </div>
 
       {props.surface === "runtime" ? (
-      <SettingsSectionShell
-        title="Runtime lifecycle"
-        action={
-          <div className="flex items-center gap-2">
-            <Button size="sm" variant="outline" onClick={() => void query.refetch()}>
-              Refresh
-            </Button>
-            <Button
-              size="sm"
-              disabled={busy === "reconcile"}
-              onClick={() => void reconcileRuntime()}
-            >
-              {busy === "reconcile" ? "Reconciling…" : "Reconcile daemon"}
-            </Button>
-          </div>
-        }
-      >
-        <SettingsCard>
-          <SettingsRow
-            title="Supervised runtime"
-            description="Runs the background control plane for Lead Rooms, durable events, recovery, and notifications."
-            status={`Last recovery ${health.lastRecoveryAt ? new Date(health.lastRecoveryAt).toLocaleString() : "not yet"}`}
-            control={
-              <div className="flex items-center gap-2">
-                <span
-                  className={`size-1.5 rounded-full ${health.status === "healthy" ? "bg-emerald-500" : health.status === "degraded" ? "bg-amber-500" : "bg-muted-foreground"}`}
-                />
-                {value(`${health.status} · epoch ${health.daemonEpoch}`)}
-              </div>
-            }
-          />
-          <SettingsRow
-            title="Signal delivery"
-            description="At-least-once queue with durable cursors, cooldown, re-arm, and DeadLetters."
-            control={value(`${health.deliveryQueueDepth} queued · ${health.deadLetterCount} dead`)}
-          />
-          <SettingsRow
-            title="Programmable kernels"
-            description="Persistent JavaScript and Python child processes; untrusted execution fails closed without isolation."
-            control={value("JavaScript · Python")}
-          />
-        </SettingsCard>
-      </SettingsSectionShell>
+        <SettingsSectionShell
+          title="Runtime lifecycle"
+          action={
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" onClick={() => void query.refetch()}>
+                Refresh
+              </Button>
+              <Button
+                size="sm"
+                disabled={busy === "reconcile"}
+                onClick={() => void reconcileRuntime()}
+              >
+                {busy === "reconcile" ? "Reconciling…" : "Reconcile daemon"}
+              </Button>
+            </div>
+          }
+        >
+          <SettingsCard>
+            <SettingsRow
+              title="Supervised runtime"
+              description="Runs the background control plane for Lead Rooms, durable events, recovery, and notifications."
+              status={`Last recovery ${health.lastRecoveryAt ? new Date(health.lastRecoveryAt).toLocaleString() : "not yet"}`}
+              control={
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`size-1.5 rounded-full ${health.status === "healthy" ? "bg-emerald-500" : health.status === "degraded" ? "bg-amber-500" : "bg-muted-foreground"}`}
+                  />
+                  {value(`${health.status} · epoch ${health.daemonEpoch}`)}
+                </div>
+              }
+            />
+            <SettingsRow
+              title="Signal delivery"
+              description="At-least-once queue with durable cursors, cooldown, re-arm, and DeadLetters."
+              control={value(
+                `${health.deliveryQueueDepth} queued · ${health.deadLetterCount} dead`,
+              )}
+            />
+            <SettingsRow
+              title="Programmable kernels"
+              description="Persistent JavaScript and Python child processes; untrusted execution fails closed without isolation."
+              control={value("JavaScript · Python")}
+            />
+          </SettingsCard>
+        </SettingsSectionShell>
       ) : null}
 
       <DisclosureRegion open={props.surface === "diagnostics" && runtimeTraceOpen}>
@@ -712,565 +715,577 @@ export function SupervisedRuntimeSettingsPanel(props: {
       </DisclosureRegion>
 
       {props.surface === "runtime" ? (
-      <>
-      <SettingsSectionShell
-        title="RunPolicy & autonomous bounds"
-        action={
-          <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={busy === "run-policy"}
-              onClick={() => void saveRunPolicy(true)}
-            >
-              Restore defaults
-            </Button>
-            <Button size="sm" disabled={busy === "run-policy"} onClick={() => void saveRunPolicy()}>
-              Save bounds
-            </Button>
-          </div>
-        }
-      >
-        <SettingsCard>
-          <div className="grid gap-4 p-4 sm:grid-cols-2">
-            <label className="space-y-1.5 text-[11px] text-muted-foreground">
-              Recursive calls
-              <Input
-                inputMode="numeric"
-                value={maxRecursiveCalls}
-                onChange={(event) => setMaxRecursiveCalls(event.target.value)}
-              />
-            </label>
-            <label className="space-y-1.5 text-[11px] text-muted-foreground">
-              Fan-out
-              <Input
-                inputMode="numeric"
-                value={maxFanOut}
-                onChange={(event) => setMaxFanOut(event.target.value)}
-              />
-            </label>
-            <label className="space-y-1.5 text-[11px] text-muted-foreground">
-              Plugin handler timeout (ms)
-              <Input
-                inputMode="numeric"
-                value={maxPluginHandlerMs}
-                onChange={(event) => setMaxPluginHandlerMs(event.target.value)}
-              />
-            </label>
-            <label className="space-y-1.5 text-[11px] text-muted-foreground">
-              Replay behavior
-              <select
-                aria-label="Replay behavior"
-                className="h-9 w-full rounded-lg border border-border bg-transparent px-3 text-xs text-foreground"
-                value={replayBehavior}
-                onChange={(event) =>
-                  setReplayBehavior(event.target.value as RunPolicy["replayBehavior"])
-                }
-              >
-                <option value="disabled">Disabled</option>
-                <option value="observe_only">Observe only</option>
-                <option value="idempotent_actions">Idempotent actions</option>
-              </select>
-            </label>
-            <label className="space-y-1.5 text-[11px] text-muted-foreground">
-              Maximum subscriptions
-              <Input
-                inputMode="numeric"
-                value={maxSubscriptions}
-                onChange={(event) => setMaxSubscriptions(event.target.value)}
-              />
-            </label>
-            <label className="space-y-1.5 text-[11px] text-muted-foreground">
-              Maximum plugins
-              <Input
-                inputMode="numeric"
-                value={maxPlugins}
-                onChange={(event) => setMaxPlugins(event.target.value)}
-              />
-            </label>
-          </div>
-        </SettingsCard>
-      </SettingsSectionShell>
-
-      <SettingsSection title="Durable Context & RLM">
-        <SettingsRow
-          title="RLM admission"
-          description="Use recursive decomposition at 65% context, 24k tokens, or four independent branches."
-          control={value("Automatic")}
-        />
-        <SettingsRow
-          title="Recursive bounds"
-          description="Captured in each RunPolicy snapshot; changes apply to future Runs."
-          control={value("Depth 8 · fan-out 4")}
-        />
-        <SettingsRow
-          title="Durable workspace"
-          description="Revisioned decisions, evidence, obligations, summaries, and SHA-256 blob references."
-          control={value("Enabled")}
-        />
-      </SettingsSection>
-
-      <SettingsSectionShell title="Harness Patch lifecycle">
-        <SettingsCard>
-          <SettingsRow
-            title="Governed patch activation"
-            description="Read-only projected lifecycle. Supervisor proposals require durable friction evidence; the daemon evaluates them in sandbox; only a Human may activate or promote a canary."
-            status={`${approvalPendingHarnessPatchCount} awaiting Human approval · ${activeHarnessPatchCount} active`}
-            control={value(`${harnessPatches.length} retained`)}
-          />
-          {harnessPatches.length === 0 ? (
-            <SettingsListRow
-              title="No Harness Patch proposals retained"
-              description="The runtime snapshot has no observed, evaluated, active, or rolled-back patches."
-            />
-          ) : (
-            harnessPatches.map((patch) => {
-              const lifecycle = harnessPatchLifecycleSummary(patch);
-              const digest = `${patch.basePolicyHash.slice(0, 18)}…`;
-              return (
-                <SettingsListRow
-                  key={patch.id}
-                  align="start"
-                  title={
-                    <span>
-                      {patch.name} · v{patch.version}
-                    </span>
-                  }
-                  description={
-                    <div className="space-y-1">
-                      <p>{patch.content}</p>
-                      <p>{lifecycle.detail}</p>
-                      <p className="break-all font-mono text-[10px] text-muted-foreground/75">
-                        {harnessPatchScopeLabel(patch.scope)} · {patch.patchType} · revision {patch.revision}
-                        {" · "}
-                        base {digest}
-                      </p>
-                    </div>
-                  }
-                  actions={value(lifecycle.label)}
-                />
-              );
-            })
-          )}
-        </SettingsCard>
-      </SettingsSectionShell>
-
-      <SettingsSection title="Retained Peer specialties">
-        <SettingsRow
-          title="Retained Peer specialties"
-          description="Restore only sanitized, unexpired, scope-compatible snapshots."
-          control={value("Compatible only")}
-        />
-      </SettingsSection>
-      </>
-      ) : null}
-
-      {props.surface === "plugins" ? (
-      <SettingsSectionShell
-        title="Plugin registry"
-        action={
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              setPluginEditorOpen((current) => !current);
-              setFeedback(null);
-            }}
-          >
-            {pluginEditorOpen ? "Cancel" : "Install local plugin"}
-          </Button>
-        }
-      >
-        {pluginEditorOpen ? (
-          <SettingsCard>
-            <div className="space-y-4 p-4">
-              <div>
-                <div className="text-xs font-medium text-foreground">Local plugin package</div>
-                <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-                  Select a folder containing synara-plugin.json. Synara computes its own package
-                  hash and checks handler containment before showing any grant.
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <Input
-                  aria-label="Plugin directory"
-                  placeholder="/path/to/plugin"
-                  value={pluginDirectory}
-                  onChange={(event) => setPluginDirectory(event.target.value)}
-                />
-                <Button size="sm" variant="outline" onClick={() => void browsePlugin()}>
-                  Browse
+        <>
+          <SettingsSectionShell
+            title="RunPolicy & autonomous bounds"
+            action={
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy === "run-policy"}
+                  onClick={() => void saveRunPolicy(true)}
+                >
+                  Restore defaults
                 </Button>
                 <Button
                   size="sm"
-                  disabled={busy === "inspect"}
-                  onClick={() => void inspectPlugin()}
+                  disabled={busy === "run-policy"}
+                  onClick={() => void saveRunPolicy()}
                 >
-                  {busy === "inspect" ? "Inspecting…" : "Inspect"}
+                  Save bounds
                 </Button>
               </div>
-              {pluginInspection ? (
-                <div className="space-y-4 rounded-lg border border-border/65 p-3">
-                  <div>
-                    <div className="text-xs font-medium text-foreground">
-                      {pluginInspection.manifest.name} · {pluginInspection.manifest.version}
+            }
+          >
+            <SettingsCard>
+              <div className="grid gap-4 p-4 sm:grid-cols-2">
+                <label className="space-y-1.5 text-[11px] text-muted-foreground">
+                  Recursive calls
+                  <Input
+                    inputMode="numeric"
+                    value={maxRecursiveCalls}
+                    onChange={(event) => setMaxRecursiveCalls(event.target.value)}
+                  />
+                </label>
+                <label className="space-y-1.5 text-[11px] text-muted-foreground">
+                  Fan-out
+                  <Input
+                    inputMode="numeric"
+                    value={maxFanOut}
+                    onChange={(event) => setMaxFanOut(event.target.value)}
+                  />
+                </label>
+                <label className="space-y-1.5 text-[11px] text-muted-foreground">
+                  Plugin handler timeout (ms)
+                  <Input
+                    inputMode="numeric"
+                    value={maxPluginHandlerMs}
+                    onChange={(event) => setMaxPluginHandlerMs(event.target.value)}
+                  />
+                </label>
+                <label className="space-y-1.5 text-[11px] text-muted-foreground">
+                  Replay behavior
+                  <select
+                    aria-label="Replay behavior"
+                    className="h-9 w-full rounded-lg border border-border bg-transparent px-3 text-xs text-foreground"
+                    value={replayBehavior}
+                    onChange={(event) =>
+                      setReplayBehavior(event.target.value as RunPolicy["replayBehavior"])
+                    }
+                  >
+                    <option value="disabled">Disabled</option>
+                    <option value="observe_only">Observe only</option>
+                    <option value="idempotent_actions">Idempotent actions</option>
+                  </select>
+                </label>
+                <label className="space-y-1.5 text-[11px] text-muted-foreground">
+                  Maximum subscriptions
+                  <Input
+                    inputMode="numeric"
+                    value={maxSubscriptions}
+                    onChange={(event) => setMaxSubscriptions(event.target.value)}
+                  />
+                </label>
+                <label className="space-y-1.5 text-[11px] text-muted-foreground">
+                  Maximum plugins
+                  <Input
+                    inputMode="numeric"
+                    value={maxPlugins}
+                    onChange={(event) => setMaxPlugins(event.target.value)}
+                  />
+                </label>
+              </div>
+            </SettingsCard>
+          </SettingsSectionShell>
+
+          <SettingsSection title="Durable Context & RLM">
+            <SettingsRow
+              title="RLM admission"
+              description="Use recursive decomposition at 65% context, 24k tokens, or four independent branches."
+              control={value("Automatic")}
+            />
+            <SettingsRow
+              title="Recursive bounds"
+              description="Captured in each RunPolicy snapshot; changes apply to future Runs."
+              control={value("Depth 8 · fan-out 4")}
+            />
+            <SettingsRow
+              title="Durable workspace"
+              description="Revisioned decisions, evidence, obligations, summaries, and SHA-256 blob references."
+              control={value("Enabled")}
+            />
+          </SettingsSection>
+
+          <SettingsSectionShell title="Harness Patch lifecycle">
+            <SettingsCard>
+              <SettingsRow
+                title="Governed patch activation"
+                description="Read-only projected lifecycle. Supervisor proposals require durable friction evidence; the daemon evaluates them in sandbox; only a Human may activate or promote a canary."
+                status={`${approvalPendingHarnessPatchCount} awaiting Human approval · ${activeHarnessPatchCount} active`}
+                control={value(`${harnessPatches.length} retained`)}
+              />
+              {harnessPatches.length === 0 ? (
+                <SettingsListRow
+                  title="No Harness Patch proposals retained"
+                  description="The runtime snapshot has no observed, evaluated, active, or rolled-back patches."
+                />
+              ) : (
+                harnessPatches.map((patch) => {
+                  const lifecycle = harnessPatchLifecycleSummary(patch);
+                  const digest = `${patch.basePolicyHash.slice(0, 18)}…`;
+                  return (
+                    <SettingsListRow
+                      key={patch.id}
+                      align="start"
+                      title={
+                        <span>
+                          {patch.name} · v{patch.version}
+                        </span>
+                      }
+                      description={
+                        <div className="space-y-1">
+                          <p>{patch.content}</p>
+                          <p>{lifecycle.detail}</p>
+                          <p className="break-all font-mono text-[10px] text-muted-foreground/75">
+                            {harnessPatchScopeLabel(patch.scope)} · {patch.patchType} · revision{" "}
+                            {patch.revision}
+                            {" · "}
+                            base {digest}
+                          </p>
+                        </div>
+                      }
+                      actions={value(lifecycle.label)}
+                    />
+                  );
+                })
+              )}
+            </SettingsCard>
+          </SettingsSectionShell>
+
+          <SettingsSection title="Retained Peer specialties">
+            <SettingsRow
+              title="Retained Peer specialties"
+              description="Restore only sanitized, unexpired, scope-compatible snapshots."
+              control={value("Compatible only")}
+            />
+          </SettingsSection>
+        </>
+      ) : null}
+
+      {props.surface === "plugins" ? (
+        <SettingsSectionShell
+          title="Plugin registry"
+          action={
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setPluginEditorOpen((current) => !current);
+                setFeedback(null);
+              }}
+            >
+              {pluginEditorOpen ? "Cancel" : "Install local plugin"}
+            </Button>
+          }
+        >
+          {pluginEditorOpen ? (
+            <SettingsCard>
+              <div className="space-y-4 p-4">
+                <div>
+                  <div className="text-xs font-medium text-foreground">Local plugin package</div>
+                  <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
+                    Select a folder containing synara-plugin.json. Synara computes its own package
+                    hash and checks handler containment before showing any grant.
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    aria-label="Plugin directory"
+                    placeholder="/path/to/plugin"
+                    value={pluginDirectory}
+                    onChange={(event) => setPluginDirectory(event.target.value)}
+                  />
+                  <Button size="sm" variant="outline" onClick={() => void browsePlugin()}>
+                    Browse
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={busy === "inspect"}
+                    onClick={() => void inspectPlugin()}
+                  >
+                    {busy === "inspect" ? "Inspecting…" : "Inspect"}
+                  </Button>
+                </div>
+                {pluginInspection ? (
+                  <div className="space-y-4 rounded-lg border border-border/65 p-3">
+                    <div>
+                      <div className="text-xs font-medium text-foreground">
+                        {pluginInspection.manifest.name} · {pluginInspection.manifest.version}
+                      </div>
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        {pluginInspection.manifest.description}
+                      </p>
+                      <p className="mt-1 break-all text-[10px] text-muted-foreground/75">
+                        {pluginInspection.manifest.provenance.contentHash}
+                      </p>
                     </div>
-                    <p className="mt-1 text-[11px] text-muted-foreground">
-                      {pluginInspection.manifest.description}
-                    </p>
-                    <p className="mt-1 break-all text-[10px] text-muted-foreground/75">
-                      {pluginInspection.manifest.provenance.contentHash}
-                    </p>
-                  </div>
-                  {pluginInspection.warnings.length > 0 ? (
-                    <div className="rounded-md border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-300">
-                      {pluginInspection.warnings.join(" ")}
-                    </div>
-                  ) : null}
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <div className="text-[11px] font-medium text-foreground">Capabilities</div>
-                      {pluginInspection.manifest.requestedCapabilities.map((capability) => (
-                        <label
-                          key={capability}
-                          className="flex items-center gap-2 text-[11px] text-muted-foreground"
-                        >
-                          <Checkbox
-                            checked={selectedCapabilities.has(capability)}
-                            onCheckedChange={(checked) =>
-                              setSelectedCapabilities((current) => {
-                                const next = new Set(current);
-                                if (checked) next.add(capability);
-                                else next.delete(capability);
-                                return next;
-                              })
-                            }
-                          />
-                          {capability}
-                        </label>
-                      ))}
-                    </div>
-                    <div className="space-y-2">
-                      <div className="text-[11px] font-medium text-foreground">Payload fields</div>
-                      {pluginInspection.manifest.requestedPayloadFields.length === 0 ? (
-                        <p className="text-[11px] text-muted-foreground">
-                          No event payload fields requested.
-                        </p>
-                      ) : (
-                        pluginInspection.manifest.requestedPayloadFields.map((field) => (
+                    {pluginInspection.warnings.length > 0 ? (
+                      <div className="rounded-md border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-300">
+                        {pluginInspection.warnings.join(" ")}
+                      </div>
+                    ) : null}
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <div className="text-[11px] font-medium text-foreground">Capabilities</div>
+                        {pluginInspection.manifest.requestedCapabilities.map((capability) => (
                           <label
-                            key={field}
+                            key={capability}
                             className="flex items-center gap-2 text-[11px] text-muted-foreground"
                           >
                             <Checkbox
-                              checked={selectedPayloadFields.has(field)}
+                              checked={selectedCapabilities.has(capability)}
                               onCheckedChange={(checked) =>
-                                setSelectedPayloadFields((current) => {
+                                setSelectedCapabilities((current) => {
                                   const next = new Set(current);
-                                  if (checked) next.add(field);
-                                  else next.delete(field);
+                                  if (checked) next.add(capability);
+                                  else next.delete(capability);
                                   return next;
                                 })
                               }
                             />
-                            {field}
-                            {pluginInspection.protectedPayloadFields.includes(field)
-                              ? " · protected"
-                              : ""}
+                            {capability}
                           </label>
-                        ))
+                        ))}
+                      </div>
+                      <div className="space-y-2">
+                        <div className="text-[11px] font-medium text-foreground">
+                          Payload fields
+                        </div>
+                        {pluginInspection.manifest.requestedPayloadFields.length === 0 ? (
+                          <p className="text-[11px] text-muted-foreground">
+                            No event payload fields requested.
+                          </p>
+                        ) : (
+                          pluginInspection.manifest.requestedPayloadFields.map((field) => (
+                            <label
+                              key={field}
+                              className="flex items-center gap-2 text-[11px] text-muted-foreground"
+                            >
+                              <Checkbox
+                                checked={selectedPayloadFields.has(field)}
+                                onCheckedChange={(checked) =>
+                                  setSelectedPayloadFields((current) => {
+                                    const next = new Set(current);
+                                    if (checked) next.add(field);
+                                    else next.delete(field);
+                                    return next;
+                                  })
+                                }
+                              />
+                              {field}
+                              {pluginInspection.protectedPayloadFields.includes(field)
+                                ? " · protected"
+                                : ""}
+                            </label>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                    {pluginInspection.requestedActionRequests.length > 0 ? (
+                      <div className="space-y-2">
+                        <div className="text-[11px] font-medium text-foreground">
+                          Typed action requests
+                        </div>
+                        {pluginInspection.requestedActionRequests.map((action) => (
+                          <label
+                            key={action}
+                            className="flex items-center gap-2 text-[11px] text-muted-foreground"
+                          >
+                            <Checkbox
+                              checked={selectedActions.has(action)}
+                              onCheckedChange={(checked) =>
+                                setSelectedActions((current) => {
+                                  const next = new Set(current);
+                                  if (checked) next.add(action);
+                                  else next.delete(action);
+                                  return next;
+                                })
+                              }
+                            />
+                            {action}
+                          </label>
+                        ))}
+                      </div>
+                    ) : null}
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="space-y-1.5 text-[11px] text-muted-foreground">
+                        Grant scope
+                        <select
+                          aria-label="Plugin grant scope"
+                          className="h-9 w-full rounded-lg border border-border bg-transparent px-3 text-xs text-foreground"
+                          value={pluginScopeKind}
+                          onChange={(event) =>
+                            setPluginScopeKind(event.target.value as typeof pluginScopeKind)
+                          }
+                        >
+                          <option value="global">Global</option>
+                          <option value="project">Project</option>
+                          <option value="room">Lead Room</option>
+                        </select>
+                      </label>
+                      {pluginScopeKind === "global" ? (
+                        <div className="rounded-lg border border-border/65 px-3 py-2 text-[11px] text-muted-foreground">
+                          Global observation does not grant authority to mutate every Room.
+                        </div>
+                      ) : (
+                        <label className="space-y-1.5 text-[11px] text-muted-foreground">
+                          {pluginScopeKind === "project" ? "Project ID" : "Room ID"}
+                          <Input
+                            value={pluginScopeId}
+                            onChange={(event) => setPluginScopeId(event.target.value)}
+                          />
+                        </label>
                       )}
                     </div>
-                  </div>
-                  {pluginInspection.requestedActionRequests.length > 0 ? (
-                    <div className="space-y-2">
-                      <div className="text-[11px] font-medium text-foreground">
-                        Typed action requests
-                      </div>
-                      {pluginInspection.requestedActionRequests.map((action) => (
-                        <label
-                          key={action}
-                          className="flex items-center gap-2 text-[11px] text-muted-foreground"
-                        >
-                          <Checkbox
-                            checked={selectedActions.has(action)}
-                            onCheckedChange={(checked) =>
-                              setSelectedActions((current) => {
-                                const next = new Set(current);
-                                if (checked) next.add(action);
-                                else next.delete(action);
-                                return next;
-                              })
-                            }
-                          />
-                          {action}
-                        </label>
-                      ))}
-                    </div>
-                  ) : null}
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <label className="space-y-1.5 text-[11px] text-muted-foreground">
-                      Grant scope
-                      <select
-                        aria-label="Plugin grant scope"
-                        className="h-9 w-full rounded-lg border border-border bg-transparent px-3 text-xs text-foreground"
-                        value={pluginScopeKind}
-                        onChange={(event) =>
-                          setPluginScopeKind(event.target.value as typeof pluginScopeKind)
-                        }
-                      >
-                        <option value="global">Global</option>
-                        <option value="project">Project</option>
-                        <option value="room">Lead Room</option>
-                      </select>
+                    <label className="flex items-start gap-2 text-[11px] text-muted-foreground">
+                      <Checkbox
+                        checked={enableAfterInstall}
+                        onCheckedChange={setEnableAfterInstall}
+                      />
+                      <span>
+                        <span className="font-medium text-foreground">Enable after install</span>
+                        <br />
+                        Leave off to inspect the durable registry entry before any handler receives
+                        events.
+                      </span>
                     </label>
-                    {pluginScopeKind === "global" ? (
-                      <div className="rounded-lg border border-border/65 px-3 py-2 text-[11px] text-muted-foreground">
-                        Global observation does not grant authority to mutate every Room.
-                      </div>
-                    ) : (
-                      <label className="space-y-1.5 text-[11px] text-muted-foreground">
-                        {pluginScopeKind === "project" ? "Project ID" : "Room ID"}
-                        <Input
-                          value={pluginScopeId}
-                          onChange={(event) => setPluginScopeId(event.target.value)}
-                        />
-                      </label>
-                    )}
-                  </div>
-                  <label className="flex items-start gap-2 text-[11px] text-muted-foreground">
-                    <Checkbox
-                      checked={enableAfterInstall}
-                      onCheckedChange={setEnableAfterInstall}
-                    />
-                    <span>
-                      <span className="font-medium text-foreground">Enable after install</span>
-                      <br />
-                      Leave off to inspect the durable registry entry before any handler receives
-                      events.
-                    </span>
-                  </label>
-                  <div className="flex items-center justify-between gap-3 border-t border-border/55 pt-3">
-                    <p className="text-[10px] text-muted-foreground">
-                      Every proposed command still passes authority, expected revision, idempotency,
-                      RunPolicy, and audit.
-                    </p>
-                    <Button
-                      size="sm"
-                      disabled={busy === "install"}
-                      onClick={() => void installPlugin()}
-                    >
-                      {busy === "install" ? "Installing…" : "Install plugin"}
-                    </Button>
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          </SettingsCard>
-        ) : null}
-        <SettingsCard>
-          {snapshot.plugins.length === 0 ? (
-            <SettingsEmptyState layout="status">No governed plugins installed.</SettingsEmptyState>
-          ) : (
-            snapshot.plugins.map((plugin) => {
-              const pluginHealth = snapshot.pluginHealth.find(
-                (candidate) => candidate.pluginId === plugin.pluginId,
-              );
-              return (
-                <SettingsListRow
-                  key={plugin.pluginId}
-                  title={plugin.manifest.name}
-                  description={`${plugin.manifest.version} · ${plugin.grant.capabilities.join(", ") || "no capabilities"} · circuit ${pluginHealth?.circuitState ?? "closed"} · queue ${pluginHealth?.queueDepth ?? 0}`}
-                  actions={
-                    <div className="flex items-center gap-2">
-                      {value(plugin.status)}
+                    <div className="flex items-center justify-between gap-3 border-t border-border/55 pt-3">
+                      <p className="text-[10px] text-muted-foreground">
+                        Every proposed command still passes authority, expected revision,
+                        idempotency, RunPolicy, and audit.
+                      </p>
                       <Button
                         size="sm"
-                        variant="outline"
-                        disabled={busy === plugin.pluginId || plugin.status === "revoked"}
-                        onClick={() =>
-                          void changePluginState(
-                            plugin,
-                            plugin.status === "enabled"
-                              ? "supervised.plugin.disable"
-                              : "supervised.plugin.enable",
-                          )
-                        }
+                        disabled={busy === "install"}
+                        onClick={() => void installPlugin()}
                       >
-                        {plugin.status === "enabled" ? "Disable" : "Enable"}
+                        {busy === "install" ? "Installing…" : "Install plugin"}
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={busy === plugin.pluginId || plugin.status === "revoked"}
-                        onClick={() => void changePluginState(plugin, "supervised.plugin.revoke")}
-                      >
-                        Revoke
-                      </Button>
-                      {pluginHealth?.circuitState === "open" ? (
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </SettingsCard>
+          ) : null}
+          <SettingsCard>
+            {snapshot.plugins.length === 0 ? (
+              <SettingsEmptyState layout="status">
+                No governed plugins installed.
+              </SettingsEmptyState>
+            ) : (
+              snapshot.plugins.map((plugin) => {
+                const pluginHealth = (snapshot.pluginHealth ?? []).find(
+                  (candidate) => candidate.pluginId === plugin.pluginId,
+                );
+                return (
+                  <SettingsListRow
+                    key={plugin.pluginId}
+                    title={plugin.manifest.name}
+                    description={`${plugin.manifest.version} · ${plugin.grant.capabilities.join(", ") || "no capabilities"} · circuit ${pluginHealth?.circuitState ?? "closed"} · queue ${pluginHealth?.queueDepth ?? 0}`}
+                    actions={
+                      <div className="flex items-center gap-2">
+                        {value(plugin.status)}
                         <Button
                           size="sm"
                           variant="outline"
-                          disabled={busy === plugin.pluginId}
-                          onClick={() => void resetPluginCircuit(plugin)}
+                          disabled={busy === plugin.pluginId || plugin.status === "revoked"}
+                          onClick={() =>
+                            void changePluginState(
+                              plugin,
+                              plugin.status === "enabled"
+                                ? "supervised.plugin.disable"
+                                : "supervised.plugin.enable",
+                            )
+                          }
                         >
-                          Reset circuit
+                          {plugin.status === "enabled" ? "Disable" : "Enable"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={busy === plugin.pluginId || plugin.status === "revoked"}
+                          onClick={() => void changePluginState(plugin, "supervised.plugin.revoke")}
+                        >
+                          Revoke
+                        </Button>
+                        {pluginHealth?.circuitState === "open" ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={busy === plugin.pluginId}
+                            onClick={() => void resetPluginCircuit(plugin)}
+                          >
+                            Reset circuit
+                          </Button>
+                        ) : null}
+                      </div>
+                    }
+                  />
+                );
+              })
+            )}
+          </SettingsCard>
+        </SettingsSectionShell>
+      ) : null}
+
+      {props.surface === "diagnostics" ? (
+        <>
+          <SettingsSectionShell title="Runtime audit">
+            <SettingsCard>
+              {(snapshot.audit ?? []).length === 0 ? (
+                <SettingsEmptyState layout="status">
+                  No runtime governance actions recorded yet.
+                </SettingsEmptyState>
+              ) : (
+                (snapshot.audit ?? [])
+                  .slice(0, 20)
+                  .map((entry) => (
+                    <SettingsListRow
+                      key={entry.sequence}
+                      title={`${entry.action} · ${entry.outcome}`}
+                      description={`${entry.targetKind} ${entry.targetId} · ${new Date(entry.occurredAt).toLocaleString()}`}
+                      actions={value(`#${entry.sequence}`)}
+                    />
+                  ))
+              )}
+            </SettingsCard>
+          </SettingsSectionShell>
+
+          <SettingsSectionShell title="Event schema catalog">
+            <SettingsCard divided={false}>
+              <div className="divide-y divide-border/55">
+                {snapshot.schemas.map((schema) => {
+                  const open = expandedSchemaId === schema.id;
+                  const classifiedFields = Object.entries(schema.fieldClassifications);
+                  return (
+                    <div key={schema.id}>
+                      <button
+                        type="button"
+                        className="flex w-full items-start gap-4 px-4 py-3 text-left transition-colors hover:bg-muted/35 active:bg-muted/55"
+                        aria-expanded={open}
+                        onClick={() => setExpandedSchemaId(open ? null : schema.id)}
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-xs font-medium text-foreground">
+                            {schema.eventType}
+                          </span>
+                          <span className="mt-1 block text-[10px] text-muted-foreground">
+                            {schema.version} · {schema.compatibility} compatibility ·{" "}
+                            {classifiedFields.length} classified fields
+                          </span>
+                        </span>
+                        <span className="font-mono text-[9px] uppercase tracking-wide text-foreground/65">
+                          {open ? "Close" : "Inspect"} · {schema.status}
+                        </span>
+                      </button>
+                      <DisclosureRegion open={open}>
+                        <div className="grid gap-4 border-t border-border/45 bg-muted/15 px-4 py-4 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+                          <div>
+                            <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                              Field classifications
+                            </div>
+                            <div className="mt-2 space-y-1 font-mono text-[10px]">
+                              {classifiedFields.length === 0 ? (
+                                <span className="text-muted-foreground">No classified fields.</span>
+                              ) : (
+                                classifiedFields.map(([field, classification]) => (
+                                  <div
+                                    key={field}
+                                    className="flex items-center justify-between gap-3"
+                                  >
+                                    <span className="truncate text-foreground/75">{field}</span>
+                                    <span className="text-muted-foreground">{classification}</span>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                              JSON Schema
+                            </div>
+                            <pre className="mt-2 max-h-64 overflow-auto rounded-md border border-border/55 bg-background/70 p-3 font-mono text-[10px] leading-4 text-foreground/70">
+                              {JSON.stringify(schema.jsonSchema, null, 2)}
+                            </pre>
+                          </div>
+                        </div>
+                      </DisclosureRegion>
+                    </div>
+                  );
+                })}
+              </div>
+            </SettingsCard>
+          </SettingsSectionShell>
+
+          <SettingsSectionShell title="Delivery diagnostics">
+            <SettingsCard>
+              {snapshot.deliveries.slice(0, 20).map((delivery) => (
+                <SettingsListRow
+                  key={delivery.id}
+                  title={`${delivery.status} · ${delivery.subscriptionId}`}
+                  description={`${delivery.id} · ${delivery.attemptCount} attempts · updated ${new Date(delivery.updatedAt).toLocaleString()}`}
+                  actions={value(delivery.replay ? "replay" : "live")}
+                />
+              ))}
+              {snapshot.deadLetters.map((letter) => (
+                <SettingsListRow
+                  key={letter.id}
+                  title={letter.reason}
+                  description={`${letter.deliveryId} · ${letter.attemptCount} attempts`}
+                  actions={
+                    <div className="flex items-center gap-2">
+                      {value(letter.status)}
+                      {letter.status === "open" ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={busy === letter.id}
+                          onClick={() => void redriveDeadLetter(letter.id)}
+                        >
+                          Test observe-only replay
                         </Button>
                       ) : null}
                     </div>
                   }
                 />
-              );
-            })
-          )}
-        </SettingsCard>
-      </SettingsSectionShell>
-      ) : null}
+              ))}
+              {snapshot.deliveries.length === 0 && snapshot.deadLetters.length === 0 ? (
+                <SettingsEmptyState layout="status">
+                  No deliveries or DeadLetters. Durable cursors are healthy.
+                </SettingsEmptyState>
+              ) : null}
+            </SettingsCard>
+          </SettingsSectionShell>
 
-      {props.surface === "diagnostics" ? (
-      <>
-      <SettingsSectionShell title="Runtime audit">
-        <SettingsCard>
-          {snapshot.audit.length === 0 ? (
-            <SettingsEmptyState layout="status">
-              No runtime governance actions recorded yet.
-            </SettingsEmptyState>
-          ) : (
-            snapshot.audit
-              .slice(0, 20)
-              .map((entry) => (
-                <SettingsListRow
-                  key={entry.sequence}
-                  title={`${entry.action} · ${entry.outcome}`}
-                  description={`${entry.targetKind} ${entry.targetId} · ${new Date(entry.occurredAt).toLocaleString()}`}
-                  actions={value(`#${entry.sequence}`)}
-                />
-              ))
-          )}
-        </SettingsCard>
-      </SettingsSectionShell>
-
-      <SettingsSectionShell title="Event schema catalog">
-        <SettingsCard divided={false}>
-          <div className="divide-y divide-border/55">
-            {snapshot.schemas.map((schema) => {
-              const open = expandedSchemaId === schema.id;
-              const classifiedFields = Object.entries(schema.fieldClassifications);
-              return (
-                <div key={schema.id}>
-                  <button
-                    type="button"
-                    className="flex w-full items-start gap-4 px-4 py-3 text-left transition-colors hover:bg-muted/35 active:bg-muted/55"
-                    aria-expanded={open}
-                    onClick={() => setExpandedSchemaId(open ? null : schema.id)}
-                  >
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-xs font-medium text-foreground">
-                        {schema.eventType}
-                      </span>
-                      <span className="mt-1 block text-[10px] text-muted-foreground">
-                        {schema.version} · {schema.compatibility} compatibility ·{" "}
-                        {classifiedFields.length} classified fields
-                      </span>
-                    </span>
-                    <span className="font-mono text-[9px] uppercase tracking-wide text-foreground/65">
-                      {open ? "Close" : "Inspect"} · {schema.status}
-                    </span>
-                  </button>
-                  <DisclosureRegion open={open}>
-                    <div className="grid gap-4 border-t border-border/45 bg-muted/15 px-4 py-4 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
-                      <div>
-                        <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                          Field classifications
-                        </div>
-                        <div className="mt-2 space-y-1 font-mono text-[10px]">
-                          {classifiedFields.length === 0 ? (
-                            <span className="text-muted-foreground">No classified fields.</span>
-                          ) : (
-                            classifiedFields.map(([field, classification]) => (
-                              <div key={field} className="flex items-center justify-between gap-3">
-                                <span className="truncate text-foreground/75">{field}</span>
-                                <span className="text-muted-foreground">{classification}</span>
-                              </div>
-                            ))
-                          )}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                          JSON Schema
-                        </div>
-                        <pre className="mt-2 max-h-64 overflow-auto rounded-md border border-border/55 bg-background/70 p-3 font-mono text-[10px] leading-4 text-foreground/70">
-                          {JSON.stringify(schema.jsonSchema, null, 2)}
-                        </pre>
-                      </div>
-                    </div>
-                  </DisclosureRegion>
-                </div>
-              );
-            })}
-          </div>
-        </SettingsCard>
-      </SettingsSectionShell>
-
-      <SettingsSectionShell title="Delivery diagnostics">
-        <SettingsCard>
-          {snapshot.deliveries.slice(0, 20).map((delivery) => (
-            <SettingsListRow
-              key={delivery.id}
-              title={`${delivery.status} · ${delivery.subscriptionId}`}
-              description={`${delivery.id} · ${delivery.attemptCount} attempts · updated ${new Date(delivery.updatedAt).toLocaleString()}`}
-              actions={value(delivery.replay ? "replay" : "live")}
+          <SettingsSection title="Locked governance invariants">
+            <SettingsRow
+              title="Command boundary"
+              description="Plugins and subscriptions can propose typed commands only; authority, expected revision, idempotency, RunPolicy, and audit still apply."
+              control={value("Locked")}
             />
-          ))}
-          {snapshot.deadLetters.map((letter) => (
-            <SettingsListRow
-              key={letter.id}
-              title={letter.reason}
-              description={`${letter.deliveryId} · ${letter.attemptCount} attempts`}
-              actions={
-                <div className="flex items-center gap-2">
-                  {value(letter.status)}
-                  {letter.status === "open" ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={busy === letter.id}
-                      onClick={() => void redriveDeadLetter(letter.id)}
-                    >
-                      Test observe-only replay
-                    </Button>
-                  ) : null}
-                </div>
-              }
+            <SettingsRow
+              title="Room acceptance"
+              description="Lead retains Room-local integration and acceptance authority after every signal wake or intervention."
+              control={value("Locked")}
             />
-          ))}
-          {snapshot.deliveries.length === 0 && snapshot.deadLetters.length === 0 ? (
-            <SettingsEmptyState layout="status">
-              No deliveries or DeadLetters. Durable cursors are healthy.
-            </SettingsEmptyState>
-          ) : null}
-        </SettingsCard>
-      </SettingsSectionShell>
-
-      <SettingsSection title="Locked governance invariants">
-        <SettingsRow
-          title="Command boundary"
-          description="Plugins and subscriptions can propose typed commands only; authority, expected revision, idempotency, RunPolicy, and audit still apply."
-          control={value("Locked")}
-        />
-        <SettingsRow
-          title="Room acceptance"
-          description="Lead retains Room-local integration and acceptance authority after every signal wake or intervention."
-          control={value("Locked")}
-        />
-        <SettingsRow
-          title="Permission monotonicity"
-          description="Subscriptions, replay, plugins, retained state, and learned patches never expand capability grants."
-          control={value("Locked")}
-        />
-      </SettingsSection>
-      </>
+            <SettingsRow
+              title="Permission monotonicity"
+              description="Subscriptions, replay, plugins, retained state, and learned patches never expand capability grants."
+              control={value("Locked")}
+            />
+          </SettingsSection>
+        </>
       ) : null}
       <div className="min-h-5 text-[11px] text-muted-foreground" aria-live="polite">
         {feedback}

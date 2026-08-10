@@ -52,9 +52,7 @@ import {
 export const COMPOSER_DRAFT_STORAGE_KEY = "synara:composer-drafts:v1";
 export const COMPOSER_DRAFT_STORAGE_VERSION = 10;
 export type DraftThreadEnvMode = "local" | "worktree";
-export type DraftThreadEntryPoint =
-  | ThreadPrimarySurface
-  | "supervised";
+export type DraftThreadEntryPoint = ThreadPrimarySurface | "supervised";
 const TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX = "::terminal";
 const SUPERVISED_DRAFT_THREAD_MAPPING_SUFFIX = "::supervised";
 
@@ -890,11 +888,7 @@ export function normalizeDraftThreadEntryPoint(
   value: unknown,
   fallback: DraftThreadEntryPoint = "chat",
 ) {
-  return value === "terminal" ||
-    value === "chat" ||
-    value === "supervised"
-    ? value
-    : fallback;
+  return value === "terminal" || value === "chat" || value === "supervised" ? value : fallback;
 }
 
 const EMPTY_IMAGES: ComposerImageAttachment[] = [];

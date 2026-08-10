@@ -83,9 +83,7 @@ export function formatToolCallDetailLabel(entry: WorkLogEntry): string {
     case "command":
       return "Ran command";
     case "edit":
-      return entry.changedFiles?.length === 1
-        ? `Edited ${entry.changedFiles[0]}`
-        : "Edited files";
+      return entry.changedFiles?.length === 1 ? `Edited ${entry.changedFiles[0]}` : "Edited files";
     case "web":
       return "Searched the web";
     case "image":
@@ -93,7 +91,9 @@ export function formatToolCallDetailLabel(entry: WorkLogEntry): string {
     case "agent":
       return "Ran an agent task";
     case "tool":
-      return entry.toolTitle?.trim() || entry.label.trim() || entry.toolName?.trim() || "Used a tool";
+      return (
+        entry.toolTitle?.trim() || entry.label.trim() || entry.toolName?.trim() || "Used a tool"
+      );
     case "other":
       return entry.toolTitle?.trim() || entry.label.trim() || "Ran a tool";
   }

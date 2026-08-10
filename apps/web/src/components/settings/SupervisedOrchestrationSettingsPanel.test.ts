@@ -38,8 +38,7 @@ describe("supervised orchestration profile editor", () => {
     });
 
     expect(
-      validateProfileDraft({ ...EMPTY_DRAFT, name: " lead default " }, [existingProfile])
-        .name,
+      validateProfileDraft({ ...EMPTY_DRAFT, name: " lead default " }, [existingProfile]).name,
     ).toBe("A profile with this name already exists.");
 
     expect(

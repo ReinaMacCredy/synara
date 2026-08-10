@@ -33,7 +33,9 @@ import {
   threadsOf,
 } from "./storeTestFixtures";
 
-const EMPTY_SUPERVISED_ORCHESTRATION = emptySupervisedOrchestrationSnapshot("2026-02-27T00:00:00.000Z");
+const EMPTY_SUPERVISED_ORCHESTRATION = emptySupervisedOrchestrationSnapshot(
+  "2026-02-27T00:00:00.000Z",
+);
 
 describe("store facade", () => {
   it("frees a batch of thread details in a single store write", () => {

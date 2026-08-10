@@ -1,7 +1,4 @@
-import type {
-  SupervisedDomainEvent,
-  SupervisedRuntimeSnapshot,
-} from "@synara/contracts";
+import type { SupervisedDomainEvent, SupervisedRuntimeSnapshot } from "@synara/contracts";
 
 import { upcastLegacyPeerEventV1 } from "./peerUpcaster.ts";
 
@@ -30,96 +27,94 @@ export function projectSupervisedEvent(
       return payload.room ? { ...next, rooms: upsert(next.rooms, payload.room) } : next;
     case "supervised.task-created":
       return payload.task ? { ...next, tasks: upsert(next.tasks, payload.task) } : next;
-      case "supervised.task-node-committed":
-        return payload.taskNode
-          ? {
-              ...next,
-              taskNodes: upsert(next.taskNodes, payload.taskNode),
-              taskNodeRevisions: payload.taskNodeRevision
-                ? upsert(next.taskNodeRevisions, payload.taskNodeRevision)
-                : next.taskNodeRevisions,
-            }
-          : next;
+    case "supervised.task-node-committed":
+      return payload.taskNode
+        ? {
+            ...next,
+            taskNodes: upsert(next.taskNodes, payload.taskNode),
+            taskNodeRevisions: payload.taskNodeRevision
+              ? upsert(next.taskNodeRevisions, payload.taskNodeRevision)
+              : next.taskNodeRevisions,
+          }
+        : next;
     case "supervised.run-requested":
     case "supervised.run-transitioned":
       return payload.run ? { ...next, runs: upsert(next.runs, payload.run) } : next;
-      case "supervised.run-policy-upserted":
+    case "supervised.run-policy-upserted":
       return payload.runPolicy
         ? { ...next, runPolicies: upsert(next.runPolicies, payload.runPolicy) }
-          : next;
-      case "supervised.claim-acquired":
-      case "supervised.claim-state-changed":
-        return payload.workClaim
-          ? { ...next, workClaims: upsert(next.workClaims, payload.workClaim) }
-          : next;
-      case "supervised.lease-granted":
-      case "supervised.lease-state-changed":
-        return payload.capabilityLease
-          ? { ...next, capabilityLeases: upsert(next.capabilityLeases, payload.capabilityLease) }
-          : next;
-      case "supervised.context-workspace-upserted":
-        return payload.contextWorkspace
-          ? { ...next, contextWorkspaces: upsert(next.contextWorkspaces, payload.contextWorkspace) }
-          : next;
-      case "supervised.context-appended":
-        return {
-          ...next,
-          contextWorkspaces: payload.contextWorkspace
-            ? upsert(next.contextWorkspaces, payload.contextWorkspace)
-            : next.contextWorkspaces,
-          contextRecords: payload.contextRecord
-            ? upsert(next.contextRecords, payload.contextRecord)
-            : next.contextRecords,
-          contextCompactionReceipts: payload.contextCompactionReceipt
-            ? upsert(next.contextCompactionReceipts, payload.contextCompactionReceipt)
-            : next.contextCompactionReceipts,
-        };
-      case "supervised.evidence-published":
-        return {
-          ...next,
-          evidence: payload.evidence
-            ? upsert(next.evidence, payload.evidence)
-            : next.evidence,
-          interventions: payload.intervention
-            ? upsert(next.interventions, payload.intervention)
-            : next.interventions,
-          leadNotifications: payload.leadNotification
-            ? upsert(next.leadNotifications, payload.leadNotification)
-            : next.leadNotifications,
-          reconciliations: payload.reconciliation
-            ? upsert(next.reconciliations, payload.reconciliation)
-            : next.reconciliations,
-        };
-      case "supervised.rlm-upserted":
-        return payload.rlmEpisode
-          ? { ...next, rlmEpisodes: upsert(next.rlmEpisodes, payload.rlmEpisode) }
-          : next;
-      case "supervised.model-session-upserted":
-        return payload.modelSession
-          ? { ...next, modelSessions: upsert(next.modelSessions, payload.modelSession) }
-          : next;
-      case "supervised.patch-upserted":
-        return payload.patch
-          ? { ...next, harnessPatches: upsert(next.harnessPatches, payload.patch) }
-          : next;
-      case "supervised.peer-upserted":
-        return {
-          ...next,
-          peerSpecialties: payload.peerSpecialty
-            ? upsert(next.peerSpecialties, payload.peerSpecialty)
-            : next.peerSpecialties,
-          peerSpecialtySnapshots: payload.peerSpecialtySnapshot
-            ? upsert(next.peerSpecialtySnapshots, payload.peerSpecialtySnapshot)
-            : next.peerSpecialtySnapshots,
-        };
-      case "supervised.kernel-session-upserted":
-        return payload.kernelSession
-          ? { ...next, kernelSessions: upsert(next.kernelSessions, payload.kernelSession) }
-          : next;
-      case "supervised.kernel-execution-upserted":
-        return payload.kernelExecution
-          ? { ...next, kernelExecutions: upsert(next.kernelExecutions, payload.kernelExecution) }
-          : next;
+        : next;
+    case "supervised.claim-acquired":
+    case "supervised.claim-state-changed":
+      return payload.workClaim
+        ? { ...next, workClaims: upsert(next.workClaims, payload.workClaim) }
+        : next;
+    case "supervised.lease-granted":
+    case "supervised.lease-state-changed":
+      return payload.capabilityLease
+        ? { ...next, capabilityLeases: upsert(next.capabilityLeases, payload.capabilityLease) }
+        : next;
+    case "supervised.context-workspace-upserted":
+      return payload.contextWorkspace
+        ? { ...next, contextWorkspaces: upsert(next.contextWorkspaces, payload.contextWorkspace) }
+        : next;
+    case "supervised.context-appended":
+      return {
+        ...next,
+        contextWorkspaces: payload.contextWorkspace
+          ? upsert(next.contextWorkspaces, payload.contextWorkspace)
+          : next.contextWorkspaces,
+        contextRecords: payload.contextRecord
+          ? upsert(next.contextRecords, payload.contextRecord)
+          : next.contextRecords,
+        contextCompactionReceipts: payload.contextCompactionReceipt
+          ? upsert(next.contextCompactionReceipts, payload.contextCompactionReceipt)
+          : next.contextCompactionReceipts,
+      };
+    case "supervised.evidence-published":
+      return {
+        ...next,
+        evidence: payload.evidence ? upsert(next.evidence, payload.evidence) : next.evidence,
+        interventions: payload.intervention
+          ? upsert(next.interventions, payload.intervention)
+          : next.interventions,
+        leadNotifications: payload.leadNotification
+          ? upsert(next.leadNotifications, payload.leadNotification)
+          : next.leadNotifications,
+        reconciliations: payload.reconciliation
+          ? upsert(next.reconciliations, payload.reconciliation)
+          : next.reconciliations,
+      };
+    case "supervised.rlm-upserted":
+      return payload.rlmEpisode
+        ? { ...next, rlmEpisodes: upsert(next.rlmEpisodes, payload.rlmEpisode) }
+        : next;
+    case "supervised.model-session-upserted":
+      return payload.modelSession
+        ? { ...next, modelSessions: upsert(next.modelSessions, payload.modelSession) }
+        : next;
+    case "supervised.patch-upserted":
+      return payload.patch
+        ? { ...next, harnessPatches: upsert(next.harnessPatches, payload.patch) }
+        : next;
+    case "supervised.peer-upserted":
+      return {
+        ...next,
+        peerSpecialties: payload.peerSpecialty
+          ? upsert(next.peerSpecialties, payload.peerSpecialty)
+          : next.peerSpecialties,
+        peerSpecialtySnapshots: payload.peerSpecialtySnapshot
+          ? upsert(next.peerSpecialtySnapshots, payload.peerSpecialtySnapshot)
+          : next.peerSpecialtySnapshots,
+      };
+    case "supervised.kernel-session-upserted":
+      return payload.kernelSession
+        ? { ...next, kernelSessions: upsert(next.kernelSessions, payload.kernelSession) }
+        : next;
+    case "supervised.kernel-execution-upserted":
+      return payload.kernelExecution
+        ? { ...next, kernelExecutions: upsert(next.kernelExecutions, payload.kernelExecution) }
+        : next;
     case "supervised.subscription-upserted":
     case "supervised.subscription-state-changed":
       return payload.subscription
@@ -150,23 +145,23 @@ export function projectSupervisedEvent(
       return payload.deadLetter
         ? { ...next, deadLetters: upsert(next.deadLetters, payload.deadLetter) }
         : next;
-      case "supervised.metric-recorded":
-      case "supervised.compaction-requested":
-      case "supervised.handoff-requested":
-        return next;
-      case "supervised.intervention-proposed":
-      case "supervised.intervention-reconciled":
-        return {
-          ...next,
-          interventions: payload.intervention
-            ? upsert(next.interventions, payload.intervention)
-            : next.interventions,
-          leadNotifications: payload.leadNotification
-            ? upsert(next.leadNotifications, payload.leadNotification)
-            : next.leadNotifications,
-          reconciliations: payload.reconciliation
-            ? upsert(next.reconciliations, payload.reconciliation)
-            : next.reconciliations,
-        };
+    case "supervised.metric-recorded":
+    case "supervised.compaction-requested":
+    case "supervised.handoff-requested":
+      return next;
+    case "supervised.intervention-proposed":
+    case "supervised.intervention-reconciled":
+      return {
+        ...next,
+        interventions: payload.intervention
+          ? upsert(next.interventions, payload.intervention)
+          : next.interventions,
+        leadNotifications: payload.leadNotification
+          ? upsert(next.leadNotifications, payload.leadNotification)
+          : next.leadNotifications,
+        reconciliations: payload.reconciliation
+          ? upsert(next.reconciliations, payload.reconciliation)
+          : next.reconciliations,
+      };
   }
 }

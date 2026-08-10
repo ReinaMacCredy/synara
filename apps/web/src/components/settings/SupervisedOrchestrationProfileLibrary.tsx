@@ -54,7 +54,8 @@ type ProfileLibraryProps = {
   readonly onImportError: (message: string) => void;
 };
 
-const delay = (duration: number) => new Promise<void>((resolve) => window.setTimeout(resolve, duration));
+const delay = (duration: number) =>
+  new Promise<void>((resolve) => window.setTimeout(resolve, duration));
 
 const waitForPaint = () =>
   new Promise<void>((resolve) => {
@@ -70,9 +71,7 @@ export function formatProfileModelLabel(model: string): string {
       .join(" ");
     return `GPT-${parts[1]}${variant ? ` ${variant}` : ""}`;
   }
-  return parts
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
+  return parts.map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ");
 }
 
 function RuntimeSummary(props: { readonly profile: ProfilePreset; readonly compact?: boolean }) {
@@ -286,7 +285,10 @@ function ArchivedPopover(props: {
       triggerRef.current?.animate(
         [
           { transform: "scale(1)", borderColor: "currentColor" },
-          { transform: "scale(1.045)", borderColor: "color-mix(in srgb, currentColor 70%, transparent)" },
+          {
+            transform: "scale(1.045)",
+            borderColor: "color-mix(in srgb, currentColor 70%, transparent)",
+          },
           { transform: "scale(1)", borderColor: "" },
         ],
         { duration: 420, easing: "cubic-bezier(.16,1,.3,1)" },
@@ -410,7 +412,8 @@ function downloadDemo(format: "json" | "toml") {
       reasoningEffort: "low",
       sandboxMode: "workspace-write",
       approvalPolicy: "on-request",
-      developerInstructions: "Review the assigned outcome and report material findings with evidence.",
+      developerInstructions:
+        "Review the assigned outcome and report material findings with evidence.",
       providerOptions: { features: { multi_agent: false } },
     },
   };
@@ -442,9 +445,9 @@ multi_agent = false
 export function SupervisedOrchestrationProfileLibrary(props: ProfileLibraryProps) {
   const [archivingId, setArchivingId] = useState<ProfilePresetId | null>(null);
   const [previewSuppressed, setPreviewSuppressed] = useState(false);
-  const [importState, setImportState] = useState<
-    "idle" | "reading" | "complete" | "handoff"
-  >("idle");
+  const [importState, setImportState] = useState<"idle" | "reading" | "complete" | "handoff">(
+    "idle",
+  );
   const [globalDragActive, setGlobalDragActive] = useState(false);
   const [droppedFileName, setDroppedFileName] = useState("");
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -518,10 +521,7 @@ export function SupervisedOrchestrationProfileLibrary(props: ProfileLibraryProps
       line.getAnimations().forEach((animation) => animation.cancel());
       const vertical = line.dataset.orientation === "vertical";
       line.animate(
-        [
-          { backgroundPosition: "0 0" },
-          { backgroundPosition: vertical ? "0 22px" : "22px 0" },
-        ],
+        [{ backgroundPosition: "0 0" }, { backgroundPosition: vertical ? "0 22px" : "22px 0" }],
         { duration: 560, easing: "linear" },
       );
     }
@@ -551,10 +551,7 @@ export function SupervisedOrchestrationProfileLibrary(props: ProfileLibraryProps
       const y = previous.top - next.top;
       if (Math.abs(x) > 0.5 || Math.abs(y) > 0.5) {
         element.animate(
-          [
-            { transform: `translate3d(${x}px,${y}px,0)` },
-            { transform: "translate3d(0,0,0)" },
-          ],
+          [{ transform: `translate3d(${x}px,${y}px,0)` }, { transform: "translate3d(0,0,0)" }],
           { duration: 380, easing: "cubic-bezier(.16,1,.3,1)" },
         );
       }
@@ -647,7 +644,8 @@ export function SupervisedOrchestrationProfileLibrary(props: ProfileLibraryProps
       if (!reducedMotion) {
         await waitForPaint();
         const card = [
-          ...(profileGridRef.current?.querySelectorAll<HTMLElement>("[data-profile-card='true']") ?? []),
+          ...(profileGridRef.current?.querySelectorAll<HTMLElement>("[data-profile-card='true']") ??
+            []),
         ].find((element) => element.dataset.profileId === profile.id);
         const archiveTrigger = workspaceRef.current?.querySelector<HTMLElement>(
           "[data-archive-trigger='true']",
@@ -661,9 +659,7 @@ export function SupervisedOrchestrationProfileLibrary(props: ProfileLibraryProps
                 -180,
                 Math.min(
                   180,
-                  targetRect.left +
-                    targetRect.width / 2 -
-                    (cardRect.left + cardRect.width / 2),
+                  targetRect.left + targetRect.width / 2 - (cardRect.left + cardRect.width / 2),
                 ),
               )
             : 72;
@@ -672,9 +668,7 @@ export function SupervisedOrchestrationProfileLibrary(props: ProfileLibraryProps
                 -120,
                 Math.min(
                   120,
-                  targetRect.top +
-                    targetRect.height / 2 -
-                    (cardRect.top + cardRect.height / 2),
+                  targetRect.top + targetRect.height / 2 - (cardRect.top + cardRect.height / 2),
                 ),
               )
             : -48;
@@ -779,9 +773,7 @@ export function SupervisedOrchestrationProfileLibrary(props: ProfileLibraryProps
                   threeLayout={threeLayout}
                   busy={props.busy}
                   archiving={archivingId === profile.id}
-                  previewDisabled={
-                    globalDragActive || importSuccessVisible || previewSuppressed
-                  }
+                  previewDisabled={globalDragActive || importSuccessVisible || previewSuppressed}
                   onEdit={props.onEdit}
                   onDuplicate={props.onDuplicate}
                   onExport={props.onExport}
@@ -804,7 +796,11 @@ export function SupervisedOrchestrationProfileLibrary(props: ProfileLibraryProps
                     <Button size="sm" onClick={props.onNewProfile}>
                       Create profile
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => importInputRef.current?.click()}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => importInputRef.current?.click()}
+                    >
                       Choose JSON or TOML
                     </Button>
                   </div>
@@ -848,8 +844,7 @@ export function SupervisedOrchestrationProfileLibrary(props: ProfileLibraryProps
                 className={cn(
                   "animate-in fade-in zoom-in-95 duration-300 motion-reduce:animate-none motion-reduce:transition-none",
                   "transition-[opacity,transform,filter] duration-200 [transition-timing-function:cubic-bezier(.22,1,.36,1)]",
-                  importState === "handoff" &&
-                    "-translate-y-1 scale-95 opacity-0 blur-[2px]",
+                  importState === "handoff" && "-translate-y-1 scale-95 opacity-0 blur-[2px]",
                 )}
               >
                 <CircleCheckIcon className="mx-auto size-11 text-emerald-500" />
@@ -871,7 +866,8 @@ export function SupervisedOrchestrationProfileLibrary(props: ProfileLibraryProps
                 <FileIcon className="size-10 text-muted-foreground/80" />
                 <p className="mt-5 text-base font-medium text-foreground">Drop file to import</p>
                 <p className="mt-2 max-w-sm text-xs leading-5 text-muted-foreground">
-                  Drag a profile export here, or choose a file. Nothing is saved until you review it.
+                  Drag a profile export here, or choose a file. Nothing is saved until you review
+                  it.
                 </p>
                 <Button
                   className="mt-5"
@@ -927,8 +923,7 @@ export function SupervisedOrchestrationProfileLibrary(props: ProfileLibraryProps
                 "transition-[opacity,transform,filter] duration-200 [transition-timing-function:cubic-bezier(.22,1,.36,1)] motion-reduce:transition-none",
                 importState === "complete" &&
                   "animate-in fade-in zoom-in-75 slide-in-from-bottom-3 duration-500 motion-reduce:animate-none",
-                importState === "handoff" &&
-                  "-translate-y-2 scale-95 opacity-0 blur-[3px]",
+                importState === "handoff" && "-translate-y-2 scale-95 opacity-0 blur-[3px]",
               )}
             >
               <CircleCheckIcon className="mx-auto size-14 text-emerald-500" />

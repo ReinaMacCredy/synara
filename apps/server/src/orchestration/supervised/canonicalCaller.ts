@@ -83,9 +83,7 @@ export function resolveEffectiveCanonicalAuthority(input: {
   readonly governance: SupervisedGovernanceSnapshot;
   readonly seatId: string;
   readonly at: string;
-}):
-  | { readonly seat: AgentSeat; readonly receipt: EffectiveAuthorityReceipt }
-  | undefined {
+}): { readonly seat: AgentSeat; readonly receipt: EffectiveAuthorityReceipt } | undefined {
   const seat = input.governance.agentSeats.find((candidate) => candidate.id === input.seatId);
   if (!seat) return undefined;
   const drainingRootStillOwnsLease =

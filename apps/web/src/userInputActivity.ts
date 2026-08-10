@@ -26,8 +26,7 @@ export function parseUserInputQuestions(
         .map<UserInputQuestion["options"][number] | null>((option) => {
           if (!option || typeof option !== "object") return null;
           const optionRecord = option as Record<string, unknown>;
-          const label =
-            typeof optionRecord.label === "string" ? optionRecord.label.trim() : "";
+          const label = typeof optionRecord.label === "string" ? optionRecord.label.trim() : "";
           if (!label) {
             return null;
           }

@@ -214,7 +214,11 @@ describe("Supervisor-first lifecycle", () => {
       transferred.agentSeats.find((seat) => seat.id === "supervisor-1")?.effectiveRole,
       "acting_root",
     );
-    assert.equal(transferred.authorityReceipts.find((receipt) => receipt.id === "receipt-old")?.rootLeaseIds[0], "lease-old");
+    assert.equal(
+      transferred.authorityReceipts.find((receipt) => receipt.id === "receipt-old")
+        ?.rootLeaseIds[0],
+      "lease-old",
+    );
 
     const duplicate = transferRootAuthority(transferred, {
       roomId: "room-1",
@@ -309,17 +313,10 @@ describe("Supervisor-first lifecycle", () => {
         roleAssumptionId: "assumption-after",
       },
     ]);
-    const settled = settleGovernanceRecoveryActions(
-      recovered.snapshot,
-      recovered.actions,
-      later,
-    );
+    const settled = settleGovernanceRecoveryActions(recovered.snapshot, recovered.actions, later);
 
     assert.equal(settled.roleAssumptions[0]?.lifecycleState, "topology_reconciled");
-    assert.strictEqual(
-      settleGovernanceRecoveryActions(settled, recovered.actions, later),
-      settled,
-    );
+    assert.strictEqual(settleGovernanceRecoveryActions(settled, recovered.actions, later), settled);
   });
 
   it("requires Lead notification before intervention reconciliation", () => {
@@ -346,7 +343,10 @@ describe("Supervisor-first lifecycle", () => {
 
     assert.throws(() => transitionDirectIntervention(intervention, "reconciled", later));
     const notified = transitionDirectIntervention(intervention, "lead_notified", later);
-    assert.equal(transitionDirectIntervention(notified, "reconciled", later).lifecycleState, "reconciled");
+    assert.equal(
+      transitionDirectIntervention(notified, "reconciled", later).lifecycleState,
+      "reconciled",
+    );
     assert.throws(() => transitionDirectIntervention(notified, "not_required", later));
 
     const communication = { ...notified, material: false };
@@ -388,16 +388,9 @@ describe("Supervisor-first lifecycle", () => {
         interventionId: "intervention-restart",
       },
     ]);
-    const settled = settleGovernanceRecoveryActions(
-      recovered.snapshot,
-      recovered.actions,
-      later,
-    );
+    const settled = settleGovernanceRecoveryActions(recovered.snapshot, recovered.actions, later);
     assert.equal(settled.directInterventions[0]?.lifecycleState, "failed");
-    assert.strictEqual(
-      settleGovernanceRecoveryActions(settled, recovered.actions, later),
-      settled,
-    );
+    assert.strictEqual(settleGovernanceRecoveryActions(settled, recovered.actions, later), settled);
   });
 
   it("routes Root release through the second lease transfer boundary", () => {
@@ -426,7 +419,10 @@ describe("Supervisor-first lifecycle", () => {
     const transferred = transitionRoleAssumption(accepted, "lease_transferred", later);
 
     assert.equal(transferred.operation, "release");
-    assert.equal(transitionRoleAssumption(transferred, "released", later).lifecycleState, "released");
+    assert.equal(
+      transitionRoleAssumption(transferred, "released", later).lifecycleState,
+      "released",
+    );
   });
 
   it("drains the previous Lead only after replacement topology is reconciled", () => {

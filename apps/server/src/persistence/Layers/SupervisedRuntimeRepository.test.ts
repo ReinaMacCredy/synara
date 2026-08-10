@@ -85,10 +85,12 @@ testLayer("SupervisedRuntimeRepository", (it) => {
         sequence: number;
         eventId: string;
         type: "supervised.room-created" | "supervised.room-updated";
-        room: typeof room | (Omit<typeof room, "projectId" | "revision"> & {
-          projectId: "project-selected";
-          revision: 1;
-        });
+        room:
+          | typeof room
+          | (Omit<typeof room, "projectId" | "revision"> & {
+              projectId: "project-selected";
+              revision: 1;
+            });
       }) =>
         Schema.decodeUnknownSync(SupervisedDomainEvent)({
           sequence: input.sequence,
@@ -105,7 +107,12 @@ testLayer("SupervisedRuntimeRepository", (it) => {
         });
 
       yield* repository.applyDomainEvent(
-        event({ sequence: 1, eventId: "event-room-created", type: "supervised.room-created", room }),
+        event({
+          sequence: 1,
+          eventId: "event-room-created",
+          type: "supervised.room-created",
+          room,
+        }),
       );
       yield* repository.applyDomainEvent(
         event({
@@ -143,7 +150,11 @@ testLayer("SupervisedRuntimeRepository", (it) => {
         causationEventId: null,
         correlationId: null,
         payload: { graphRevision: 2, reviewerSeatId: "reviewer-1" },
-        provenance: { actor: { kind: "daemon", actorId: "daemon-1" }, source: "review", confidence: 1 },
+        provenance: {
+          actor: { kind: "daemon", actorId: "daemon-1" },
+          source: "review",
+          confidence: 1,
+        },
       });
       const first = yield* repository.appendControlPlaneEvent(event);
       const duplicate = yield* repository.appendControlPlaneEvent(event);
@@ -426,9 +437,8 @@ testLayer("SupervisedRuntimeRepository", (it) => {
       assert.ok(snapshot.contextRecords.some((record) => record.id === sourceRecord.id));
       assert.ok(snapshot.contextRecords.some((record) => record.id === summaryRecord.id));
       assert.deepEqual(
-        snapshot.contextCompactionReceipts.find(
-          (receipt) => receipt.id === compactionReceipt.id,
-        )?.sourceRecordIds,
+        snapshot.contextCompactionReceipts.find((receipt) => receipt.id === compactionReceipt.id)
+          ?.sourceRecordIds,
         [sourceRecord.id],
       );
       assert.equal(
@@ -441,9 +451,7 @@ testLayer("SupervisedRuntimeRepository", (it) => {
       });
       assert.ok(scoped.evidence.some((candidate) => candidate.id === evidence.id));
       assert.ok(
-        !scoped.evidence.some(
-          (candidate) => candidate.id === "evidence-stage-5-other-project",
-        ),
+        !scoped.evidence.some((candidate) => candidate.id === "evidence-stage-5-other-project"),
       );
       yield* sql`DELETE FROM projection_projects WHERE project_id = 'project-stage-5-context'`;
     }),
@@ -595,15 +603,11 @@ testLayer("SupervisedRuntimeRepository", (it) => {
         "reconciled",
       );
       assert.equal(
-        snapshot.leadNotifications.find(
-          (item) => item.interventionId === intervention.id,
-        )?.status,
+        snapshot.leadNotifications.find((item) => item.interventionId === intervention.id)?.status,
         "delivered",
       );
       assert.equal(
-        snapshot.reconciliations.find(
-          (item) => item.interventionId === intervention.id,
-        )?.status,
+        snapshot.reconciliations.find((item) => item.interventionId === intervention.id)?.status,
         "accepted",
       );
       assert.equal(

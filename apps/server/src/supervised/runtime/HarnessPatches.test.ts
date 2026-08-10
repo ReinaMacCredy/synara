@@ -90,12 +90,7 @@ describe("Harness Patches", () => {
     );
     validateHarnessPatchUpdate(sandboxedPatch(), evaluated, daemon);
     const awaiting = awaitHarnessPatchApproval(evaluated, daemon, "2026-08-07T00:02:00.000Z");
-    const canary = startHarnessPatchCanary(
-      awaiting,
-      owner,
-      "2026-08-07T00:03:00.000Z",
-      2,
-    );
+    const canary = startHarnessPatchCanary(awaiting, owner, "2026-08-07T00:03:00.000Z", 2);
     const observed = recordHarnessPatchCanaryEvaluation(
       canary,
       evaluation({ passed: true, sequence: 2, evidence: "evidence-canary" }),
@@ -104,12 +99,9 @@ describe("Harness Patches", () => {
     const promoted = promoteHarnessPatch(observed, owner, "2026-08-07T00:05:00.000Z");
     assert.equal(promoted.status, "promoted");
     assert.equal(promoted.canary?.successfulEvaluations, 1);
-    const rolledBack = revertHarnessPatch(
-      promoted,
-      owner,
-      "2026-08-07T00:06:00.000Z",
-      ["evidence-rollback" as never],
-    );
+    const rolledBack = revertHarnessPatch(promoted, owner, "2026-08-07T00:06:00.000Z", [
+      "evidence-rollback" as never,
+    ]);
     assert.equal(rolledBack.status, "rolled_back");
     assert.equal(rolledBack.rollback?.rolledBackBy.kind, "user");
     assert.equal(rolledBack.basePolicyHash, hash);
@@ -233,12 +225,7 @@ describe("Harness Patches", () => {
       () => startHarnessPatchCanary(awaiting, daemon, "2026-08-07T00:03:00.000Z", 2),
       /Only the Human may approve/,
     );
-    const canary = startHarnessPatchCanary(
-      awaiting,
-      owner,
-      "2026-08-07T00:03:00.000Z",
-      2,
-    );
+    const canary = startHarnessPatchCanary(awaiting, owner, "2026-08-07T00:03:00.000Z", 2);
     assert.throws(
       () => promoteHarnessPatch(canary, owner, "2026-08-07T00:04:00.000Z"),
       /successful canary evaluation/,

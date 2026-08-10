@@ -64,8 +64,7 @@ export function MessageForkButton({
     setMenuOpen(false);
 
     const origin =
-      triggerRef.current ??
-      document.querySelector<HTMLButtonElement>("[data-message-fork-button]");
+      triggerRef.current ?? document.querySelector<HTMLButtonElement>("[data-message-fork-button]");
 
     showForkToast(
       origin,

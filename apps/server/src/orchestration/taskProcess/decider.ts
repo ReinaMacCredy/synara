@@ -140,10 +140,7 @@ export const decideTaskProcessCommand = Effect.fn("decideTaskProcessCommand")(fu
       (candidate) => candidate.id === command.projectId && candidate.deletedAt === null,
     );
     if (project?.kind !== "project") {
-      return yield* reject(
-        command.type,
-        "TaskProcess requires a real Project.",
-      );
+      return yield* reject(command.type, "TaskProcess requires a real Project.");
     }
     if (command.actor.kind !== "user") {
       return yield* reject(command.type, "Process creator does not match the declared owner.");

@@ -429,9 +429,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         at: now,
         source: "canonical",
       });
-      const currentSeat = current.agentSeats.find(
-        (seat) => seat.id === supervisorSeatId,
-      )!;
+      const currentSeat = current.agentSeats.find((seat) => seat.id === supervisorSeatId)!;
       const currentReceipt = current.authorityReceipts.find(
         (receipt) => receipt.id === currentSeat.authorityReceiptId,
       )!;
@@ -447,8 +445,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
                 roomScopes: [],
                 allowedCommands: receipt.allowedCommands.filter(
                   (command) =>
-                    command !== "supervised.peer.create" &&
-                    command !== "supervised.work.assign",
+                    command !== "supervised.peer.create" && command !== "supervised.work.assign",
                 ),
               }
             : receipt,
@@ -460,9 +457,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       yield* projectionPipeline.bootstrap;
 
       const repaired = yield* governanceRepository.getSnapshot();
-      const repairedSeat = repaired.agentSeats.find(
-        (seat) => seat.id === supervisorSeatId,
-      )!;
+      const repairedSeat = repaired.agentSeats.find((seat) => seat.id === supervisorSeatId)!;
       const repairedReceipt = repaired.authorityReceipts.find(
         (receipt) => receipt.id === repairedSeat.authorityReceiptId,
       )!;

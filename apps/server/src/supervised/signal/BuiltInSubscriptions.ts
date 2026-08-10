@@ -70,23 +70,23 @@ export function builtInEventSchemas(at: string) {
       activeObligations: "protected",
       unsummarizedEvidenceRefs: "protected",
     }),
-      make("schema-supervised-signal-derived-v1", "supervised.signal.derived", {
+    make("schema-supervised-signal-derived-v1", "supervised.signal.derived", {
       signalId: "internal",
       signalKind: "internal",
       measuredValue: "internal",
       threshold: "internal",
       context: "protected",
-        sourceEventIds: "protected",
-      }),
-      make("schema-harness-patch-evaluated-v1", "HarnessPatchEvaluated", {
-        patchId: "internal",
-        phase: "internal",
-        passed: "internal",
-        basePolicyHash: "protected",
-        evidenceRefs: "protected",
-        regressions: "protected",
-      }),
-    ];
+      sourceEventIds: "protected",
+    }),
+    make("schema-harness-patch-evaluated-v1", "HarnessPatchEvaluated", {
+      patchId: "internal",
+      phase: "internal",
+      passed: "internal",
+      basePolicyHash: "protected",
+      evidenceRefs: "protected",
+      regressions: "protected",
+    }),
+  ];
 }
 
 export function builtInSubscriptions(at: string) {
@@ -168,10 +168,7 @@ export function builtInSubscriptions(at: string) {
       },
       cooldownMs: 600_000,
       destination: { kind: "concern", concern: "context" },
-      allowedActionRequests: [
-        "supervised.compaction.request",
-        "supervised.handoff.request",
-      ],
+      allowedActionRequests: ["supervised.compaction.request", "supervised.handoff.request"],
       cursor: { lastSequence: 0, lastEventTime: null, lastDeliveryKey: null },
     }),
   ];
