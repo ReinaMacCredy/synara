@@ -1,6 +1,8 @@
 import {
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
+  emptySupervisedOrchestrationSnapshot,
+  emptySupervisedRuntimeSnapshot,
   EventId,
   MessageId,
   ProjectId,
@@ -32,6 +34,8 @@ function makeReadModel(input: {
   return {
     snapshotSequence: 1,
     updatedAt: NOW,
+    supervisedOrchestration: emptySupervisedOrchestrationSnapshot(NOW),
+    supervised: emptySupervisedRuntimeSnapshot(NOW),
     spaces: [],
     projects: [],
     threads: [

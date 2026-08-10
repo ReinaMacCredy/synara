@@ -103,14 +103,14 @@ export function validateSupervisedSeatAuthority(input: {
 
   const seatId = command.actor.seatId;
   if (seatId === undefined) return "Seat commands require an acting AgentSeat id.";
-  const seat = governance.agentSeats.find((candidate) => candidate.id === seatId);
+  const seat = governance.agentSeats.find((candidate) => String(candidate.id) === String(seatId));
   if (!seat || (seat.lifecycleState !== "ready" && seat.lifecycleState !== "active")) {
     return "The acting AgentSeat is not ready or active.";
   }
   if (
     seat.threadId !== null &&
     seat.threadId !== undefined &&
-    seat.threadId !== command.actor.actorId
+    String(seat.threadId) !== String(command.actor.actorId)
   ) {
     return "The command actor thread does not match the acting AgentSeat.";
   }

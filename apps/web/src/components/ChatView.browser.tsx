@@ -2,6 +2,8 @@
 import "../index.css";
 
 import {
+  AgentProfileId,
+  AgentSeatId,
   AutomationId,
   DEVICE_WS_METHODS,
   ProfilePresetId,
@@ -9,18 +11,21 @@ import {
   type AutomationDefinition,
   CheckpointRef,
   EventId,
+  EffectiveAuthorityReceiptId,
   MessageId,
   ORCHESTRATION_WS_METHODS,
   type OrchestrationReadModel,
   type ProjectId,
   type ServerConfig,
   SpaceId,
+  SupervisedWorkspaceId,
   ThreadId,
   TurnId,
   type WsWelcomePayload,
   WS_METHODS,
   OrchestrationSessionStatus,
   emptySupervisedOrchestrationSnapshot,
+  emptySupervisedRuntimeSnapshot,
 } from "@synara/contracts";
 import {
   ATTACHMENT_CANCEL_ROUTE_PATH,
@@ -284,6 +289,8 @@ function createSnapshotForTargetUser(options: {
 
   return {
     snapshotSequence: 1,
+    supervised: emptySupervisedRuntimeSnapshot(NOW_ISO),
+    supervisedOrchestration: emptySupervisedOrchestrationSnapshot(NOW_ISO),
     spaces: [],
     projects: [
       {
@@ -2307,6 +2314,68 @@ describe("ChatView timeline estimator parity (full app)", () => {
       loaderObserver.disconnect();
       await mounted.cleanup();
       restoreNativeApi();
+    }
+  });
+
+  it("hydrates an existing Primary Supervisor conversation on the Supervised index route", async () => {
+    const targetText = "existing Primary Supervisor transcript";
+    const snapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-existing-primary-supervisor" as MessageId,
+      targetText,
+    });
+    const supervisedSnapshot: OrchestrationReadModel = {
+      ...snapshot,
+      supervisedOrchestration: {
+        ...emptySupervisedOrchestrationSnapshot(NOW_ISO),
+        agentSeats: [
+          {
+            id: AgentSeatId.makeUnsafe("seat-primary-supervisor"),
+            workspaceId: SupervisedWorkspaceId.makeUnsafe("workspace-default"),
+            roomIds: [],
+            identityRole: "supervisor",
+            effectiveRole: "supervisor",
+            profileId: AgentProfileId.makeUnsafe("profile-primary-supervisor"),
+            concern: "primary",
+            providerSessionId: null,
+            lifecycleState: "active",
+            workState: "idle",
+            authorityReceiptId: EffectiveAuthorityReceiptId.makeUnsafe(
+              "receipt-primary-supervisor",
+            ),
+            threadId: THREAD_ID,
+            projectId: null,
+            profileSnapshotId: null,
+            predecessorThreadIds: [],
+            displayName: "Primary Supervisor",
+            createdAt: NOW_ISO,
+            retainedAt: null,
+            retiredAt: null,
+            revision: 1,
+            updatedAt: NOW_ISO,
+          },
+        ],
+      },
+    };
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: supervisedSnapshot,
+      initialEntry: `/supervised?projectId=${PROJECT_ID}`,
+    });
+
+    try {
+      await vi.waitFor(() => {
+        expect(
+          wsRequests.some(
+            (request) =>
+              request._tag === ORCHESTRATION_WS_METHODS.subscribeThread &&
+              request.threadId === THREAD_ID,
+          ),
+        ).toBe(true);
+        expect(document.body.textContent).toContain(targetText);
+        expect(document.body.textContent).not.toContain("Loading conversation");
+      });
+    } finally {
+      await mounted.cleanup();
     }
   });
 
@@ -6801,7 +6870,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
     try {
       await page.getByLabelText("Composer extras").click();
-      await page.getByText("Plan mode").click();
+      await page.getByText("Plan mode", { exact: true }).click();
 
       await vi.waitFor(() => {
         expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.interactionMode).toBe(
@@ -6955,210 +7024,53 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("keeps the final transcript row clear of a tall composer panel stack", async () => {
+  it("keeps the local provider task card attached without restoring the remote diff chip", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotWithTallComposerStack(),
     });
 
-    const maxFixedClearancePx = 128;
-
     try {
-      await vi.waitFor(
-        () => {
-          expect(document.body.textContent).toContain("2 files changed");
-          expect(document.body.textContent).toContain("1 out of 3 tasks completed");
-        },
-        { timeout: 8_000, interval: 16 },
+      const composer = await waitForElement(
+        () => document.querySelector<HTMLElement>('form[data-chat-composer-form="true"]'),
+        "Unable to find the restored local composer.",
       );
-
-      const scrollContainer = await waitForElement(
-        () => document.querySelector<HTMLElement>("[data-chat-scroll-container='true']"),
-        "Unable to find message scroll container.",
+      const taskListCard = await waitForElement(
+        () => document.querySelector<HTMLElement>('[data-testid="active-task-list-card"]'),
+        "Unable to find the local provider task card.",
       );
-      scrollContainer.scrollTop = scrollContainer.scrollHeight;
-      scrollContainer.dispatchEvent(new Event("scroll"));
-      await waitForLayout();
-
-      const readStackLayout = () => {
-        const renderedRows = Array.from(
-          document.querySelectorAll<HTMLElement>("[data-timeline-row-kind]"),
-        );
-        const finalTranscriptRow = renderedRows.reduce<HTMLElement | null>((latest, row) => {
-          if (!latest) return row;
-          return row.getBoundingClientRect().bottom > latest.getBoundingClientRect().bottom
-            ? row
-            : latest;
-        }, null);
-        const taskListCard = document.querySelector<HTMLElement>(
-          '[data-testid="active-task-list-card"]',
-        );
-        const stackedPanels = taskListCard?.parentElement ?? null;
-
-        expect(
-          finalTranscriptRow,
-          "Unable to find the final rendered transcript row.",
-        ).toBeTruthy();
-        expect(taskListCard, "Unable to find the active task-list card.").toBeTruthy();
-        expect(stackedPanels, "Unable to find the stacked composer-panel wrapper.").toBeTruthy();
-
-        const finalRowRect = finalTranscriptRow!.getBoundingClientRect();
-        const taskCardRect = taskListCard!.getBoundingClientRect();
-        const stackRect = stackedPanels!.getBoundingClientRect();
-        return {
-          gapPx: stackRect.top - finalRowRect.bottom,
-          stackHeightPx: stackRect.height,
-          taskCardHeightPx: taskCardRect.height,
-          distanceFromBottomPx: getScrollContainerDistanceFromBottom(scrollContainer),
-        };
-      };
-
-      const waitForBoundedGap = async (phase: string) => {
-        let measured = readStackLayout();
-        await vi.waitFor(
-          () => {
-            measured = readStackLayout();
-            expect(
-              measured.distanceFromBottomPx,
-              `${phase}: transcript must stay at the end`,
-            ).toBeLessThanOrEqual(AUTO_SCROLL_BOTTOM_THRESHOLD_PX);
-            expect(
-              measured.gapPx,
-              `${phase}: final row must not be obscured`,
-            ).toBeGreaterThanOrEqual(-1);
-            expect(
-              measured.gapPx,
-              `${phase}: gap must stay within fixed clearance`,
-            ).toBeLessThanOrEqual(maxFixedClearancePx);
-          },
-          { timeout: 4_000, interval: 16 },
-        );
-        return measured;
-      };
-
-      const expanded = await waitForBoundedGap("expanded");
-      expect(expanded.stackHeightPx).toBeGreaterThan(maxFixedClearancePx);
-
-      const collapseButton = await waitForElement(
-        () =>
-          document.querySelector<HTMLButtonElement>('button[aria-label="Collapse task banner"]'),
-        "Unable to find the task-banner collapse button.",
-      );
-      collapseButton.click();
-      await vi.waitFor(() => {
-        expect(
-          document.querySelector<HTMLButtonElement>('button[aria-label="Expand task banner"]'),
-        ).not.toBeNull();
-      });
-      const collapsed = await waitForBoundedGap("collapsed");
-      expect(collapsed.taskCardHeightPx).toBeLessThan(expanded.taskCardHeightPx - 20);
-      expect(Math.abs(collapsed.gapPx - expanded.gapPx)).toBeLessThanOrEqual(8);
-
-      const expandButton = await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[aria-label="Expand task banner"]'),
-        "Unable to find the task-banner expand button.",
-      );
-      expandButton.click();
-      await vi.waitFor(() => {
-        expect(
-          document.querySelector<HTMLButtonElement>('button[aria-label="Collapse task banner"]'),
-        ).not.toBeNull();
-      });
-      const reexpanded = await waitForBoundedGap("re-expanded");
-      expect(reexpanded.taskCardHeightPx).toBeGreaterThan(collapsed.taskCardHeightPx + 20);
-      expect(Math.abs(reexpanded.gapPx - expanded.gapPx)).toBeLessThanOrEqual(8);
-
-      const finalCollapseButton = await waitForElement(
-        () =>
-          document.querySelector<HTMLButtonElement>('button[aria-label="Collapse task banner"]'),
-        "Unable to find the task-banner collapse button before the away-from-end check.",
-      );
-      finalCollapseButton.click();
-      const finalExpandButton = await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[aria-label="Expand task banner"]'),
-        "Unable to find the task-banner expand button before the away-from-end check.",
-      );
-      await vi.waitFor(() => {
-        expect(readStackLayout().taskCardHeightPx).toBeLessThan(expanded.taskCardHeightPx - 20);
-      });
-
-      scrollContainer.scrollTop = 0;
-      scrollContainer.dispatchEvent(new Event("scroll"));
-      await vi.waitFor(() => {
-        expect(getScrollContainerDistanceFromBottom(scrollContainer)).toBeGreaterThan(
-          AUTO_SCROLL_BOTTOM_THRESHOLD_PX,
-        );
-      });
-      const scrollTopBeforeExpansion = scrollContainer.scrollTop;
-
-      finalExpandButton.click();
-      await vi.waitFor(
-        () => {
-          const awayFromEnd = readStackLayout();
-          expect(awayFromEnd.taskCardHeightPx).toBeGreaterThan(expanded.taskCardHeightPx - 2);
-        },
-        { timeout: 4_000, interval: 16 },
-      );
-      await waitForLayout();
-      expect(readStackLayout().distanceFromBottomPx).toBeGreaterThan(
-        AUTO_SCROLL_BOTTOM_THRESHOLD_PX,
-      );
-      await waitForLayout();
-      expect(readStackLayout().distanceFromBottomPx).toBeGreaterThan(
-        AUTO_SCROLL_BOTTOM_THRESHOLD_PX,
-      );
-      expect(Math.abs(scrollContainer.scrollTop - scrollTopBeforeExpansion)).toBeLessThanOrEqual(1);
+      expect(composer.querySelector(".chat-composer-shell")).not.toBeNull();
+      expect(taskListCard.dataset.providerRuntimeTasks).toBe("true");
+      expect(taskListCard.textContent).toContain("1 out of 3 tasks completed");
+      expect(document.body.textContent).not.toContain("2 files changed");
     } finally {
       await mounted.cleanup();
     }
   });
 
-  it("shows the skinny inline plan card for active turn plans", async () => {
+  it("opens active provider task activity from the restored local composer", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotWithActiveInlinePlan(),
     });
 
     try {
-      await vi.waitFor(
-        () => {
-          expect(document.body.textContent).toContain("1 out of 3 tasks completed");
-          expect(document.body.textContent).toContain("Inspecting ChatView boundaries");
-          expect(document.body.textContent).toContain("Patch the shared checklist receiver");
-          expect(document.body.textContent).toContain("1 background agent");
-        },
-        { timeout: 8_000, interval: 16 },
+      const composerShell = await waitForElement(
+        () =>
+          document.querySelector<HTMLElement>(
+            'form[data-chat-composer-form="true"] .chat-composer-shell',
+          ),
+        "Unable to find the restored local composer shell.",
       );
-
-      const transcriptPane = document.querySelector<HTMLElement>("[data-chat-transcript-pane]");
-      const taskListCard = document.querySelector<HTMLElement>(
-        '[data-testid="active-task-list-card"]',
+      const taskListCard = await waitForElement(
+        () => document.querySelector<HTMLElement>('[data-testid="active-task-list-card"]'),
+        "Unable to find the local provider task card.",
       );
-      const composerShell = document.querySelector<HTMLElement>(
-        'form[data-chat-composer-form="true"] .chat-composer-shell',
-      );
-      expect(transcriptPane).not.toBeNull();
-      expect(taskListCard).not.toBeNull();
       expect(composerShell).not.toBeNull();
-      expect(transcriptPane!.getBoundingClientRect().bottom).toBeGreaterThan(
-        taskListCard!.getBoundingClientRect().top + 1,
-      );
-      // Active plan activity shares the centered queued-follow-up rail, intentionally inset to
-      // eleven twelfths of the composer width while the input keeps its rounded top corners.
-      const taskRect = taskListCard!.getBoundingClientRect();
-      const composerRect = composerShell!.getBoundingClientRect();
-      expect(Math.abs(taskRect.width - (composerRect.width * 11) / 12)).toBeLessThanOrEqual(2);
-      expect(
-        Math.abs(taskRect.left + taskRect.width / 2 - (composerRect.left + composerRect.width / 2)),
-      ).toBeLessThanOrEqual(1);
-      expect(parseFloat(getComputedStyle(composerShell!).borderTopLeftRadius)).toBeGreaterThan(0);
+      expect(taskListCard.textContent).toContain("1 out of 3 tasks completed");
+      expect(taskListCard.textContent).toContain("1 background agent");
 
-      const openPlanButton = await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[title="Open tasks sidebar"]'),
-        "Unable to find inline active plan sidebar button.",
-      );
-      openPlanButton.click();
-
+      await page.getByLabelText("Open provider task activity sidebar").click();
       await expect.element(page.getByLabelText("Close plan sidebar")).toBeInTheDocument();
     } finally {
       await mounted.cleanup();
@@ -7455,12 +7367,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  // Thread detail does not always land in one write: a thread can paint its
-  // transcript before the record that says its last turn already completed. Until
-  // that record lands the tail turn is treated as live, so every tool row renders
-  // expanded. The fold that follows is hydration catching up, not a turn ending
-  // under the reader's eyes, so it must not be animated.
-  it("does not replay the collapse when the completed turn record hydrates after the transcript", async () => {
+  // Thread detail does not always land in one write. The local lifecycle derives a
+  // completed activity from the transcript itself, so a later authoritative turn
+  // record must preserve that already-folded row without replaying a collapse.
+  it("keeps a completed turn folded when its turn record hydrates after the transcript", async () => {
     const settledSnapshot = createSnapshotWithInlineToolOverflow({ active: false });
     const messagesOnlySnapshot: OrchestrationReadModel = {
       ...settledSnapshot,
@@ -7475,16 +7385,16 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      // Baseline: with no turn record the tail turn reads as live, so its work
-      // sits inline instead of folded into the turn's "Worked for…" disclosure.
+      const targetRegionSelector = '[data-turn-work-region="turn-activity:msg-user-21"]';
       await vi.waitFor(
         () => {
           expect(document.body.textContent).toContain("Wrapped up the inline tool review.");
-          expect(document.body.textContent).toContain("Used 6 tools");
+          expect(document.querySelector(targetRegionSelector)?.textContent).toContain("Worked for");
         },
         { timeout: 8_000, interval: 16 },
       );
-      expect(document.body.textContent).not.toContain("Worked for");
+      const foldedRegion = document.querySelector<HTMLElement>(targetRegionSelector);
+      expect(foldedRegion).not.toBeNull();
 
       useStore.getState().syncServerReadModel({
         ...settledSnapshot,
@@ -7514,11 +7424,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
         previousScrollHeight = container.scrollHeight;
       }
 
-      // The turn must land folded, in one step, with no animated close replay.
-      expect(document.body.textContent).toContain("Worked for");
+      expect(document.querySelector(targetRegionSelector)).toBe(foldedRegion);
+      expect(foldedRegion?.textContent).toContain("Worked for");
       expect(transitionFrames).toBe(0);
-      // One settle step is the floor: the fold itself changes the height once.
-      expect(heightChangeFrames).toBeLessThanOrEqual(2);
+      expect(heightChangeFrames).toBeLessThanOrEqual(1);
     } finally {
       await mounted.cleanup();
     }

@@ -61,6 +61,7 @@ import { codexProfileConfigArgs } from "./orchestration/supervised/profileResolv
 import type { HostToolRuntimeShape } from "./orchestration/Services/HostToolRuntime.ts";
 import {
   HostToolError,
+  type HostToolExecutionResult,
   type HostToolInvocationContext,
 } from "./orchestration/hostTools/runtime.ts";
 import {
@@ -184,7 +185,7 @@ interface CodexSessionContext {
   supervisedContext?: ProviderSupervisedSessionContext;
   nativeInstruction?: string | null;
   hostToolRuntime?: HostToolRuntimeShape;
-  activeTurnDispatchOrigin?: MessageDispatchOrigin;
+  activeTurnDispatchOrigin?: MessageDispatchOrigin | undefined;
   account: CodexAccountSnapshot;
   child: ChildProcessWithoutNullStreams;
   stdoutFramer: CodexJsonlFramer;
@@ -1185,9 +1186,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         ...(input.lifecycleGeneration !== undefined
           ? { lifecycleGeneration: input.lifecycleGeneration }
           : {}),
-        ...(input.supervisedContext !== undefined
-          ? { supervisedContext: input.supervisedContext }
-          : {}),
+        ...(input.supervisedContext != null ? { supervisedContext: input.supervisedContext } : {}),
         ...(nativeInstruction !== undefined ? { nativeInstruction } : {}),
         ...(nativeToolRuntime ? { hostToolRuntime: nativeToolRuntime } : {}),
         account: {
@@ -3506,7 +3505,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           context: this.makeHostToolContext(context, turnId),
         })
         .pipe(Effect.orDie),
-    )) as { readonly ok: boolean; readonly value?: unknown; readonly error?: unknown };
+    )) as HostToolExecutionResult;
     await this.writeMessage(context, {
       id: request.id,
       result: codexDynamicToolResponse(result),

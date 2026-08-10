@@ -4,13 +4,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 
-import type { KernelLanguage, RunPolicy } from "@synara/contracts";
+import { KernelLanguage, type RunPolicy } from "@synara/contracts";
 
 export type KernelIsolationMode = "required" | "auto" | "trusted-process";
 export type KernelIsolationBackend = "macos-sandbox" | "trusted-process";
 
 export interface KernelRuntimeOptions {
-  readonly language: KernelLanguage;
+  readonly language: typeof KernelLanguage.Type;
   readonly workingDirectory: string;
   readonly policy: RunPolicy;
   readonly isolation: KernelIsolationMode;
@@ -108,9 +108,7 @@ function sanitizedEnvironment(overrides: Readonly<Record<string, string>> = {}) 
   return environment;
 }
 
-async function spawnKernelHost(
-  options: KernelRuntimeOptions,
-): Promise<{
+async function spawnKernelHost(options: KernelRuntimeOptions): Promise<{
   readonly child: ChildProcessWithoutNullStreams;
   readonly backend: KernelIsolationBackend;
 }> {

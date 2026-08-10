@@ -528,8 +528,7 @@ export function SupervisedRuntimeSettingsPanel(props: {
   const health = snapshot.health;
   const harnessPatches = [...(snapshot.harnessPatches ?? [])].sort(
     (left, right) =>
-      right.updatedAt.localeCompare(left.updatedAt) ||
-      (right.revision ?? 0) - (left.revision ?? 0),
+      right.updatedAt.localeCompare(left.updatedAt) || (right.revision ?? 0) - (left.revision ?? 0),
   );
   const activeHarnessPatchCount = harnessPatches.filter(
     (patch) => patch.status === "canary" || patch.status === "promoted",

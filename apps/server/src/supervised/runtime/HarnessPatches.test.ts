@@ -43,7 +43,7 @@ const proposed = {
   activatedBy: null,
   createdAt: now,
   updatedAt: now,
-} as HarnessPatch;
+} as unknown as HarnessPatch;
 
 const evaluation = (input: {
   readonly passed: boolean;

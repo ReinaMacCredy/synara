@@ -3,7 +3,11 @@ import { it } from "@effect/vitest";
 import { Effect, Layer, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { SupervisedGovernanceSnapshot } from "@synara/contracts";
+import {
+  SupervisedGovernanceSnapshot,
+  type SupervisorNotebookCompactionReceipt,
+  type SupervisorNotebookCursor,
+} from "@synara/contracts";
 
 import { SqlitePersistenceMemory } from "./Sqlite.ts";
 import { SupervisedGovernanceRepositoryLive } from "./SupervisedGovernanceRepository.ts";
@@ -334,7 +338,7 @@ testLayer("SupervisedGovernanceRepository", (it) => {
         revision: before.revision,
         orchestration: {
           ...snapshot.orchestration,
-          profiles: [supervisorProfile, customizedBuiltInProfile],
+          profiles: [supervisorProfile, customizedBuiltInProfile] as never,
         },
       });
 
@@ -604,7 +608,7 @@ testLayer("SupervisedGovernanceRepository", (it) => {
         evidenceRefs: ["evidence:source"],
         createdBySeatId: source.authorSeatId,
         createdAt: summary.createdAt,
-      };
+      } as unknown as SupervisorNotebookCompactionReceipt;
       assert.equal(yield* repository.appendNotebookEntry(source), true);
       const invalid = yield* Effect.exit(
         repository.appendNotebookCompaction({
@@ -650,7 +654,7 @@ testLayer("SupervisedGovernanceRepository", (it) => {
         lastCreatedAt: summary.createdAt,
         lastEntryId: summary.id,
         updatedAt: summary.createdAt,
-      };
+      } as unknown as SupervisorNotebookCursor;
       yield* repository.putNotebookCursor(newestCursor);
       yield* repository.putNotebookCursor({
         ...newestCursor,

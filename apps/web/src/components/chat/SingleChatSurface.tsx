@@ -625,7 +625,7 @@ export function SingleChatSurface(props: {
       to: "/$threadId",
       params: { threadId: props.threadId },
       replace: true,
-      search: (previous) => stripDiffSearchParams(previous),
+      search: (previous) => stripEditorViewSearchParams(stripDiffSearchParams(previous)),
     });
   }, [
     navigate,

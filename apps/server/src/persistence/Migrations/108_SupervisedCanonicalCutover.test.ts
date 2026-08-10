@@ -275,7 +275,9 @@ upgradeSchemaLayer("migration 108 Supervised canonical cutover upgrade", (it) =>
         );
         assert.equal(seats.get("supervisor-seat")!.threadId, "supervisor-thread");
         assert.equal(seats.get("supervisor-seat")!.displayName, "Primary Supervisor");
-        assert.deepStrictEqual(seats.get("lead-seat")!.predecessorThreadIds, ["lead-predecessor"]);
+        assert.deepStrictEqual((seats.get("lead-seat")!.predecessorThreadIds ?? []).map(String), [
+          "lead-predecessor",
+        ]);
         assert.equal(seats.get("lead-seat")!.projectId, "project-1");
         assert.equal(seats.get("peer-thread")!.identityRole, "peer");
         assert.equal(seats.get("peer-thread")!.profileSnapshotId, "snapshot-peer");

@@ -16,7 +16,7 @@ const sameScope = (left: AuthorityScope, right: AuthorityScope) =>
   JSON.stringify(left) === JSON.stringify(right);
 
 const recordTokenEstimate = (record: ContextRecord): number => {
-  if (record.estimatedTokens > 0) return record.estimatedTokens;
+  if ((record.estimatedTokens ?? 0) > 0) return record.estimatedTokens ?? 0;
   if (record.inlineText !== null) return Math.ceil(record.inlineText.length / 4);
   return record.blob === null ? 0 : Math.ceil(record.blob.sizeBytes / 4);
 };
@@ -66,7 +66,7 @@ export function buildContextView(input: BuildContextViewInput): BuiltContextView
     (record) =>
       record.workspaceId === input.workspace.id &&
       record.status === "current" &&
-      allowedProtectionClasses.has(record.protectionClass) &&
+      allowedProtectionClasses.has(record.protectionClass ?? "workspace") &&
       visibleByScope({
         record,
         workspace: input.workspace,

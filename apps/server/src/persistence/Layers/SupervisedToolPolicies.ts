@@ -2,7 +2,11 @@ import { SupervisedToolPolicy, type SupervisedIntentToolId } from "@synara/contr
 import { Effect, Layer, Option, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { toPersistenceDecodeCauseError, toPersistenceSqlError } from "../Errors.ts";
+import {
+  isPersistenceError,
+  toPersistenceDecodeCauseError,
+  toPersistenceSqlError,
+} from "../Errors.ts";
 import {
   SupervisedToolPolicyRepository,
   type SupervisedToolPolicyRepositoryShape,
@@ -120,7 +124,7 @@ const makeSupervisedToolPolicyRepository = Effect.gen(function* () {
       )
       .pipe(
         Effect.mapError((error) =>
-          error && typeof error === "object" && "_tag" in error
+          isPersistenceError(error)
             ? error
             : toPersistenceSqlError("SupervisedToolPolicyRepository.put:query")(error),
         ),

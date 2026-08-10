@@ -62,9 +62,9 @@ export interface StartRlmInput {
   readonly createdAt: string;
 }
 
-const decode = <S extends Schema.Top>(schema: S, value: unknown, label: string): S["Type"] => {
+const decode = <A>(schema: Schema.Schema<A>, value: unknown, label: string): A => {
   try {
-    return Schema.decodeUnknownSync(schema)(value);
+    return Schema.decodeUnknownSync(schema as Schema.Decoder<A>)(value);
   } catch (cause) {
     throw new RlmStartError(
       "supervised_rlm_plan_invalid",
@@ -279,7 +279,7 @@ export function startRlm(input: StartRlmInput) {
       task = existingTask;
       run = existingRun;
     } else {
-      if (input.room.leadSeatId !== input.seat.id) {
+      if (String(input.room.leadSeatId) !== String(input.seat.id)) {
         return yield* Effect.fail(
           new RlmStartError(
             "supervised_rlm_root_required",
@@ -733,10 +733,15 @@ export function startRlm(input: StartRlmInput) {
             ? (["branches_running"] as const)
             : [];
     for (const status of episodeTransitions) {
-      episode = { ...episode, status, revision: episode.revision + 1, updatedAt: input.createdAt };
+      episode = {
+        ...episode,
+        status,
+        revision: (episode.revision ?? 0) + 1,
+        updatedAt: input.createdAt,
+      };
       yield* dispatchSupervised({
         type: "supervised.rlm.upsert",
-        ...commandBase(episode.id, episode.revision - 1, `episode-${status}`),
+        ...commandBase(episode.id, (episode.revision ?? 0) - 1, `episode-${status}`),
         episode,
       });
     }

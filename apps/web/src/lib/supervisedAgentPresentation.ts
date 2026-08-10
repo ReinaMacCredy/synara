@@ -88,14 +88,13 @@ export function resolvePrimarySupervisorThreadId(seats: readonly AgentSeat[]): T
   const supervisors = seats.filter(
     (seat) =>
       seat.identityRole === "supervisor" &&
-      seat.threadId !== null &&
+      seat.threadId != null &&
       SUPERVISOR_CONVERSATION_LIFECYCLES.has(seat.lifecycleState),
   );
-  return (
-    supervisors.find((seat) => seat.concern === "primary")?.threadId ??
-    supervisors[0]?.threadId ??
-    null
-  );
+  const primaryThreadId = supervisors.find((seat) => seat.concern === "primary")?.threadId;
+  if (primaryThreadId) return primaryThreadId;
+  const fallbackThreadId = supervisors[0]?.threadId;
+  return fallbackThreadId ?? null;
 }
 
 export function collectSupervisedConversationThreadIds(input: {
@@ -104,7 +103,7 @@ export function collectSupervisedConversationThreadIds(input: {
 }): Set<ThreadId> {
   const threadIds = new Set(input.roomIds.map((roomId) => ThreadId.makeUnsafe(roomId)));
   for (const seat of input.seats) {
-    if (seat.threadId !== null) threadIds.add(seat.threadId);
+    if (seat.threadId) threadIds.add(seat.threadId);
   }
   return threadIds;
 }

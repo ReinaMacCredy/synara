@@ -153,7 +153,7 @@ const usage = (
   thread: OrchestrationThread,
 ): {
   readonly usage: ModelSessionTrace["usage"];
-  readonly provenance: ModelSessionTrace["usageProvenance"];
+  readonly provenance: NonNullable<ModelSessionTrace["usageProvenance"]>;
 } => {
   let inputTokens = 0;
   let outputTokens = 0;
@@ -219,7 +219,7 @@ export interface RlmThreadResult {
   readonly response: string | null;
   readonly items: ReadonlyArray<ModelTranscriptItem>;
   readonly usage: ModelSessionTrace["usage"];
-  readonly usageProvenance: ModelSessionTrace["usageProvenance"];
+  readonly usageProvenance: NonNullable<ModelSessionTrace["usageProvenance"]>;
   readonly providerSessionId: string | null;
   readonly providerCallId: string | null;
   readonly terminalSourceEventId: OrchestrationThread["activities"][number]["id"] | null;

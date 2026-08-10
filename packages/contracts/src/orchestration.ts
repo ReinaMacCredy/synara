@@ -944,12 +944,12 @@ export const OrchestrationReadModel = Schema.Struct({
   spaces: Schema.Array(OrchestrationSpace),
   projects: Schema.Array(OrchestrationProject),
   threads: Schema.Array(OrchestrationThread),
-  supervisedOrchestration: Schema.optional(SupervisedOrchestrationSnapshot).pipe(
+  supervisedOrchestration: SupervisedOrchestrationSnapshot.pipe(
     Schema.withDecodingDefault(() =>
       emptySupervisedOrchestrationSnapshot(new Date(0).toISOString()),
     ),
   ),
-  supervised: Schema.optional(SupervisedRuntimeSnapshot).pipe(
+  supervised: SupervisedRuntimeSnapshot.pipe(
     Schema.withDecodingDefault(() => emptySupervisedRuntimeSnapshot(new Date(0).toISOString())),
   ),
   updatedAt: IsoDateTime,
@@ -961,7 +961,7 @@ export const OrchestrationShellSnapshot = Schema.Struct({
   spaces: Schema.Array(OrchestrationSpaceShell),
   projects: Schema.Array(OrchestrationProjectShell),
   threads: Schema.Array(OrchestrationThreadShell),
-  supervisedOrchestration: Schema.optional(SupervisedOrchestrationSnapshot).pipe(
+  supervisedOrchestration: SupervisedOrchestrationSnapshot.pipe(
     Schema.withDecodingDefault(() =>
       emptySupervisedOrchestrationSnapshot(new Date(0).toISOString()),
     ),

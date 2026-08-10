@@ -134,7 +134,7 @@ const thread = {
     lastError: null,
     updatedAt: now,
   },
-} as OrchestrationThread;
+} as unknown as OrchestrationThread;
 
 describe("real RLM execution evidence", () => {
   it("extracts visible transcript, tool lifecycle, and provider usage without hidden reasoning", () => {
@@ -192,7 +192,7 @@ describe("real RLM execution evidence", () => {
         },
       ],
       session: { ...thread.session!, status: "error", lastError: null },
-    } as OrchestrationThread);
+    } as unknown as OrchestrationThread);
 
     assert.equal(result.status, "failed");
     assert.equal(result.error, "Provider capacity exhausted");

@@ -15,6 +15,7 @@ import {
   type MetricSample,
   type OrchestrationReadModel,
   type PluginInstallation,
+  type RoomId,
   type RunPolicy,
   type SubscriptionDefinition,
   type SubscriptionDelivery,
@@ -171,7 +172,7 @@ function leadWakeText(subscription: SubscriptionDefinition, signal: DerivedSigna
 interface SignalLeadContext {
   readonly id: string;
   readonly projectId: NonNullable<AgentSeat["projectId"]>;
-  readonly roomId: string;
+  readonly roomId: RoomId;
 }
 
 interface SupervisorRecipient {
@@ -207,21 +208,21 @@ function signalLeadContext(input: {
   if (!room) return null;
   const contextLeadSeatId = input.signal.context.leadSeatId;
   const leadSeatId = typeof contextLeadSeatId === "string" ? contextLeadSeatId : room.leadSeatId;
-  if (leadSeatId !== room.leadSeatId) return null;
+  if (String(leadSeatId) !== String(room.leadSeatId)) return null;
   const lead = input.governance.agentSeats.find(
     (candidate) =>
-      candidate.id === leadSeatId &&
+      String(candidate.id) === String(leadSeatId) &&
       candidate.identityRole === "lead" &&
       candidate.effectiveRole === "lead" &&
       candidate.lifecycleState === "active" &&
-      candidate.projectId !== null &&
+      candidate.projectId != null &&
       candidate.roomIds.includes(room.id),
   );
-  if (!lead || lead.projectId === null) return null;
+  if (!lead || lead.projectId == null) return null;
   const rootLease = input.governance.rootLeases.find(
     (candidate) => candidate.roomId === room.id && candidate.status === "active",
   );
-  if (!rootLease || rootLease.holderSeatId !== lead.id) return null;
+  if (!rootLease || String(rootLease.holderSeatId) !== String(lead.id)) return null;
   const leadReceipt = input.governance.authorityReceipts.find(
     (candidate) =>
       candidate.id === lead.authorityReceiptId &&
@@ -262,7 +263,7 @@ function resolveSupervisorRecipient(input: {
       seat.identityRole !== "supervisor" ||
       seat.effectiveRole !== "supervisor" ||
       seat.lifecycleState !== "active" ||
-      seat.threadId === null
+      seat.threadId == null
     ) {
       return [];
     }
@@ -278,10 +279,13 @@ function resolveSupervisorRecipient(input: {
         candidate.rootLeaseIds.length === 0,
     );
     if (!receipt) return [];
-    const mission = missions.find((candidate) => candidate.supervisorSeatId === seat.id);
+    const mission = missions.find(
+      (candidate) => String(candidate.supervisorSeatId) === String(seat.id),
+    );
     if (!mission) return [];
+    const threadId = seat.threadId;
     const thread = input.readModel.threads.find(
-      (candidate) => candidate.id === seat.threadId && candidate.deletedAt === null,
+      (candidate) => candidate.id === threadId && candidate.deletedAt === null,
     );
     return thread ? [{ seat, thread, mission }] : [];
   });
@@ -554,11 +558,10 @@ export const makeSupervisedSignalDelivery = Effect.gen(function* () {
     readonly delivery: SubscriptionDelivery;
   }) {
     if (input.subscription.destination.kind !== "plugin") return;
+    const pluginId = input.subscription.destination.pluginId;
     const snapshot = yield* repository.getDaemonSnapshot();
     const usage = pluginUsage(snapshot);
-    const installation = snapshot.plugins.find(
-      (candidate) => candidate.pluginId === input.subscription.destination.pluginId,
-    );
+    const installation = snapshot.plugins.find((candidate) => candidate.pluginId === pluginId);
     if (!installation || installation.status !== "enabled") {
       return yield* deliveryFailure("The destination plugin is not enabled.");
     }
@@ -797,7 +800,7 @@ export const makeSupervisedSignalDelivery = Effect.gen(function* () {
       (candidate) =>
         candidate.identityRole === "lead" &&
         candidate.lifecycleState !== "retired" &&
-        candidate.id === explicitSeatId,
+        String(candidate.id) === String(explicitSeatId),
     );
     const thread = seat?.threadId
       ? readModel.threads.find(
@@ -820,7 +823,7 @@ export const makeSupervisedSignalDelivery = Effect.gen(function* () {
     yield* engine.dispatch({
       type: "thread.turn.start",
       commandId: CommandId.makeUnsafe(stableId("command:signal-wake", input.delivery.id)),
-      threadId: seat.threadId,
+      threadId: thread.id,
       message: {
         messageId: MessageId.makeUnsafe(stableId("signal-wake", input.delivery.id)),
         role: "user",

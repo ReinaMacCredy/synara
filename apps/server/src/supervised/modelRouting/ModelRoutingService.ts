@@ -93,7 +93,7 @@ const preferenceModelIds = (profile: UserModelPreferenceProfile): readonly strin
   ]),
   ...Object.values(profile.preferredFor).flat(),
   ...Object.values(profile.avoidFor).flat(),
-  ...Object.values(profile.defaultModels).filter((id): id is string => id !== undefined),
+  ...Object.values(profile.defaultModels).flatMap((id) => (id === undefined ? [] : [id])),
   ...Object.values(profile.fallbackChains).flat(),
 ];
 

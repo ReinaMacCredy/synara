@@ -1,9 +1,28 @@
 import assert from "node:assert/strict";
 
 import {
+  CommandId,
+  DeadLetterId,
   DEFAULT_SUPERVISED_RUN_POLICY,
+  DerivedSignalId,
+  EvidenceId,
   emptySupervisedGovernanceSnapshot,
   emptySupervisedRuntimeSnapshot,
+  HarnessPatchId,
+  InterventionId,
+  LeadNotificationId,
+  ModelSessionId,
+  PluginId,
+  ReconciliationId,
+  RlmEpisodeId,
+  RunId,
+  RunPolicyId,
+  SubscriptionDeliveryId,
+  TaskId,
+  TaskNodeId,
+  TaskNodeRevisionId,
+  ThreadId,
+  WorkClaimId,
   type HarnessPatch,
   type PeerSpecialty,
   type PluginInstallation,
@@ -31,6 +50,15 @@ import { projectSupervisedEvent } from "./projector.ts";
 
 const now = "2026-08-07T00:00:00.000Z";
 const hash = SUPERVISED_BASE_POLICY_HASH;
+type RuntimeRun = SupervisedRuntimeSnapshot["runs"][number];
+type RuntimeTask = SupervisedRuntimeSnapshot["tasks"][number];
+type RuntimeRlmEpisode = SupervisedRuntimeSnapshot["rlmEpisodes"][number];
+type RuntimeModelSession = SupervisedRuntimeSnapshot["modelSessions"][number];
+type RuntimeEvidence = SupervisedRuntimeSnapshot["evidence"][number];
+type RuntimeWorkClaim = SupervisedRuntimeSnapshot["workClaims"][number];
+type RuntimeIntervention = SupervisedRuntimeSnapshot["interventions"][number];
+type RuntimeLeadNotification = SupervisedRuntimeSnapshot["leadNotifications"][number];
+type RuntimeReconciliation = SupervisedRuntimeSnapshot["reconciliations"][number];
 const room: Room = {
   id: "room-1" as Room["id"],
   projectId: "project-1" as Room["projectId"],
@@ -44,7 +72,7 @@ const room: Room = {
 };
 
 const baseCommand = {
-  commandId: "command-1",
+  commandId: CommandId.makeUnsafe("command-1"),
   aggregateId: room.id,
   expectedRevision: room.revision,
   idempotencyKey: "command-1",
@@ -163,7 +191,11 @@ describe("Supervised command authority", () => {
     const command: SupervisedCommand = {
       ...baseCommand,
       type: "supervised.room.update",
-      actor: { kind: "seat", actorId: "specialist-1", seatId: "specialist-1" },
+      actor: {
+        kind: "seat",
+        actorId: "specialist-1",
+        seatId: "specialist-1" as NonNullable<SupervisedActor["seatId"]>,
+      },
       room: { ...room, title: "Unauthorized", revision: room.revision },
     };
     const exit = await Effect.runPromiseExit(
@@ -275,7 +307,11 @@ describe("Supervised command authority", () => {
             },
             debounceMs: 0,
             cooldownMs: 60_000,
-            destination: { kind: "plugin", pluginId: "plugin-context", handler: "handle" },
+            destination: {
+              kind: "plugin",
+              pluginId: PluginId.makeUnsafe("plugin-context"),
+              handler: "handle",
+            },
             allowedActionRequests: ["supervised.compaction.request"],
             cursor: { lastSequence: 0, lastEventTime: null, lastDeliveryKey: null },
             replayPolicy: "observe_only",
@@ -314,7 +350,7 @@ describe("Supervised command authority", () => {
       type: "supervised.compaction.request",
       actor: { kind: "plugin", actorId: plugin.pluginId },
       runPolicyId: policy.id,
-      leadSeatId: "lead-1",
+      leadSeatId: room.leadSeatId!,
       roomId: room.id,
       reason: "Context threshold crossed.",
     };
@@ -338,7 +374,13 @@ describe("Supervised command authority", () => {
           ...emptySupervisedRuntimeSnapshot(now),
           rooms: [room],
           plugins: [
-            { ...plugin, grant: { ...plugin.grant, scopes: [{ kind: "room", roomId: "room-2" }] } },
+            {
+              ...plugin,
+              grant: {
+                ...plugin.grant,
+                scopes: [{ kind: "room", roomId: "room-2" as Room["id"] }],
+              },
+            },
           ],
           runPolicies: [policy],
         },
@@ -421,10 +463,10 @@ describe("Supervised command authority", () => {
 
   it("does not let a DeadLetter redrive exceed the subscription replay policy", async () => {
     const subscription = builtInSubscriptions(now)[0]!;
-    const delivery = {
-      id: "delivery-replay-policy" as const,
+    const delivery: SupervisedRuntimeSnapshot["deliveries"][number] = {
+      id: SubscriptionDeliveryId.makeUnsafe("delivery-replay-policy"),
       subscriptionId: subscription.id,
-      signalId: "signal-replay-policy" as const,
+      signalId: DerivedSignalId.makeUnsafe("signal-replay-policy"),
       dedupeKey: "replay-policy",
       status: "dead_lettered" as const,
       attemptCount: 3,
@@ -437,8 +479,8 @@ describe("Supervised command authority", () => {
       createdAt: now,
       updatedAt: now,
     };
-    const deadLetter = {
-      id: "dead-letter-replay-policy" as const,
+    const deadLetter: SupervisedRuntimeSnapshot["deadLetters"][number] = {
+      id: DeadLetterId.makeUnsafe("dead-letter-replay-policy"),
       subscriptionId: subscription.id,
       deliveryId: delivery.id,
       pluginId: null,
@@ -450,7 +492,7 @@ describe("Supervised command authority", () => {
       updatedAt: now,
       resolvedAt: null,
     };
-    const command: SupervisedCommand = {
+    const command: Extract<SupervisedCommand, { readonly type: "supervised.delivery.redrive" }> = {
       ...baseCommand,
       type: "supervised.delivery.redrive",
       actor: { kind: "user", actorId: "owner" },
@@ -488,8 +530,8 @@ describe("Supervised command authority", () => {
 
   it("rejects a subscription that exceeds the current RunPolicy quota", async () => {
     const [existing, candidate] = builtInSubscriptions(now);
-    const policy = {
-      id: "policy-subscription-limit",
+    const policy: SupervisedRuntimeSnapshot["runPolicies"][number] = {
+      id: RunPolicyId.makeUnsafe("policy-subscription-limit"),
       name: "One subscription",
       ...DEFAULT_SUPERVISED_RUN_POLICY,
       maxSubscriptions: 1,
@@ -499,7 +541,7 @@ describe("Supervised command authority", () => {
       revision: 0,
       createdAt: now,
       updatedAt: now,
-    } as const;
+    };
     const command: SupervisedCommand = {
       ...baseCommand,
       type: "supervised.subscription.upsert",
@@ -522,20 +564,20 @@ describe("Supervised command authority", () => {
   });
 
   it("allows a governed Seat to propose but not activate a Harness Patch", async () => {
-    const actor = {
-      kind: "seat" as const,
+    const actor: SupervisedActor = {
+      kind: "seat",
       actorId: "lead-1",
-      seatId: "lead-1" as const,
+      seatId: room.leadSeatId!,
     };
-    const patch = {
-      id: "patch-proposed",
+    const patch: HarnessPatch = {
+      id: HarnessPatchId.makeUnsafe("patch-proposed"),
       name: "Evidence first",
       patchType: "evaluation",
       scope: { kind: "room", roomId: room.id },
       content: "Require evidence before completion.",
       basePolicyHash: hash,
       status: "proposed",
-      observationEvidenceRefs: ["evidence-observed"],
+      observationEvidenceRefs: ["evidence-observed" as never],
       evaluationEvidenceRefs: [],
       sandboxEvaluation: null,
       approval: null,
@@ -548,8 +590,8 @@ describe("Supervised command authority", () => {
       activatedBy: null,
       createdAt: now,
       updatedAt: now,
-    } as HarnessPatch;
-    const command: SupervisedCommand = {
+    };
+    const command: Extract<SupervisedCommand, { readonly type: "supervised.patch.upsert" }> = {
       ...baseCommand,
       type: "supervised.patch.upsert",
       actor,
@@ -567,12 +609,12 @@ describe("Supervised command authority", () => {
     );
     assert.equal(accepted.payload.patch?.status, "proposed");
 
+    const { authorityReceiptId: _authorityReceiptId, ...commandWithoutAuthority } = command;
     const denied = await Effect.runPromiseExit(
       decideSupervisedCommand({
         command: {
-          ...command,
+          ...commandWithoutAuthority,
           actor: { kind: "user", actorId: "owner" },
-          authorityReceiptId: undefined,
           patch: { ...patch, status: "promoted" },
         },
         state: emptySupervisedRuntimeSnapshot(now),
@@ -664,7 +706,7 @@ describe("Supervised command authority", () => {
         decideSupervisedCommand({
           command: {
             type: "supervised.patch.upsert",
-            commandId: `command-patch-${commandSequence}`,
+            commandId: CommandId.makeUnsafe(`command-patch-${commandSequence}`),
             aggregateId: patch.id,
             expectedRevision: current?.revision ?? 0,
             idempotencyKey: `patch-${commandSequence}`,
@@ -709,7 +751,7 @@ describe("Supervised command authority", () => {
     const sandboxed: HarnessPatch = {
       ...proposed,
       status: "sandboxed",
-      revision: proposed.revision + 1,
+      revision: (proposed.revision ?? 0) + 1,
       updatedAt: "2026-08-07T00:01:00.000Z",
     };
     await upsertPatch(sandboxed, daemon);
@@ -759,14 +801,14 @@ describe("Supervised command authority", () => {
   });
 
   it("admits one bounded WorkClaim and rejects a competing active claim", async () => {
-    const run = {
-      id: "run-1",
+    const run: RuntimeRun = {
+      id: RunId.makeUnsafe("run-1"),
       roomId: room.id,
-      taskId: "task-1",
-      taskNodeId: "node-1",
-      taskNodeRevisionId: "node-revision-1",
+      taskId: TaskId.makeUnsafe("task-1"),
+      taskNodeId: TaskNodeId.makeUnsafe("node-1"),
+      taskNodeRevisionId: TaskNodeRevisionId.makeUnsafe("node-revision-1"),
       ownerSeatId: "specialist-1",
-      policyId: "policy-1",
+      policyId: RunPolicyId.makeUnsafe("policy-1"),
       status: "running",
       attempt: 1,
       daemonEpoch: 1,
@@ -776,11 +818,11 @@ describe("Supervised command authority", () => {
       revision: 0,
       createdAt: now,
       updatedAt: now,
-    } as const;
-    const claim = {
-      id: "claim-1",
-      taskNodeId: run.taskNodeId,
-      taskNodeRevisionId: run.taskNodeRevisionId,
+    };
+    const claim: RuntimeWorkClaim = {
+      id: WorkClaimId.makeUnsafe("claim-1"),
+      taskNodeId: run.taskNodeId!,
+      taskNodeRevisionId: run.taskNodeRevisionId!,
       runId: run.id,
       ownerSeatId: run.ownerSeatId,
       status: "active",
@@ -788,17 +830,25 @@ describe("Supervised command authority", () => {
       expiresAt: "2026-08-07T00:05:00.000Z",
       releasedAt: null,
       revision: 0,
-    } as const;
-    const command = {
+    };
+    const command: Extract<SupervisedCommand, { readonly type: "supervised.claim.acquire" }> = {
       ...baseCommand,
       type: "supervised.claim.acquire",
-      actor: { kind: "seat", actorId: run.ownerSeatId, seatId: run.ownerSeatId },
+      actor: {
+        kind: "seat",
+        actorId: run.ownerSeatId,
+        seatId: ThreadId.makeUnsafe(run.ownerSeatId),
+      },
       authorityReceiptId: `receipt-${run.ownerSeatId}`,
       aggregateId: claim.id,
       expectedRevision: 0,
       claim,
-    } as SupervisedCommand;
-    const state = { ...emptySupervisedRuntimeSnapshot(now), rooms: [room], runs: [run] };
+    };
+    const state: SupervisedRuntimeSnapshot = {
+      ...emptySupervisedRuntimeSnapshot(now),
+      rooms: [room],
+      runs: [run],
+    };
     const governance = governanceForSeat(run.ownerSeatId, ["supervised.claim.acquire"]);
     const accepted = await Effect.runPromise(
       decideSupervisedCommand({ command, state, governance }),
@@ -836,7 +886,11 @@ describe("Supervised command authority", () => {
 
     const denied = await Effect.runPromiseExit(
       decideSupervisedCommand({
-        command: { ...command, aggregateId: "claim-2", claim: { ...claim, id: "claim-2" } },
+        command: {
+          ...command,
+          aggregateId: WorkClaimId.makeUnsafe("claim-2"),
+          claim: { ...claim, id: WorkClaimId.makeUnsafe("claim-2") },
+        },
         state: { ...state, workClaims: [claim] },
         governance,
       }),
@@ -845,23 +899,26 @@ describe("Supervised command authority", () => {
   });
 
   it("atomically records intervention, Lead notification, and reconciliation", async () => {
-    const intervention = {
-      id: "intervention-1",
+    const intervention: RuntimeIntervention = {
+      id: InterventionId.makeUnsafe("intervention-1"),
       roomId: room.id,
       requestedBy: {
         kind: "seat",
         actorId: "lead-architecture",
-        seatId: "lead-architecture",
+        seatId: ThreadId.makeUnsafe("lead-architecture"),
       },
-      specialistThreadId: "specialist-thread-1",
+      specialistThreadId: ThreadId.makeUnsafe("specialist-thread-1"),
       reason: "Architecture boundary drifted.",
       evidenceRefs: [],
       status: "open",
       createdAt: now,
       updatedAt: now,
       revision: 0,
-    } as const;
-    const command = {
+    };
+    const command: Extract<
+      SupervisedCommand,
+      { readonly type: "supervised.intervention.propose" }
+    > = {
       ...baseCommand,
       type: "supervised.intervention.propose",
       actor: intervention.requestedBy,
@@ -870,20 +927,20 @@ describe("Supervised command authority", () => {
       expectedRevision: 0,
       intervention,
       leadNotification: {
-        id: "notification-1",
+        id: LeadNotificationId.makeUnsafe("notification-1"),
         interventionId: intervention.id,
         roomId: room.id,
-        leadSeatId: room.leadSeatId,
+        leadSeatId: room.leadSeatId!,
         status: "queued",
         createdAt: now,
         deliveredAt: null,
         acknowledgedAt: null,
       },
       reconciliation: {
-        id: "reconciliation-1",
+        id: ReconciliationId.makeUnsafe("reconciliation-1"),
         interventionId: intervention.id,
         roomId: room.id,
-        leadSeatId: room.leadSeatId,
+        leadSeatId: room.leadSeatId!,
         status: "open",
         taskNodeRevisionId: null,
         reason: null,
@@ -891,7 +948,7 @@ describe("Supervised command authority", () => {
         resolvedAt: null,
         revision: 0,
       },
-    } as SupervisedCommand;
+    };
     const accepted = await Effect.runPromise(
       decideSupervisedCommand({
         command,
@@ -926,40 +983,40 @@ describe("Supervised command authority", () => {
         })),
       ],
     };
-    const requester = {
-      kind: "seat" as const,
+    const requester: SupervisedActor = {
+      kind: "seat",
       actorId: "supervisor-thread-1",
-      seatId: "supervisor-thread-1",
+      seatId: ThreadId.makeUnsafe("supervisor-thread-1"),
     };
-    const intervention = {
-      id: "intervention-peer-work-1",
+    const intervention: RuntimeIntervention = {
+      id: InterventionId.makeUnsafe("intervention-peer-work-1"),
       roomId: room.id,
       requestedBy: requester,
-      specialistThreadId: "peer-thread-1",
+      specialistThreadId: ThreadId.makeUnsafe("peer-thread-1"),
       reason: "Locate the Supervisor protocol file without editing it.",
       material: false,
       evidenceRefs: [],
-      status: "open" as const,
+      status: "open",
       createdAt: now,
       updatedAt: now,
       revision: 0,
     };
-    const leadNotification = {
-      id: "notification-peer-work-1",
+    const leadNotification: RuntimeLeadNotification = {
+      id: LeadNotificationId.makeUnsafe("notification-peer-work-1"),
       interventionId: intervention.id,
       roomId: room.id,
       leadSeatId: room.leadSeatId,
-      status: "queued" as const,
+      status: "queued",
       createdAt: now,
       deliveredAt: null,
       acknowledgedAt: null,
     };
-    const reconciliation = {
-      id: "reconciliation-peer-work-1",
+    const reconciliation: RuntimeReconciliation = {
+      id: ReconciliationId.makeUnsafe("reconciliation-peer-work-1"),
       interventionId: intervention.id,
       roomId: room.id,
       leadSeatId: room.leadSeatId!,
-      status: "open" as const,
+      status: "open",
       taskNodeRevisionId: null,
       reason: null,
       createdAt: now,
@@ -971,7 +1028,7 @@ describe("Supervised command authority", () => {
         command: {
           ...baseCommand,
           type: "supervised.work.assign",
-          commandId: "command-peer-work-assign",
+          commandId: CommandId.makeUnsafe("command-peer-work-assign"),
           aggregateId: intervention.id,
           actor: requester,
           authorityReceiptId: "receipt-supervisor-thread-1" as never,
@@ -1004,18 +1061,18 @@ describe("Supervised command authority", () => {
         command: {
           ...baseCommand,
           type: "supervised.work.complete",
-          commandId: "command-peer-work-complete",
+          commandId: CommandId.makeUnsafe("command-peer-work-complete"),
           aggregateId: intervention.id,
           actor: {
             kind: "seat",
             actorId: "peer-thread-1",
-            seatId: "peer-thread-1",
+            seatId: ThreadId.makeUnsafe("peer-thread-1"),
           },
           authorityReceiptId: "receipt-peer-thread-1" as never,
           expectedRevision: 0,
           idempotencyKey: "peer-work-complete",
           roomId: room.id,
-          interventionId: intervention.id as never,
+          interventionId: intervention.id,
           evidence: {
             id: "evidence-peer-work-1" as never,
             scope: { kind: "room", roomId: room.id },
@@ -1027,7 +1084,7 @@ describe("Supervised command authority", () => {
             createdBy: {
               kind: "seat",
               actorId: "peer-thread-1",
-              seatId: "peer-thread-1",
+              seatId: ThreadId.makeUnsafe("peer-thread-1"),
             },
             createdAt: now,
           },
@@ -1051,15 +1108,15 @@ describe("Supervised command authority", () => {
       authorityReceipts: [...leadGovernance.authorityReceipts, ...peerGovernance.authorityReceipts],
       agentSeats: [...leadGovernance.agentSeats, ...peerGovernance.agentSeats],
     };
-    const intervention = {
-      id: "intervention-material-1",
+    const intervention: RuntimeIntervention = {
+      id: InterventionId.makeUnsafe("intervention-material-1"),
       roomId: room.id,
       requestedBy: {
         kind: "seat" as const,
         actorId: "supervisor-material-1",
-        seatId: "supervisor-material-1",
+        seatId: ThreadId.makeUnsafe("supervisor-material-1"),
       },
-      specialistThreadId: "peer-material-1",
+      specialistThreadId: ThreadId.makeUnsafe("peer-material-1"),
       reason: "Investigate a potentially material boundary.",
       material: true,
       evidenceRefs: [],
@@ -1068,8 +1125,8 @@ describe("Supervised command authority", () => {
       updatedAt: now,
       revision: 0,
     };
-    const notification = {
-      id: "notification-material-1",
+    const notification: RuntimeLeadNotification = {
+      id: LeadNotificationId.makeUnsafe("notification-material-1"),
       interventionId: intervention.id,
       roomId: room.id,
       leadSeatId: room.leadSeatId,
@@ -1078,8 +1135,8 @@ describe("Supervised command authority", () => {
       deliveredAt: null,
       acknowledgedAt: null,
     };
-    const reconciliation = {
-      id: "reconciliation-material-1",
+    const reconciliation: RuntimeReconciliation = {
+      id: ReconciliationId.makeUnsafe("reconciliation-material-1"),
       interventionId: intervention.id,
       roomId: room.id,
       leadSeatId: room.leadSeatId!,
@@ -1090,7 +1147,7 @@ describe("Supervised command authority", () => {
       resolvedAt: null,
       revision: 0,
     };
-    const state = {
+    const state: SupervisedRuntimeSnapshot = {
       ...emptySupervisedRuntimeSnapshot(now),
       rooms: [room],
       interventions: [intervention],
@@ -1102,14 +1159,18 @@ describe("Supervised command authority", () => {
         command: {
           ...baseCommand,
           type: "supervised.work.complete",
-          commandId: "command-material-complete",
+          commandId: CommandId.makeUnsafe("command-material-complete"),
           aggregateId: intervention.id,
-          actor: { kind: "seat", actorId: "peer-material-1", seatId: "peer-material-1" },
+          actor: {
+            kind: "seat",
+            actorId: "peer-material-1",
+            seatId: ThreadId.makeUnsafe("peer-material-1"),
+          },
           authorityReceiptId: "receipt-peer-material-1" as never,
           expectedRevision: 0,
           idempotencyKey: "material-complete",
           roomId: room.id,
-          interventionId: intervention.id as never,
+          interventionId: intervention.id,
           evidence: {
             id: "evidence-material-1" as never,
             scope: { kind: "room", roomId: room.id },
@@ -1121,7 +1182,7 @@ describe("Supervised command authority", () => {
             createdBy: {
               kind: "seat",
               actorId: "peer-material-1",
-              seatId: "peer-material-1",
+              seatId: ThreadId.makeUnsafe("peer-material-1"),
             },
             createdAt: now,
           },
@@ -1139,9 +1200,9 @@ describe("Supervised command authority", () => {
         command: {
           ...baseCommand,
           type: "supervised.intervention.reconcile",
-          commandId: "command-material-reconcile",
+          commandId: CommandId.makeUnsafe("command-material-reconcile"),
           aggregateId: intervention.id,
-          actor: { kind: "seat", actorId: "lead-1", seatId: "lead-1" },
+          actor: { kind: "seat", actorId: "lead-1", seatId: room.leadSeatId! },
           authorityReceiptId: "receipt-lead-1" as never,
           expectedRevision: 1,
           idempotencyKey: "material-reconcile",
@@ -1167,8 +1228,8 @@ describe("Supervised command authority", () => {
   });
 
   it("limits daemon Run transitions to RLM-owned Runs and advances the episode revision", async () => {
-    const task = {
-      id: "task-rlm",
+    const task: RuntimeTask = {
+      id: TaskId.makeUnsafe("task-rlm"),
       roomId: room.id,
       title: "RLM task",
       intent: "Synthesize evidence",
@@ -1178,15 +1239,15 @@ describe("Supervised command authority", () => {
       revision: 0,
       createdAt: now,
       updatedAt: now,
-    } as const;
-    const run = {
-      id: "run-rlm",
+    };
+    const run: RuntimeRun = {
+      id: RunId.makeUnsafe("run-rlm"),
       roomId: room.id,
       taskId: task.id,
       taskNodeId: null,
       taskNodeRevisionId: null,
-      ownerSeatId: room.leadSeatId,
-      policyId: "policy-rlm",
+      ownerSeatId: room.leadSeatId!,
+      policyId: RunPolicyId.makeUnsafe("policy-rlm"),
       status: "running",
       attempt: 1,
       daemonEpoch: 1,
@@ -1196,12 +1257,12 @@ describe("Supervised command authority", () => {
       revision: 3,
       createdAt: now,
       updatedAt: now,
-    } as const;
-    const episode = {
-      id: "episode-rlm",
+    };
+    const episode: RuntimeRlmEpisode = {
+      id: RlmEpisodeId.makeUnsafe("episode-rlm"),
       runId: run.id,
       admission: {
-        episodeId: "episode-rlm",
+        episodeId: RlmEpisodeId.makeUnsafe("episode-rlm"),
         requestedMode: "recursive",
         selectedMode: "recursive",
         estimatedContextPercent: 10,
@@ -1212,8 +1273,11 @@ describe("Supervised command authority", () => {
         createdAt: now,
       },
       status: "branches_running",
-      rootModelSessionId: "session-rlm-root",
-      branchModelSessionIds: ["session-rlm-a", "session-rlm-b"],
+      rootModelSessionId: ModelSessionId.makeUnsafe("session-rlm-root"),
+      branchModelSessionIds: [
+        ModelSessionId.makeUnsafe("session-rlm-a"),
+        ModelSessionId.makeUnsafe("session-rlm-b"),
+      ],
       branchCount: 2,
       completedBranchCount: 0,
       staleBranchCount: 0,
@@ -1224,8 +1288,8 @@ describe("Supervised command authority", () => {
       revision: 4,
       createdAt: now,
       updatedAt: now,
-    } as never;
-    const state = {
+    };
+    const state: SupervisedRuntimeSnapshot = {
       ...emptySupervisedRuntimeSnapshot(now),
       rooms: [room],
       tasks: [task],
@@ -1233,7 +1297,7 @@ describe("Supervised command authority", () => {
       runPolicies: [{ id: run.policyId, maxFanOut: 4 } as never],
       rlmEpisodes: [episode],
     };
-    const transition = {
+    const transition: Extract<SupervisedCommand, { readonly type: "supervised.run.transition" }> = {
       ...baseCommand,
       type: "supervised.run.transition",
       actor: { kind: "daemon", actorId: "daemon-stage-5" },
@@ -1242,7 +1306,7 @@ describe("Supervised command authority", () => {
       runId: run.id,
       status: "reviewing",
       reason: "RLM synthesis completed.",
-    } as SupervisedCommand;
+    };
 
     const accepted = await Effect.runPromise(
       decideSupervisedCommand({ command: transition, state }),
@@ -1266,7 +1330,7 @@ describe("Supervised command authority", () => {
           aggregateId: episode.id,
           expectedRevision: 4,
           episode: { ...episode, status: "synthesizing" },
-        } as SupervisedCommand,
+        } satisfies Extract<SupervisedCommand, { readonly type: "supervised.rlm.upsert" }>,
         state,
       }),
     );
@@ -1275,14 +1339,14 @@ describe("Supervised command authority", () => {
   });
 
   it("keeps retained model-session authority lineage immutable", async () => {
-    const run = {
-      id: "run-model-lineage",
+    const run: RuntimeRun = {
+      id: RunId.makeUnsafe("run-model-lineage"),
       roomId: room.id,
-      taskId: "task-model-lineage",
+      taskId: TaskId.makeUnsafe("task-model-lineage"),
       taskNodeId: null,
       taskNodeRevisionId: null,
       ownerSeatId: "lead-1",
-      policyId: "policy-model-lineage",
+      policyId: RunPolicyId.makeUnsafe("policy-model-lineage"),
       status: "running",
       attempt: 1,
       daemonEpoch: 1,
@@ -1292,16 +1356,40 @@ describe("Supervised command authority", () => {
       revision: 1,
       createdAt: now,
       updatedAt: now,
-    } as never;
-    const episode = {
-      id: "episode-model-lineage",
+    };
+    const episode: RuntimeRlmEpisode = {
+      id: RlmEpisodeId.makeUnsafe("episode-model-lineage"),
       runId: run.id,
-      rootModelSessionId: "session-model-lineage",
-      branchModelSessionIds: ["session-model-a", "session-model-b"],
+      admission: {
+        episodeId: RlmEpisodeId.makeUnsafe("episode-model-lineage"),
+        requestedMode: "recursive",
+        selectedMode: "recursive",
+        estimatedContextPercent: 10,
+        estimatedInputTokens: 100,
+        independentEvidenceBranches: 2,
+        reasons: ["test"],
+        admittedByPolicyId: run.policyId,
+        createdAt: now,
+      },
+      status: "branches_running",
+      rootModelSessionId: ModelSessionId.makeUnsafe("session-model-lineage"),
+      branchModelSessionIds: [
+        ModelSessionId.makeUnsafe("session-model-a"),
+        ModelSessionId.makeUnsafe("session-model-b"),
+      ],
       branchCount: 2,
-    } as never;
-    const current = {
-      id: "session-model-lineage",
+      completedBranchCount: 0,
+      staleBranchCount: 0,
+      coveragePercent: 0,
+      contradictionCount: 0,
+      evidenceRefs: [],
+      failureSummaries: [],
+      revision: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const current: RuntimeModelSession = {
+      id: ModelSessionId.makeUnsafe("session-model-lineage"),
       roomId: room.id,
       runId: run.id,
       taskId: run.taskId,
@@ -1312,10 +1400,33 @@ describe("Supervised command authority", () => {
       rootLeaseIds: ["root-lease-1"],
       rlmEpisodeId: episode.id,
       parentSessionId: null,
-      threadId: "thread-model-lineage",
+      threadId: ThreadId.makeUnsafe("thread-model-lineage"),
       role: "rlm_root",
+      title: "Model lineage session",
+      provider: "codex",
+      model: "gpt-5.6-sol",
+      reasoningEffort: null,
+      providerSessionId: null,
+      providerCallId: null,
+      contextViewRefs: [],
+      inputSummary: "Retained lineage fixture.",
+      items: [],
+      usage: {
+        inputTokens: 0,
+        outputTokens: 0,
+        contextTokens: 0,
+        providerLimitTokens: null,
+        contextUsagePercent: null,
+      },
+      status: "completed",
+      retryCount: 0,
+      durationMs: null,
+      costUsd: null,
+      synthesisDestination: null,
+      createdAt: now,
+      updatedAt: now,
       revision: 0,
-    } as never;
+    };
     const exit = await Effect.runPromise(
       Effect.exit(
         decideSupervisedCommand({
@@ -1329,7 +1440,7 @@ describe("Supervised command authority", () => {
           command: {
             ...baseCommand,
             type: "supervised.model-session.upsert",
-            commandId: "command-model-lineage",
+            commandId: CommandId.makeUnsafe("command-model-lineage"),
             actor: { kind: "daemon", actorId: "supervised-runtime" },
             aggregateId: current.id,
             expectedRevision: current.revision,
@@ -1338,7 +1449,10 @@ describe("Supervised command authority", () => {
               ...current,
               authorityReceiptId: "receipt-other",
             },
-          } as never,
+          } satisfies Extract<
+            SupervisedCommand,
+            { readonly type: "supervised.model-session.upsert" }
+          >,
         }),
       ),
     );
@@ -1350,14 +1464,14 @@ describe("Supervised command authority", () => {
   });
 
   it("bounds epoch-scoped daemon restart commands to the ordinary Run recovery corridor", async () => {
-    const run = {
-      id: "run-restart",
+    const run: RuntimeRun = {
+      id: RunId.makeUnsafe("run-restart"),
       roomId: room.id,
-      taskId: "task-restart",
+      taskId: TaskId.makeUnsafe("task-restart"),
       taskNodeId: null,
       taskNodeRevisionId: null,
       ownerSeatId: "peer-restart",
-      policyId: "policy-restart",
+      policyId: RunPolicyId.makeUnsafe("policy-restart"),
       status: "running",
       attempt: 1,
       daemonEpoch: 1,
@@ -1367,13 +1481,16 @@ describe("Supervised command authority", () => {
       revision: 3,
       createdAt: now,
       updatedAt: now,
-    } as const;
-    const state = {
+    };
+    const state: SupervisedRuntimeSnapshot = {
       ...emptySupervisedRuntimeSnapshot(now),
       rooms: [room],
       runs: [run],
     };
-    const restartCommand = {
+    const restartCommand: Extract<
+      SupervisedCommand,
+      { readonly type: "supervised.run.transition" }
+    > = {
       ...baseCommand,
       type: "supervised.run.transition",
       actor: { kind: "daemon", actorId: "daemon-restart" },
@@ -1383,7 +1500,7 @@ describe("Supervised command authority", () => {
       status: "interrupted",
       reason: "Daemon restart recovery: running -> interrupted.",
       daemonEpoch: 2,
-    } as SupervisedCommand;
+    };
 
     const interrupted = await Effect.runPromise(
       decideSupervisedCommand({ command: restartCommand, state }),
@@ -1412,25 +1529,25 @@ describe("Supervised command authority", () => {
   });
 
   it("publishes evidence only for an existing durable model session", async () => {
-    const evidence = {
-      id: "evidence-rlm",
+    const evidence: RuntimeEvidence = {
+      id: EvidenceId.makeUnsafe("evidence-rlm"),
       scope: { kind: "room", roomId: room.id },
       kind: "provider_receipt",
       summary: "Visible provider response.",
       blob: null,
       sourceEventIds: [],
-      modelSessionId: "session-rlm",
+      modelSessionId: ModelSessionId.makeUnsafe("session-rlm"),
       createdBy: { kind: "daemon", actorId: "daemon-stage-5" },
       createdAt: now,
-    } as never;
-    const command = {
+    };
+    const command: Extract<SupervisedCommand, { readonly type: "supervised.evidence.publish" }> = {
       ...baseCommand,
       type: "supervised.evidence.publish",
       actor: { kind: "daemon", actorId: "daemon-stage-5" },
       aggregateId: evidence.id,
       expectedRevision: 0,
       evidence,
-    } as SupervisedCommand;
+    };
     const emptyState = { ...emptySupervisedRuntimeSnapshot(now), rooms: [room] };
 
     const missing = await Effect.runPromiseExit(

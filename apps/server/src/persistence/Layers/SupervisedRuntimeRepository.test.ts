@@ -446,7 +446,7 @@ testLayer("SupervisedRuntimeRepository", (it) => {
         evidence.summary,
       );
       const scoped = yield* repository.getSnapshot({
-        projectId: workspace.projectId,
+        projectId: workspace.projectId as never,
         includeDisabled: true,
       });
       assert.ok(scoped.evidence.some((candidate) => candidate.id === evidence.id));

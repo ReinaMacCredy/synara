@@ -10,6 +10,8 @@ import {
   type ThreadId,
   type WsWelcomePayload,
   WS_METHODS,
+  emptySupervisedOrchestrationSnapshot,
+  emptySupervisedRuntimeSnapshot,
 } from "@synara/contracts";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { ws, http, HttpResponse } from "msw";
@@ -54,6 +56,8 @@ function createBaseServerConfig(): ServerConfig {
 function createMinimalSnapshot(): OrchestrationReadModel {
   return {
     snapshotSequence: 1,
+    supervised: emptySupervisedRuntimeSnapshot(NOW_ISO),
+    supervisedOrchestration: emptySupervisedOrchestrationSnapshot(NOW_ISO),
     spaces: [],
     projects: [
       {

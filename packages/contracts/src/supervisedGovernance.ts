@@ -26,6 +26,7 @@ import {
   SupervisorSeat,
   WorkflowConflict,
   WorkflowDirective,
+  WorkflowDirectiveId,
 } from "./supervision";
 
 const entityId = <Brand extends string>(brand: Brand) =>
@@ -636,7 +637,7 @@ export type ModelSelectionReceipt = typeof ModelSelectionReceipt.Type;
  */
 export const SupervisedOrchestrationSnapshot = Schema.Struct({
   revision: NonNegativeInt,
-  agentSeats: Schema.optional(Schema.Array(AgentSeat)).pipe(Schema.withDecodingDefault(() => [])),
+  agentSeats: Schema.Array(AgentSeat).pipe(Schema.withDecodingDefault(() => [])),
   profiles: Schema.Array(ProfilePreset),
   profileSnapshots: Schema.Array(ProfileSnapshot),
   missions: Schema.Array(SupervisionMission),
@@ -739,7 +740,7 @@ export const SupervisedGovernanceCommand = Schema.Union([
     ...supervisedGovernanceCommandBase,
     type: Schema.Literal("supervised.workflow.resolve"),
     conflictId: TrimmedNonEmptyString,
-    resolvedDirectiveId: TrimmedNonEmptyString,
+    resolvedDirectiveId: WorkflowDirectiveId,
   }),
   Schema.Struct({
     ...supervisedGovernanceCommandBase,
@@ -882,37 +883,31 @@ export const SupervisedGovernanceSnapshot = Schema.Struct({
   revision: NonNegativeInt,
   workspaces: Schema.Array(SupervisedWorkspace),
   agentSeats: Schema.Array(AgentSeat),
-  providerSessions: Schema.optional(Schema.Array(GovernedProviderSession)).pipe(
+  providerSessions: Schema.Array(GovernedProviderSession).pipe(
     Schema.withDecodingDefault(() => []),
   ),
   authorityReceipts: Schema.Array(EffectiveAuthorityReceipt),
   rootLeases: Schema.Array(RootAuthorityLease),
-  handoffs: Schema.optional(Schema.Array(GovernanceHandoff)).pipe(
-    Schema.withDecodingDefault(() => []),
-  ),
-  roleAssumptions: Schema.optional(Schema.Array(RoleAssumption)).pipe(
-    Schema.withDecodingDefault(() => []),
-  ),
-  leadReplacements: Schema.optional(Schema.Array(LeadReplacement)).pipe(
-    Schema.withDecodingDefault(() => []),
-  ),
+  handoffs: Schema.Array(GovernanceHandoff).pipe(Schema.withDecodingDefault(() => [])),
+  roleAssumptions: Schema.Array(RoleAssumption).pipe(Schema.withDecodingDefault(() => [])),
+  leadReplacements: Schema.Array(LeadReplacement).pipe(Schema.withDecodingDefault(() => [])),
   humanDirectives: Schema.Array(HumanDirective),
   standingMandates: Schema.Array(StandingMandate),
   directInterventions: Schema.Array(DirectIntervention),
   notebookEntries: Schema.Array(SupervisorNotebookEntry),
-  notebookCursors: Schema.optional(Schema.Array(SupervisorNotebookCursor)).pipe(
+  notebookCursors: Schema.Array(SupervisorNotebookCursor).pipe(
     Schema.withDecodingDefault(() => []),
   ),
-  notebookCompactionReceipts: Schema.optional(
-    Schema.Array(SupervisorNotebookCompactionReceipt),
-  ).pipe(Schema.withDecodingDefault(() => [])),
+  notebookCompactionReceipts: Schema.Array(SupervisorNotebookCompactionReceipt).pipe(
+    Schema.withDecodingDefault(() => []),
+  ),
   modelCapabilityProfiles: Schema.Array(ModelCapabilityProfile),
   userModelPreferenceProfiles: Schema.Array(UserModelPreferenceProfile),
-  modelTelemetryAggregates: Schema.optional(Schema.Array(ModelTelemetryAggregate)).pipe(
+  modelTelemetryAggregates: Schema.Array(ModelTelemetryAggregate).pipe(
     Schema.withDecodingDefault(() => []),
   ),
   modelSelectionReceipts: Schema.Array(ModelSelectionReceipt),
-  orchestration: Schema.optional(SupervisedOrchestrationSnapshot).pipe(
+  orchestration: SupervisedOrchestrationSnapshot.pipe(
     Schema.withDecodingDefault(() =>
       emptySupervisedOrchestrationSnapshot(new Date(0).toISOString()),
     ),

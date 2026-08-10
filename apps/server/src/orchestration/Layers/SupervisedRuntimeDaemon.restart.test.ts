@@ -35,7 +35,7 @@ async function createSystem() {
   );
   const runtime = ManagedRuntime.make(layer);
   return {
-    run: <A, E>(effect: Effect.Effect<A, E>) => runtime.runPromise(effect),
+    run: runtime.runPromise,
     dispose: () => runtime.dispose(),
   };
 }

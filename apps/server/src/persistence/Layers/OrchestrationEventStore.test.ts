@@ -161,7 +161,8 @@ layer("OrchestrationEventStore", (it) => {
       ).pipe(Effect.map((chunk) => Array.from(chunk)));
       assert.equal(replayed.length, 1);
       assert.equal(replayed[0]?.type, "project.created");
-      assert.equal(replayed[0]?.metadata.adapterKey, "codex");
+      const metadata = replayed[0]?.metadata;
+      assert.equal(metadata && "adapterKey" in metadata ? metadata.adapterKey : undefined, "codex");
     }),
   );
 

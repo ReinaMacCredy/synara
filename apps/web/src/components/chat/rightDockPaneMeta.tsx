@@ -7,6 +7,7 @@ import type { ReactNode } from "react";
 
 import type { LucideIcon } from "~/lib/icons";
 import {
+  DeviceMobileIcon,
   DiffIcon,
   EyeIcon,
   FileIcon,
@@ -37,6 +38,7 @@ export interface RightDockLauncherItem extends RightDockPaneMeta {
 
 export const RIGHT_DOCK_PANE_META: Record<RightDockPaneKind, RightDockPaneMeta> = {
   browser: { label: "Browser", Icon: GlobeIcon },
+  device: { label: "iOS Simulator", Icon: DeviceMobileIcon },
   diff: { label: "Diff", Icon: DiffIcon },
   explorer: { label: "Explorer", Icon: FoldersIcon },
   file: { label: "File", Icon: FileIcon },

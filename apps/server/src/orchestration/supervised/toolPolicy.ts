@@ -8,6 +8,9 @@ import type {
 
 import { missionScopeContainsLead } from "./missionScope.ts";
 
+const idsEqual = (left: string | null | undefined, right: string | null | undefined): boolean =>
+  left === right;
+
 export type SupervisedCallerAuthority =
   | {
       readonly role: "supervisor";
@@ -46,7 +49,7 @@ export function resolveSupervisedCallerAuthority(input: {
       supervisorSeatId: supervisor.id,
       missions: input.snapshot.orchestration.missions.filter(
         (mission) =>
-          mission.supervisorSeatId === supervisor.id &&
+          idsEqual(mission.supervisorSeatId, supervisor.id) &&
           (mission.status === "active" || mission.status === "paused"),
       ),
     };
@@ -57,9 +60,11 @@ export function resolveSupervisedCallerAuthority(input: {
       seat.identityRole === "lead" &&
       seat.threadId === input.callerThreadId &&
       seat.projectId !== null &&
+      seat.projectId !== undefined &&
       seat.lifecycleState !== "retired",
   );
-  if (lead) {
+  if (lead && lead.projectId !== null && lead.projectId !== undefined) {
+    const projectId = lead.projectId;
     return {
       role: "lead",
       callerThreadId: input.callerThreadId,
@@ -67,7 +72,11 @@ export function resolveSupervisedCallerAuthority(input: {
       missions: input.snapshot.orchestration.missions.filter(
         (mission) =>
           mission.status === "active" &&
-          missionScopeContainsLead({ scope: mission.scope, lead, projects: input.projects }),
+          missionScopeContainsLead({
+            scope: mission.scope,
+            lead: { id: lead.id, projectId },
+            projects: input.projects,
+          }),
       ),
     };
   }

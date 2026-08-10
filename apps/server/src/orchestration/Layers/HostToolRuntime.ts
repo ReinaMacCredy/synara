@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import {
   SupervisedToolInvocationReceiptId,
+  ThreadId,
   type SupervisedToolPolicy,
   type SupervisedToolInvocationReceipt,
 } from "@synara/contracts";
@@ -83,7 +84,7 @@ const makeHostToolRuntime = Effect.gen(function* () {
         );
       const caller = resolveProjectedSupervisedCaller({
         governance,
-        threadId: context.callerThreadId,
+        threadId: ThreadId.makeUnsafe(context.callerThreadId),
       });
       if (!caller) return { seat: undefined, receipt: undefined };
       return (
@@ -173,7 +174,7 @@ const makeHostToolRuntime = Effect.gen(function* () {
           toolId: metadata.toolId,
           seat,
           receipt: authorityReceipt,
-          workspaceId: seat?.workspaceId,
+          ...(seat === undefined ? {} : { workspaceId: seat.workspaceId }),
           roomId,
           at: requestedAt,
         });
@@ -214,13 +215,7 @@ const makeHostToolRuntime = Effect.gen(function* () {
       });
       return yield* executeRequestedTool.pipe(
         Effect.catch((error) => {
-          const failure =
-            error instanceof HostToolError
-              ? error
-              : new HostToolError(
-                  "host_tool_failed",
-                  error instanceof Error ? error.message : String(error),
-                );
+          const failure = error;
           return completeReceipt(receipt, "failed", failure).pipe(
             Effect.map((completed) => ({ ...hostToolFailure(failure), receipt: completed })),
             Effect.catch(() => Effect.succeed(hostToolFailure(failure))),
@@ -268,7 +263,7 @@ const makeHostToolRuntime = Effect.gen(function* () {
                   toolId: entry.definition.supervised.toolId,
                   seat,
                   receipt,
-                  workspaceId: seat?.workspaceId,
+                  ...(seat === undefined ? {} : { workspaceId: seat.workspaceId }),
                   at: new Date().toISOString(),
                 }).allowed;
               }),

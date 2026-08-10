@@ -59,7 +59,7 @@ describe("Supervised governance reconciliation", () => {
           revision: 1,
         },
       ],
-    } as SupervisedGovernanceDecisionState;
+    } as unknown as SupervisedGovernanceDecisionState;
     const runtime = Schema.decodeUnknownSync(SupervisedRuntimeSnapshot)({
       ...emptySupervisedRuntimeSnapshot(now),
       rooms: [
@@ -126,7 +126,7 @@ describe("Supervised governance reconciliation", () => {
           revision: 1,
         },
       ],
-    } as SupervisedGovernanceDecisionState;
+    } as unknown as SupervisedGovernanceDecisionState;
 
     const projected = reconcileGovernanceProjection({
       governance: emptySupervisedGovernanceSnapshot(now),
@@ -179,7 +179,7 @@ describe("Supervised governance reconciliation", () => {
           revision: 1,
         },
       ],
-    } as SupervisedGovernanceDecisionState;
+    } as unknown as SupervisedGovernanceDecisionState;
     const runtime = Schema.decodeUnknownSync(SupervisedRuntimeSnapshot)({
       ...emptySupervisedRuntimeSnapshot(now),
       rooms: [
@@ -352,7 +352,7 @@ describe("Supervised governance reconciliation", () => {
           revision: 1,
         },
       ],
-    } as SupervisedGovernanceDecisionState;
+    } as unknown as SupervisedGovernanceDecisionState;
     const firstRuntime = Schema.decodeUnknownSync(SupervisedRuntimeSnapshot)({
       ...emptySupervisedRuntimeSnapshot(now),
       rooms: [
@@ -426,7 +426,7 @@ describe("Supervised governance reconciliation", () => {
           revision: 1,
         },
       ],
-    } as SupervisedGovernanceDecisionState;
+    } as unknown as SupervisedGovernanceDecisionState;
     const runtime = Schema.decodeUnknownSync(SupervisedRuntimeSnapshot)({
       ...emptySupervisedRuntimeSnapshot(now),
       rooms: [

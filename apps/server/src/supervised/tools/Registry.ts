@@ -210,31 +210,29 @@ export function authorizeSupervisedIntentTool(input: {
       reason: "The AgentSeat has no matching EffectiveAuthorityReceipt.",
     };
   }
-  if (input.receipt.actorSeatId !== input.seat.id) {
+  const receipt = input.receipt;
+  if (receipt.actorSeatId !== input.seat.id) {
     return {
       allowed: false,
       code: "supervised_tool_authority_mismatch",
       reason: "The EffectiveAuthorityReceipt belongs to another AgentSeat.",
     };
   }
-  if (
-    input.receipt.revokedAt !== null ||
-    (input.receipt.expiresAt !== null && input.receipt.expiresAt <= input.at)
-  ) {
+  if (receipt.revokedAt !== null || (receipt.expiresAt !== null && receipt.expiresAt <= input.at)) {
     return {
       allowed: false,
       code: "supervised_tool_authority_revoked",
       reason: "The EffectiveAuthorityReceipt is revoked or expired.",
     };
   }
-  if (!descriptor.roles.includes(input.receipt.effectiveRole)) {
+  if (!descriptor.roles.includes(receipt.effectiveRole)) {
     return {
       allowed: false,
       code: "supervised_tool_role_denied",
-      reason: `Effective role '${input.receipt.effectiveRole}' cannot use '${input.toolId}'.`,
+      reason: `Effective role '${receipt.effectiveRole}' cannot use '${input.toolId}'.`,
     };
   }
-  if (!input.receipt.allowedTools.includes(input.toolId)) {
+  if (!receipt.allowedTools.includes(input.toolId)) {
     return {
       allowed: false,
       code: "supervised_tool_capability_denied",
@@ -242,7 +240,7 @@ export function authorizeSupervisedIntentTool(input: {
     };
   }
   const missingCommand = descriptor.internalCommands.find(
-    (command) => !input.receipt.allowedCommands.includes(command),
+    (command) => !receipt.allowedCommands.includes(command),
   );
   if (missingCommand) {
     return {
@@ -253,7 +251,7 @@ export function authorizeSupervisedIntentTool(input: {
   }
   if (
     input.workspaceId &&
-    !input.receipt.workspaceScopes.some((workspaceId) => workspaceId === input.workspaceId)
+    !receipt.workspaceScopes.some((workspaceId) => workspaceId === input.workspaceId)
   ) {
     return {
       allowed: false,
@@ -261,7 +259,7 @@ export function authorizeSupervisedIntentTool(input: {
       reason: "The authority receipt does not cover this Workspace.",
     };
   }
-  if (input.roomId && !input.receipt.roomScopes.some((roomId) => roomId === input.roomId)) {
+  if (input.roomId && !receipt.roomScopes.some((roomId) => roomId === input.roomId)) {
     return {
       allowed: false,
       code: "supervised_tool_room_denied",

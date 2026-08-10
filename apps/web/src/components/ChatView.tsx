@@ -1,4 +1,5 @@
 import {
+  type AgentSeat,
   type AutomationDefinition,
   type AutomationSchedule,
   type ApprovalRequestId,
@@ -111,6 +112,7 @@ import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
 import {
   serverConfigQueryOptions,
   serverQueryKeys,
+  serverSettingsQueryOptions,
   sessionProgressQueryOptions,
 } from "~/lib/serverReactQuery";
 import { useTaskProcessStore } from "~/taskProcessStore";
@@ -138,8 +140,8 @@ import {
   saveConfirmedCustomBinaryPaths,
 } from "../confirmedCustomBinaryPathStore";
 import { isElectron } from "../env";
-import { isScrollContainerNearBottom } from "../chat-scroll";
 import { stripDiffSearchParams } from "../diffRouteSearch";
+import { stripEditorViewSearchParams } from "../routes/-chatThreadRoute.logic";
 import { resolveSubagentPresentationForThread } from "../lib/subagentPresentation";
 import {
   advisorDraftInsertion,
@@ -921,6 +923,7 @@ function canHandleComposerPickerShortcut(
 }
 const EMPTY_AVAILABLE_EDITORS: EditorId[] = [];
 const EMPTY_PROVIDER_STATUSES: ServerProviderStatus[] = [];
+const EMPTY_SUPERVISED_AGENT_SEATS: readonly AgentSeat[] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 const EMPTY_TERMINAL_RUNTIME_ENV: Record<string, string> = {};
 const MAX_DISMISSED_PROVIDER_HEALTH_BANNERS = 50;
@@ -1395,7 +1398,7 @@ export default function ChatView({
   );
   const isThreadTemporary = draftThread?.isTemporary === true || hasTemporaryThreadMarker;
   const supervisedOrchestration = useStore((store) => store.supervisedOrchestration);
-  const supervisedSeats = supervisedOrchestration.agentSeats;
+  const supervisedSeats = supervisedOrchestration.agentSeats ?? EMPTY_SUPERVISED_AGENT_SEATS;
   const supervisorSeats = useMemo(
     () => supervisedSeats.filter((seat) => seat.identityRole === "supervisor"),
     [supervisedSeats],
@@ -1911,6 +1914,8 @@ export default function ChatView({
   const isServerThread = serverThread !== undefined;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const isSupervisedRoomDraft = isLocalDraftThread && draftThread?.entryPoint === "supervised";
+  const shouldRetainSupervisedThreadDetail =
+    isSupervisedRoomDraft || (supervisedMode && isServerThread);
   const supervisionDraftMode = draftThread?.supervisionMode ?? "orchestrate";
   const supervisionDraftRole = supervisionDraftMode === "supervise" ? "lead" : "supervisor";
   const supervisionProfilesForDraft = useMemo(
@@ -1962,14 +1967,16 @@ export default function ChatView({
     threadId,
   ]);
   useLayoutEffect(() => {
-    if (!isSupervisedRoomDraft) return;
+    if (!shouldRetainSupervisedThreadDetail) return;
     const releaseWarmDetail = retainThreadDetailSubscription(threadId);
-    const releasePreShellLease = retainPreShellThreadDetailSubscription(threadId);
+    const releasePreShellLease = isSupervisedRoomDraft
+      ? retainPreShellThreadDetailSubscription(threadId)
+      : null;
     return () => {
-      releasePreShellLease();
+      releasePreShellLease?.();
       releaseWarmDetail();
     };
-  }, [isSupervisedRoomDraft, threadId]);
+  }, [isSupervisedRoomDraft, shouldRetainSupervisedThreadDetail, threadId]);
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
   const diffOpen = rawSearch.panel === "diff";
   const browserOpen = rawSearch.panel === "browser";
@@ -2406,6 +2413,7 @@ export default function ChatView({
   const featureFlags = useFeatureFlags();
   const showDebugTaskBanner = import.meta.env.DEV && featureFlags["show-debug-task-banner"];
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
+  const serverSettingsQuery = useQuery(serverSettingsQueryOptions());
   const composerModelHintByProvider = useMemo<Record<ProviderKind, string | null>>(() => {
     const threadModelSelection = activeThread?.modelSelection ?? null;
     const projectModelSelection = activeProject?.defaultModelSelection ?? null;
@@ -4113,10 +4121,11 @@ export default function ChatView({
       activeThread
         ? resolveAvailableHandoffTargetProviders({
             sourceProvider: activeThread.modelSelection.provider,
+            providerSettings: serverSettingsQuery.data?.providers,
             providerStatuses,
           })
         : [],
-    [activeThread, providerStatuses],
+    [activeThread, providerStatuses, serverSettingsQuery.data?.providers],
   );
   const handoffActionLabel = activeThread ? "Hand off thread" : "Create handoff thread";
   const activeProviderStatus = useMemo(
@@ -4239,7 +4248,7 @@ export default function ChatView({
       params: { threadId },
       replace: true,
       search: (previous) => {
-        const rest = stripDiffSearchParams(previous);
+        const rest = stripEditorViewSearchParams(stripDiffSearchParams(previous));
         return diffOpen
           ? { ...rest, panel: undefined, diff: undefined }
           : { ...rest, panel: "diff", diff: "1" };
@@ -4256,7 +4265,7 @@ export default function ChatView({
       params: { threadId },
       replace: true,
       search: (previous) => {
-        const rest = stripDiffSearchParams(previous);
+        const rest = stripEditorViewSearchParams(stripDiffSearchParams(previous));
         return browserOpen ? { ...rest, panel: undefined } : { ...rest, panel: "browser" };
       },
     });
@@ -4281,7 +4290,7 @@ export default function ChatView({
         params: { threadId },
         replace: true,
         search: (previous) => ({
-          ...stripDiffSearchParams(previous),
+          ...stripEditorViewSearchParams(stripDiffSearchParams(previous)),
           panel: "browser",
         }),
       });
@@ -4913,7 +4922,7 @@ export default function ChatView({
       });
 
       if (isElectron && keybindingRule) {
-        await api.server.upsertKeybinding(keybindingRule);
+        await api.server.upsertKeybinding({ rule: keybindingRule });
         await queryClient.invalidateQueries({ queryKey: serverQueryKeys.all });
       }
     },
@@ -5584,59 +5593,6 @@ export default function ChatView({
       observer.disconnect();
     };
   }, [activeThread?.id, composerFooterHasWideActions, isInactiveSplitPane]);
-
-  useLayoutEffect(() => {
-    if (isInactiveSplitPane || typeof ResizeObserver === "undefined") return;
-    const composerForm = composerFormRef.current;
-    if (!composerForm) return;
-
-    let previousHeight = composerForm.getBoundingClientRect().height;
-    let pendingScrollTimeout: number | null = null;
-    const observer = new ResizeObserver((entries) => {
-      const [entry] = entries;
-      if (!entry) return;
-
-      const nextHeight = entry.contentRect.height;
-      const heightDelta = nextHeight - previousHeight;
-      previousHeight = nextHeight;
-      if (Math.abs(heightDelta) < 0.5) return;
-
-      const scrollContainer = legendListRef.current?.getScrollableNode?.();
-      // A composer resize can make LegendList report `isAtEnd: false` after the viewport
-      // has already changed. Reconstruct the pre-resize viewport so only an existing
-      // tail stick is preserved; a user who was already scrolled away stays there.
-      const wasNearEndBeforeResize =
-        scrollContainer instanceof HTMLElement &&
-        isScrollContainerNearBottom({
-          scrollTop: scrollContainer.scrollTop,
-          clientHeight: scrollContainer.clientHeight + heightDelta,
-          scrollHeight: scrollContainer.scrollHeight,
-        });
-      if (!wasNearEndBeforeResize) return;
-
-      if (pendingScrollTimeout !== null) {
-        window.clearTimeout(pendingScrollTimeout);
-      }
-      pendingScrollTimeout = window.setTimeout(() => {
-        pendingScrollTimeout = null;
-        scrollToEnd(false);
-      }, 0);
-    });
-
-    observer.observe(composerForm);
-    return () => {
-      observer.disconnect();
-      if (pendingScrollTimeout !== null) {
-        window.clearTimeout(pendingScrollTimeout);
-      }
-    };
-  }, [
-    activeThread?.id,
-    isInactiveSplitPane,
-    scrollToEnd,
-    secondaryChromeReady,
-    shouldRenderChatPaneContent,
-  ]);
 
   useEffect(() => {
     isAtEndRef.current = true;
@@ -10986,7 +10942,7 @@ export default function ChatView({
         to: "/$threadId",
         params: { threadId },
         search: (previous) => {
-          const rest = stripDiffSearchParams(previous);
+          const rest = stripEditorViewSearchParams(stripDiffSearchParams(previous));
           return filePath
             ? {
                 ...rest,
@@ -11028,8 +10984,11 @@ export default function ChatView({
         params: { threadId: nextThreadId },
         search: (previous) =>
           isEditorRail
-            ? { ...stripDiffSearchParams(previous), view: "editor" }
-            : stripDiffSearchParams(previous),
+            ? {
+                ...stripEditorViewSearchParams(stripDiffSearchParams(previous)),
+                view: "editor",
+              }
+            : stripEditorViewSearchParams(stripDiffSearchParams(previous)),
       });
     },
     [activeProjectId, isEditorRail, navigate, supervisedSeats],

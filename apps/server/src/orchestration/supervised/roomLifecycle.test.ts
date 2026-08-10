@@ -64,7 +64,7 @@ const turnStart = {
   runtimeMode: "full-access",
   interactionMode: "default",
   createdAt: now,
-} as OrchestrationCommand;
+} as unknown as OrchestrationCommand;
 const sessionSet = (status: "ready" | "running" | "error") =>
   ({
     type: "thread.session.set",

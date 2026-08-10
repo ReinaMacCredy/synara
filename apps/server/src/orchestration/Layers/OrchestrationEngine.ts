@@ -3,6 +3,7 @@ import type {
   OrchestrationEvent,
   OrchestrationAggregateKind,
   OrchestrationReadModel,
+  SupervisedGovernanceDomainEvent,
 } from "@synara/contracts";
 import {
   OrchestrationCommand,
@@ -13,6 +14,7 @@ import {
   SupervisedCommand,
   SupervisedGovernanceAggregateId,
   SupervisedGovernanceCommand,
+  TaskNodeId,
   TaskNodeRevisionId,
   ThreadId,
 } from "@synara/contracts";
@@ -194,6 +196,7 @@ function commandToAggregateRef(command: OrchestrationCommand): {
         case "supervised.plugin.enable":
         case "supervised.plugin.disable":
         case "supervised.plugin.revoke":
+        case "supervised.plugin.mark-unhealthy":
         case "supervised.plugin.reset-circuit":
           return "plugin" as const;
         case "supervised.signal.acknowledge":
@@ -249,6 +252,17 @@ function commandToAggregateRef(command: OrchestrationCommand): {
         aggregateId: command.threadId,
       };
   }
+}
+
+function idsEqual(left: string | null | undefined, right: string | null | undefined): boolean {
+  return left === right;
+}
+
+function withSequence(
+  event: Omit<OrchestrationEvent, "sequence"> | ReadonlyArray<Omit<OrchestrationEvent, "sequence">>,
+  sequence: number,
+): OrchestrationEvent {
+  return { ...event, sequence } as unknown as OrchestrationEvent;
 }
 
 // Space and project metadata events share the synchronous "shell" projection path: they
@@ -832,10 +846,10 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       const deciderReadModel =
         threadBootstrapDecision === null
           ? baseDeciderReadModel
-          : yield* projectEvent(baseDeciderReadModel, {
-              ...threadBootstrapDecision,
-              sequence: baseDeciderReadModel.snapshotSequence,
-            });
+          : yield* projectEvent(
+              baseDeciderReadModel,
+              withSequence(threadBootstrapDecision, baseDeciderReadModel.snapshotSequence),
+            );
       const supervisedBootstrapDecision =
         command.type === "thread.turn.start" && command.supervisedBootstrap !== undefined
           ? yield* Effect.gen(function* () {
@@ -881,10 +895,10 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         for (const decision of Array.isArray(supervisedBootstrapDecision)
           ? supervisedBootstrapDecision
           : [supervisedBootstrapDecision]) {
-          const projectedDecision = {
-            ...decision,
-            sequence: commandDeciderReadModel.snapshotSequence,
-          };
+          const projectedDecision = withSequence(
+            decision,
+            commandDeciderReadModel.snapshotSequence,
+          ) as SupervisedGovernanceDomainEvent;
           commandDeciderReadModel = yield* projectEvent(commandDeciderReadModel, projectedDecision);
           governanceDecisionState = projectSupervisedGovernanceDecisionEvent(
             governanceDecisionState,
@@ -895,7 +909,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           governance,
           state: governanceDecisionState,
           runtime: commandDeciderReadModel.supervised,
-          at: command.createdAt,
+          at: (command as Extract<OrchestrationCommand, { type: "thread.turn.start" }>).createdAt,
           source: "canonical",
         });
       }
@@ -911,10 +925,10 @@ const makeOrchestrationEngine = Effect.gen(function* () {
             })
           : [];
       for (const decision of supervisedRoomLifecycleDecisions) {
-        commandDeciderReadModel = yield* projectEvent(commandDeciderReadModel, {
-          ...decision,
-          sequence: commandDeciderReadModel.snapshotSequence,
-        });
+        commandDeciderReadModel = yield* projectEvent(
+          commandDeciderReadModel,
+          withSequence(decision, commandDeciderReadModel.snapshotSequence),
+        );
       }
       const validateSagaAuthority = (candidate: SupervisedCommand) => {
         const detail = validateSupervisedSeatAuthority({
@@ -931,7 +945,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
               }),
             );
       };
-      const activeRootForRoom = (roomId: string) => {
+      const activeRootForRoom = (roomId: string, at: string) => {
         const room = commandDeciderReadModel.supervised.rooms.find(
           (candidate) =>
             candidate.id === roomId &&
@@ -940,7 +954,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         );
         const seat = governance.agentSeats.find(
           (candidate) =>
-            candidate.id === room?.leadSeatId &&
+            idsEqual(candidate.id, room?.leadSeatId) &&
             (candidate.effectiveRole === "lead" || candidate.effectiveRole === "acting_root") &&
             (candidate.lifecycleState === "ready" || candidate.lifecycleState === "active") &&
             candidate.threadId !== null,
@@ -950,7 +964,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
             candidate.id === seat?.authorityReceiptId &&
             candidate.actorSeatId === seat?.id &&
             candidate.revokedAt === null &&
-            (candidate.expiresAt === null || candidate.expiresAt > command.createdAt) &&
+            (candidate.expiresAt === null || candidate.expiresAt > at) &&
             candidate.roomScopes.includes(roomId as never),
         );
         const lease = governance.rootLeases.find(
@@ -984,13 +998,13 @@ const makeOrchestrationEngine = Effect.gen(function* () {
               );
               const supervisor = governanceDecisionState.supervisors.find(
                 (candidate) =>
-                  candidate.id === command.supervisorSeatId &&
+                  idsEqual(candidate.id, command.supervisorSeatId) &&
                   candidate.status === "active" &&
                   candidate.activeThreadId === command.actor.actorId,
               );
               const supervisorSeat = governance.agentSeats.find(
                 (candidate) =>
-                  candidate.id === command.supervisorSeatId &&
+                  idsEqual(candidate.id, command.supervisorSeatId) &&
                   candidate.identityRole === "supervisor" &&
                   candidate.threadId === supervisor?.activeThreadId &&
                   (candidate.lifecycleState === "ready" || candidate.lifecycleState === "active"),
@@ -1000,8 +1014,8 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                 !supervisor ||
                 !supervisorSeat ||
                 command.actor.kind !== "seat" ||
-                command.actor.seatId !== command.supervisorSeatId ||
-                command.threadId !== command.room.id ||
+                !idsEqual(command.actor.seatId, command.supervisorSeatId) ||
+                !idsEqual(command.threadId, command.room.id) ||
                 command.room.leadSeatId !== command.leadSeatId ||
                 command.room.status !== "active" ||
                 command.room.revision !== 0 ||
@@ -1047,10 +1061,10 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                 readModel: commandDeciderReadModel,
                 workspacePaths: deciderWorkspacePaths,
               });
-              const readModelWithThread = yield* projectEvent(commandDeciderReadModel, {
-                ...threadDecision,
-                sequence: commandDeciderReadModel.snapshotSequence,
-              });
+              const readModelWithThread = yield* projectEvent(
+                commandDeciderReadModel,
+                withSequence(threadDecision, commandDeciderReadModel.snapshotSequence),
+              );
               const leadDecision = yield* decideSupervisedGovernanceCommand({
                 state: governanceDecisionState,
                 command: {
@@ -1166,14 +1180,14 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                 );
                 const supervisorSeat = governance.agentSeats.find(
                   (seat) =>
-                    seat.id === command.supervisorSeatId &&
+                    idsEqual(seat.id, command.supervisorSeatId) &&
                     seat.identityRole === "supervisor" &&
                     seat.threadId === command.supervisorThreadId &&
                     (seat.lifecycleState === "ready" || seat.lifecycleState === "active"),
                 );
                 const previousRootSeat = governance.agentSeats.find(
                   (seat) =>
-                    seat.id === command.previousRootSeatId &&
+                    idsEqual(seat.id, command.previousRootSeatId) &&
                     seat.threadId === command.previousRootThreadId &&
                     (seat.lifecycleState === "ready" || seat.lifecycleState === "active"),
                 );
@@ -1293,9 +1307,9 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                       taskNodeRevision.dependencyNodeIds,
                     ]),
                   );
-                  const visiting = new Set<string>();
-                  const visited = new Set<string>();
-                  const hasCycle = (nodeId: string): boolean => {
+                  const visiting = new Set<TaskNodeId>();
+                  const visited = new Set<TaskNodeId>();
+                  const hasCycle = (nodeId: TaskNodeId): boolean => {
                     if (visiting.has(nodeId)) return true;
                     if (visited.has(nodeId)) return false;
                     visiting.add(nodeId);
@@ -1405,7 +1419,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                       commandDeciderReadModel.supervised.taskNodeRevisions.find(
                         (candidate) => candidate.id === taskNode?.activeRevisionId,
                       );
-                    const root = activeRootForRoom(command.roomId);
+                    const root = activeRootForRoom(command.roomId, command.createdAt);
                     const peer = governanceDecisionState.peers.find(
                       (candidate) =>
                         candidate.threadId === command.peerThreadId &&
@@ -1439,7 +1453,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                       !taskNode ||
                       !taskNodeRevision ||
                       !root ||
-                      root.seat.id !== command.leadSeatId ||
+                      !idsEqual(root.seat.id, command.leadSeatId) ||
                       root.seat.threadId !== command.leadThreadId ||
                       root.room.projectId !== command.projectId ||
                       !peer ||
@@ -1447,7 +1461,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                       !peerThread ||
                       hasActiveRun ||
                       command.actor.kind !== "seat" ||
-                      command.actor.seatId !== command.leadSeatId ||
+                      !idsEqual(command.actor.seatId, command.leadSeatId) ||
                       command.actor.actorId !== command.leadThreadId ||
                       taskNode.lifecycle !== "ready" ||
                       command.run.roomId !== room.id ||
@@ -1670,7 +1684,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                               (candidate) => candidate.id === run.roomId,
                             )
                           : undefined;
-                        const root = room ? activeRootForRoom(room.id) : null;
+                        const root = room ? activeRootForRoom(room.id, command.createdAt) : null;
                         if (
                           !run ||
                           !taskNode ||
@@ -1705,7 +1719,9 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                                 | "supervised.evidence.publish"
                                 | "supervised.run.transition"
                                 | "supervised.task-node.commit"
-                                | "supervised.claim.release";
+                                | "supervised.claim.release"
+                                | "supervised.claim.revoke"
+                                | "supervised.claim.expire";
                             }
                           >,
                         ) =>
@@ -1717,10 +1733,10 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                             });
                             for (const next of Array.isArray(decision) ? decision : [decision]) {
                               decisions.push(next);
-                              graphReadModel = yield* projectEvent(graphReadModel, {
-                                ...next,
-                                sequence: graphReadModel.snapshotSequence,
-                              });
+                              graphReadModel = yield* projectEvent(
+                                graphReadModel,
+                                withSequence(next, graphReadModel.snapshotSequence),
+                              );
                             }
                           });
                         const nestedBase = {
@@ -1991,11 +2007,11 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                                 candidate.projectId === command.projectId &&
                                 candidate.leadSeatId === command.leadSeatId,
                             );
-                            const root = activeRootForRoom(command.roomId);
+                            const root = activeRootForRoom(command.roomId, command.createdAt);
                             if (
                               !room ||
                               !root ||
-                              root.seat.id !== command.leadSeatId ||
+                              !idsEqual(root.seat.id, command.leadSeatId) ||
                               root.thread.id !== command.leadThreadId ||
                               root.room.projectId !== command.projectId
                             ) {
@@ -2040,10 +2056,10 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                             });
                             const readModelWithThread = yield* projectEvent(
                               commandDeciderReadModel,
-                              {
-                                ...threadDecision,
-                                sequence: commandDeciderReadModel.snapshotSequence,
-                              },
+                              withSequence(
+                                threadDecision,
+                                commandDeciderReadModel.snapshotSequence,
+                              ),
                             );
                             const peerDecision = yield* decideSupervisedGovernanceCommand({
                               state: governanceDecisionState,
@@ -2139,7 +2155,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                                   candidate.projectId === command.projectId &&
                                   candidate.leadSeatId === command.leadSeatId,
                               );
-                              const root = activeRootForRoom(command.roomId);
+                              const root = activeRootForRoom(command.roomId, command.createdAt);
                               const peer = governanceDecisionState.peers.find(
                                 (candidate) =>
                                   candidate.threadId === command.peerThreadId &&
@@ -2157,7 +2173,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                               if (
                                 !room ||
                                 !root ||
-                                root.seat.id !== command.leadSeatId ||
+                                !idsEqual(root.seat.id, command.leadSeatId) ||
                                 root.thread.id !== command.leadThreadId ||
                                 !peer ||
                                 !peerThread
@@ -2242,7 +2258,9 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                                         candidate.leadSeatId !== null,
                                     )
                                   : undefined;
-                                const root = room ? activeRootForRoom(room.id) : null;
+                                const root = room
+                                  ? activeRootForRoom(room.id, command.createdAt)
+                                  : null;
                                 if (!intervention || !room || !root) {
                                   return yield* new OrchestrationCommandInvariantError({
                                     commandType: command.type,

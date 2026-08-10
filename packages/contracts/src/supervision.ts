@@ -303,7 +303,7 @@ export const SupervisionSnapshot = Schema.Struct({
   profileSnapshots: Schema.Array(ProfileSnapshot),
   supervisors: Schema.Array(SupervisorSeat),
   leads: Schema.Array(LeadSeat),
-  peers: Schema.optional(Schema.Array(PeerBinding)).pipe(Schema.withDecodingDefault(() => [])),
+  peers: Schema.Array(PeerBinding).pipe(Schema.withDecodingDefault(() => [])),
   missions: Schema.Array(SupervisionMission),
   workflowDirectives: Schema.Array(WorkflowDirective),
   workflowConflicts: Schema.Array(WorkflowConflict),

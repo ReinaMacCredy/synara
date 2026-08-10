@@ -163,7 +163,7 @@ function governanceSnapshot(): SupervisedGovernanceSnapshot {
       updatedAt: now,
     },
     updatedAt: now,
-  } as SupervisedGovernanceSnapshot;
+  } as unknown as SupervisedGovernanceSnapshot;
 }
 
 const context = (suffix: string) => ({

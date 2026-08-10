@@ -161,9 +161,11 @@ import {
 } from "../lib/providerModelPrefetch";
 import {
   serverConfigQueryOptions,
+  serverSettingsQueryOptions,
   taskProcessesQueryOptions,
   taskProcessSummaryQueryOptions,
 } from "../lib/serverReactQuery";
+import { useProviderStatusesForLocalConfig } from "../hooks/useProviderStatusesForLocalConfig";
 import {
   onNativeApiServerCapabilitiesChange,
   readNativeApi,
@@ -435,6 +437,7 @@ const CollapseAllIcon = createCentralIconComponent("minimize-45");
 const SortFilterIcon = createCentralIconComponent("filter-2");
 
 const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
+const EMPTY_SUPERVISED_AGENT_SEATS: readonly AgentSeat[] = [];
 const subscribeGitHubProvisioningCapability = (listener: () => void) =>
   onNativeApiServerCapabilitiesChange(listener);
 const readGitHubProvisioningCapability = () =>
@@ -1537,7 +1540,7 @@ export default function Sidebar() {
   const routeThreadId = useParams({
     strict: false,
     select: (params) => {
-      const value = params.rootThreadId ?? params.threadId;
+      const value = params.threadId;
       return value ? ThreadId.makeUnsafe(value) : null;
     },
   });
@@ -1634,6 +1637,8 @@ export default function Sidebar() {
     select: (config) => config.cwd ?? null,
   });
   const serverCwd = serverCwdQuery.data ?? null;
+  const providerStatuses = useProviderStatusesForLocalConfig();
+  const serverSettingsQuery = useQuery(serverSettingsQueryOptions());
   // Declared next to `keybindings` (rather than further down) because the project-row render
   // helpers above read these labels. A const declared after the closure that captures it
   // widens its inferred mutable range and makes React Compiler drop the memoization of every
@@ -1761,7 +1766,9 @@ export default function Sidebar() {
   const selectSidebarTreeThreads = useMemo(() => createSidebarTreeThreadsSelector(), []);
   const sidebarThreads = useStore(selectSidebarThreads);
   const sidebarTreeThreads = useStore(selectSidebarTreeThreads);
-  const supervisedAgentSeats = useStore((state) => state.supervisedOrchestration.agentSeats);
+  const supervisedAgentSeats = useStore(
+    (state) => state.supervisedOrchestration.agentSeats ?? EMPTY_SUPERVISED_AGENT_SEATS,
+  );
   const supervisedRuntimeQuery = useQuery(supervisedRuntimeQueryOptions());
   const supervisedRooms = useMemo(
     () => supervisedRuntimeQuery.data?.rooms ?? [],
@@ -1770,7 +1777,7 @@ export default function Sidebar() {
   const supervisedThreadIds = useMemo(() => {
     const threadIds = new Set(supervisedRooms.map((room) => ThreadId.makeUnsafe(room.id)));
     for (const seat of supervisedAgentSeats) {
-      if (seat.threadId !== null) threadIds.add(seat.threadId);
+      if (seat.threadId) threadIds.add(seat.threadId);
     }
     return threadIds;
   }, [supervisedAgentSeats, supervisedRooms]);
@@ -3066,7 +3073,11 @@ export default function Sidebar() {
       });
       const threadStatus = threadSummary ? resolveThreadStatusForSidebar(threadSummary) : null;
       const handoffTargets = canHandoff
-        ? resolveAvailableHandoffTargetProviders(thread.modelSelection.provider)
+        ? resolveAvailableHandoffTargetProviders({
+            sourceProvider: thread.modelSelection.provider,
+            providerSettings: serverSettingsQuery.data?.providers,
+            providerStatuses,
+          })
         : [];
       const handoffItems = handoffTargets.map((provider, index) => ({
         id: `handoff:${provider}`,
@@ -3286,7 +3297,9 @@ export default function Sidebar() {
       pinnedThreadIdSet,
       projectById,
       projectCwdById,
+      providerStatuses,
       resolveThreadStatusForSidebar,
+      serverSettingsQuery.data?.providers,
       sidebarThreadSummaryById,
       supervisedThreadIds,
       toggleThreadPinned,
@@ -3971,8 +3984,8 @@ export default function Sidebar() {
   );
   const selectedSupervisedRoomId = useMemo(() => {
     if (!activeSidebarThreadId) return null;
-    if (supervisedRooms.some((room) => room.id === activeSidebarThreadId)) {
-      return activeSidebarThreadId;
+    if (supervisedRooms.some((room) => String(room.id) === String(activeSidebarThreadId))) {
+      return ThreadId.makeUnsafe(activeSidebarThreadId);
     }
     const activeSeat = supervisedAgentSeats.find((seat) => seat.threadId === activeSidebarThreadId);
     const roomId = activeSeat?.roomIds.find((candidate) =>

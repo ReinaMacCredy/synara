@@ -38,7 +38,7 @@ const record = (id: string, overrides: Partial<ContextRecord> = {}): ContextReco
     createdAt: now,
     updatedAt: now,
     ...overrides,
-  }) as ContextRecord;
+  }) as unknown as ContextRecord;
 
 const build = (
   records: ReadonlyArray<ContextRecord>,
@@ -67,7 +67,7 @@ describe("scoped durable ContextViews", () => {
       updatedAt: "2026-08-09T00:00:01.000Z",
     });
     const hiddenSeat = record("hidden-seat", {
-      scope: { kind: "seat", seatId: "seat:other" },
+      scope: { kind: "seat", role: "peer", seatId: "seat:other" },
     });
     const protectedRecord = record("protected", { protectionClass: "secret" });
 
@@ -80,7 +80,7 @@ describe("scoped durable ContextViews", () => {
   });
 
   it("only hides compacted sources when the summary itself is visible", () => {
-    const source = record("source", { evidenceRefs: ["evidence:source"] });
+    const source = record("source", { evidenceRefs: ["evidence:source" as never] });
     const planned = planContextCompaction({
       workspace,
       records: [source],
@@ -134,7 +134,7 @@ describe("scoped durable ContextViews", () => {
           title: "Invalid summary",
           summary: "This must not widen visibility.",
           createdBy: source.createdBy,
-          protectionClass: source.protectionClass,
+          protectionClass: source.protectionClass ?? "workspace",
           createdAt: now,
         }),
       );

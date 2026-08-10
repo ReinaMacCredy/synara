@@ -42,7 +42,7 @@ const reviewSubscription = {
   createdAt: at(0),
   updatedAt: at(0),
   revision: 0,
-} as SubscriptionDefinition;
+} as unknown as SubscriptionDefinition;
 
 function reviewEvent(index: number, graphRevision = 1): ControlPlaneEvent {
   return {
@@ -104,7 +104,7 @@ describe("SubscriptionEvaluator", () => {
       condition: { operator: "gte", value: 80 },
       hysteresis: { trigger: { operator: "gte", value: 80 }, reset: { operator: "lt", value: 65 } },
       where: [{ field: "role", operator: "eq", value: "lead" }],
-    } as SubscriptionDefinition;
+    } as unknown as SubscriptionDefinition;
     const event = {
       ...reviewEvent(1),
       type: "metric.sampled",
@@ -201,7 +201,7 @@ describe("SubscriptionEvaluator", () => {
       hysteresis: { trigger: { operator: "gte", value: 80 }, reset: { operator: "lt", value: 65 } },
       cooldownMs: 600_000,
       where: [{ field: "role", operator: "eq", value: "lead" }],
-    } as SubscriptionDefinition;
+    } as unknown as SubscriptionDefinition;
     const contextEvent = (sequence: number, value: number, minute: number): ControlPlaneEvent => ({
       sequence,
       eventId: `context-${sequence}` as never,

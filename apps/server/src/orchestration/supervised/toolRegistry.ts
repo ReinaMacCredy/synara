@@ -32,6 +32,7 @@ import {
   type OrchestrationReadModel,
   type SupervisedGovernanceSnapshot,
   type SupervisionMission,
+  type SupervisorNotebookEntry,
 } from "@synara/contracts";
 import { Effect, Option, Schema } from "effect";
 
@@ -41,6 +42,7 @@ import {
   hostToolFailure as hostToolFailure,
   hostToolSuccess as hostToolSuccess,
   type HostToolEntry,
+  type HostToolExecutionResult,
 } from "../hostTools/runtime.ts";
 import type { OrchestrationEngineShape } from "../Services/OrchestrationEngine.ts";
 import type { ProjectionSnapshotQueryShape } from "../Services/ProjectionSnapshotQuery.ts";
@@ -134,7 +136,11 @@ const optionalStringArrayArg = (
   return stringArrayArg(args, key);
 };
 
-const decode = <S extends Schema.Top>(schema: S, value: unknown, label: string): S["Type"] => {
+const decode = <S extends Schema.Top & { readonly DecodingServices: never }>(
+  schema: S,
+  value: unknown,
+  label: string,
+): S["Type"] => {
   try {
     return Schema.decodeUnknownSync(schema)(value);
   } catch (error) {
@@ -176,7 +182,11 @@ const canonicalLeadStatus = (
 
 const canonicalLeadViews = (governance: SupervisedGovernanceSnapshot) =>
   governance.agentSeats.flatMap((seat) =>
-    seat.identityRole === "lead" && seat.threadId !== null && seat.projectId !== null
+    seat.identityRole === "lead" &&
+    seat.threadId !== null &&
+    seat.threadId !== undefined &&
+    seat.projectId !== null &&
+    seat.projectId !== undefined
       ? [
           {
             id: LeadSeatId.makeUnsafe(seat.id),
@@ -188,6 +198,11 @@ const canonicalLeadViews = (governance: SupervisedGovernanceSnapshot) =>
         ]
       : [],
   );
+
+const idsEqual = (left: string | null | undefined, right: string | null | undefined): boolean =>
+  left === right;
+
+const actorSeatId = (seatId: string): ThreadId => ThreadId.makeUnsafe(seatId);
 
 const activeRootContextForCaller = (
   state: OrchestrationReadModel & { readonly governance: SupervisedGovernanceSnapshot },
@@ -203,7 +218,7 @@ const activeRootContextForCaller = (
   if (!seat) return null;
   const room = state.supervised.rooms.find(
     (candidate) =>
-      candidate.leadSeatId === seat.id &&
+      idsEqual(candidate.leadSeatId, seat.id) &&
       candidate.status === "active" &&
       (requestedRoomId === undefined || candidate.id === requestedRoomId),
   );
@@ -280,7 +295,7 @@ export function makeSupervisedTools(input: SupervisedToolsInput): ReadonlyArray<
 
   const loadHumanOrigin = (context: Parameters<HostToolEntry["execute"]>[1]) =>
     Effect.gen(function* () {
-      if (context.callerDispatchOrigin === "user") {
+      if (context.callerDispatchOrigin === "user" && context.callerTurnId !== null) {
         return context.callerTurnId;
       }
       if (context.callerDispatchOrigin !== undefined) {
@@ -350,7 +365,10 @@ export function makeSupervisedTools(input: SupervisedToolsInput): ReadonlyArray<
         state: OrchestrationReadModel,
         role: "supervisor" | "lead" | "peer",
       ) => boolean;
-      readonly execute: HostToolEntry["execute"];
+      readonly execute: (
+        args: Parameters<HostToolEntry["execute"]>[0],
+        context: Parameters<HostToolEntry["execute"]>[1],
+      ) => Effect.Effect<HostToolExecutionResult, HostToolError>;
     },
   ): HostToolEntry => ({
     definition,
@@ -405,9 +423,9 @@ export function makeSupervisedTools(input: SupervisedToolsInput): ReadonlyArray<
             const visibleRooms = state.supervised.rooms.filter(
               (room) =>
                 room.leadSeatId !== null &&
-                (visibleLeadIds.has(room.leadSeatId) ||
+                (visibleLeadIds.has(LeadSeatId.makeUnsafe(room.leadSeatId)) ||
                   (supervisorSeat?.effectiveRole === "acting_root" &&
-                    room.leadSeatId === supervisorSeat.id)),
+                    idsEqual(room.leadSeatId, supervisorSeat.id))),
             );
             const visibleRoomIds = new Set(visibleRooms.map((room) => room.id));
             const visibleTasks = state.supervised.tasks.filter((task) =>
@@ -602,6 +620,9 @@ export function makeSupervisedTools(input: SupervisedToolsInput): ReadonlyArray<
                 null);
           const runPolicy = state.supervised.runPolicies[0];
           const minimumCodingScore = args.minimumCodingScore;
+          const minimumContextCapacity = optionalIntArg(args, "minimumContextCapacity");
+          const expectedInputTokens = optionalIntArg(args, "expectedInputTokens");
+          const expectedOutputTokens = optionalIntArg(args, "expectedOutputTokens");
           if (
             !seat ||
             !runPolicy ||
@@ -672,11 +693,7 @@ export function makeSupervisedTools(input: SupervisedToolsInput): ReadonlyArray<
                 actorSeatId: seat.id,
                 providerAvailability,
                 requirements: {
-                  ...(optionalIntArg(args, "minimumContextCapacity") === undefined
-                    ? {}
-                    : {
-                        minimumContextCapacity: optionalIntArg(args, "minimumContextCapacity"),
-                      }),
+                  ...(minimumContextCapacity === undefined ? {} : { minimumContextCapacity }),
                   requiresVision: optionalBooleanArg(args, "requiresVision", false),
                   requiresTools: optionalBooleanArg(args, "requiresTools", true),
                   requiresReasoning: optionalBooleanArg(args, "requiresReasoning", false),
@@ -685,8 +702,8 @@ export function makeSupervisedTools(input: SupervisedToolsInput): ReadonlyArray<
                     : { minimumScores: { coding: minimumCodingScore } }),
                 },
                 runPolicy,
-                expectedInputTokens: optionalIntArg(args, "expectedInputTokens"),
-                expectedOutputTokens: optionalIntArg(args, "expectedOutputTokens"),
+                ...(expectedInputTokens === undefined ? {} : { expectedInputTokens }),
+                ...(expectedOutputTokens === undefined ? {} : { expectedOutputTokens }),
                 routingRevision: routingState.routingRevision,
                 createdAt,
               },
@@ -783,7 +800,7 @@ export function makeSupervisedTools(input: SupervisedToolsInput): ReadonlyArray<
             grants: decode(Schema.Array(MissionGrant), args.grants, "grants"),
             endCondition: decode(MissionEndCondition, args.endCondition, "endCondition"),
             status: "active",
-            sourceMessageId: MessageId.makeUnsafe(source.id),
+            sourceMessageId: MessageId.makeUnsafe(typeof source === "string" ? source : source.id),
             createdAt: now,
             updatedAt: now,
             completedAt: null,
@@ -1254,11 +1271,11 @@ export function makeSupervisedTools(input: SupervisedToolsInput): ReadonlyArray<
               candidate.id === roomId &&
               candidate.status === "active" &&
               candidate.leadSeatId !== null &&
-              candidate.leadSeatId !== supervisorSeat?.id,
+              !idsEqual(candidate.leadSeatId, supervisorSeat?.id),
           );
           const previousRootSeat = state.governance.agentSeats.find(
             (seat) =>
-              seat.id === room?.leadSeatId &&
+              idsEqual(seat.id, room?.leadSeatId) &&
               seat.threadId !== null &&
               (seat.lifecycleState === "ready" || seat.lifecycleState === "active"),
           );
@@ -1296,7 +1313,7 @@ export function makeSupervisedTools(input: SupervisedToolsInput): ReadonlyArray<
             roomId: room.id,
             supervisorSeatId: SupervisorSeatId.makeUnsafe(supervisorSeat.id),
             supervisorThreadId: ThreadId.makeUnsafe(context.callerThreadId),
-            previousRootSeatId: previousRootSeat.id,
+            previousRootSeatId: rootHolderSeatId(previousRootSeat),
             previousRootThreadId: previousRootSeat.threadId,
             reason: stringArg(args, "reason"),
           });
@@ -1902,7 +1919,7 @@ export function makeSupervisedTools(input: SupervisedToolsInput): ReadonlyArray<
             actor: {
               kind: "seat",
               actorId: context.callerThreadId,
-              seatId: peerSeat.id,
+              seatId: actorSeatId(peerSeat.id),
             },
             authorityReceiptId: peerSeat.authorityReceiptId,
             expectedRevision: run.revision,
@@ -2022,7 +2039,7 @@ export function makeSupervisedTools(input: SupervisedToolsInput): ReadonlyArray<
             actor: {
               kind: "seat",
               actorId: context.callerThreadId,
-              seatId: peerSeat.id,
+              seatId: actorSeatId(peerSeat.id),
             },
             authorityReceiptId: peerSeat.authorityReceiptId,
             expectedRevision: run.revision,
@@ -2041,7 +2058,7 @@ export function makeSupervisedTools(input: SupervisedToolsInput): ReadonlyArray<
               createdBy: {
                 kind: "seat",
                 actorId: context.callerThreadId,
-                seatId: peerSeat.id,
+                seatId: actorSeatId(peerSeat.id),
               },
               createdAt,
             },
@@ -2197,7 +2214,7 @@ export function makeSupervisedTools(input: SupervisedToolsInput): ReadonlyArray<
           const eligibleLeads = actingRoot
             ? [
                 {
-                  id: actingRoot.seat.id,
+                  id: rootHolderSeatId(actingRoot.seat),
                   projectId: actingRoot.room.projectId,
                   activeThreadId: ThreadId.makeUnsafe(context.callerThreadId),
                   status: "active" as const,
@@ -2305,7 +2322,7 @@ export function makeSupervisedTools(input: SupervisedToolsInput): ReadonlyArray<
             actor: {
               kind: "seat",
               actorId: context.callerThreadId,
-              seatId: coordinatorSeat.id,
+              seatId: actorSeatId(coordinatorSeat.id),
             },
             authorityReceiptId: coordinatorSeat.authorityReceiptId,
             expectedRevision: 0,
@@ -2412,7 +2429,7 @@ export function makeSupervisedTools(input: SupervisedToolsInput): ReadonlyArray<
             : null;
           const lead = actingRoot
             ? {
-                id: actingRoot.seat.id,
+                id: rootHolderSeatId(actingRoot.seat),
                 projectId: actingRoot.room.projectId,
                 activeThreadId: ThreadId.makeUnsafe(context.callerThreadId),
                 status: "active" as const,
@@ -2473,7 +2490,7 @@ export function makeSupervisedTools(input: SupervisedToolsInput): ReadonlyArray<
           const actor = {
             kind: "seat" as const,
             actorId: context.callerThreadId,
-            seatId: coordinatorSeat.id,
+            seatId: actorSeatId(coordinatorSeat.id),
           };
           const intervention = {
             id: interventionId,
@@ -2608,7 +2625,7 @@ export function makeSupervisedTools(input: SupervisedToolsInput): ReadonlyArray<
             createdBy: {
               kind: "seat" as const,
               actorId: context.callerThreadId,
-              seatId: peerSeat.id,
+              seatId: actorSeatId(peerSeat.id),
             },
             createdAt,
           };
@@ -2718,7 +2735,7 @@ export function makeSupervisedTools(input: SupervisedToolsInput): ReadonlyArray<
             actor: {
               kind: "seat",
               actorId: context.callerThreadId,
-              seatId: leadSeat.id,
+              seatId: actorSeatId(leadSeat.id),
             },
             authorityReceiptId: leadSeat.authorityReceiptId,
             expectedRevision: intervention.revision,
@@ -2785,6 +2802,14 @@ export function makeSupervisedTools(input: SupervisedToolsInput): ReadonlyArray<
         Effect.gen(function* () {
           yield* context.assertCallerTurnActive();
           const { state, authority } = yield* loadAuthority(context.callerThreadId);
+          if (authority.role === "peer") {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_root_required",
+                "RLM execution requires a Lead or Supervisor Root authority.",
+              ),
+            );
+          }
           const governance = yield* input.governanceRepository
             .getSnapshot()
             .pipe(
@@ -2933,6 +2958,14 @@ export function makeSupervisedTools(input: SupervisedToolsInput): ReadonlyArray<
       execute: (args, context) =>
         Effect.gen(function* () {
           const { authority } = yield* loadAuthority(context.callerThreadId);
+          if (authority.role === "peer") {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_root_required",
+                "Notebook access requires a Lead or Supervisor authority.",
+              ),
+            );
+          }
           const governance = yield* input.governanceRepository.getSnapshot();
           const seatId =
             authority.role === "lead" ? authority.leadSeatId : authority.supervisorSeatId;
@@ -2948,7 +2981,9 @@ export function makeSupervisedTools(input: SupervisedToolsInput): ReadonlyArray<
               ),
             );
           }
-          const requestedRoomId = optionalStringArg(args, "roomId");
+          const requestedRoomIdValue = optionalStringArg(args, "roomId");
+          const requestedRoomId =
+            requestedRoomIdValue === null ? null : RoomId.makeUnsafe(requestedRoomIdValue);
           const allowedRoomIds = new Set(
             seat.roomIds.filter((roomId) => receipt.roomScopes.includes(roomId)),
           );
@@ -3088,8 +3123,11 @@ export function makeSupervisedTools(input: SupervisedToolsInput): ReadonlyArray<
               ),
             );
           }
-          const roomId = optionalStringArg(args, "roomId");
-          const taskNodeId = optionalStringArg(args, "taskNodeId");
+          const roomIdValue = optionalStringArg(args, "roomId");
+          const roomId = roomIdValue === null ? null : RoomId.makeUnsafe(roomIdValue);
+          const taskNodeIdValue = optionalStringArg(args, "taskNodeId");
+          const taskNodeId =
+            taskNodeIdValue === null ? null : TaskNodeId.makeUnsafe(taskNodeIdValue);
           if (
             roomId !== null &&
             (!seat.roomIds.includes(roomId) ||
@@ -3134,11 +3172,11 @@ export function makeSupervisedTools(input: SupervisedToolsInput): ReadonlyArray<
               ),
             );
           }
-          const entry = {
+          const entry: SupervisorNotebookEntry = {
             id: SupervisorNotebookEntryId.makeUnsafe(`notebook:${randomUUID()}`),
             workspaceId: seat.workspaceId,
-            roomId: roomId as never,
-            taskNodeId: taskNodeId as never,
+            roomId,
+            taskNodeId,
             concern: stringArg(args, "concern"),
             authorSeatId: seat.id,
             kind: decode(SupervisorNotebookEntryKind, args.kind, "kind"),
@@ -3146,11 +3184,14 @@ export function makeSupervisedTools(input: SupervisedToolsInput): ReadonlyArray<
             evidenceRefs:
               args.evidenceRefs === undefined ? [] : stringArrayArg(args, "evidenceRefs"),
             confidence,
-            supersedesEntryId: supersedesEntryId as never,
+            supersedesEntryId:
+              supersedesEntryId === null
+                ? null
+                : SupervisorNotebookEntryId.makeUnsafe(supersedesEntryId),
             protectionClass: "internal",
             redactedAt: null,
             createdAt: new Date().toISOString(),
-          } as const;
+          };
           const inserted = yield* input.governanceRepository.appendNotebookEntry(entry);
           if (!inserted) {
             return yield* Effect.fail(
@@ -3348,6 +3389,14 @@ export function makeSupervisedTools(input: SupervisedToolsInput): ReadonlyArray<
         Effect.gen(function* () {
           yield* context.assertCallerTurnActive();
           const { state, authority } = yield* loadAuthority(context.callerThreadId);
+          if (authority.role === "peer") {
+            return yield* Effect.fail(
+              new HostToolError(
+                "supervised_root_required",
+                "Context compaction requires a Lead or Supervisor authority.",
+              ),
+            );
+          }
           const governance = yield* input.governanceRepository.getSnapshot();
           const seatId =
             authority.role === "lead" ? authority.leadSeatId : authority.supervisorSeatId;
@@ -3432,14 +3481,22 @@ export function makeSupervisedTools(input: SupervisedToolsInput): ReadonlyArray<
             sourceRecordIds: sourceRecordIds as never,
             title: stringArg(args, "title"),
             summary: stringArg(args, "summary"),
-            createdBy: { kind: "seat", actorId: context.callerThreadId, seatId: seat.id },
+            createdBy: {
+              kind: "seat",
+              actorId: context.callerThreadId,
+              seatId: actorSeatId(seat.id),
+            },
             protectionClass,
             createdAt,
           });
           const commandReceipt = yield* dispatch({
             type: "supervised.context.append",
             commandId: CommandId.makeUnsafe(randomUUID()),
-            actor: { kind: "seat", actorId: context.callerThreadId, seatId: seat.id },
+            actor: {
+              kind: "seat",
+              actorId: context.callerThreadId,
+              seatId: actorSeatId(seat.id),
+            },
             authorityReceiptId: receipt.id,
             aggregateId: workspace.id,
             expectedRevision: workspace.revision,

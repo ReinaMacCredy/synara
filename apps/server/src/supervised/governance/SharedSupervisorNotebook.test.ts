@@ -56,7 +56,9 @@ describe("shared supervisor notebook projections", () => {
       supersedesEntryId: original.id,
       createdAt: "2026-08-09T00:00:00.000Z",
     });
-    const otherWorkspace = entry("other-workspace", { workspaceId: "workspace:other" });
+    const otherWorkspace = entry("other-workspace", {
+      workspaceId: "workspace:other" as never,
+    });
     const protectedEntry = entry("protected", { protectionClass: "secret" });
 
     const first = build([original, replacement, otherWorkspace, protectedEntry]);
@@ -220,7 +222,7 @@ describe("shared supervisor notebook projections", () => {
 
   it("rejects compaction across notebook workspace boundaries", () => {
     const sourceA = entry("source-a");
-    const sourceB = entry("source-b", { workspaceId: "workspace:other" });
+    const sourceB = entry("source-b", { workspaceId: "workspace:other" as never });
     assert.throws(
       () =>
         planSupervisorNotebookCompaction({
@@ -237,7 +239,7 @@ describe("shared supervisor notebook projections", () => {
   it("rejects compaction that would widen Room, TaskNode, or protection visibility", () => {
     const source = entry("source");
     for (const other of [
-      entry("other-room", { roomId: "room:other" }),
+      entry("other-room", { roomId: "room:other" as never }),
       entry("other-task", { taskNodeId: "task-node:other" as never }),
       entry("other-protection", { protectionClass: "internal" }),
     ]) {

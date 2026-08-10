@@ -1,7 +1,11 @@
 // FILE: chatProjects.test.ts
 // Purpose: Verifies home chat-container project recognition across new and legacy roots.
 
-import { ProjectId, type OrchestrationShellSnapshot } from "@synara/contracts";
+import {
+  emptySupervisedOrchestrationSnapshot,
+  ProjectId,
+  type OrchestrationShellSnapshot,
+} from "@synara/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useStore } from "../store";
@@ -35,6 +39,7 @@ function makeShellSnapshot(
     spaces: [],
     projects,
     threads: [],
+    supervisedOrchestration: emptySupervisedOrchestrationSnapshot(NOW),
     updatedAt: NOW,
   };
 }

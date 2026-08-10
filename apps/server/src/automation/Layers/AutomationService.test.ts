@@ -9,6 +9,8 @@ import {
   ProjectId,
   ThreadId,
   TurnId,
+  emptySupervisedOrchestrationSnapshot,
+  emptySupervisedRuntimeSnapshot,
   type AutomationCreateInput,
   type AutomationRun,
   type GitCreateDetachedWorktreeInput,
@@ -39,6 +41,8 @@ import { AutomationService, type AutomationServiceShape } from "../Services/Auto
 import { AutomationServiceLive } from "./AutomationService.ts";
 
 const now = "2026-06-16T10:00:00.000Z";
+const supervised = emptySupervisedRuntimeSnapshot(now);
+const supervisedOrchestration = emptySupervisedOrchestrationSnapshot(now);
 const projectId = ProjectId.makeUnsafe("automation-project");
 const project: OrchestrationProjectShell = {
   id: projectId,
@@ -360,6 +364,8 @@ const orchestrationEngine = {
       spaces: [],
       projects: [],
       threads: [],
+      supervised,
+      supervisedOrchestration,
       updatedAt: now,
     }),
   refreshCommandReadModel: () =>
@@ -368,6 +374,8 @@ const orchestrationEngine = {
       spaces: [],
       projects: [],
       threads: [],
+      supervised,
+      supervisedOrchestration,
       updatedAt: now,
     }),
   dispatch: (command: OrchestrationCommand) =>
@@ -392,6 +400,8 @@ const orchestrationEngine = {
       spaces: [],
       projects: [],
       threads: [],
+      supervised,
+      supervisedOrchestration,
       updatedAt: now,
     }),
   streamDomainEvents: Stream.empty,

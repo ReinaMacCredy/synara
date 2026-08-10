@@ -5,6 +5,7 @@ import {
   type HandoffCapsuleItemV1,
   type HandoffCapsuleV1,
   type HandoffRuntimeSelection,
+  type ProviderEvent,
 } from "@synara/contracts";
 
 import { CodexAppServerManager } from "../codexAppServerManager.ts";
@@ -50,11 +51,7 @@ export async function runHandoffModel(input: HandoffModelRunInput): Promise<unkn
     settle = resolve;
     reject = rejectPromise;
   });
-  const onEvent = (event: {
-    readonly method?: string;
-    readonly textDelta?: string;
-    readonly payload?: unknown;
-  }) => {
+  const onEvent = (event: ProviderEvent) => {
     if (event.textDelta) {
       output += event.textDelta;
       if (!outputStarted) {

@@ -14,13 +14,17 @@ import {
   type ToolEntry,
 } from "./toolRuntime.ts";
 
-function buildHostToolContext(context: ToolContext): HostToolInvocationContext {
+function buildHostToolContext(
+  context: Omit<ToolContext, "jsonRpcRequestId">,
+): HostToolInvocationContext {
   return {
     callerThreadId: context.callerThreadId,
     callerSessionKey: context.callerSessionKey,
     callerProvider: context.callerProvider,
     callerTurnId: context.callerTurnId,
-    callerDispatchOrigin: context.callerDispatchOrigin,
+    ...(context.callerDispatchOrigin !== undefined
+      ? { callerDispatchOrigin: context.callerDispatchOrigin }
+      : {}),
     assertCallerTurnActive: () =>
       context
         .assertCallerTurnActive()

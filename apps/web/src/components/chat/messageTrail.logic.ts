@@ -6,6 +6,7 @@
 
 import { type MessageId } from "@synara/contracts";
 import { type TimelineEntry } from "../../session-logic";
+import { deriveDisplayedUserMessageState } from "../../lib/terminalContext";
 
 /** One tick on the navigation trail — a single message the user sent. */
 export interface MessageTrailItem {
@@ -58,10 +59,13 @@ export function deriveMessageTrailItems(
     if (role === "user" && entry.message.dispatchOrigin === "automation") {
       currentTurnIndex = -1;
     } else if (role === "user") {
+      const displayedMessage = deriveDisplayedUserMessageState(entry.message.text, {
+        messageId: entry.message.id,
+      });
       items.push({
         id: entry.message.id,
         ordinal: items.length + 1,
-        preview: normalizePreview(entry.message.text),
+        preview: normalizePreview(displayedMessage.visibleText),
         responsePreview: "",
         attachmentCount: entry.message.attachments?.length ?? 0,
       });

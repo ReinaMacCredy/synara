@@ -234,8 +234,11 @@ describe("Supervisor-first lifecycle", () => {
   });
 
   it("preserves the old Root when handoff has not been accepted", () => {
-    const snapshot = baseSnapshot();
-    snapshot.handoffs[0] = { ...snapshot.handoffs[0]!, lifecycleState: "acknowledged" };
+    const base = baseSnapshot();
+    const snapshot = {
+      ...base,
+      handoffs: [{ ...base.handoffs[0]!, lifecycleState: "acknowledged" as const }],
+    };
 
     assert.throws(() =>
       transferRootAuthority(snapshot, {
@@ -254,27 +257,29 @@ describe("Supervisor-first lifecycle", () => {
   });
 
   it("resumes post-transfer reconciliation but fails closed before transfer on restart", () => {
-    const snapshot = baseSnapshot();
-    snapshot.roleAssumptions = [
-      Schema.decodeUnknownSync(RoleAssumption)({
-        id: "assumption-before",
-        workspaceId: "workspace-1",
-        roomId: "room-1",
-        actorSeatId: "supervisor-1",
-        previousRootSeatId: "lead-old",
-        handoffId: "handoff-1",
-        previousLeaseId: "lease-old",
-        nextLeaseId: "lease-supervisor",
-        operation: "assume",
-        lifecycleState: "previous_root_notified",
-        requestedUnderReceiptId: "receipt-supervisor",
-        failureReason: null,
-        createdAt: now,
-        completedAt: null,
-        revision: 3,
-        updatedAt: now,
-      }),
-    ];
+    const snapshot = {
+      ...baseSnapshot(),
+      roleAssumptions: [
+        Schema.decodeUnknownSync(RoleAssumption)({
+          id: "assumption-before",
+          workspaceId: "workspace-1",
+          roomId: "room-1",
+          actorSeatId: "supervisor-1",
+          previousRootSeatId: "lead-old",
+          handoffId: "handoff-1",
+          previousLeaseId: "lease-old",
+          nextLeaseId: "lease-supervisor",
+          operation: "assume",
+          lifecycleState: "previous_root_notified",
+          requestedUnderReceiptId: "receipt-supervisor",
+          failureReason: null,
+          createdAt: now,
+          completedAt: null,
+          revision: 3,
+          updatedAt: now,
+        }),
+      ],
+    };
 
     const recovered = recoverGovernanceSnapshot(snapshot, later);
 
@@ -283,27 +288,29 @@ describe("Supervisor-first lifecycle", () => {
   });
 
   it("settles post-transfer recovery actions instead of advancing them implicitly", () => {
-    const snapshot = baseSnapshot();
-    snapshot.roleAssumptions = [
-      Schema.decodeUnknownSync(RoleAssumption)({
-        id: "assumption-after",
-        workspaceId: "workspace-1",
-        roomId: "room-1",
-        actorSeatId: "supervisor-1",
-        previousRootSeatId: "lead-old",
-        handoffId: "handoff-1",
-        previousLeaseId: "lease-old",
-        nextLeaseId: "lease-supervisor",
-        operation: "assume",
-        lifecycleState: "lease_transferred",
-        requestedUnderReceiptId: "receipt-supervisor",
-        failureReason: null,
-        createdAt: now,
-        completedAt: null,
-        revision: 4,
-        updatedAt: now,
-      }),
-    ];
+    const snapshot = {
+      ...baseSnapshot(),
+      roleAssumptions: [
+        Schema.decodeUnknownSync(RoleAssumption)({
+          id: "assumption-after",
+          workspaceId: "workspace-1",
+          roomId: "room-1",
+          actorSeatId: "supervisor-1",
+          previousRootSeatId: "lead-old",
+          handoffId: "handoff-1",
+          previousLeaseId: "lease-old",
+          nextLeaseId: "lease-supervisor",
+          operation: "assume",
+          lifecycleState: "lease_transferred",
+          requestedUnderReceiptId: "receipt-supervisor",
+          failureReason: null,
+          createdAt: now,
+          completedAt: null,
+          revision: 4,
+          updatedAt: now,
+        }),
+      ],
+    };
 
     const recovered = recoverGovernanceSnapshot(snapshot, later);
     assert.equal(recovered.snapshot.roleAssumptions[0]?.lifecycleState, "lease_transferred");
@@ -357,29 +364,31 @@ describe("Supervisor-first lifecycle", () => {
   });
 
   it("fails an executing intervention exactly once during restart recovery", () => {
-    const snapshot = baseSnapshot();
-    snapshot.directInterventions = [
-      Schema.decodeUnknownSync(DirectIntervention)({
-        id: "intervention-restart",
-        workspaceId: "workspace-1",
-        roomId: "room-1",
-        supervisorSeatId: "supervisor-1",
-        targetPeerSeatId: "peer-1",
-        rootHolderSeatId: "lead-old",
-        taskNodeId: null,
-        workRequest: "Observe the bounded work.",
-        material: true,
-        lifecycleState: "executing",
-        evidenceRefs: [],
-        openedUnderReceiptId: "receipt-supervisor",
-        openedAt: now,
-        leadNotifiedAt: null,
-        reconciledAt: null,
-        closedAt: null,
-        revision: 3,
-        updatedAt: now,
-      }),
-    ];
+    const snapshot = {
+      ...baseSnapshot(),
+      directInterventions: [
+        Schema.decodeUnknownSync(DirectIntervention)({
+          id: "intervention-restart",
+          workspaceId: "workspace-1",
+          roomId: "room-1",
+          supervisorSeatId: "supervisor-1",
+          targetPeerSeatId: "peer-1",
+          rootHolderSeatId: "lead-old",
+          taskNodeId: null,
+          workRequest: "Observe the bounded work.",
+          material: true,
+          lifecycleState: "executing",
+          evidenceRefs: [],
+          openedUnderReceiptId: "receipt-supervisor",
+          openedAt: now,
+          leadNotifiedAt: null,
+          reconciledAt: null,
+          closedAt: null,
+          revision: 3,
+          updatedAt: now,
+        }),
+      ],
+    };
 
     const recovered = recoverGovernanceSnapshot(snapshot, later);
     assert.deepEqual(recovered.actions, [

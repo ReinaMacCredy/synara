@@ -34,9 +34,11 @@ import {
   type OrchestrationShellStreamItem,
   type OrchestrationThreadDetailSnapshot,
   type OrchestrationThreadStreamItem,
+  type ProviderKind,
   type ServerConfigStreamEvent,
   type ServerDiagnosticsResult,
   type ServerLifecycleStreamEvent,
+  type SupervisedToolPolicy,
 } from "@synara/contracts";
 import { clamp } from "effect/Number";
 import { Effect, FileSystem, Layer, Option, Path, Queue, Schema, Scope, Stream } from "effect";
@@ -179,7 +181,7 @@ export function canManageExternalMcp(role: "owner" | "client"): boolean {
   return role === "owner";
 }
 
-export const findAcceptedAggregateEvent = <Event extends { readonly commandId: CommandId }>(
+export const findAcceptedAggregateEvent = <Event extends { readonly commandId: CommandId | null }>(
   events: readonly Event[],
   commandId: CommandId,
 ): Event | undefined => events.find((event) => event.commandId === commandId);
@@ -978,7 +980,7 @@ const makeWsRpcHandlersLayer = () =>
                   normalizedCommand.type === "supervised.lead.replace"
                 ) {
                   const governance = yield* supervisedGovernanceRepository.getSnapshot();
-                  const preset = governance.orchestration.profiles.find(
+                  const preset = governance.orchestration?.profiles.find(
                     (candidate) => candidate.id === normalizedCommand.profilePresetId,
                   );
                   if (!preset) {
@@ -1029,7 +1031,7 @@ const makeWsRpcHandlersLayer = () =>
                 yield* requireOwnerSession;
                 const governance = yield* supervisedGovernanceRepository.getSnapshot();
                 const bootstrap = normalizedCommand.supervisedBootstrap;
-                const preset = governance.orchestration.profiles.find(
+                const preset = governance.orchestration?.profiles.find(
                   (candidate) => candidate.id === bootstrap.profilePresetId,
                 );
                 if (!preset) {
@@ -1143,7 +1145,7 @@ const makeWsRpcHandlersLayer = () =>
             Effect.gen(function* () {
               yield* requireOwnerSession;
               const catalog = yield* providerDiscoveryService
-                .listModels({ provider: input.profile.provider })
+                .listModels({ provider: input.profile.provider as ProviderKind })
                 .pipe(
                   Effect.catch((error) =>
                     Effect.logWarning(

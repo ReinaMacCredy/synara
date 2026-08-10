@@ -4,6 +4,7 @@
 
 import {
   emptySupervisedOrchestrationSnapshot,
+  emptySupervisedRuntimeSnapshot,
   EventId,
   ProjectId,
   ThreadId,
@@ -17,6 +18,11 @@ import {
 import { getThreadsFromState } from "./threadDerivation";
 import type { AppState } from "./storeState";
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type Thread } from "./types";
+
+const READ_MODEL_UPDATED_AT = "2026-02-27T00:00:00.000Z";
+const READ_MODEL_SUPERVISED = emptySupervisedRuntimeSnapshot(READ_MODEL_UPDATED_AT);
+const READ_MODEL_SUPERVISED_ORCHESTRATION =
+  emptySupervisedOrchestrationSnapshot(READ_MODEL_UPDATED_AT);
 
 export function makeThread(overrides: Partial<Thread> = {}): Thread {
   return {
@@ -204,7 +210,9 @@ export function makeReadModel(
 ): OrchestrationReadModel {
   return {
     snapshotSequence: 1,
-    updatedAt: "2026-02-27T00:00:00.000Z",
+    updatedAt: READ_MODEL_UPDATED_AT,
+    supervised: READ_MODEL_SUPERVISED,
+    supervisedOrchestration: READ_MODEL_SUPERVISED_ORCHESTRATION,
     spaces: [],
     projects: [
       {
@@ -231,6 +239,7 @@ export function makeShellSnapshot(thread: OrchestrationShellSnapshot["threads"][
   return {
     snapshotSequence: 2,
     updatedAt: "2026-02-27T00:01:00.000Z",
+    supervisedOrchestration: emptySupervisedOrchestrationSnapshot("2026-02-27T00:01:00.000Z"),
     spaces: [],
     projects: [
       {

@@ -1,8 +1,8 @@
-import type { RlmAdmissionMode, RlmAdmissionReceipt, RunPolicy } from "@synara/contracts";
+import { RlmAdmissionMode, type RlmAdmissionReceipt, type RunPolicy } from "@synara/contracts";
 
 export interface RlmAdmissionInput {
   readonly episodeId: RlmAdmissionReceipt["episodeId"];
-  readonly requestedMode: RlmAdmissionMode;
+  readonly requestedMode: typeof RlmAdmissionMode.Type;
   readonly estimatedContextPercent: number;
   readonly estimatedInputTokens: number;
   readonly independentEvidenceBranches: number;

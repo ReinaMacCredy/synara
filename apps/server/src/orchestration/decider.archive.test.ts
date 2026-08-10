@@ -1,6 +1,8 @@
 import {
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
+  emptySupervisedOrchestrationSnapshot,
+  emptySupervisedRuntimeSnapshot,
   ProjectId,
   ThreadId,
   type OrchestrationEvent,
@@ -58,6 +60,8 @@ function makeReadModel(
   return {
     snapshotSequence: 1,
     updatedAt: NOW,
+    supervisedOrchestration: emptySupervisedOrchestrationSnapshot(NOW),
+    supervised: emptySupervisedRuntimeSnapshot(NOW),
     spaces: [],
     projects: [],
     threads,

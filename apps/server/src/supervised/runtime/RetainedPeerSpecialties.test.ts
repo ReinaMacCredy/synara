@@ -19,7 +19,7 @@ const specialty = {
   revision: 1,
   createdAt: now,
   updatedAt: now,
-} as PeerSpecialty;
+} as unknown as PeerSpecialty;
 const snapshot = {
   id: "snapshot-1",
   peerSpecialtyId: "peer-specialty-1",
@@ -30,7 +30,7 @@ const snapshot = {
   compatibleSchemaVersions: ["1.0.0"],
   createdAt: now,
   expiresAt: "2026-08-08T00:00:00.000Z",
-} as PeerSpecialtySnapshot;
+} as unknown as PeerSpecialtySnapshot;
 
 describe("Retained Peer specialties", () => {
   it("resumes only sanitized, compatible, scoped snapshots", () => {

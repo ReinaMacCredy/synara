@@ -193,7 +193,7 @@ describe("LeadRotationReactor", () => {
 
     const governanceAfterSupervisor = await runtime.runPromise(governanceRepository.getSnapshot());
     const supervisorSeat = governanceAfterSupervisor.agentSeats.find(
-      (seat) => seat.id === ids.supervisorSeatId,
+      (seat) => String(seat.id) === String(ids.supervisorSeatId),
     )!;
     const leadPreset = DEFAULT_SUPERVISED_PROFILES.find((preset) =>
       preset.roleHints.includes("lead"),
@@ -247,7 +247,9 @@ describe("LeadRotationReactor", () => {
     commandIdValue: string,
   ) {
     const governance = await fixture.runtime.runPromise(fixture.governanceRepository.getSnapshot());
-    const leadRevision = governance.agentSeats.find((seat) => seat.id === ids.leadSeatId)?.revision;
+    const leadRevision = governance.agentSeats.find(
+      (seat) => String(seat.id) === String(ids.leadSeatId),
+    )?.revision;
     if (leadRevision === undefined) throw new Error("Lead decision state is unavailable.");
     const replacementProfileSnapshot = resolveProfilePreset({
       preset: fixture.leadPreset,
@@ -297,9 +299,9 @@ describe("LeadRotationReactor", () => {
     expect(rejectedReadModel.supervised.rooms.find((room) => room.id === ids.roomId)).toEqual(
       beforeRoom,
     );
-    expect(afterRejected.agentSeats.find((seat) => seat.id === ids.leadSeatId)?.threadId).toBe(
-      ids.leadThreadId,
-    );
+    expect(
+      afterRejected.agentSeats.find((seat) => String(seat.id) === String(ids.leadSeatId))?.threadId,
+    ).toBe(ids.leadThreadId);
 
     await requestRotation(
       fixture,
@@ -436,13 +438,16 @@ describe("LeadRotationReactor", () => {
         ?.activities.some(
           (activity) =>
             activity.kind === "supervised.lead-replacement.failed" &&
-            activity.payload.detail === "forced replacement provisioning failure",
+            typeof activity.payload === "object" &&
+            activity.payload !== null &&
+            !Array.isArray(activity.payload) &&
+            (activity.payload as { readonly detail?: unknown }).detail ===
+              "forced replacement provisioning failure",
         ),
     ).toBe(true);
-    expect(failedGovernance.agentSeats.find((seat) => seat.id === ids.leadSeatId)).toMatchObject({
-      threadId: ids.leadThreadId,
-      lifecycleState: "active",
-    });
+    expect(
+      failedGovernance.agentSeats.find((seat) => String(seat.id) === String(ids.leadSeatId)),
+    ).toMatchObject({ threadId: ids.leadThreadId, lifecycleState: "active" });
     expect(
       resolveProjectedSupervisedCaller({
         governance: failedGovernance,
@@ -459,7 +464,7 @@ describe("LeadRotationReactor", () => {
       initialLease,
     );
     const supervisor = failedGovernance.agentSeats.find(
-      (seat) => seat.id === ids.supervisorSeatId,
+      (seat) => String(seat.id) === String(ids.supervisorSeatId),
     )!;
     expect(supervisor.threadId).toBe(ids.supervisorThreadId);
     expect(
@@ -582,13 +587,13 @@ describe("LeadRotationReactor", () => {
     const completedGovernance = await fixture.runtime.runPromise(
       fixture.governanceRepository.getSnapshot(),
     );
-    expect(completedGovernance.agentSeats.find((seat) => seat.id === ids.leadSeatId)).toMatchObject(
-      {
-        threadId: rotation.replacementThreadId,
-        predecessorThreadIds: [ids.leadThreadId],
-        lifecycleState: "active",
-      },
-    );
+    expect(
+      completedGovernance.agentSeats.find((seat) => String(seat.id) === String(ids.leadSeatId)),
+    ).toMatchObject({
+      threadId: rotation.replacementThreadId,
+      predecessorThreadIds: [ids.leadThreadId],
+      lifecycleState: "active",
+    });
     expect(
       resolveProjectedSupervisedCaller({
         governance: completedGovernance,
@@ -606,7 +611,9 @@ describe("LeadRotationReactor", () => {
       recoveringReadModel.supervised.rooms.find((room) => room.id === ids.roomId)?.leadSeatId,
     ).toBe(ids.leadSeatId);
     expect(
-      completedGovernance.agentSeats.find((seat) => seat.id === ids.supervisorSeatId)?.threadId,
+      completedGovernance.agentSeats.find(
+        (seat) => String(seat.id) === String(ids.supervisorSeatId),
+      )?.threadId,
     ).toBe(ids.supervisorThreadId);
   });
 });

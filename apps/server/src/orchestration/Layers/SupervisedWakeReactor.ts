@@ -1,5 +1,6 @@
 import {
   CommandId,
+  LeadSeatId,
   MessageId,
   SupervisedGovernanceAggregateId,
   SupervisionObservationId,
@@ -31,7 +32,7 @@ const MAX_WAKE_ATTEMPTS = 3;
 const commandId = (suffix: string) => CommandId.makeUnsafe(`server:supervised-wake:${suffix}`);
 
 interface CanonicalLeadView {
-  readonly id: string;
+  readonly id: typeof LeadSeatId.Type;
   readonly projectId: ProjectId;
   readonly activeThreadId: string;
   readonly status: "active" | "rotating" | "archived";
@@ -39,10 +40,10 @@ interface CanonicalLeadView {
 
 const canonicalLeadViews = (governance: SupervisedGovernanceSnapshot): CanonicalLeadView[] =>
   governance.agentSeats.flatMap((seat) =>
-    seat.identityRole === "lead" && seat.threadId !== null && seat.projectId !== null
+    seat.identityRole === "lead" && seat.threadId != null && seat.projectId != null
       ? [
           {
-            id: seat.id,
+            id: LeadSeatId.makeUnsafe(seat.id),
             projectId: seat.projectId,
             activeThreadId: seat.threadId,
             status:
@@ -153,7 +154,7 @@ export const makeSupervisedWakeReactor = Effect.gen(function* () {
     );
     const seat = governance.agentSeats.find(
       (candidate) =>
-        candidate.id === current.supervisorSeatId &&
+        String(candidate.id) === String(current.supervisorSeatId) &&
         candidate.identityRole === "supervisor" &&
         candidate.threadId !== null &&
         candidate.lifecycleState !== "retired",

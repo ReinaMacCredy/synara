@@ -57,7 +57,7 @@ const installation = {
   installedAt: now,
   updatedAt: now,
   revision: 0,
-} as PluginInstallation;
+} as unknown as PluginInstallation;
 const policy = {
   allowedCapabilities: ["event.read"],
   allowedPluginActions: ["supervised.compaction.request"],
@@ -65,7 +65,7 @@ const policy = {
   maxPluginHandlerMs: 100,
   circuitBreakerFailureCount: 2,
   circuitBreakerResetMs: 10_000,
-} as RunPolicy;
+} as unknown as RunPolicy;
 const usage = {
   wallTimeMs: 0,
   recursiveCalls: 0,
@@ -94,7 +94,7 @@ const event = {
   correlationId: null,
   payload: { role: "lead", contextUsagePercent: 82, secret: "must-not-leak" },
   provenance: { actor: { kind: "daemon", actorId: "daemon-1" }, source: "test", confidence: 1 },
-} as ControlPlaneEvent;
+} as unknown as ControlPlaneEvent;
 
 describe("GovernedPluginRuntime", () => {
   it("removes network and filesystem mutation capabilities during observe-only replay", async () => {
@@ -129,8 +129,9 @@ describe("GovernedPluginRuntime", () => {
     );
 
     await runtime.handle(event);
-    assert.equal(kernelOptions?.allowNetwork, false);
-    assert.equal(kernelOptions?.allowFilesystemWrites, false);
+    const observedKernelOptions = kernelOptions as unknown as Parameters<PluginKernelFactory>[0];
+    assert.equal(observedKernelOptions.allowNetwork, false);
+    assert.equal(observedKernelOptions.allowFilesystemWrites, false);
   });
 
   it("passes only granted payload fields and returns request candidates without executing them", async () => {

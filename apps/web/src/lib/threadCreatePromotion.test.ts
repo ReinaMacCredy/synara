@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CommandId,
+  emptySupervisedOrchestrationSnapshot,
   ProjectId,
   ThreadId,
   type ClientOrchestrationCommand,
@@ -137,6 +138,7 @@ describe("threadCreatePromotion", () => {
     useComposerDraftStore.getState().setProjectDraftThreadId(projectId, threadId);
     useStore.getState().syncServerShellSnapshot({
       snapshotSequence: 1,
+      supervisedOrchestration: emptySupervisedOrchestrationSnapshot("2026-05-06T20:00:00.000Z"),
       spaces: [],
       projects: [
         {

@@ -249,7 +249,7 @@ describe("Supervisor-first model routing", () => {
     ]);
 
     assert.deepEqual(availability, { codex: true, claudeAgent: false });
-    assert.equal(availability.cursor, undefined);
+    assert.equal("cursor" in availability, false);
   });
 
   it("keeps RunPolicy cost limits ahead of a user's model preference", () => {
@@ -282,10 +282,13 @@ describe("Supervisor-first model routing", () => {
     assert.equal(failClosed.selectedModelId, null);
     assert.match(failClosed.rejectedCandidates[0]!.reasons[0]!, /cost is unknown/);
 
+    const {
+      expectedInputTokens: _expectedInputTokens,
+      expectedOutputTokens: _expectedOutputTokens,
+      ...withoutEstimates
+    } = constrained;
     const missingEstimate = recommendModels([alpha], undefined, [], {
-      ...constrained,
-      expectedInputTokens: undefined,
-      expectedOutputTokens: undefined,
+      ...withoutEstimates,
       roomPolicy: { allowedModelIds: [alpha.id] },
     });
     assert.equal(missingEstimate.selectedModelId, null);
@@ -397,7 +400,7 @@ describe("Supervisor-first model routing", () => {
     assert.match(receipt.rejectedReasons[alpha.id]!, /fallback attempt/);
     assert.deepEqual(receipt.candidateModelIds, [beta.id, alpha.id, invalid.id]);
     assert.match(receipt.explanation, /Personal rating|Preferred for|Relative preference/);
-    assert.ok(receipt.rankedCandidates[0]!.preferenceEffects.length > 0);
+    assert.ok((receipt.rankedCandidates?.[0]?.preferenceEffects.length ?? 0) > 0);
   });
 
   it("builds confidence from durable outcome sample counts", () => {

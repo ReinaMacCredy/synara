@@ -10,6 +10,17 @@ const upsert = <T extends { readonly id: string }>(items: ReadonlyArray<T>, item
   return next;
 };
 
+const upsertPlugin = <T extends { readonly pluginId: string }>(
+  items: ReadonlyArray<T>,
+  item: T,
+) => {
+  const index = items.findIndex((candidate) => candidate.pluginId === item.pluginId);
+  if (index < 0) return [...items, item];
+  const next = items.slice();
+  next[index] = item;
+  return next;
+};
+
 export function projectSupervisedEvent(
   snapshot: SupervisedRuntimeSnapshot,
   inputEvent: SupervisedDomainEvent,
@@ -98,6 +109,7 @@ export function projectSupervisedEvent(
         ? { ...next, harnessPatches: upsert(next.harnessPatches, payload.patch) }
         : next;
     case "supervised.peer-upserted":
+    case "supervised.specialist-upserted":
       return {
         ...next,
         peerSpecialties: payload.peerSpecialty
@@ -123,10 +135,12 @@ export function projectSupervisedEvent(
     case "supervised.plugin-installed":
     case "supervised.plugin-upgraded":
     case "supervised.plugin-state-changed":
-      return payload.plugin ? { ...next, plugins: upsert(next.plugins, payload.plugin) } : next;
+      return payload.plugin
+        ? { ...next, plugins: upsertPlugin(next.plugins, payload.plugin) }
+        : next;
     case "supervised.plugin-circuit-reset":
       return payload.pluginHealth
-        ? { ...next, pluginHealth: upsert(next.pluginHealth, payload.pluginHealth) }
+        ? { ...next, pluginHealth: upsertPlugin(next.pluginHealth, payload.pluginHealth) }
         : next;
     case "supervised.signal-derived":
     case "supervised.signal-acknowledged":

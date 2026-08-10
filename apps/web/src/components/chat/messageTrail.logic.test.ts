@@ -2,6 +2,10 @@ import { MessageId } from "@synara/contracts";
 import { describe, expect, it } from "vitest";
 import type { TimelineEntry } from "../../session-logic";
 import {
+  appendBrowserAnnotationsToPrompt,
+  type BrowserAnnotationDraft,
+} from "../../lib/browserAnnotations";
+import {
   clampNumber,
   clampTooltipTop,
   computeFocusedIndex,
@@ -111,6 +115,33 @@ describe("deriveMessageTrailItems", () => {
     const [capped] = deriveMessageTrailItems([messageEntry("u2", "user", long)]);
     expect(capped?.preview.endsWith("…")).toBe(true);
     expect(capped?.preview.length).toBeLessThanOrEqual(281);
+  });
+
+  it("keeps browser annotation transport out of message previews", () => {
+    const messageId = MessageId.makeUnsafe("annotation-message");
+    const annotation: BrowserAnnotationDraft = {
+      id: "annotation-1",
+      ordinal: 1,
+      tabId: "tab-1",
+      source: { url: "https://example.test", pageTitle: "Example" },
+      selector: "#target",
+      tagName: "div",
+      role: null,
+      name: "Target",
+      text: "Selected text",
+      fingerprint: "fnv1a64:0123456789abcdef",
+      comment: null,
+      capturedAt: "2026-01-01T00:00:00Z",
+    };
+    const [item] = deriveMessageTrailItems([
+      messageEntry(
+        messageId,
+        "user",
+        appendBrowserAnnotationsToPrompt("Fix the selected element", [annotation], messageId),
+      ),
+    ]);
+
+    expect(item?.preview).toBe("Fix the selected element");
   });
 
   it("reports attachment counts", () => {

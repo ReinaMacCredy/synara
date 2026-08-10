@@ -1422,7 +1422,10 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             requestedAt: event.payload.createdAt,
           });
           if (turnStartSession !== null) {
-            yield* projectionThreadSessionRepository.upsert(turnStartSession);
+            yield* projectionThreadSessionRepository.upsert({
+              ...turnStartSession,
+              providerSessionId: turnStartSession.providerSessionId ?? null,
+            });
           }
           return;
         }

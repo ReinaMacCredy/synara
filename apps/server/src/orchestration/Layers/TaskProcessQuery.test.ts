@@ -55,6 +55,7 @@ const task = (
     description: null,
     acceptanceCriteria: [],
     priority: "normal",
+    risk: "medium",
     lifecycle: options.lifecycle ?? "planned",
     orderKey: options.orderKey ?? id,
     createdBy: { kind: "user", actorId: "owner" },

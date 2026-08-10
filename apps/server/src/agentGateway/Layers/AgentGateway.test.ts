@@ -599,18 +599,19 @@ function makeHarnessLayer(
         Effect.flatMap(() =>
           Effect.suspend(() => {
             dispatched.push(command);
-            const advancedTurnState = options.advanceParentTurnAfterDispatch?.state ?? "running";
+            const advanceParentTurnAfterDispatch = options.advanceParentTurnAfterDispatch ?? null;
+            const advancedTurnState = advanceParentTurnAfterDispatch?.state ?? "running";
             if (
-              options.advanceParentTurnAfterDispatch?.commandType === command.type &&
+              advanceParentTurnAfterDispatch?.commandType === command.type &&
               (threadsById.get("thread-parent")?.latestTurn?.turnId !==
-                options.advanceParentTurnAfterDispatch.turnId ||
+                advanceParentTurnAfterDispatch.turnId ||
                 threadsById.get("thread-parent")?.latestTurn?.state !== advancedTurnState)
             ) {
               threadsById.set(
                 "thread-parent",
                 makeThreadShell("thread-parent", {
                   latestTurn: {
-                    turnId: TurnId.makeUnsafe(options.advanceParentTurnAfterDispatch.turnId),
+                    turnId: TurnId.makeUnsafe(advanceParentTurnAfterDispatch.turnId),
                     state: advancedTurnState,
                     requestedAt: NOW,
                     startedAt: NOW,
@@ -623,9 +624,10 @@ function makeHarnessLayer(
             const result = options.failDispatch?.(command)
               ? Effect.fail(new Error("injected dispatch failure"))
               : Effect.succeed({ sequence: dispatched.length });
-            if (options.pauseAfterDispatch?.commandType !== command.type) return result;
-            return Deferred.succeed(options.pauseAfterDispatch.entered, undefined).pipe(
-              Effect.andThen(Deferred.await(options.pauseAfterDispatch.release)),
+            const pauseAfterDispatch = options.pauseAfterDispatch ?? null;
+            if (pauseAfterDispatch?.commandType !== command.type) return result;
+            return Deferred.succeed(pauseAfterDispatch.entered, undefined).pipe(
+              Effect.andThen(Deferred.await(pauseAfterDispatch.release)),
               Effect.andThen(result),
             );
           }),

@@ -774,7 +774,7 @@ export function SupervisedOrchestrationSettingsPanel(props: { readonly active: b
     const api = readNativeApi();
     if (!api) throw new Error("Synara server unavailable.");
     const next = await api.orchestration.getSupervisedSettings();
-    setSnapshot(next.governance.orchestration);
+    if (next.governance.orchestration) setSnapshot(next.governance.orchestration);
     syncServerShellSnapshot(await api.orchestration.getShellSnapshot());
   };
 
@@ -785,7 +785,9 @@ export function SupervisedOrchestrationSettingsPanel(props: { readonly active: b
       const api = readNativeApi();
       if (!api) return;
       const next = await api.orchestration.getSupervisedSettings();
-      if (!cancelled) setSnapshot(next.governance.orchestration);
+      if (!cancelled && next.governance.orchestration) {
+        setSnapshot(next.governance.orchestration);
+      }
     })().catch((cause: unknown) => {
       if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
     });

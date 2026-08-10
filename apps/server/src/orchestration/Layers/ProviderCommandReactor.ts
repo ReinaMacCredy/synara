@@ -25,6 +25,8 @@ import {
   ThreadId,
   type ProviderSession,
   type RuntimeMode,
+  LeadSeatId,
+  SupervisorSeatId,
   type ThreadOriginEnvelope,
   TurnId,
 } from "@synara/contracts";
@@ -592,9 +594,7 @@ const make = Effect.gen(function* () {
     });
   });
 
-  const resolveSupervisedSessionContext = Effect.fnUntraced(function* (
-    threadId: ThreadId,
-  ): Effect.fn.Return<ProviderSupervisedSessionContext | undefined> {
+  const resolveSupervisedSessionContext = Effect.fnUntraced(function* (threadId: ThreadId) {
     const snapshot = yield* projectionSnapshotQuery.getSnapshot();
     const governance = yield* supervisedGovernanceRepository.getSnapshot();
     const resolution = resolveProjectedSupervisedCallerForThread({
@@ -622,7 +622,7 @@ const make = Effect.gen(function* () {
     );
     if (!profileSnapshot) {
       return yield* new ProviderAdapterValidationError({
-        provider: profileSnapshot?.runtime.provider ?? "codex",
+        provider: thread?.modelSelection.provider ?? "codex",
         operation: "thread.turn.start",
         issue: `Supervised seat for thread '${threadId}' has no resolved profile snapshot.`,
       });
@@ -637,8 +637,8 @@ const make = Effect.gen(function* () {
     return {
       role: caller.role,
       ...(caller.role === "supervisor"
-        ? { supervisorSeatId: caller.seatId }
-        : { leadSeatId: caller.leadSeatId ?? caller.seatId }),
+        ? { supervisorSeatId: SupervisorSeatId.makeUnsafe(caller.seatId) }
+        : { leadSeatId: LeadSeatId.makeUnsafe(caller.leadSeatId ?? caller.seatId) }),
       profileSnapshot,
       missionIds:
         caller.role === "supervisor"
@@ -1470,8 +1470,7 @@ const make = Effect.gen(function* () {
       preferredProvider === "codex" &&
       desiredSupervisedContext !== undefined &&
       thread.session !== null &&
-      thread.session !== undefined &&
-      thread.session.status !== "stopped";
+      thread.session !== undefined;
     if (shouldRehydrateCodexSupervisedSession) {
       if (!providerService.clearSessionResumeCursor) {
         return yield* new ProviderAdapterValidationError({
@@ -1522,6 +1521,7 @@ const make = Effect.gen(function* () {
     readonly runtimeMode?: RuntimeMode;
     readonly interactionMode?: "default" | "plan";
     readonly dispatchMode?: "queue" | "steer";
+    readonly dispatchOrigin?: "user" | "automation" | "agent";
     readonly threadOrigin?: ThreadOriginEnvelope;
     readonly createdAt: string;
   }) {

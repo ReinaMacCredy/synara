@@ -2,6 +2,8 @@
 // Purpose: Verifies desktop startup detects snapshots where threads outlive visible project rows.
 
 import {
+  emptySupervisedOrchestrationSnapshot,
+  emptySupervisedRuntimeSnapshot,
   ProjectId,
   ThreadId,
   type OrchestrationReadModel,
@@ -77,12 +79,15 @@ function makeThread(
 }
 
 function makeSnapshot(overrides: Partial<OrchestrationReadModel> = {}): OrchestrationReadModel {
+  const updatedAt = "2026-04-20T08:00:00.000Z";
   return {
     snapshotSequence: 1,
     spaces: [],
-    updatedAt: "2026-04-20T08:00:00.000Z",
+    updatedAt,
     projects: [makeProject()],
     threads: [makeThread()],
+    supervised: emptySupervisedRuntimeSnapshot(updatedAt),
+    supervisedOrchestration: emptySupervisedOrchestrationSnapshot(updatedAt),
     ...overrides,
   };
 }
@@ -92,10 +97,12 @@ function makeShellSnapshot(
 ): OrchestrationShellSnapshot {
   const project = makeProject();
   const thread = makeThread();
+  const updatedAt = "2026-04-20T08:00:00.000Z";
   return {
     snapshotSequence: 1,
     spaces: [],
-    updatedAt: "2026-04-20T08:00:00.000Z",
+    updatedAt,
+    supervisedOrchestration: emptySupervisedOrchestrationSnapshot(updatedAt),
     projects: [
       {
         id: project.id,

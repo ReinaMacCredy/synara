@@ -19,7 +19,6 @@ import {
   ApprovalRequestId,
   type ChatAttachment,
   CommandId,
-  ContextBundleId,
   DEFAULT_GIT_TEXT_GENERATION_MODEL,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   EventId,

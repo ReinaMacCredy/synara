@@ -92,14 +92,14 @@ type AuditRow = {
   readonly occurredAt: string;
 };
 
-const decodeJson = <A, I>(schema: Schema.Schema<A, I>, operation: string, value: string) =>
+const decodeJson = <A>(schema: Schema.Schema<A>, operation: string, value: string) =>
   Effect.try({
-    try: () => Schema.decodeUnknownSync(schema)(JSON.parse(value)),
+    try: () => Schema.decodeUnknownSync(schema as Schema.Decoder<A>)(JSON.parse(value)),
     catch: toPersistenceDecodeCauseError(operation),
   });
 
-const decodeRows = <A, I>(
-  schema: Schema.Schema<A, I>,
+const decodeRows = <A>(
+  schema: Schema.Schema<A>,
   operation: string,
   rows: ReadonlyArray<EntityRow>,
 ) =>

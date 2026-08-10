@@ -5,9 +5,12 @@ import {
   AgentSeatId,
   EffectiveAuthorityReceiptId,
   GovernanceHandoffId,
+  LeadSeatId,
   RoleAssumptionId,
   RootAuthorityLeaseId,
   SupervisedWorkspaceId,
+  SupervisorSeatId,
+  ThreadId,
   type AgentSeat,
   type EffectiveAuthorityReceipt,
   type GovernanceHandoff,
@@ -107,15 +110,15 @@ export function governanceDecisionStateFromSnapshot(input: {
   readonly runtime: SupervisedRuntimeSnapshot;
 }): SupervisedGovernanceDecisionState {
   const supervisors = input.governance.agentSeats.flatMap((seat) =>
-    seat.identityRole === "supervisor" && seat.threadId !== null && seat.profileSnapshotId !== null
+    seat.identityRole === "supervisor" && seat.threadId != null && seat.profileSnapshotId != null
       ? [
           {
-            id: seat.id as SupervisorSeat["id"],
+            id: SupervisorSeatId.makeUnsafe(seat.id),
             name: seat.displayName ?? "Supervisor",
             ...(seat.concern === undefined ? {} : { concern: seat.concern }),
             ...(seat.concern === "primary" ? { isPrimary: true } : {}),
             activeThreadId: seat.threadId,
-            predecessorThreadIds: seat.predecessorThreadIds,
+            predecessorThreadIds: seat.predecessorThreadIds ?? [],
             profileSnapshotId: seat.profileSnapshotId,
             status: supervisorStatus(seat),
             createdAt: seat.createdAt,
@@ -128,15 +131,15 @@ export function governanceDecisionStateFromSnapshot(input: {
   );
   const leads = input.governance.agentSeats.flatMap((seat) =>
     seat.identityRole === "lead" &&
-    seat.threadId !== null &&
-    seat.projectId !== null &&
-    seat.profileSnapshotId !== null
+    seat.threadId != null &&
+    seat.projectId != null &&
+    seat.profileSnapshotId != null
       ? [
           {
-            id: seat.id as LeadSeat["id"],
+            id: LeadSeatId.makeUnsafe(seat.id),
             projectId: seat.projectId,
             activeThreadId: seat.threadId,
-            predecessorThreadIds: seat.predecessorThreadIds,
+            predecessorThreadIds: seat.predecessorThreadIds ?? [],
             profileSnapshotId: seat.profileSnapshotId,
             status: leadStatus(seat),
             createdAt: seat.createdAt,
@@ -150,17 +153,19 @@ export function governanceDecisionStateFromSnapshot(input: {
   const peers = input.governance.agentSeats.flatMap((seat) => {
     if (
       seat.identityRole !== "peer" ||
-      seat.threadId === null ||
-      seat.projectId === null ||
-      seat.profileSnapshotId === null
+      seat.threadId == null ||
+      seat.projectId == null ||
+      seat.profileSnapshotId == null
     ) {
       return [];
     }
     const room = input.runtime.rooms.find((candidate) => seat.roomIds.includes(candidate.id));
     const lead = room?.leadSeatId
-      ? input.governance.agentSeats.find((candidate) => candidate.id === room.leadSeatId)
+      ? input.governance.agentSeats.find(
+          (candidate) => String(candidate.id) === String(room.leadSeatId),
+        )
       : undefined;
-    if (!room?.leadSeatId || lead?.threadId === null || lead?.threadId === undefined) return [];
+    if (!room?.leadSeatId || lead?.threadId == null) return [];
     return [
       {
         threadId: seat.threadId,
@@ -503,7 +508,10 @@ export function reconcileGovernanceProjection(input: {
   }
 
   for (const room of input.runtime.rooms) {
-    if (room.leadSeatId === null || agentSeats.some((seat) => seat.id === room.leadSeatId)) {
+    if (
+      room.leadSeatId === null ||
+      agentSeats.some((seat) => String(seat.id) === String(room.leadSeatId))
+    ) {
       continue;
     }
     const leadRooms = input.runtime.rooms.filter(
@@ -542,7 +550,7 @@ export function reconcileGovernanceProjection(input: {
       lifecycleState: retired ? "retired" : "active",
       workState: "idle",
       authorityReceiptId: receipt.id,
-      threadId: room.id,
+      threadId: ThreadId.makeUnsafe(room.id),
       projectId: room.projectId,
       profileSnapshotId: null,
       predecessorThreadIds: [],
@@ -564,7 +572,7 @@ export function reconcileGovernanceProjection(input: {
         !isManagedProjectionLease(lease.id),
     );
     if (externallyManagedLiveLease) continue;
-    const holderSeat = agentSeats.find((seat) => seat.id === room.leadSeatId);
+    const holderSeat = agentSeats.find((seat) => String(seat.id) === String(room.leadSeatId));
     if (!holderSeat) {
       throw new Error(`Lead Room '${room.id}' references missing Lead seat '${room.leadSeatId}'.`);
     }
@@ -578,7 +586,7 @@ export function reconcileGovernanceProjection(input: {
     ) {
       rootLeases = mapChanged(rootLeases, (lease) =>
         lease.roomId === room.id &&
-        lease.holderSeatId === room.leadSeatId &&
+        String(lease.holderSeatId) === String(room.leadSeatId) &&
         liveRootStatuses.has(lease.status) &&
         isManagedProjectionLease(lease.id)
           ? {
@@ -595,7 +603,7 @@ export function reconcileGovernanceProjection(input: {
     const previousRootLease = rootLeases.find(
       (lease) =>
         lease.roomId === room.id &&
-        lease.holderSeatId !== room.leadSeatId &&
+        String(lease.holderSeatId) !== String(room.leadSeatId) &&
         liveRootStatuses.has(lease.status) &&
         isManagedProjectionLease(lease.id),
     );
@@ -606,7 +614,7 @@ export function reconcileGovernanceProjection(input: {
     );
     rootLeases = mapChanged(rootLeases, (lease) =>
       lease.roomId === room.id &&
-      lease.holderSeatId !== room.leadSeatId &&
+      String(lease.holderSeatId) !== String(room.leadSeatId) &&
       liveRootStatuses.has(lease.status) &&
       isManagedProjectionLease(lease.id)
         ? {

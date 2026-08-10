@@ -48,7 +48,7 @@ function supervisorExistingRunFixture() {
     revision: 0,
     createdAt: now,
     updatedAt: now,
-  } as Task;
+  } as unknown as Task;
   const run = {
     id: "run:supervisor-owned",
     roomId: room.id,
@@ -88,7 +88,7 @@ function supervisorExistingRunFixture() {
     retiredAt: null,
     revision: 0,
     updatedAt: now,
-  } as AgentSeat;
+  } as unknown as AgentSeat;
   const lead = {
     ...supervisor,
     id: room.leadSeatId,
@@ -99,7 +99,7 @@ function supervisorExistingRunFixture() {
     threadId: "thread:lead-root",
     projectId: room.projectId,
     displayName: "Room Lead",
-  } as AgentSeat;
+  } as unknown as AgentSeat;
   const authorityReceipt = {
     id: supervisor.authorityReceiptId,
     actorSeatId: supervisor.id,
@@ -121,7 +121,7 @@ function supervisorExistingRunFixture() {
     issuedAt: now,
     expiresAt: null,
     revokedAt: null,
-  } as EffectiveAuthorityReceipt;
+  } as unknown as EffectiveAuthorityReceipt;
   const runtime = {
     ...emptySupervisedRuntimeSnapshot(now),
     rooms: [room],
@@ -144,7 +144,7 @@ function supervisorExistingRunFixture() {
         updatedAt: now,
       },
     ],
-  } as SupervisedRuntimeSnapshot;
+  } as unknown as SupervisedRuntimeSnapshot;
   const governance = {
     ...emptySupervisedGovernanceSnapshot(now),
     agentSeats: [supervisor, lead],
@@ -165,7 +165,7 @@ function supervisorExistingRunFixture() {
         updatedAt: now,
       },
     ],
-  } as SupervisedGovernanceSnapshot;
+  } as unknown as SupervisedGovernanceSnapshot;
   const callerThread = {
     id: supervisor.threadId,
     projectId: room.projectId,
@@ -278,7 +278,7 @@ describe("RLM start planning", () => {
       retiredAt: null,
       revision: 0,
       updatedAt: now,
-    } as AgentSeat;
+    } as unknown as AgentSeat;
     const authorityReceipt = {
       id: "receipt:lead",
       actorSeatId: seat.id,
@@ -302,7 +302,7 @@ describe("RLM start planning", () => {
       issuedAt: now,
       expiresAt: null,
       revokedAt: null,
-    } as EffectiveAuthorityReceipt;
+    } as unknown as EffectiveAuthorityReceipt;
     const governance = {
       ...emptySupervisedGovernanceSnapshot(now),
       workspaces: [
@@ -335,7 +335,7 @@ describe("RLM start planning", () => {
         },
       ],
     } as never;
-    let projectedRuntime = runtime;
+    let projectedRuntime: SupervisedRuntimeSnapshot = runtime;
     let sequence = 0;
 
     const result = await Effect.runPromise(
@@ -495,12 +495,12 @@ describe("RLM start planning", () => {
     const rotatedSeat = {
       ...seat,
       authorityReceiptId: "receipt:lead-rotated",
-    } as AgentSeat;
+    } as unknown as AgentSeat;
     const rotatedReceipt = {
       ...authorityReceipt,
       id: rotatedSeat.authorityReceiptId,
       rootLeaseIds: ["root-lease:stage-5-rotated"],
-    } as EffectiveAuthorityReceipt;
+    } as unknown as EffectiveAuthorityReceipt;
     const conflict = await Effect.runPromise(
       startRlm({
         engine: { dispatch: () => Effect.die("authority lineage conflict dispatched") } as never,
@@ -574,8 +574,10 @@ describe("RLM start planning", () => {
         .filter((command) => command.type.startsWith("supervised."))
         .every(
           (command) =>
+            !("actor" in command) ||
             command.actor.kind !== "seat" ||
-            (command.actor.seatId === fixture.supervisor.id &&
+            (String(command.actor.seatId) === String(fixture.supervisor.id) &&
+              "authorityReceiptId" in command &&
               command.authorityReceiptId === fixture.authorityReceipt.id),
         ),
       true,

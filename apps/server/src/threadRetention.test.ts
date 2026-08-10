@@ -4,6 +4,8 @@
 // Exports: Vitest coverage for threadRetention helpers.
 
 import {
+  emptySupervisedOrchestrationSnapshot,
+  emptySupervisedRuntimeSnapshot,
   ProjectId,
   ThreadId,
   type OrchestrationCommand,
@@ -49,12 +51,15 @@ function makeReadModelThread(
 }
 
 function makeReadModel(threads: OrchestrationReadModel["threads"]): OrchestrationReadModel {
+  const updatedAt = "2026-04-20T00:00:00.000Z";
   return {
     snapshotSequence: 0,
     spaces: [],
     projects: [],
     threads,
-    updatedAt: "2026-04-20T00:00:00.000Z",
+    supervised: emptySupervisedRuntimeSnapshot(updatedAt),
+    supervisedOrchestration: emptySupervisedOrchestrationSnapshot(updatedAt),
+    updatedAt,
   };
 }
 

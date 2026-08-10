@@ -5,7 +5,10 @@
 // Depends on: deriveComposerSubagentStripItems
 
 import {
+  AgentSeatId,
   EventId,
+  ProjectId,
+  RoomId,
   ThreadId,
   TurnId,
   type AgentSeat,
@@ -781,50 +784,50 @@ describe("collectForegroundRunningSubagentStripItems", () => {
 
 describe("deriveSupervisedComposerHierarchyItems", () => {
   const supervisor = governedSeat({
-    id: "seat-supervisor",
+    id: AgentSeatId.makeUnsafe("seat-supervisor"),
     identityRole: "supervisor",
     threadId: ThreadId.makeUnsafe("supervisor-thread"),
     projectId: null,
-    roomIds: ["room-1"],
+    roomIds: [RoomId.makeUnsafe("room-1")],
     displayName: "Primary Supervisor",
   });
   const lead = governedSeat({
-    id: "seat-lead",
+    id: AgentSeatId.makeUnsafe("seat-lead"),
     identityRole: "lead",
     threadId: ThreadId.makeUnsafe("lead-thread"),
-    projectId: "project-1",
-    roomIds: ["room-1"],
+    projectId: ProjectId.makeUnsafe("project-1"),
+    roomIds: [RoomId.makeUnsafe("room-1")],
     displayName: "Project Lead",
   });
   const peer = governedSeat({
-    id: "seat-peer",
+    id: AgentSeatId.makeUnsafe("seat-peer"),
     identityRole: "peer",
     threadId: ThreadId.makeUnsafe("peer-thread"),
-    projectId: "project-1",
-    roomIds: ["room-1"],
+    projectId: ProjectId.makeUnsafe("project-1"),
+    roomIds: [RoomId.makeUnsafe("room-1")],
     displayName: "Review Peer",
     workState: "running",
   });
   const otherRoomPeer = governedSeat({
-    id: "seat-other-peer",
+    id: AgentSeatId.makeUnsafe("seat-other-peer"),
     identityRole: "peer",
     threadId: ThreadId.makeUnsafe("other-peer-thread"),
-    projectId: "project-1",
-    roomIds: ["room-2"],
+    projectId: ProjectId.makeUnsafe("project-1"),
+    roomIds: [RoomId.makeUnsafe("room-2")],
   });
   const otherProjectLead = governedSeat({
-    id: "seat-other-lead",
+    id: AgentSeatId.makeUnsafe("seat-other-lead"),
     identityRole: "lead",
     threadId: ThreadId.makeUnsafe("other-lead-thread"),
-    projectId: "project-2",
-    roomIds: ["room-3"],
+    projectId: ProjectId.makeUnsafe("project-2"),
+    roomIds: [RoomId.makeUnsafe("room-3")],
   });
 
   it("shows every governed project seat from the Primary Supervisor thread", () => {
     const rows = deriveSupervisedComposerHierarchyItems({
       seats: [supervisor, lead, peer, otherRoomPeer, otherProjectLead],
       currentThreadId: supervisor.threadId!,
-      projectId: "project-1",
+      projectId: ProjectId.makeUnsafe("project-1"),
       threadTitlesById: new Map([[otherRoomPeer.threadId!, "Test peer"]]),
     });
 
@@ -840,7 +843,7 @@ describe("deriveSupervisedComposerHierarchyItems", () => {
     const rows = deriveSupervisedComposerHierarchyItems({
       seats: [otherRoomPeer, peer, lead, supervisor],
       currentThreadId: lead.threadId!,
-      projectId: "project-1",
+      projectId: ProjectId.makeUnsafe("project-1"),
     });
 
     expect(rows.map((row) => row.threadId)).toEqual([supervisor.threadId, peer.threadId]);
@@ -851,7 +854,7 @@ describe("deriveSupervisedComposerHierarchyItems", () => {
     const rows = deriveSupervisedComposerHierarchyItems({
       seats: [supervisor, lead, peer],
       currentThreadId: lead.threadId!,
-      projectId: "project-1",
+      projectId: ProjectId.makeUnsafe("project-1"),
     });
 
     expect(collectRunningSubagentStripItems(rows)).toEqual([]);

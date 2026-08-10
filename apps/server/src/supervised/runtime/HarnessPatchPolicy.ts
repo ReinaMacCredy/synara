@@ -126,7 +126,7 @@ export function resolveEffectiveHarnessPatchOverlays(input: {
         basePolicyHash: patch.basePolicyHash,
         status: patch.status,
         version: patch.version,
-        revision: patch.revision,
+        revision: patch.revision ?? 0,
         activatedBy: Object.freeze({ ...patch.activatedBy }),
         activatedAt: patch.canary.startedAt,
       }),

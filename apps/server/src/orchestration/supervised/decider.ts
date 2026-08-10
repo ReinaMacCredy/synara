@@ -65,6 +65,9 @@ function requireHuman(command: SupervisedCommand, detail: string) {
   return command.actor.kind === "user" ? Effect.void : reject(command, detail);
 }
 
+const sameId = (left: string | null | undefined, right: string | null | undefined): boolean =>
+  left !== null && left !== undefined && right !== null && right !== undefined && left === right;
+
 function supervisorCanCreateRoom(
   command: Extract<SupervisedCommand, { readonly type: "supervised.room.create" }>,
   governance: SupervisedGovernanceSnapshot | undefined,
@@ -74,14 +77,14 @@ function supervisorCanCreateRoom(
   }
   const seat = governance.agentSeats.find(
     (candidate) =>
-      candidate.id === command.actor.seatId &&
+      sameId(candidate.id, command.actor.seatId) &&
       candidate.identityRole === "supervisor" &&
       (candidate.lifecycleState === "ready" || candidate.lifecycleState === "active") &&
       candidate.threadId === command.actor.actorId,
   );
   const lead = governance.agentSeats.find(
     (candidate) =>
-      candidate.id === command.room.leadSeatId &&
+      sameId(candidate.id, command.room.leadSeatId) &&
       candidate.identityRole === "lead" &&
       candidate.projectId === command.room.projectId &&
       (candidate.lifecycleState === "ready" || candidate.lifecycleState === "active"),
@@ -91,7 +94,7 @@ function supervisorCanCreateRoom(
     lead &&
     governance.orchestration.missions.some(
       (mission) =>
-        mission.supervisorSeatId === seat.id &&
+        sameId(mission.supervisorSeatId, seat.id) &&
         mission.status === "active" &&
         mission.scope.some(
           (scope) =>
@@ -310,10 +313,9 @@ function requirePluginAuthority(
   if (!policy) return reject(command, "Plugin command requires a current RunPolicy snapshot.");
   const decision = evaluateRunPolicy(policy, runtimeUsage(state), {
     pluginAction: command.type,
-    aggregationWindowMs:
-      command.type === "supervised.subscription.upsert"
-        ? command.subscription.window.durationMs
-        : undefined,
+    ...(command.type === "supervised.subscription.upsert"
+      ? { aggregationWindowMs: command.subscription.window.durationMs }
+      : {}),
     replay: command.type === "supervised.delivery.redrive",
   });
   return decision.allowed ? Effect.void : reject(command, decision.reason);
@@ -448,7 +450,7 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
       }
       const supervisorSeat = input.governance?.agentSeats.find(
         (seat) =>
-          seat.id === command.supervisorSeatId &&
+          sameId(seat.id, command.supervisorSeatId) &&
           seat.identityRole === "supervisor" &&
           seat.effectiveRole === "supervisor" &&
           seat.threadId === command.supervisorThreadId &&
@@ -456,7 +458,7 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
       );
       const previousRootSeat = input.governance?.agentSeats.find(
         (seat) =>
-          seat.id === command.previousRootSeatId &&
+          sameId(seat.id, command.previousRootSeatId) &&
           seat.threadId === command.previousRootThreadId &&
           (seat.lifecycleState === "ready" || seat.lifecycleState === "active"),
       );
@@ -471,7 +473,7 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
       const currentRootLease = input.governance?.rootLeases.find(
         (lease) =>
           lease.roomId === current.id &&
-          lease.holderSeatId === command.previousRootSeatId &&
+          sameId(lease.holderSeatId, command.previousRootSeatId) &&
           (lease.status === "active" ||
             lease.status === "transferring" ||
             lease.status === "releasing"),
@@ -713,7 +715,7 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
       if (!current) return yield* reject(command, "WorkClaim does not exist.");
       if (current.status !== "active") return yield* reject(command, "WorkClaim is not active.");
       yield* requireRevision(command, current.revision);
-      const status = command.type.endsWith("release")
+      const status: (typeof current)["status"] = command.type.endsWith("release")
         ? "released"
         : command.type.endsWith("expire")
           ? "expired"
@@ -869,7 +871,7 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
         : command.type.endsWith("enable")
           ? "enabled"
           : "revoked";
-      const subscription = {
+      const subscription: (typeof state.subscriptions)[number] = {
         ...current,
         state: stateValue,
         armed: stateValue === "enabled" ? current.armed : false,
@@ -961,7 +963,7 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
           : command.type.endsWith("revoke")
             ? "revoked"
             : "unhealthy";
-      const plugin = {
+      const plugin: (typeof state.plugins)[number] = {
         ...current,
         status,
         grant:
@@ -1131,8 +1133,8 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
               JSON.stringify(source.scope) !== JSON.stringify(command.record.scope) ||
               source.protectionClass !== command.record.protectionClass,
           ) ||
-          new Set(command.record.sourceRecordIds).size !== sourceIds.size ||
-          command.record.sourceRecordIds.some((recordId) => !sourceIds.has(recordId)) ||
+          new Set(command.record.sourceRecordIds ?? []).size !== sourceIds.size ||
+          (command.record.sourceRecordIds ?? []).some((recordId) => !sourceIds.has(recordId)) ||
           JSON.stringify([...new Set(command.record.evidenceRefs)].toSorted()) !==
             JSON.stringify(sourceEvidenceRefs) ||
           JSON.stringify([...new Set(command.record.evidenceRefs)].toSorted()) !==
@@ -1204,15 +1206,16 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
       if (!run) return yield* reject(command, "RLM episode Run does not exist.");
       const current = state.rlmEpisodes.find((episode) => episode.id === command.episode.id);
       const policy = state.runPolicies.find((candidate) => candidate.id === run.policyId);
-      const branchIds = new Set(command.episode.branchModelSessionIds);
+      const branchModelSessionIds = command.episode.branchModelSessionIds ?? [];
+      const branchIds = new Set(branchModelSessionIds);
       const canonicalLineage =
-        command.episode.rootModelSessionId !== null &&
+        command.episode.rootModelSessionId != null &&
         command.episode.admission.episodeId === command.episode.id &&
         command.episode.admission.selectedMode === "recursive" &&
         command.episode.branchCount >= 2 &&
         policy !== undefined &&
         command.episode.branchCount <= policy.maxFanOut &&
-        branchIds.size === command.episode.branchModelSessionIds.length &&
+        branchIds.size === branchModelSessionIds.length &&
         branchIds.size === command.episode.branchCount &&
         !branchIds.has(command.episode.rootModelSessionId);
       if (!current && !canonicalLineage) {
@@ -1226,13 +1229,13 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
         current.rootModelSessionId !== null &&
         (current.rootModelSessionId !== command.episode.rootModelSessionId ||
           current.branchCount !== command.episode.branchCount ||
-          JSON.stringify(current.branchModelSessionIds) !==
-            JSON.stringify(command.episode.branchModelSessionIds))
+          JSON.stringify(current.branchModelSessionIds ?? []) !==
+            JSON.stringify(branchModelSessionIds))
       ) {
         return yield* reject(command, "RLM session lineage cannot change after admission.");
       }
       yield* requireRevision(command, current?.revision ?? null);
-      const revision = current ? current.revision + 1 : command.episode.revision;
+      const revision = current ? (current.revision ?? 0) + 1 : (command.episode.revision ?? 0);
       return event(command, "supervised.rlm-upserted", "rlm_episode", revision, {
         rlmEpisode: { ...command.episode, revision, updatedAt: command.createdAt },
       });
@@ -1273,7 +1276,7 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
           (trace.role === "rlm_root" &&
             (rlmEpisode.rootModelSessionId !== trace.id || trace.parentSessionId !== null)) ||
           (trace.role === "rlm_branch" &&
-            (!rlmEpisode.branchModelSessionIds.includes(trace.id) ||
+            (!(rlmEpisode.branchModelSessionIds ?? []).includes(trace.id) ||
               trace.parentSessionId !== rlmEpisode.rootModelSessionId))
         ) {
           return yield* reject(command, "RLM model session lineage does not match its Episode.");
@@ -1319,9 +1322,15 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
           error instanceof Error ? error.message : "Harness Patch transition is invalid.",
         );
       }
-      return event(command, "supervised.patch-upserted", "harness_patch", command.patch.revision, {
-        patch: command.patch,
-      });
+      return event(
+        command,
+        "supervised.patch-upserted",
+        "harness_patch",
+        command.patch.revision ?? 0,
+        {
+          patch: command.patch,
+        },
+      );
     }
     case "supervised.peer.create":
     case "supervised.peer.upsert": {
@@ -1346,7 +1355,8 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
         (specialty) => specialty.id === command.peerSpecialty.id,
       );
       yield* requireRevision(command, current?.revision ?? null);
-      if (command.snapshot && !command.snapshot.sanitized) {
+      const snapshot = command.type === "supervised.peer.upsert" ? command.snapshot : undefined;
+      if (snapshot && !snapshot.sanitized) {
         return yield* reject(command, "A retained Peer specialty snapshot must be sanitized.");
       }
       const revision = current ? current.revision + 1 : command.peerSpecialty.revision;
@@ -1356,7 +1366,7 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
           revision,
           updatedAt: command.createdAt,
         },
-        peerSpecialtySnapshot: command.snapshot,
+        peerSpecialtySnapshot: snapshot,
       });
     }
     case "supervised.kernel.session-upsert": {
@@ -1456,14 +1466,14 @@ export const decideSupervisedCommand = Effect.fn("decideSupervisedCommand")(func
         );
         const rootLeadSeat = input.governance?.agentSeats.find(
           (candidate) =>
-            candidate.id === command.leadSeatId &&
+            sameId(candidate.id, command.leadSeatId) &&
             candidate.identityRole === "lead" &&
             candidate.threadId === command.leadThreadId &&
             candidate.roomIds.includes(command.roomId),
         );
         const coordinatorAuthorized =
           coordinatorSeat?.identityRole === "supervisor" ||
-          (coordinatorSeat?.identityRole === "lead" && coordinatorSeat.id === room.leadSeatId);
+          (coordinatorSeat?.identityRole === "lead" && sameId(coordinatorSeat.id, room.leadSeatId));
         if (
           command.roomId !== room.id ||
           command.leadSeatId !== room.leadSeatId ||

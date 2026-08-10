@@ -48,7 +48,8 @@ describe("OrchestrationReactor", () => {
               }),
               () => Effect.sync(() => stopped.push("supervised-wake-reactor")),
             ),
-            drain: Effect.void,
+            reconcileEvent: () => Effect.void,
+            reconcileQueued: Effect.void,
           }),
         ),
         Layer.provideMerge(

@@ -3,6 +3,7 @@
 
 import {
   emptySupervisedOrchestrationSnapshot,
+  emptySupervisedRuntimeSnapshot,
   ProjectId,
   SpaceId,
   ThreadId,
@@ -36,6 +37,7 @@ import {
 const EMPTY_SUPERVISED_ORCHESTRATION = emptySupervisedOrchestrationSnapshot(
   "2026-02-27T00:00:00.000Z",
 );
+const EMPTY_SUPERVISED_RUNTIME = emptySupervisedRuntimeSnapshot("2026-02-27T00:00:00.000Z");
 
 describe("store facade", () => {
   it("frees a batch of thread details in a single store write", () => {
@@ -367,6 +369,8 @@ describe("store facade", () => {
     const readModel: OrchestrationReadModel = {
       snapshotSequence: 2,
       updatedAt: "2026-02-27T00:00:00.000Z",
+      supervised: EMPTY_SUPERVISED_RUNTIME,
+      supervisedOrchestration: EMPTY_SUPERVISED_ORCHESTRATION,
       spaces: [],
       projects: [
         makeReadModelProject({
@@ -422,6 +426,8 @@ describe("store facade", () => {
     const snapshotWithoutProject2: OrchestrationReadModel = {
       snapshotSequence: 2,
       updatedAt: "2026-02-27T00:00:00.000Z",
+      supervised: EMPTY_SUPERVISED_RUNTIME,
+      supervisedOrchestration: EMPTY_SUPERVISED_ORCHESTRATION,
       spaces: [],
       projects: [
         makeReadModelProject({
@@ -435,6 +441,8 @@ describe("store facade", () => {
     const snapshotWithProject2Restored: OrchestrationReadModel = {
       snapshotSequence: 3,
       updatedAt: "2026-02-27T00:01:00.000Z",
+      supervised: EMPTY_SUPERVISED_RUNTIME,
+      supervisedOrchestration: EMPTY_SUPERVISED_ORCHESTRATION,
       spaces: [],
       projects: [
         makeReadModelProject({

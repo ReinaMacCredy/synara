@@ -101,6 +101,14 @@ const base = {
   createdAt: now,
 };
 
+type GovernanceDecisionResult = Effect.Success<
+  ReturnType<typeof decideSupervisedGovernanceCommand>
+>;
+
+const isGovernanceEventBatch = (
+  result: GovernanceDecisionResult,
+): result is Extract<GovernanceDecisionResult, readonly unknown[]> => Array.isArray(result);
+
 it.effect(
   "marks the first live Supervisor as Primary and never infers that role from its name",
   () =>
@@ -122,7 +130,7 @@ it.effect(
         },
       });
       assert.equal(Array.isArray(first), false);
-      if (Array.isArray(first)) return;
+      if (isGovernanceEventBatch(first)) return;
       assert.equal(first.payload.supervisor?.isPrimary, true);
       assert.equal(first.payload.supervisor?.concern, "primary");
 
@@ -152,7 +160,7 @@ it.effect(
         },
       });
       assert.equal(Array.isArray(second), false);
-      if (Array.isArray(second)) return;
+      if (isGovernanceEventBatch(second)) return;
       assert.equal(second.payload.supervisor?.isPrimary, false);
       assert.equal(second.payload.supervisor?.concern, "delivery");
     }),
@@ -172,7 +180,7 @@ it.effect("clears only archived profile presets and projects a durable tombstone
       },
     });
     assert.equal(Array.isArray(cleared), false);
-    if (Array.isArray(cleared)) return;
+    if (isGovernanceEventBatch(cleared)) return;
     assert.equal(cleared.type, "supervised.profile-cleared");
     const projected = projectSupervisedGovernanceDecisionEvent(current, {
       ...cleared,
@@ -238,7 +246,7 @@ it.effect("lets the active Primary Supervisor enroll a Lead only inside mission 
       },
     });
     assert.equal(Array.isArray(enrolled), false);
-    if (!Array.isArray(enrolled)) assert.equal(enrolled.type, "supervised.lead-enrolled");
+    if (!isGovernanceEventBatch(enrolled)) assert.equal(enrolled.type, "supervised.lead-enrolled");
 
     const outsideScope = yield* Effect.exit(
       decideSupervisedGovernanceCommand({
@@ -300,7 +308,9 @@ it.effect("denies non-human scope expansion while allowing a bounded mission com
       },
     });
     assert.equal(Array.isArray(completed), false);
-    if (!Array.isArray(completed)) assert.equal(completed.payload.mission?.status, "completed");
+    if (!isGovernanceEventBatch(completed)) {
+      assert.equal(completed.payload.mission?.status, "completed");
+    }
   }),
 );
 
@@ -339,7 +349,7 @@ it.effect("keeps a conflicting workflow inactive until an owner resolves it", ()
       },
     });
     assert.equal(Array.isArray(conflictEvent), false);
-    if (Array.isArray(conflictEvent)) return;
+    if (isGovernanceEventBatch(conflictEvent)) return;
     assert.equal(conflictEvent.type, "supervised.workflow-conflicted");
     assert.equal(conflictEvent.payload.workflowDirective?.status, "conflicted");
     const projected = projectSupervisedGovernanceDecisionEvent(
@@ -402,7 +412,7 @@ it.effect(
         },
       });
       assert.equal(Array.isArray(requested), false);
-      if (Array.isArray(requested)) return;
+      if (isGovernanceEventBatch(requested)) return;
       assert.equal(requested.type, "supervised.lead-replacement-requested");
       assert.equal(requested.payload.lead?.activeThreadId, lead.activeThreadId);
       assert.equal(requested.payload.lead?.status, "rotating");
@@ -432,10 +442,10 @@ it.effect(
           },
         });
         assert.equal(Array.isArray(advanced), false);
-        if (!Array.isArray(advanced)) {
+        if (!isGovernanceEventBatch(advanced)) {
           projected = projectSupervisedGovernanceDecisionEvent(projected, {
             ...advanced,
-            sequence: projected.snapshotSequence + 1,
+            sequence: projected.revision + 1,
           });
         }
       }

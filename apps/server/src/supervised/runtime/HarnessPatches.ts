@@ -39,10 +39,13 @@ const requireHuman = (actor: SupervisedActor, action: string) => {
 };
 
 const uniqueEvidenceRefs = (evidenceRefs: ReadonlyArray<EvidenceId>) => [...new Set(evidenceRefs)];
+const observationEvidenceRefs = (patch: HarnessPatch) => patch.observationEvidenceRefs ?? [];
+const patchRevision = (patch: HarnessPatch) => patch.revision ?? 0;
+const patchControlPlaneSequence = (patch: HarnessPatch) => patch.lastControlPlaneSequence ?? 0;
 
 function assertObservationEvidenceContinuity(current: HarnessPatch, next: HarnessPatch) {
-  for (const evidenceRef of current.observationEvidenceRefs) {
-    if (!next.observationEvidenceRefs.includes(evidenceRef)) {
+  for (const evidenceRef of observationEvidenceRefs(current)) {
+    if (!observationEvidenceRefs(next).includes(evidenceRef)) {
       throw new Error("Harness Patch observation evidence is append-only.");
     }
   }
@@ -64,7 +67,7 @@ function assertImmutablePatchIdentity(current: HarnessPatch, next: HarnessPatch)
 }
 
 function assertReceiptContinuity(current: HarnessPatch, next: HarnessPatch) {
-  if (next.lastControlPlaneSequence < current.lastControlPlaneSequence) {
+  if (patchControlPlaneSequence(next) < patchControlPlaneSequence(current)) {
     throw new Error("Harness Patch control-plane cursor cannot move backwards.");
   }
   assertObservationEvidenceContinuity(current, next);
@@ -116,7 +119,7 @@ function assertLifecycleEvidence(patch: HarnessPatch) {
   }
   if (
     (patch.status === "observed" || patch.status === "proposed") &&
-    patch.observationEvidenceRefs.length === 0
+    observationEvidenceRefs(patch).length === 0
   ) {
     throw new Error("A Harness Patch observation or proposal requires durable friction evidence.");
   }
@@ -173,7 +176,7 @@ export function validateHarnessPatchUpdate(
     if (actor.kind !== "user" && actor.kind !== "seat") {
       throw new Error("Only a Human or Agent Seat may observe or propose a Harness Patch.");
     }
-    if (next.revision !== 0 || next.version !== 1) {
+    if (patchRevision(next) !== 0 || next.version !== 1) {
       throw new Error("A new Harness Patch must start at version 1 and revision 0.");
     }
     if (
@@ -194,7 +197,7 @@ export function validateHarnessPatchUpdate(
 
   assertImmutablePatchIdentity(current, next);
   assertHarnessPatchUsesCurrentBasePolicy(next);
-  if (next.revision !== current.revision + 1) {
+  if (patchRevision(next) !== patchRevision(current) + 1) {
     throw new Error("Harness Patch revision must advance exactly once.");
   }
   const contentChanged = current.content !== next.content || current.name !== next.name;
@@ -210,7 +213,7 @@ export function validateHarnessPatchUpdate(
       throw new Error("Harness Patch revisions require a new proposed content version.");
     }
     assertObservationEvidenceContinuity(current, next);
-    if (next.lastControlPlaneSequence < current.lastControlPlaneSequence) {
+    if (patchControlPlaneSequence(next) < patchControlPlaneSequence(current)) {
       throw new Error("Harness Patch control-plane cursor cannot move backwards.");
     }
     if (
@@ -331,7 +334,7 @@ export function reviseHarnessPatchProposal(
     content: input.content ?? patch.content,
     status: "proposed",
     observationEvidenceRefs: uniqueEvidenceRefs([
-      ...patch.observationEvidenceRefs,
+      ...observationEvidenceRefs(patch),
       ...(input.observationEvidenceRefs ?? []),
     ]),
     evaluationEvidenceRefs: [],
@@ -340,7 +343,7 @@ export function reviseHarnessPatchProposal(
     canary: null,
     rollback: null,
     version: patch.version + 1,
-    revision: patch.revision + 1,
+    revision: patchRevision(patch) + 1,
     activatedBy: null,
     updatedAt: input.updatedAt,
   };
@@ -363,7 +366,7 @@ export function applyHarnessPatchSandboxEvaluation(
       "Harness Patch evaluation must use the server-owned current base policy digest.",
     );
   }
-  if (evaluation.controlPlaneSequence <= patch.lastControlPlaneSequence) {
+  if (evaluation.controlPlaneSequence <= patchControlPlaneSequence(patch)) {
     throw new Error("Harness Patch sandbox evaluation must advance the control-plane cursor.");
   }
   if (evaluation.evidenceRefs.length === 0) {
@@ -386,7 +389,7 @@ export function applyHarnessPatchSandboxEvaluation(
     },
     lastControlPlaneSequence: evaluation.controlPlaneSequence,
     updatedAt: evaluation.evaluatedAt,
-    revision: patch.revision + 1,
+    revision: patchRevision(patch) + 1,
   };
   validateHarnessPatchUpdate(patch, next, evaluation.evaluatedBy);
   return next;
@@ -401,7 +404,7 @@ export function awaitHarnessPatchApproval(
     ...patch,
     status: "awaiting_approval" as const,
     updatedAt: at,
-    revision: patch.revision + 1,
+    revision: patchRevision(patch) + 1,
   };
   validateHarnessPatchUpdate(patch, next, actor);
   return next;
@@ -429,14 +432,14 @@ export function startHarnessPatchCanary(
       evidenceRefs: [],
       lastEvaluationAt: null,
       lastControlPlaneSequence: Math.max(
-        patch.lastControlPlaneSequence,
+        patchControlPlaneSequence(patch),
         patch.sandboxEvaluation?.controlPlaneSequence ?? 0,
       ),
     },
     rollback: null,
     activatedBy: actor,
     updatedAt: at,
-    revision: patch.revision + 1,
+    revision: patchRevision(patch) + 1,
   };
   validateHarnessPatchUpdate(patch, next, actor);
   return next;
@@ -461,7 +464,7 @@ export function recordHarnessPatchCanaryEvaluation(
   }
   if (
     evaluation.controlPlaneSequence <=
-    Math.max(patch.lastControlPlaneSequence, patch.canary.lastControlPlaneSequence)
+    Math.max(patchControlPlaneSequence(patch), patch.canary.lastControlPlaneSequence)
   ) {
     return patch;
   }
@@ -495,7 +498,7 @@ export function recordHarnessPatchCanaryEvaluation(
       : null,
     lastControlPlaneSequence: evaluation.controlPlaneSequence,
     updatedAt: evaluation.evaluatedAt,
-    revision: patch.revision + 1,
+    revision: patchRevision(patch) + 1,
   };
   validateHarnessPatchUpdate(patch, next, evaluation.evaluatedBy);
   return next;
@@ -507,12 +510,12 @@ export function advanceHarnessPatchControlPlaneCursor(
   sequence: number,
   at: string,
 ): HarnessPatch {
-  if (sequence <= patch.lastControlPlaneSequence) return patch;
+  if (sequence <= patchControlPlaneSequence(patch)) return patch;
   const next = {
     ...patch,
     lastControlPlaneSequence: sequence,
     updatedAt: at,
-    revision: patch.revision + 1,
+    revision: patchRevision(patch) + 1,
   };
   validateHarnessPatchUpdate(patch, next, actor);
   return next;
@@ -527,7 +530,7 @@ export function promoteHarnessPatch(
     ...patch,
     status: "promoted" as const,
     updatedAt: at,
-    revision: patch.revision + 1,
+    revision: patchRevision(patch) + 1,
   };
   validateHarnessPatchUpdate(patch, next, actor);
   return next;
@@ -585,7 +588,7 @@ export function revertHarnessPatch(
       rolledBackAt: at,
     },
     updatedAt: at,
-    revision: patch.revision + 1,
+    revision: patchRevision(patch) + 1,
   };
   validateHarnessPatchUpdate(patch, next, actor);
   return next;

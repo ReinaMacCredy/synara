@@ -5,6 +5,7 @@ import type {
   SupervisedGovernanceSnapshot,
   SupervisedRuntimeSnapshot,
 } from "@synara/contracts";
+import { LeadSeatId } from "@synara/contracts";
 import { Effect } from "effect";
 
 import { OrchestrationCommandInvariantError } from "../Errors.ts";
@@ -37,7 +38,7 @@ export const decideSupervisedRoomLifecycleForThreadCommand = Effect.fn(
 > {
   const { command } = input;
   let runtime = input.runtime;
-  let room = runtime.rooms.find((candidate) => candidate.id === command.threadId);
+  let room = runtime.rooms.find((candidate) => candidate.id === String(command.threadId));
   if (!room) return [];
 
   if (input.projectId === null || room.projectId !== input.projectId) {
@@ -51,7 +52,8 @@ export const decideSupervisedRoomLifecycleForThreadCommand = Effect.fn(
       candidate.lifecycleState === "active",
   );
   if (!lead) return yield* reject(command, "The Lead Room has no active Lead seat.");
-  if (room.leadSeatId !== null && room.leadSeatId !== lead.id) {
+  const leadSeatId = LeadSeatId.makeUnsafe(lead.id);
+  if (room.leadSeatId !== null && room.leadSeatId !== leadSeatId) {
     return yield* reject(
       command,
       "The Lead Room is bound to a different Root holder; use the Root transfer saga.",
@@ -59,21 +61,25 @@ export const decideSupervisedRoomLifecycleForThreadCommand = Effect.fn(
   }
 
   const events: UnsequencedSupervisedEvent[] = [];
-  const advance = (status: typeof room.status) =>
+  const advance = (status: SupervisedRuntimeSnapshot["rooms"][number]["status"]) =>
     Effect.gen(function* () {
+      const currentRoom = room;
+      if (!currentRoom) {
+        return yield* reject(command, "The Lead Room is unavailable.");
+      }
       const nextEvent = yield* decideSupervisedCommand({
         state: runtime,
         command: {
           type: "supervised.room.update",
           commandId: command.commandId,
           actor: { kind: "user", actorId: "owner" },
-          aggregateId: room!.id,
-          expectedRevision: room!.revision,
-          idempotencyKey: `thread-room-lifecycle:${command.commandId}:${status}:${room!.revision}`,
+          aggregateId: currentRoom.id,
+          expectedRevision: currentRoom.revision,
+          idempotencyKey: `thread-room-lifecycle:${command.commandId}:${status}:${currentRoom.revision}`,
           createdAt: command.createdAt,
           room: {
-            ...room!,
-            leadSeatId: lead.id,
+            ...currentRoom,
+            leadSeatId,
             status,
             updatedAt: command.createdAt,
           },

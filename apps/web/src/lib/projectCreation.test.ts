@@ -4,6 +4,7 @@
 // Depends on: projectCreation helper plus mocked NativeApi orchestration calls.
 
 import {
+  emptySupervisedOrchestrationSnapshot,
   type NativeApi,
   type OrchestrationShellSnapshot,
   type ProjectId,
@@ -41,6 +42,7 @@ function makeSnapshot(
     spaces: [],
     projects,
     threads: [],
+    supervisedOrchestration: emptySupervisedOrchestrationSnapshot(NOW_ISO),
     updatedAt: NOW_ISO,
   };
 }

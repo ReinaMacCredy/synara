@@ -1,6 +1,8 @@
 import {
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
+  emptySupervisedOrchestrationSnapshot,
+  emptySupervisedRuntimeSnapshot,
   ProjectId,
   ProjectTaskId,
   TaskProcessId,
@@ -26,6 +28,8 @@ const processId = TaskProcessId.makeUnsafe("process");
 const threadId = ThreadId.makeUnsafe("thread");
 const readModel: OrchestrationReadModel = {
   snapshotSequence: 1,
+  supervisedOrchestration: emptySupervisedOrchestrationSnapshot(createdAt),
+  supervised: emptySupervisedRuntimeSnapshot(createdAt),
   spaces: [],
   projects: [
     {

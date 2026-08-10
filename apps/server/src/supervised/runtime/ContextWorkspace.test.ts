@@ -38,7 +38,7 @@ const record = {
   createdBy: { kind: "seat", actorId: "peer-1", seatId: "peer-1" },
   createdAt: now,
   updatedAt: now,
-} as ContextRecord;
+} as unknown as ContextRecord;
 
 describe("Durable Context Workspace", () => {
   it("uses expected revision and preserves immutable record identity", () => {

@@ -1,8 +1,6 @@
 import {
-  AssignmentId,
   CheckpointRef,
   CommandId,
-  ContextBundleId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_SUPERVISED_RUN_POLICY,
   EvidenceId,
@@ -64,6 +62,9 @@ import { resolveProfilePreset } from "../supervised/profileResolver.ts";
  * synchronous defect raised while the worker builds a command's pipeline.
  */
 const fingerprintPoison = vi.hoisted(() => new Set<string>());
+
+const idsEqual = (left: string | null | undefined, right: string | null | undefined): boolean =>
+  left === right;
 
 vi.mock("../commandFingerprint.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../commandFingerprint.ts")>();
@@ -1327,6 +1328,7 @@ describe("OrchestrationEngine", () => {
     const createdAt = "2026-08-09T00:00:00.000Z";
     const projectId = asProjectId("project-supervised-activation");
     const threadId = ThreadId.makeUnsafe("thread-supervised-activation");
+    const roomId = RoomId.makeUnsafe(threadId);
     const leadSeatId = LeadSeatId.makeUnsafe("lead-supervised-activation");
     const preset = DEFAULT_SUPERVISED_PROFILES.find(
       (candidate) => candidate.id === "profile-lead-default",
@@ -1353,12 +1355,12 @@ describe("OrchestrationEngine", () => {
         type: "supervised.room.create",
         commandId: CommandId.makeUnsafe("command-room-supervised-activation"),
         actor: { kind: "user", actorId: "owner" },
-        aggregateId: threadId,
+        aggregateId: roomId,
         expectedRevision: 0,
         idempotencyKey: "room-supervised-activation",
         createdAt,
         room: {
-          id: threadId,
+          id: roomId,
           projectId,
           title: "Lead Room",
           leadSeatId: null,
@@ -1414,7 +1416,7 @@ describe("OrchestrationEngine", () => {
       }),
     );
     let runtime = await system.run(engine.getReadModel());
-    expect(runtime.supervised.rooms.find((room) => room.id === threadId)?.status).toBe(
+    expect(runtime.supervised.rooms.find((room) => room.id === roomId)?.status).toBe(
       "provisioning",
     );
 
@@ -1436,7 +1438,7 @@ describe("OrchestrationEngine", () => {
       }),
     );
     runtime = await system.run(engine.getReadModel());
-    expect(runtime.supervised.rooms.find((room) => room.id === threadId)?.status).toBe("active");
+    expect(runtime.supervised.rooms.find((room) => room.id === roomId)?.status).toBe("active");
 
     const events = await system.run(
       Stream.runCollect(engine.readEvents(0)).pipe(
@@ -1564,8 +1566,8 @@ describe("OrchestrationEngine", () => {
     const governanceAfterSupervisor = await system.run(
       supervisedGovernanceRepository.getSnapshot(),
     );
-    const supervisorSeat = governanceAfterSupervisor.agentSeats.find(
-      (candidate) => candidate.id === supervisorSeatId,
+    const supervisorSeat = governanceAfterSupervisor.agentSeats.find((candidate) =>
+      idsEqual(candidate.id, supervisorSeatId),
     )!;
     expect(supervisorSeat.identityRole).toBe("supervisor");
     expect(supervisorSeat.concern).toBe("primary");
@@ -1632,8 +1634,8 @@ describe("OrchestrationEngine", () => {
       graphRevision: 0,
     });
     const governanceAfterLead = await system.run(supervisedGovernanceRepository.getSnapshot());
-    const leadSeat = governanceAfterLead.agentSeats.find(
-      (candidate) => candidate.id === leadSeatId,
+    const leadSeat = governanceAfterLead.agentSeats.find((candidate) =>
+      idsEqual(candidate.id, leadSeatId),
     )!;
     const leadReceipt = governanceAfterLead.authorityReceipts.find(
       (candidate) => candidate.id === leadSeat.authorityReceiptId,
@@ -1738,8 +1740,8 @@ describe("OrchestrationEngine", () => {
     });
     expect(readModel.supervised.taskNodes.filter((node) => node.taskId === taskId)).toHaveLength(2);
     const governanceForPeerWork = await system.run(supervisedGovernanceRepository.getSnapshot());
-    const currentSupervisorSeat = governanceForPeerWork.agentSeats.find(
-      (candidate) => candidate.id === supervisorSeatId,
+    const currentSupervisorSeat = governanceForPeerWork.agentSeats.find((candidate) =>
+      idsEqual(candidate.id, supervisorSeatId),
     )!;
     const currentSupervisorReceipt = governanceForPeerWork.authorityReceipts.find(
       (candidate) => candidate.id === currentSupervisorSeat.authorityReceiptId,
@@ -1807,14 +1809,15 @@ describe("OrchestrationEngine", () => {
     const peerReceipt = governanceAfterPeer.authorityReceipts.find(
       (candidate) => candidate.id === peerSeat.authorityReceiptId,
     )!;
+    const peerActorSeatId = ThreadId.makeUnsafe(peerSeat.id);
     expect(peerSeat.identityRole).toBe("peer");
     expect(peerSeat.roomIds).toContain(roomId);
     expect(peerReceipt.allowedCommands).toContain("supervised.work.complete");
     expect(peerReceipt.allowedCommands).toContain("supervised.run.start");
     expect(peerReceipt.allowedCommands).toContain("supervised.run.submit");
 
-    const currentLeadSeat = governanceAfterPeer.agentSeats.find(
-      (candidate) => candidate.id === leadSeatId,
+    const currentLeadSeat = governanceAfterPeer.agentSeats.find((candidate) =>
+      idsEqual(candidate.id, leadSeatId),
     )!;
     const currentLeadReceipt = governanceAfterPeer.authorityReceipts.find(
       (candidate) => candidate.id === currentLeadSeat.authorityReceiptId,
@@ -1923,7 +1926,7 @@ describe("OrchestrationEngine", () => {
         actor: {
           kind: "seat",
           actorId: peerThreadId,
-          seatId: peerSeat.id,
+          seatId: peerActorSeatId,
         },
         authorityReceiptId: peerReceipt.id,
         expectedRevision: 0,
@@ -1954,7 +1957,7 @@ describe("OrchestrationEngine", () => {
         actor: {
           kind: "seat",
           actorId: peerThreadId,
-          seatId: peerSeat.id,
+          seatId: peerActorSeatId,
         },
         authorityReceiptId: peerReceipt.id,
         expectedRevision: 3,
@@ -1973,7 +1976,7 @@ describe("OrchestrationEngine", () => {
           createdBy: {
             kind: "seat",
             actorId: peerThreadId,
-            seatId: peerSeat.id,
+            seatId: peerActorSeatId,
           },
           createdAt: "2026-08-10T01:02:00.000Z",
         },
@@ -2091,7 +2094,7 @@ describe("OrchestrationEngine", () => {
         actor: {
           kind: "seat",
           actorId: peerThreadId,
-          seatId: peerSeat.id,
+          seatId: peerActorSeatId,
         },
         authorityReceiptId: peerReceipt.id,
         expectedRevision: 0,
@@ -2111,7 +2114,7 @@ describe("OrchestrationEngine", () => {
           createdBy: {
             kind: "seat",
             actorId: peerThreadId,
-            seatId: peerSeat.id,
+            seatId: peerActorSeatId,
           },
           createdAt: "2026-08-10T01:01:00.000Z",
         },
@@ -2214,7 +2217,7 @@ describe("OrchestrationEngine", () => {
       "supervised.task-node-committed",
     ]);
     const assignmentOrigin = events.find(
-      (event) =>
+      (event): event is Extract<OrchestrationEvent, { type: "thread.turn-start-requested" }> =>
         event.commandId === "command-supervisor-assign-peer-work" &&
         event.type === "thread.turn-start-requested",
     )?.payload.threadOrigin;
@@ -2225,7 +2228,7 @@ describe("OrchestrationEngine", () => {
       assignmentId: interventionId,
     });
     const notificationOrigin = events.find(
-      (event) =>
+      (event): event is Extract<OrchestrationEvent, { type: "thread.turn-start-requested" }> =>
         event.commandId === "command-peer-complete-supervisor-work" &&
         event.type === "thread.turn-start-requested",
     )?.payload.threadOrigin;
@@ -2265,14 +2268,14 @@ describe("OrchestrationEngine", () => {
     const governanceAfterAssumption = await system.run(
       supervisedGovernanceRepository.getSnapshot(),
     );
-    const actingSupervisor = governanceAfterAssumption.agentSeats.find(
-      (candidate) => candidate.id === supervisorSeatId,
+    const actingSupervisor = governanceAfterAssumption.agentSeats.find((candidate) =>
+      idsEqual(candidate.id, supervisorSeatId),
     )!;
     const actingSupervisorReceipt = governanceAfterAssumption.authorityReceipts.find(
       (candidate) => candidate.id === actingSupervisor.authorityReceiptId,
     )!;
-    const formerRoot = governanceAfterAssumption.agentSeats.find(
-      (candidate) => candidate.id === leadSeatId,
+    const formerRoot = governanceAfterAssumption.agentSeats.find((candidate) =>
+      idsEqual(candidate.id, leadSeatId),
     )!;
     const formerRootReceipt = governanceAfterAssumption.authorityReceipts.find(
       (candidate) => candidate.id === formerRoot.authorityReceiptId,

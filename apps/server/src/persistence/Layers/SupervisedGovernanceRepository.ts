@@ -41,8 +41,8 @@ type StateRow = {
 };
 type RevisionRow = { readonly revision: number };
 
-const decodeRows = <A, I>(
-  schema: Schema.Schema<A, I>,
+const decodeRows = <A>(
+  schema: Schema.Schema<A>,
   operation: string,
   rows: ReadonlyArray<EntityRow>,
 ) =>
@@ -50,7 +50,8 @@ const decodeRows = <A, I>(
     rows,
     (row) =>
       Effect.try({
-        try: () => Schema.decodeUnknownSync(schema)(JSON.parse(row.entityJson)),
+        try: () =>
+          Schema.decodeUnknownSync(schema as Schema.Decoder<A>)(JSON.parse(row.entityJson)),
         catch: toPersistenceDecodeCauseError(operation),
       }),
     { concurrency: 1 },

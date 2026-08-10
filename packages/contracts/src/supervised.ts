@@ -1644,63 +1644,37 @@ export const SupervisedRuntimeSnapshot = Schema.Struct({
   rooms: Schema.Array(Room),
   tasks: Schema.Array(Task),
   taskNodes: Schema.Array(TaskNode),
-  taskNodeRevisions: Schema.optional(Schema.Array(TaskNodeRevision)).pipe(
-    Schema.withDecodingDefault(() => []),
-  ),
+  taskNodeRevisions: Schema.Array(TaskNodeRevision).pipe(Schema.withDecodingDefault(() => [])),
   runs: Schema.Array(Run),
   runPolicies: Schema.Array(RunPolicy),
-  workClaims: Schema.optional(Schema.Array(WorkClaim)).pipe(Schema.withDecodingDefault(() => [])),
-  capabilityLeases: Schema.optional(Schema.Array(CapabilityLease)).pipe(
-    Schema.withDecodingDefault(() => []),
-  ),
+  workClaims: Schema.Array(WorkClaim).pipe(Schema.withDecodingDefault(() => [])),
+  capabilityLeases: Schema.Array(CapabilityLease).pipe(Schema.withDecodingDefault(() => [])),
   contextWorkspaces: Schema.Array(ContextWorkspace),
-  contextRecords: Schema.optional(Schema.Array(ContextRecord)).pipe(
+  contextRecords: Schema.Array(ContextRecord).pipe(Schema.withDecodingDefault(() => [])),
+  contextCompactionReceipts: Schema.Array(ContextCompactionReceipt).pipe(
     Schema.withDecodingDefault(() => []),
   ),
-  contextCompactionReceipts: Schema.optional(Schema.Array(ContextCompactionReceipt)).pipe(
+  evidence: Schema.Array(Evidence).pipe(Schema.withDecodingDefault(() => [])),
+  rlmEpisodes: Schema.Array(RlmEpisode).pipe(Schema.withDecodingDefault(() => [])),
+  modelSessions: Schema.Array(ModelSessionTrace).pipe(Schema.withDecodingDefault(() => [])),
+  harnessPatches: Schema.Array(HarnessPatch).pipe(Schema.withDecodingDefault(() => [])),
+  peerSpecialties: Schema.Array(PeerSpecialty).pipe(Schema.withDecodingDefault(() => [])),
+  peerSpecialtySnapshots: Schema.Array(PeerSpecialtySnapshot).pipe(
     Schema.withDecodingDefault(() => []),
   ),
-  evidence: Schema.optional(Schema.Array(Evidence)).pipe(Schema.withDecodingDefault(() => [])),
-  rlmEpisodes: Schema.optional(Schema.Array(RlmEpisode)).pipe(Schema.withDecodingDefault(() => [])),
-  modelSessions: Schema.optional(Schema.Array(ModelSessionTrace)).pipe(
-    Schema.withDecodingDefault(() => []),
-  ),
-  harnessPatches: Schema.optional(Schema.Array(HarnessPatch)).pipe(
-    Schema.withDecodingDefault(() => []),
-  ),
-  peerSpecialties: Schema.optional(Schema.Array(PeerSpecialty)).pipe(
-    Schema.withDecodingDefault(() => []),
-  ),
-  peerSpecialtySnapshots: Schema.optional(Schema.Array(PeerSpecialtySnapshot)).pipe(
-    Schema.withDecodingDefault(() => []),
-  ),
-  kernelSessions: Schema.optional(Schema.Array(KernelSession)).pipe(
-    Schema.withDecodingDefault(() => []),
-  ),
-  kernelExecutions: Schema.optional(Schema.Array(KernelExecution)).pipe(
-    Schema.withDecodingDefault(() => []),
-  ),
-  interventions: Schema.optional(Schema.Array(Intervention)).pipe(
-    Schema.withDecodingDefault(() => []),
-  ),
-  leadNotifications: Schema.optional(Schema.Array(LeadNotification)).pipe(
-    Schema.withDecodingDefault(() => []),
-  ),
-  reconciliations: Schema.optional(Schema.Array(Reconciliation)).pipe(
-    Schema.withDecodingDefault(() => []),
-  ),
+  kernelSessions: Schema.Array(KernelSession).pipe(Schema.withDecodingDefault(() => [])),
+  kernelExecutions: Schema.Array(KernelExecution).pipe(Schema.withDecodingDefault(() => [])),
+  interventions: Schema.Array(Intervention).pipe(Schema.withDecodingDefault(() => [])),
+  leadNotifications: Schema.Array(LeadNotification).pipe(Schema.withDecodingDefault(() => [])),
+  reconciliations: Schema.Array(Reconciliation).pipe(Schema.withDecodingDefault(() => [])),
   subscriptions: Schema.Array(SubscriptionDefinition),
   plugins: Schema.Array(PluginInstallation),
-  pluginHealth: Schema.optional(Schema.Array(PluginHealth)).pipe(
-    Schema.withDecodingDefault(() => []),
-  ),
+  pluginHealth: Schema.Array(PluginHealth).pipe(Schema.withDecodingDefault(() => [])),
   schemas: Schema.Array(EventSchema),
   signals: Schema.Array(DerivedSignal),
   deliveries: Schema.Array(SubscriptionDelivery),
   deadLetters: Schema.Array(DeadLetter),
-  audit: Schema.optional(Schema.Array(SupervisedRuntimeAuditEntry)).pipe(
-    Schema.withDecodingDefault(() => []),
-  ),
+  audit: Schema.Array(SupervisedRuntimeAuditEntry).pipe(Schema.withDecodingDefault(() => [])),
   health: SupervisedRuntimeHealth,
   updatedAt: IsoDateTime,
 });

@@ -8,6 +8,7 @@ import {
   ProfilePresetId,
   SupervisedGovernanceAggregateId,
   emptySupervisedOrchestrationSnapshot,
+  type SupervisedGovernanceDomainEvent,
 } from "@synara/contracts";
 
 import { decideSupervisedGovernanceCommand } from "./governanceDecider.ts";
@@ -51,13 +52,13 @@ describe("canonical Supervised governance decider", () => {
       }),
     );
     assert.ok(!Array.isArray(event));
-    if (Array.isArray(event)) return;
-    assert.equal(event.aggregateKind, "supervised_governance");
-    assert.equal(event.type, "supervised.profile-created");
-    assert.equal(event.metadata.schemaVersion, "supervised-governance/v1");
+    const singleEvent = event as Omit<SupervisedGovernanceDomainEvent, "sequence">;
+    assert.equal(singleEvent.aggregateKind, "supervised_governance");
+    assert.equal(singleEvent.type, "supervised.profile-created");
+    assert.equal(singleEvent.metadata.schemaVersion, "supervised-governance/v1");
 
     const projected = projectSupervisedGovernanceEvent(emptySupervisedOrchestrationSnapshot(now), {
-      ...event,
+      ...singleEvent,
       sequence: 1,
     });
     assert.deepStrictEqual(
@@ -69,7 +70,7 @@ describe("canonical Supervised governance decider", () => {
     assert.throws(
       () =>
         projectSupervisedGovernanceEvent(emptySupervisedOrchestrationSnapshot(now), {
-          ...event,
+          ...singleEvent,
           sequence: 2,
           metadata: { schemaVersion: "supervised-governance/v2" },
         }),

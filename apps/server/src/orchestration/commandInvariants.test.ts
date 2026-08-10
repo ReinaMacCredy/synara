@@ -3,6 +3,8 @@ import {
   MessageId,
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
+  emptySupervisedOrchestrationSnapshot,
+  emptySupervisedRuntimeSnapshot,
   ProjectId,
   ThreadId,
   type OrchestrationCommand,
@@ -26,6 +28,8 @@ const now = new Date().toISOString();
 const readModel: OrchestrationReadModel = {
   snapshotSequence: 2,
   updatedAt: now,
+  supervisedOrchestration: emptySupervisedOrchestrationSnapshot(now),
+  supervised: emptySupervisedRuntimeSnapshot(now),
   spaces: [],
   projects: [
     {

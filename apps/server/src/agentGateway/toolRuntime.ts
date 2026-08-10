@@ -47,6 +47,7 @@ export interface ToolContext {
   readonly callerProvider: ProviderKind;
   readonly callerCapabilities: ReadonlySet<AgentGatewayCapability>;
   readonly callerTurnId: string | null;
+  readonly callerDispatchOrigin?: "user" | "automation" | "agent" | "supervised";
   readonly assertCallerTurnActive: () => Effect.Effect<void, GatewayToolError>;
   readonly jsonRpcRequestId: JsonRpcId;
 }

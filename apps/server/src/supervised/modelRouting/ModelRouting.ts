@@ -311,7 +311,10 @@ const objectiveContribution = (
     : CAPABILITY_DIMENSIONS.reduce((total, dimension) => total + profile.scores[dimension], 0) /
       CAPABILITY_DIMENSIONS.length;
   const quality = 5 + (rawQuality - 5) * profile.confidence;
-  const reliability = Math.max(0, 10 * (1 - (profile.failureRate + profile.retryRate) / 2));
+  const reliability = Math.max(
+    0,
+    10 * (1 - ((profile.failureRate ?? 0) + (profile.retryRate ?? 0)) / 2),
+  );
   const qualityAndReliability = (quality * 3 + reliability) / 4;
   const context = Math.min(10, (profile.contextCapacity / 200_000) * 10);
   const priorities = preference?.priorities ?? {

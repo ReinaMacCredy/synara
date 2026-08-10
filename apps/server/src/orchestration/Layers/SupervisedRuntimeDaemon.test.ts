@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 
 import type {
+  DeadLetter,
+  DerivedSignal,
   OrchestrationCommand,
   OrchestrationEvent,
   OrchestrationReadModel,
   OrchestrationThread,
+  SubscriptionDefinition,
+  SubscriptionDelivery,
 } from "@synara/contracts";
 import {
   ControlPlaneEvent,
@@ -237,7 +241,12 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
       createdAt: at(0),
       updatedAt: at(0),
     };
-    const first = failSubscriptionDelivery(subscription, delivery, "timeout", at(1));
+    const first = failSubscriptionDelivery(
+      subscription,
+      delivery as unknown as SubscriptionDelivery,
+      "timeout",
+      at(1),
+    );
     assert.equal(first.delivery.status, "failed");
     assert.equal(first.deadLetter, null);
     const second = failSubscriptionDelivery(
@@ -336,7 +345,7 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
             identityRole: "lead",
             effectiveRole: "lead",
             profileId: "profile-lead" as never,
-            providerSessionId: "provider-lead",
+            providerSessionId: "provider-lead" as never,
             lifecycleState: "provisioning",
             workState: "idle",
             authorityReceiptId: "receipt-lead" as never,
@@ -482,12 +491,11 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
       yield* daemon.restart;
 
       assert.deepEqual(
-        dispatched
-          .filter(
-            (command) =>
-              command.type === "supervised.run.transition" && command.runId === "run-interrupted",
-          )
-          .map((command) => command.status),
+        dispatched.flatMap((command) =>
+          command.type === "supervised.run.transition" && command.runId === "run-interrupted"
+            ? [command.status]
+            : [],
+        ),
         ["recovering", "running"],
       );
       yield* sql`DELETE FROM projection_projects WHERE project_id = 'project-1'`;
@@ -633,21 +641,21 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
         updatedAt: at(0),
         resolvedAt: null,
       };
-      yield* repository.upsertSignal(signal);
-      yield* repository.enqueueDelivery(delivery);
-      yield* repository.putDeadLetter(letter);
+      yield* repository.upsertSignal(signal as unknown as DerivedSignal);
+      yield* repository.enqueueDelivery(delivery as unknown as SubscriptionDelivery);
+      yield* repository.putDeadLetter(letter as unknown as DeadLetter);
       const before = yield* repository.getSnapshot({ includeDisabled: true });
       const redrive = yield* decideSupervisedCommand({
         state: before,
         command: {
           type: "supervised.delivery.redrive",
-          commandId: "command-redrive",
+          commandId: "command-redrive" as never,
           actor: { kind: "user", actorId: "owner" },
           aggregateId: delivery.id,
           expectedRevision: delivery.attemptCount,
           idempotencyKey: "command-redrive",
           createdAt: at(1),
-          deadLetterId: letter.id,
+          deadLetterId: letter.id as never,
           replayBehavior: "observe_only",
         },
       });
@@ -1078,7 +1086,7 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
             status: "ready",
             lastError: null,
           },
-        }) as OrchestrationThread;
+        }) as unknown as OrchestrationThread;
       threadDetails.set("thread-rlm-a", branchThread("thread-rlm-a", "Visible evidence A."));
       threadDetails.set("thread-rlm-b", branchThread("thread-rlm-b", "Visible evidence B."));
 
@@ -1142,8 +1150,8 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
             command.modelSession.authorityReceiptId === "receipt-lead-rlm-daemon" &&
             command.modelSession.effectiveRole === "lead" &&
             command.modelSession.providerSessionId === null &&
-            command.modelSession.usageProvenance.inputOutputTokens === "provider_observed" &&
-            command.modelSession.usageProvenance.contextWindow === "provider_observed",
+            command.modelSession.usageProvenance?.inputOutputTokens === "provider_observed" &&
+            command.modelSession.usageProvenance?.contextWindow === "provider_observed",
         ).length,
         2,
       );
@@ -1189,7 +1197,7 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
         messages: [],
         activities: [],
         session: null,
-      } as OrchestrationThread);
+      } as unknown as OrchestrationThread);
       dispatched.length = 0;
       yield* daemon.reconcile;
 
@@ -1267,7 +1275,7 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
         id: "subscription-rate-limit" as const,
         rateLimitPerMinute: 1,
       };
-      yield* repository.upsertSubscription(subscription);
+      yield* repository.upsertSubscription(subscription as unknown as SubscriptionDefinition);
       for (const suffix of ["a", "b"] as const) {
         const signal = {
           id: `signal-rate-${suffix}` as const,
@@ -1286,7 +1294,7 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
           resetAt: null,
           revision: 0,
         };
-        yield* repository.upsertSignal(signal);
+        yield* repository.upsertSignal(signal as unknown as DerivedSignal);
         yield* repository.enqueueDelivery({
           id: `delivery-rate-${suffix}` as const,
           subscriptionId: subscription.id,
@@ -1302,7 +1310,7 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
           replayBehavior: "observe_only",
           createdAt: at(0),
           updatedAt: at(0),
-        });
+        } as unknown as SubscriptionDelivery);
       }
 
       yield* daemon.reconcile;
@@ -1351,8 +1359,8 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
         resetAt: null,
         revision: 0,
       };
-      yield* repository.upsertSubscription(subscription);
-      yield* repository.upsertSignal(existingSignal);
+      yield* repository.upsertSubscription(subscription as unknown as SubscriptionDefinition);
+      yield* repository.upsertSignal(existingSignal as unknown as DerivedSignal);
       yield* repository.enqueueDelivery({
         id: "delivery-queue-existing" as const,
         subscriptionId: subscription.id,
@@ -1368,7 +1376,7 @@ testLayer("SupervisedRuntimeDaemon", (it) => {
         replayBehavior: "observe_only",
         createdAt: at(0),
         updatedAt: at(0),
-      });
+      } as unknown as SubscriptionDelivery);
       yield* daemon.ingest(
         Schema.decodeUnknownSync(ControlPlaneEvent)({
           sequence: 0,
@@ -1455,7 +1463,7 @@ const scenarioJReviewFact = (index: number, status: ScenarioJReviewStatus) => {
     causationEventId: null,
     correlationId: `command-review-${index}`,
     metadata: { schemaVersion: "1.0.0" },
-  } as OrchestrationEvent;
+  } as unknown as OrchestrationEvent;
   return { event, intervention, reconciliation };
 };
 

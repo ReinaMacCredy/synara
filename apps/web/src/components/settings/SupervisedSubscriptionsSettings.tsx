@@ -1,9 +1,4 @@
-import type {
-  AuthorityScope,
-  ProjectId,
-  RoomId,
-  SubscriptionDefinition,
-} from "@synara/contracts";
+import type { AuthorityScope, ProjectId, RoomId, SubscriptionDefinition } from "@synara/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 

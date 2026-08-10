@@ -58,6 +58,7 @@ import {
   resolveSplitPaneMaximizeDecision,
   resolveThreadPickerTitle,
   resolveToggledChatPanelPatch,
+  stripEditorViewSearchParams,
 } from "../../routes/-chatThreadRoute.logic";
 import { getLocalStorageItem, setLocalStorageItem } from "../../hooks/useLocalStorage";
 import { Button } from "../ui/button";
@@ -609,7 +610,7 @@ export function SplitChatSurface(props: { splitViewId: SplitViewId; routeThreadI
         params: { threadId: props.routeThreadId },
         replace: true,
         search: (previous) => ({
-          ...stripDiffSearchParams(previous),
+          ...stripEditorViewSearchParams(stripDiffSearchParams(previous)),
           splitViewId: undefined,
         }),
       });
@@ -631,7 +632,7 @@ export function SplitChatSurface(props: { splitViewId: SplitViewId; routeThreadI
         params: { threadId: fallbackThreadId },
         replace: true,
         search: (previous) => ({
-          ...stripDiffSearchParams(previous),
+          ...stripEditorViewSearchParams(stripDiffSearchParams(previous)),
           splitViewId: undefined,
         }),
       });
@@ -658,7 +659,7 @@ export function SplitChatSurface(props: { splitViewId: SplitViewId; routeThreadI
         params: { threadId: normalizedFocusedThreadId },
         replace: true,
         search: (previous) => ({
-          ...stripDiffSearchParams(previous),
+          ...stripEditorViewSearchParams(stripDiffSearchParams(previous)),
           splitViewId: activeSplitView.id,
         }),
       });
@@ -686,7 +687,7 @@ export function SplitChatSurface(props: { splitViewId: SplitViewId; routeThreadI
       params: { threadId: nextThreadId },
       replace: true,
       search: (previous) => ({
-        ...stripDiffSearchParams(previous),
+        ...stripEditorViewSearchParams(stripDiffSearchParams(previous)),
         splitViewId: activeSplitView.id,
       }),
     });
@@ -800,7 +801,7 @@ export function SplitChatSurface(props: { splitViewId: SplitViewId; routeThreadI
         params: { threadId: decision.threadId },
         replace: true,
         search: (previous) => ({
-          ...stripDiffSearchParams(previous),
+          ...stripEditorViewSearchParams(stripDiffSearchParams(previous)),
           splitViewId: undefined,
         }),
       }).then(() => {
@@ -833,7 +834,7 @@ export function SplitChatSurface(props: { splitViewId: SplitViewId; routeThreadI
         params: { threadId: decision.threadId },
         replace: true,
         search: (previous) => ({
-          ...stripDiffSearchParams(previous),
+          ...stripEditorViewSearchParams(stripDiffSearchParams(previous)),
           splitViewId: undefined,
         }),
       });
@@ -846,7 +847,7 @@ export function SplitChatSurface(props: { splitViewId: SplitViewId; routeThreadI
         params: { threadId: decision.threadId },
         replace: true,
         search: (previous) => ({
-          ...stripDiffSearchParams(previous),
+          ...stripEditorViewSearchParams(stripDiffSearchParams(previous)),
           splitViewId: decision.splitViewId,
         }),
       });
@@ -926,7 +927,7 @@ export function SplitChatSurface(props: { splitViewId: SplitViewId; routeThreadI
       params: { threadId },
       replace: true,
       search: (previous) => ({
-        ...stripDiffSearchParams(previous),
+        ...stripEditorViewSearchParams(stripDiffSearchParams(previous)),
         splitViewId: activeSplitView.id,
       }),
     });

@@ -7,12 +7,44 @@ import {
   SupervisedGovernanceCommand,
   OrchestrationShellStreamEvent,
   ProviderInteractionMode,
+  SupervisedGovernanceSnapshot,
+  SupervisedRuntimeSnapshot,
   SupervisionSnapshot,
+  emptySupervisedGovernanceSnapshot,
   emptySupervisedOrchestrationSnapshot,
+  emptySupervisedRuntimeSnapshot,
   emptySupervisionSnapshot,
 } from "./index";
 
 const now = "2026-08-03T10:00:00.000Z";
+
+it.effect("defaults legacy supervised runtime and governance collections", () =>
+  Effect.gen(function* () {
+    const legacyRuntime: Record<string, unknown> = { ...emptySupervisedRuntimeSnapshot(now) };
+    delete legacyRuntime.taskNodeRevisions;
+    delete legacyRuntime.evidence;
+    delete legacyRuntime.harnessPatches;
+
+    const runtime = yield* Schema.decodeUnknownEffect(SupervisedRuntimeSnapshot)(legacyRuntime);
+    assert.deepEqual(runtime.taskNodeRevisions, []);
+    assert.deepEqual(runtime.evidence, []);
+    assert.deepEqual(runtime.harnessPatches, []);
+
+    const legacyGovernance: Record<string, unknown> = {
+      ...emptySupervisedGovernanceSnapshot(now),
+    };
+    delete legacyGovernance.providerSessions;
+    delete legacyGovernance.handoffs;
+    delete legacyGovernance.orchestration;
+
+    const governance = yield* Schema.decodeUnknownEffect(SupervisedGovernanceSnapshot)(
+      legacyGovernance,
+    );
+    assert.deepEqual(governance.providerSessions, []);
+    assert.deepEqual(governance.handoffs, []);
+    assert.deepEqual(governance.orchestration.agentSeats, []);
+  }),
+);
 
 it.effect("round-trips a many-target mission and durable wake queue", () =>
   Effect.gen(function* () {

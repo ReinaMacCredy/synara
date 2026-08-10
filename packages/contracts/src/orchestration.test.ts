@@ -61,6 +61,21 @@ const decodeOrchestrationCommand = Schema.decodeUnknownEffect(OrchestrationComma
 const decodeOrchestrationEvent = Schema.decodeUnknownEffect(OrchestrationEvent);
 const decodeThreadPullRequest = Schema.decodeUnknownEffect(OrchestrationThreadPullRequest);
 
+it.effect("defaults supervised slices when decoding legacy read models", () =>
+  Effect.gen(function* () {
+    const decoded = yield* Schema.decodeUnknownEffect(OrchestrationReadModel)({
+      snapshotSequence: 1,
+      spaces: [],
+      projects: [],
+      threads: [],
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    assert.deepEqual(decoded.supervised.rooms, []);
+    assert.deepEqual(decoded.supervisedOrchestration.agentSeats, []);
+  }),
+);
+
 it.effect("decodes last-known PRs persisted before draft/mergeability/diff fields existed", () =>
   Effect.gen(function* () {
     const legacy = yield* decodeThreadPullRequest({

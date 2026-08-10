@@ -59,7 +59,7 @@ function activePatch(input: {
     activatedBy: owner,
     createdAt: "2026-08-10T00:00:00.000Z",
     updatedAt: "2026-08-10T00:03:00.000Z",
-  } as HarnessPatch;
+  } as unknown as HarnessPatch;
 }
 
 describe("Harness Patch base policy", () => {

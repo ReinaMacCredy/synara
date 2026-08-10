@@ -78,6 +78,13 @@ const stableId = (prefix: string, value: unknown) =>
   `${prefix}:${createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 32)}`;
 const RLM_PROVISIONING_GRACE_MS = 30_000;
 const ORCHESTRATION_INGESTION_CURSOR = "orchestration-events-v1";
+const episodeRevision = (episode: RlmEpisode) => episode.revision ?? 0;
+const harnessPatchRevision = (patch: HarnessPatch) => patch.revision ?? 0;
+const harnessPatchSequence = (patch: HarnessPatch) => patch.lastControlPlaneSequence ?? 0;
+const unavailableUsageProvenance = {
+  inputOutputTokens: "unavailable" as const,
+  contextWindow: "unavailable" as const,
+};
 const PROVISIONING_RLM_STATUSES = new Set<RlmEpisode["status"]>([
   "requested",
   "admitted",
@@ -499,7 +506,7 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
   const upsertEpisode = (episode: RlmEpisode, at: string, suffix: string) =>
     engine.dispatch({
       type: "supervised.rlm.upsert",
-      ...daemonCommandBase(episode.id, episode.revision - 1, suffix, at),
+      ...daemonCommandBase(episode.id, episodeRevision(episode) - 1, suffix, at),
       episode,
     });
 
@@ -518,7 +525,7 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
         status: "stalled",
         failureSummaries,
         updatedAt: at,
-        revision: episode.revision + 1,
+        revision: episodeRevision(episode) + 1,
       },
       at,
       "episode-stalled",
@@ -528,47 +535,57 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
   const evidenceIdFor = (sessionId: string) =>
     EvidenceId.makeUnsafe(stableId("evidence:rlm-session", sessionId));
 
-  const responseFromTrace = (trace: ModelSessionTrace): string | null =>
-    trace.items.filter((item) => item.type === "message" && item.role === "assistant").at(-1)
-      ?.content ?? null;
+  const responseFromTrace = (trace: ModelSessionTrace): string | null => {
+    const item = trace.items.findLast(
+      (
+        candidate,
+      ): candidate is Extract<ModelSessionTrace["items"][number], { readonly type: "message" }> =>
+        candidate.type === "message" && candidate.role === "assistant",
+    );
+    return item?.content ?? null;
+  };
 
   const mergeSessionUsage = (
     trace: ModelSessionTrace,
     observed: Pick<RlmThreadResult, "usage" | "usageProvenance">,
-  ): Pick<ModelSessionTrace, "usage" | "usageProvenance"> => ({
-    usage: {
-      inputTokens:
-        observed.usageProvenance.inputOutputTokens === "provider_observed"
-          ? observed.usage.inputTokens
-          : trace.usage.inputTokens,
-      outputTokens:
-        observed.usageProvenance.inputOutputTokens === "provider_observed"
-          ? observed.usage.outputTokens
-          : trace.usage.outputTokens,
-      contextTokens:
-        observed.usageProvenance.contextWindow === "provider_observed"
-          ? observed.usage.contextTokens
-          : trace.usage.contextTokens,
-      providerLimitTokens:
-        observed.usageProvenance.contextWindow === "provider_observed"
-          ? observed.usage.providerLimitTokens
-          : trace.usage.providerLimitTokens,
-      contextUsagePercent:
-        observed.usageProvenance.contextWindow === "provider_observed"
-          ? observed.usage.contextUsagePercent
-          : trace.usage.contextUsagePercent,
-    },
-    usageProvenance: {
-      inputOutputTokens:
-        observed.usageProvenance.inputOutputTokens === "provider_observed"
-          ? "provider_observed"
-          : trace.usageProvenance.inputOutputTokens,
-      contextWindow:
-        observed.usageProvenance.contextWindow === "provider_observed"
-          ? "provider_observed"
-          : trace.usageProvenance.contextWindow,
-    },
-  });
+  ): Pick<ModelSessionTrace, "usage" | "usageProvenance"> => {
+    const traceProvenance = trace.usageProvenance ?? unavailableUsageProvenance;
+    const observedProvenance = observed.usageProvenance ?? unavailableUsageProvenance;
+    return {
+      usage: {
+        inputTokens:
+          observedProvenance.inputOutputTokens === "provider_observed"
+            ? observed.usage.inputTokens
+            : trace.usage.inputTokens,
+        outputTokens:
+          observedProvenance.inputOutputTokens === "provider_observed"
+            ? observed.usage.outputTokens
+            : trace.usage.outputTokens,
+        contextTokens:
+          observedProvenance.contextWindow === "provider_observed"
+            ? observed.usage.contextTokens
+            : trace.usage.contextTokens,
+        providerLimitTokens:
+          observedProvenance.contextWindow === "provider_observed"
+            ? observed.usage.providerLimitTokens
+            : trace.usage.providerLimitTokens,
+        contextUsagePercent:
+          observedProvenance.contextWindow === "provider_observed"
+            ? observed.usage.contextUsagePercent
+            : trace.usage.contextUsagePercent,
+      },
+      usageProvenance: {
+        inputOutputTokens:
+          observedProvenance.inputOutputTokens === "provider_observed"
+            ? "provider_observed"
+            : traceProvenance.inputOutputTokens,
+        contextWindow:
+          observedProvenance.contextWindow === "provider_observed"
+            ? "provider_observed"
+            : traceProvenance.contextWindow,
+      },
+    };
+  };
 
   const appendEvidenceItem = (
     items: ReadonlyArray<ModelSessionTrace["items"][number]>,
@@ -733,7 +750,7 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
       const root = runtime.modelSessions.find(
         (session) => session.id === initialEpisode.rootModelSessionId,
       );
-      const branches = initialEpisode.branchModelSessionIds.flatMap((sessionId) => {
+      const branches = (initialEpisode.branchModelSessionIds ?? []).flatMap((sessionId) => {
         const trace = runtime.modelSessions.find((session) => session.id === sessionId);
         return trace ? [trace] : [];
       });
@@ -822,7 +839,7 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
           currentBranches.push(branch);
           continue;
         }
-        if (branch.threadId === null) {
+        if (branch.threadId == null) {
           missingBranchThreadCount += 1;
           currentBranches.push(branch);
           continue;
@@ -1031,7 +1048,7 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
           evidenceRefs,
           failureSummaries,
           updatedAt: at,
-          revision: episode.revision + 1,
+          revision: episodeRevision(episode) + 1,
         };
         yield* upsertEpisode(episode, at, "branch-projection");
       }
@@ -1050,7 +1067,7 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
         continue;
       }
 
-      if (root.threadId === null) {
+      if (root.threadId == null) {
         yield* stallEpisode(episode, "RLM root synthesis thread is unavailable after recovery.");
         continue;
       }
@@ -1138,7 +1155,7 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
           status: failedBranches.length > 0 ? "partially_completed" : "completed",
           evidenceRefs: [...new Set([...episode.evidenceRefs, evidenceId])],
           updatedAt: at,
-          revision: episode.revision + 1,
+          revision: episodeRevision(episode) + 1,
         };
         yield* upsertEpisode(episode, at, "episode-completed");
         let runRevision = run.revision;
@@ -1217,7 +1234,7 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
               ...new Set([...episode.failureSummaries, "Root synthesis exhausted retries."]),
             ].slice(-64),
             updatedAt: at,
-            revision: episode.revision + 1,
+            revision: episodeRevision(episode) + 1,
           };
           yield* upsertEpisode(episode, at, "root-failed");
           if (run.status !== "failed" && run.status !== "cancelled" && run.status !== "succeeded") {
@@ -1249,7 +1266,7 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
     );
     yield* Effect.forEach(
       builtInSubscriptions(at).filter((subscription) => !subscriptionIds.has(subscription.id)),
-      repository.upsertSubscription,
+      (subscription) => repository.upsertSubscription(subscription),
       { concurrency: 1, discard: true },
     );
   });
@@ -1332,15 +1349,15 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
       commandId: CommandId.makeUnsafe(
         stableId("command:harness-patch", {
           patchId: current.id,
-          revision: current.revision,
-          nextRevision: next.revision,
+          revision: harnessPatchRevision(current),
+          nextRevision: harnessPatchRevision(next),
           suffix,
         }),
       ),
       actor: { kind: "daemon", actorId: workerId },
       aggregateId: current.id,
-      expectedRevision: current.revision,
-      idempotencyKey: `harness-patch:${current.id}:${current.revision}:${suffix}`,
+      expectedRevision: harnessPatchRevision(current),
+      idempotencyKey: `harness-patch:${current.id}:${harnessPatchRevision(current)}:${suffix}`,
       patch: next,
       createdAt: next.updatedAt,
     });
@@ -1377,7 +1394,7 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
       evaluation: {
         passed: payload.passed,
         basePolicyHash: patch.basePolicyHash,
-        evidenceRefs: evidenceRefs.map(EvidenceId.makeUnsafe),
+        evidenceRefs: evidenceRefs.map((evidenceRef) => EvidenceId.makeUnsafe(evidenceRef)),
         regressions,
         evaluatedBy: { kind: "daemon", actorId: workerId },
         evaluatedAt: event.recordedAt,
@@ -1396,7 +1413,7 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
           ...patch,
           status: "sandboxed",
           updatedAt: new Date().toISOString(),
-          revision: patch.revision + 1,
+          revision: harnessPatchRevision(patch) + 1,
         };
         yield* dispatchHarnessPatch(patch, next, "sandbox");
         patch = next;
@@ -1412,7 +1429,7 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
       }
       if (patch.status !== "sandboxed" && patch.status !== "canary") continue;
       const events = yield* repository.listControlPlaneEvents({
-        afterSequence: patch.lastControlPlaneSequence,
+        afterSequence: harnessPatchSequence(patch),
         limit: 1_000,
       });
       for (const event of events) {
@@ -1465,10 +1482,10 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
           if (patch.status === "rolled_back") break;
         }
       }
-      const lastSequence = events.at(-1)?.sequence ?? patch.lastControlPlaneSequence;
+      const lastSequence = events.at(-1)?.sequence ?? harnessPatchSequence(patch);
       if (
         (patch.status === "sandboxed" || patch.status === "canary") &&
-        lastSequence > patch.lastControlPlaneSequence
+        lastSequence > harnessPatchSequence(patch)
       ) {
         const next = advanceHarnessPatchControlPlaneCursor(
           patch,
@@ -1868,7 +1885,7 @@ const makeSupervisedRuntimeDaemon = Effect.gen(function* () {
   const ingest: SupervisedRuntimeDaemonShape["ingest"] = (event) =>
     repository
       .appendControlPlaneEvent(event)
-      .pipe(Effect.andThen(Queue.offer(reconcileWake, undefined)), Effect.asVoid);
+      .pipe(Effect.tap(() => Queue.offer(reconcileWake, undefined)));
 
   const wake: SupervisedRuntimeDaemonShape["wake"] = Queue.offer(reconcileWake, undefined).pipe(
     Effect.asVoid,

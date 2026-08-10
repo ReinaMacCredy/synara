@@ -65,7 +65,7 @@ export function resolveProjectedSupervisedCallerForThread(input: {
   const threadById = new Map(input.threads.map((candidate) => [candidate.id, candidate]));
   const visited = new Set<ThreadId>([input.threadId]);
   let sourceThreadId = thread.sourceThreadId;
-  while (sourceThreadId !== null && !visited.has(sourceThreadId)) {
+  while (sourceThreadId !== null && sourceThreadId !== undefined && !visited.has(sourceThreadId)) {
     const caller = resolveProjectedSupervisedCaller({
       governance: input.governance,
       threadId: sourceThreadId,

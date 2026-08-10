@@ -5,11 +5,16 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import {
   AgentSeat,
   EffectiveAuthorityReceipt,
+  LeadSeatId,
+  ProfileSnapshotId,
+  ProjectId,
   RootAuthorityLease,
+  RoomId,
   SupervisedGovernanceSnapshot,
   SupervisedRuntimeSnapshot,
   emptySupervisedGovernanceSnapshot,
   emptySupervisedRuntimeSnapshot,
+  ThreadId,
 } from "@synara/contracts";
 
 import { emptySupervisedGovernanceDecisionState } from "../../orchestration/supervised/governanceState.ts";
@@ -106,22 +111,22 @@ schemaLayer("migration 100 Supervisor-first governance", (it) => {
       );
 
       assert.equal(seat.identityRole, "lead");
-      assert.deepStrictEqual(seat.roomIds, ["room-1"]);
+      assert.deepStrictEqual(seat.roomIds, [RoomId.makeUnsafe("room-1")]);
       assert.deepStrictEqual(receipt.allowedCommands, []);
       assert.deepStrictEqual(receipt.allowedTools, []);
       assert.equal(lease.holderSeatId, "lead-seat-1");
       assert.equal(lease.status, "active");
       assert.equal(lease.id, "legacy-root-lease:room-1:lead-seat-1");
 
-      const state = {
+      const state: SupervisedGovernanceDecisionState = {
         ...emptySupervisedGovernanceDecisionState(now),
         leads: [
           {
-            id: "lead-seat-1",
-            projectId: "project-1",
-            activeThreadId: "lead-thread",
+            id: LeadSeatId.makeUnsafe("lead-seat-1"),
+            projectId: ProjectId.makeUnsafe("project-1"),
+            activeThreadId: ThreadId.makeUnsafe("lead-thread"),
             predecessorThreadIds: [],
-            profileSnapshotId: "profile-snapshot-1",
+            profileSnapshotId: ProfileSnapshotId.makeUnsafe("profile-snapshot-1"),
             status: "active",
             createdAt: now,
             updatedAt: now,
@@ -129,7 +134,7 @@ schemaLayer("migration 100 Supervisor-first governance", (it) => {
             revision: 1,
           },
         ],
-      } as SupervisedGovernanceDecisionState;
+      };
       const runtime = Schema.decodeUnknownSync(SupervisedRuntimeSnapshot)({
         ...emptySupervisedRuntimeSnapshot(now),
         rooms: [

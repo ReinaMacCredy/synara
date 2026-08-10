@@ -43,7 +43,7 @@ export function buildClaudeHostSdkMcpServer(input: {
     tool(
       definition.name,
       definition.description,
-      z.object({}).passthrough(),
+      z.object({}).passthrough() as unknown as Parameters<typeof tool>[2],
       async (args) => {
         const result = await Effect.runPromise(
           input.runtime

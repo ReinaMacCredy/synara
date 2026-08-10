@@ -7,7 +7,11 @@ import { pathToFileURL } from "node:url";
 import {
   emptySupervisedGovernanceSnapshot,
   emptySupervisedRuntimeSnapshot,
+  type DerivedSignal,
   type OrchestrationCommand,
+  type PluginInstallation,
+  type SubscriptionDefinition,
+  type SubscriptionDelivery,
 } from "@synara/contracts";
 import { it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
@@ -383,7 +387,7 @@ const signal = {
   triggeredAt: now,
   resetAt: null,
   revision: 0,
-};
+} as unknown as DerivedSignal;
 const delivery = {
   id: "delivery-context" as const,
   subscriptionId: signal.subscriptionId,
@@ -398,7 +402,7 @@ const delivery = {
   replay: false,
   createdAt: now,
   updatedAt: now,
-};
+} as unknown as SubscriptionDelivery;
 
 layer("SupervisedSignalDelivery", (it) => {
   it.effect("wakes the active concern Supervisor without changing Root or Room Lead", () =>
@@ -497,13 +501,13 @@ layer("SupervisedSignalDelivery", (it) => {
             leadSeatId: "lead-1",
             roomId: "room-1",
           },
-        },
+        } as unknown as DerivedSignal,
         delivery: {
           ...delivery,
           id: "delivery-review" as const,
           subscriptionId: subscription.id,
           signalId: "signal-review" as const,
-        },
+        } as unknown as SubscriptionDelivery,
       });
       assert.equal(dispatched.length, 1);
       const command = dispatched[0];
@@ -541,7 +545,7 @@ layer("SupervisedSignalDelivery", (it) => {
             scope: { kind: "room", roomId: "room-2" },
             subjectId: "lead-2",
             context: { ...signal.context, roomId: "room-2", leadSeatId: "lead-2" },
-          },
+          } as unknown as DerivedSignal,
           delivery,
         }),
       );
@@ -629,13 +633,19 @@ layer("SupervisedSignalDelivery", (it) => {
             updatedAt: now,
             revision: 0,
           };
-          yield* repository.upsertPlugin(plugin);
+          yield* repository.upsertPlugin(plugin as unknown as PluginInstallation);
           const subscription = {
             ...builtInSubscriptions(now)[1]!,
             destination: { kind: "plugin" as const, pluginId: plugin.pluginId, handler: "handle" },
           };
           for (let attempt = 0; attempt < 5; attempt += 1) {
-            const exit = yield* Effect.exit(service.deliver({ subscription, signal, delivery }));
+            const exit = yield* Effect.exit(
+              service.deliver({
+                subscription: subscription as unknown as SubscriptionDefinition,
+                signal,
+                delivery,
+              }),
+            );
             assert.equal(exit._tag, "Failure");
           }
           const snapshot = yield* repository.getSnapshot({ includeDisabled: true });

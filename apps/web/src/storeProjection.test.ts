@@ -10,6 +10,7 @@ import {
   ThreadMarkerId,
   TurnId,
   emptySupervisedOrchestrationSnapshot,
+  emptySupervisedRuntimeSnapshot,
   type OrchestrationReadModel,
   type OrchestrationShellStreamEvent,
   type ThreadMarker,
@@ -36,6 +37,7 @@ import type { AppState } from "./storeState";
 import { getThreadFromState } from "./threadDerivation";
 
 const EMPTY_SUPERVISION = emptySupervisedOrchestrationSnapshot("2026-02-27T00:00:00.000Z");
+const EMPTY_SUPERVISED_RUNTIME = emptySupervisedRuntimeSnapshot("2026-02-27T00:00:00.000Z");
 import {
   makeThread,
   makeActivity,
@@ -348,6 +350,8 @@ describe("store projection", () => {
       {
         snapshotSequence: 1,
         updatedAt: "2026-02-27T00:00:00.000Z",
+        supervised: EMPTY_SUPERVISED_RUNTIME,
+        supervisedOrchestration: EMPTY_SUPERVISION,
         spaces: [],
         projects: [
           makeReadModelProject({
@@ -1605,6 +1609,8 @@ describe("store projection", () => {
     const readModel = {
       snapshotSequence: 1,
       updatedAt: "2026-02-28T00:00:00.000Z",
+      supervised: EMPTY_SUPERVISED_RUNTIME,
+      supervisedOrchestration: EMPTY_SUPERVISION,
       spaces: [],
       projects: [
         makeReadModelProject({
@@ -1707,6 +1713,7 @@ describe("deletion tombstone retirement", () => {
     return {
       snapshotSequence,
       updatedAt: "2026-02-27T00:10:00.000Z",
+      supervisedOrchestration: EMPTY_SUPERVISION,
       spaces: [],
       projects: [],
       threads: [],
@@ -2134,6 +2141,7 @@ describe("resume cursor lifecycle in projection transitions", () => {
     syncServerShellSnapshot(state, {
       snapshotSequence: 60,
       updatedAt: "2026-02-27T00:10:00.000Z",
+      supervisedOrchestration: EMPTY_SUPERVISION,
       spaces: [],
       projects: [],
       threads: [],
