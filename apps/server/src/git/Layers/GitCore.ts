@@ -2204,7 +2204,8 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
             "log",
             `--max-count=${fetchCount}`,
             `--pretty=format:${pretty}${HISTORY_RECORD_SEP}`,
-            "--date-order",
+            // Topo order keeps first-parent chains readable for the graph (VS Code style).
+            "--topo-order",
           ],
           {
             timeoutMs: 15_000,

@@ -15,10 +15,8 @@ import {
 import { PanelStateMessage } from "~/components/chat/PanelStateMessage";
 import { RouteInsetSurface } from "~/components/RouteInsetSurface";
 import { SidebarHeaderNavigationControls } from "~/components/SidebarHeaderNavigationControls";
-import {
-  assignGitGraphLanes,
-  renderGitGraphLaneSvg,
-} from "~/components/source/gitGraphLanes";
+import { SourceCommitGraph } from "~/components/source/SourceCommitGraph";
+import "~/components/source/sourceCommitGraph.css";
 import { Button } from "~/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "~/components/ui/empty";
 import { SearchInput } from "~/components/ui/search-input";
@@ -28,7 +26,7 @@ import {
   useDesktopTopBarWindowControlsGutterClassName,
 } from "~/hooks/useDesktopTopBarGutter";
 import { GitBranchIcon, RefreshCwIcon } from "~/lib/icons";
-import { gitHistoryQueryOptions } from "~/lib/gitReactQuery";
+import { gitBranchesQueryOptions, gitHistoryQueryOptions } from "~/lib/gitReactQuery";
 import { cn } from "~/lib/utils";
 import { useStore } from "~/store";
 
@@ -66,6 +64,17 @@ function formatAuthoredAt(value: string): string {
   });
 }
 
+function historyErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error === "object" && error !== null) {
+    const record = error as { message?: unknown; cause?: unknown };
+    if (typeof record.message === "string" && record.message.trim()) return record.message;
+    if (typeof record.cause === "string" && record.cause.trim()) return record.cause;
+  }
+  if (typeof error === "string" && error.trim()) return error;
+  return "Git history request failed.";
+}
+
 function SourceRouteView() {
   const search = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
@@ -90,13 +99,13 @@ function SourceRouteView() {
 
   const cwd = activeProject?.cwd ?? null;
   const historyQuery = useQuery(gitHistoryQueryOptions(cwd, HISTORY_LIMIT));
+  const branchesQuery = useQuery(gitBranchesQueryOptions(cwd));
   const [queryDraft, setQueryDraft] = useState(search.q ?? "");
 
   useEffect(() => {
     setQueryDraft(search.q ?? "");
   }, [search.q]);
 
-  // Persist default project into the URL once so refresh keeps the same repo.
   useEffect(() => {
     if (search.projectId || !activeProject) return;
     void navigate({
@@ -123,31 +132,23 @@ function SourceRouteView() {
     });
   }, [commits, search.q]);
 
-  const laneRows = useMemo(() => assignGitGraphLanes(filteredCommits), [filteredCommits]);
-  const laneBySha = useMemo(() => {
-    const map = new Map(laneRows.map((row) => [row.sha, row]));
-    return map;
-  }, [laneRows]);
-  const maxLane = useMemo(
-    () => laneRows.reduce((max, row) => Math.max(max, row.lane), 0),
-    [laneRows],
-  );
-
-  const selectedSha = useMemo(() => {
-    if (search.sha && filteredCommits.some((commit) => commit.sha.startsWith(search.sha!))) {
+  const selectedCommit = useMemo(() => {
+    if (search.sha) {
       return (
-        filteredCommits.find((commit) => commit.sha.startsWith(search.sha!))?.sha ??
-        filteredCommits[0]?.sha ??
+        filteredCommits.find((commit) => commit.sha.startsWith(search.sha!)) ??
+        filteredCommits[0] ??
         null
       );
     }
-    return filteredCommits[0]?.sha ?? null;
+    return filteredCommits[0] ?? null;
   }, [filteredCommits, search.sha]);
 
-  const selectedCommit =
-    filteredCommits.find((commit) => commit.sha === selectedSha) ?? filteredCommits[0] ?? null;
+  const currentBranch = useMemo(() => {
+    const branches = branchesQuery.data?.branches ?? [];
+    return branches.find((branch) => branch.current && !branch.isRemote)?.name;
+  }, [branchesQuery.data?.branches]);
 
-  const selectCommit = (commit: GitHistoryCommit) => {
+  const selectCommit = (commit: GitHistoryCommit | { sha: string }) => {
     void navigate({
       search: (previous) => ({
         ...previous,
@@ -255,11 +256,7 @@ function SourceRouteView() {
             <PanelStateMessage fill="flex">
               <div className="space-y-2">
                 <p className="font-medium text-foreground">Could not load history</p>
-                <p>
-                  {historyQuery.error instanceof Error
-                    ? historyQuery.error.message
-                    : "Git history request failed."}
-                </p>
+                <p>{historyErrorMessage(historyQuery.error)}</p>
               </div>
             </PanelStateMessage>
             <Button type="button" size="sm" onClick={() => void historyQuery.refetch()}>
@@ -304,75 +301,34 @@ function SourceRouteView() {
               className="h-9"
             />
 
-            <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)]">
+            <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(260px,0.65fr)]">
               <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-border/50 bg-card/30">
                 <div className="flex items-center justify-between border-b border-border/40 px-3 py-2 text-xs text-muted-foreground">
                   <span>
                     <span className="font-medium text-foreground">History</span>
                     {historyQuery.data?.truncated ? " · truncated" : null}
+                    <span className="ml-2 text-[10px] uppercase tracking-wide opacity-70">
+                      commit-graph
+                    </span>
                   </span>
                   <span>
                     {filteredCommits.length}
-                    {filteredCommits.length !== commits.length
-                      ? ` of ${commits.length}`
-                      : ""}{" "}
+                    {filteredCommits.length !== commits.length ? ` of ${commits.length}` : ""}{" "}
                     commits
                   </span>
                 </div>
-                <div className="min-h-0 flex-1 overflow-auto p-1.5">
-                  {filteredCommits.length === 0 ? (
-                    <p className="px-2 py-6 text-center text-sm text-muted-foreground">
-                      No commits match this search.
-                    </p>
-                  ) : (
-                    filteredCommits.map((commit) => {
-                      const lane = laneBySha.get(commit.sha);
-                      const selected = commit.sha === selectedCommit?.sha;
-                      return (
-                        <button
-                          key={commit.sha}
-                          type="button"
-                          onClick={() => selectCommit(commit)}
-                          className={cn(
-                            "grid w-full grid-cols-[64px_minmax(0,1fr)_auto] items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors",
-                            selected ? "bg-accent/60" : "hover:bg-muted/50",
-                          )}
-                        >
-                          <div
-                            className="flex h-[34px] items-center"
-                            dangerouslySetInnerHTML={{
-                              __html: lane
-                                ? renderGitGraphLaneSvg({
-                                    row: lane,
-                                    maxLane,
-                                    rowHeight: 34,
-                                    width: 64,
-                                  })
-                                : "",
-                            }}
-                          />
-                          <div className="min-w-0">
-                            <div className="truncate text-[13px] font-medium leading-snug">
-                              {commit.subject || "(no subject)"}
-                              {commit.refs[0] ? (
-                                <span className="ml-1.5 inline-flex rounded-full bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium text-violet-300">
-                                  {commit.refs[0]}
-                                </span>
-                              ) : null}
-                            </div>
-                            <div className="mt-0.5 truncate text-[11.5px] text-muted-foreground">
-                              {commit.authorName}
-                              {commit.authoredAt ? ` · ${formatAuthoredAt(commit.authoredAt)}` : ""}
-                            </div>
-                          </div>
-                          <span className="font-mono text-[11px] text-muted-foreground">
-                            {commit.shortSha}
-                          </span>
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
+                {filteredCommits.length === 0 ? (
+                  <p className="px-2 py-6 text-center text-sm text-muted-foreground">
+                    No commits match this search.
+                  </p>
+                ) : (
+                  <SourceCommitGraph
+                    commits={filteredCommits}
+                    {...(currentBranch ? { currentBranch } : {})}
+                    onCommitSha={(sha) => selectCommit({ sha })}
+                    className="p-2"
+                  />
+                )}
               </section>
 
               <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-border/50 bg-card/30">
@@ -416,15 +372,7 @@ function SourceRouteView() {
                               key={parent}
                               type="button"
                               className="rounded-md bg-muted/40 px-2 py-1 text-left font-mono text-[11px] text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-                              onClick={() =>
-                                void navigate({
-                                  search: (previous) => ({
-                                    ...previous,
-                                    sha: parent.slice(0, 12),
-                                  }),
-                                  replace: true,
-                                })
-                              }
+                              onClick={() => selectCommit({ sha: parent })}
                             >
                               {parent.slice(0, 12)}
                             </button>

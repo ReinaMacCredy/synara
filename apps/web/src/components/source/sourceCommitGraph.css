@@ -1,0 +1,43 @@
+/* Dark-theme overrides for the third-party `commit-graph` package.
+   The library ships light-oriented row chrome; keep Synara's surface colors. */
+
+.source-commit-graph {
+  color: var(--foreground, #f4f4f5);
+  font-size: 13px;
+}
+
+.source-commit-graph a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Common class name patterns from the package's CSS modules / structure */
+.source-commit-graph [class*="scrollContainer"],
+.source-commit-graph [class*="ScrollContainer"] {
+  max-height: none !important;
+  overflow: visible !important;
+  background: transparent !important;
+}
+
+.source-commit-graph [class*="commit"],
+.source-commit-graph [class*="Commit"] {
+  color: inherit;
+}
+
+.source-commit-graph [class*="message"],
+.source-commit-graph [class*="Message"] {
+  color: var(--foreground, #f4f4f5);
+}
+
+.source-commit-graph [class*="author"],
+.source-commit-graph [class*="Author"],
+.source-commit-graph [class*="date"],
+.source-commit-graph [class*="Date"],
+.source-commit-graph [class*="sha"],
+.source-commit-graph [class*="Sha"] {
+  color: var(--muted-foreground, #a1a1aa);
+}
+
+.source-commit-graph svg {
+  overflow: visible;
+}
