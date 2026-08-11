@@ -1,9 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { dirname } from "node:path";
-import {
-  DEFAULT_GIT_TEXT_GENERATION_MODEL,
-  DEFAULT_MODEL_BY_PROVIDER,
-} from "@veylen/contracts";
+import { DEFAULT_GIT_TEXT_GENERATION_MODEL, DEFAULT_MODEL_BY_PROVIDER } from "@veylen/contracts";
 import { Effect, FileSystem, Layer } from "effect";
 import { describe, expect, it } from "vitest";
 import { ServerConfig } from "./config";
