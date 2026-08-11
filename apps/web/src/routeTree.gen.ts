@@ -13,6 +13,7 @@ import { Route as ChatRouteImport } from './routes/_chat'
 import { Route as ChatIndexRouteImport } from './routes/_chat.index'
 import { Route as ChatTasksRouteImport } from './routes/_chat.tasks'
 import { Route as ChatSupervisedRouteImport } from './routes/_chat.supervised'
+import { Route as ChatSourceRouteImport } from './routes/_chat.source'
 import { Route as ChatSettingsRouteImport } from './routes/_chat.settings'
 import { Route as ChatPullRequestsRouteImport } from './routes/_chat.pull-requests'
 import { Route as ChatPluginsRouteImport } from './routes/_chat.plugins'
@@ -20,6 +21,7 @@ import { Route as ChatAutomationsRouteImport } from './routes/_chat.automations'
 import { Route as ChatThreadIdRouteImport } from './routes/_chat.$threadId'
 import { Route as ChatTasksIndexRouteImport } from './routes/_chat.tasks.index'
 import { Route as ChatSupervisedIndexRouteImport } from './routes/_chat.supervised.index'
+import { Route as ChatSourceIndexRouteImport } from './routes/_chat.source.index'
 import { Route as ChatPullRequestsIndexRouteImport } from './routes/_chat.pull-requests.index'
 import { Route as ChatAutomationsIndexRouteImport } from './routes/_chat.automations.index'
 import { Route as ChatTasksProcessIdRouteImport } from './routes/_chat.tasks.$processId'
@@ -45,6 +47,11 @@ const ChatTasksRoute = ChatTasksRouteImport.update({
 const ChatSupervisedRoute = ChatSupervisedRouteImport.update({
   id: '/supervised',
   path: '/supervised',
+  getParentRoute: () => ChatRoute,
+} as any)
+const ChatSourceRoute = ChatSourceRouteImport.update({
+  id: '/source',
+  path: '/source',
   getParentRoute: () => ChatRoute,
 } as any)
 const ChatSettingsRoute = ChatSettingsRouteImport.update({
@@ -81,6 +88,11 @@ const ChatSupervisedIndexRoute = ChatSupervisedIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => ChatSupervisedRoute,
+} as any)
+const ChatSourceIndexRoute = ChatSourceIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => ChatSourceRoute,
 } as any)
 const ChatPullRequestsIndexRoute = ChatPullRequestsIndexRouteImport.update({
   id: '/',
@@ -127,6 +139,7 @@ export interface FileRoutesByFullPath {
   '/plugins': typeof ChatPluginsRoute
   '/pull-requests': typeof ChatPullRequestsRouteWithChildren
   '/settings': typeof ChatSettingsRoute
+  '/source': typeof ChatSourceRouteWithChildren
   '/supervised': typeof ChatSupervisedRouteWithChildren
   '/tasks': typeof ChatTasksRouteWithChildren
   '/automations/$automationId': typeof ChatAutomationsAutomationIdRoute
@@ -135,6 +148,7 @@ export interface FileRoutesByFullPath {
   '/tasks/$processId': typeof ChatTasksProcessIdRoute
   '/automations/': typeof ChatAutomationsIndexRoute
   '/pull-requests/': typeof ChatPullRequestsIndexRoute
+  '/source/': typeof ChatSourceIndexRoute
   '/supervised/': typeof ChatSupervisedIndexRoute
   '/tasks/': typeof ChatTasksIndexRoute
   '/supervised/$roomId/tasks/$processId': typeof ChatSupervisedRoomIdTasksProcessIdRoute
@@ -150,6 +164,7 @@ export interface FileRoutesByTo {
   '/tasks/$processId': typeof ChatTasksProcessIdRoute
   '/automations': typeof ChatAutomationsIndexRoute
   '/pull-requests': typeof ChatPullRequestsIndexRoute
+  '/source': typeof ChatSourceIndexRoute
   '/supervised': typeof ChatSupervisedIndexRoute
   '/tasks': typeof ChatTasksIndexRoute
   '/supervised/$roomId/tasks/$processId': typeof ChatSupervisedRoomIdTasksProcessIdRoute
@@ -162,6 +177,7 @@ export interface FileRoutesById {
   '/_chat/plugins': typeof ChatPluginsRoute
   '/_chat/pull-requests': typeof ChatPullRequestsRouteWithChildren
   '/_chat/settings': typeof ChatSettingsRoute
+  '/_chat/source': typeof ChatSourceRouteWithChildren
   '/_chat/supervised': typeof ChatSupervisedRouteWithChildren
   '/_chat/tasks': typeof ChatTasksRouteWithChildren
   '/_chat/': typeof ChatIndexRoute
@@ -171,6 +187,7 @@ export interface FileRoutesById {
   '/_chat/tasks/$processId': typeof ChatTasksProcessIdRoute
   '/_chat/automations/': typeof ChatAutomationsIndexRoute
   '/_chat/pull-requests/': typeof ChatPullRequestsIndexRoute
+  '/_chat/source/': typeof ChatSourceIndexRoute
   '/_chat/supervised/': typeof ChatSupervisedIndexRoute
   '/_chat/tasks/': typeof ChatTasksIndexRoute
   '/_chat/supervised/$roomId_/tasks/$processId': typeof ChatSupervisedRoomIdTasksProcessIdRoute
@@ -184,6 +201,7 @@ export interface FileRouteTypes {
     | '/plugins'
     | '/pull-requests'
     | '/settings'
+    | '/source'
     | '/supervised'
     | '/tasks'
     | '/automations/$automationId'
@@ -192,6 +210,7 @@ export interface FileRouteTypes {
     | '/tasks/$processId'
     | '/automations/'
     | '/pull-requests/'
+    | '/source/'
     | '/supervised/'
     | '/tasks/'
     | '/supervised/$roomId/tasks/$processId'
@@ -207,6 +226,7 @@ export interface FileRouteTypes {
     | '/tasks/$processId'
     | '/automations'
     | '/pull-requests'
+    | '/source'
     | '/supervised'
     | '/tasks'
     | '/supervised/$roomId/tasks/$processId'
@@ -218,6 +238,7 @@ export interface FileRouteTypes {
     | '/_chat/plugins'
     | '/_chat/pull-requests'
     | '/_chat/settings'
+    | '/_chat/source'
     | '/_chat/supervised'
     | '/_chat/tasks'
     | '/_chat/'
@@ -227,6 +248,7 @@ export interface FileRouteTypes {
     | '/_chat/tasks/$processId'
     | '/_chat/automations/'
     | '/_chat/pull-requests/'
+    | '/_chat/source/'
     | '/_chat/supervised/'
     | '/_chat/tasks/'
     | '/_chat/supervised/$roomId_/tasks/$processId'
@@ -264,6 +286,13 @@ declare module '@tanstack/react-router' {
       path: '/supervised'
       fullPath: '/supervised'
       preLoaderRoute: typeof ChatSupervisedRouteImport
+      parentRoute: typeof ChatRoute
+    }
+    '/_chat/source': {
+      id: '/_chat/source'
+      path: '/source'
+      fullPath: '/source'
+      preLoaderRoute: typeof ChatSourceRouteImport
       parentRoute: typeof ChatRoute
     }
     '/_chat/settings': {
@@ -314,6 +343,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/supervised/'
       preLoaderRoute: typeof ChatSupervisedIndexRouteImport
       parentRoute: typeof ChatSupervisedRoute
+    }
+    '/_chat/source/': {
+      id: '/_chat/source/'
+      path: '/'
+      fullPath: '/source/'
+      preLoaderRoute: typeof ChatSourceIndexRouteImport
+      parentRoute: typeof ChatSourceRoute
     }
     '/_chat/pull-requests/': {
       id: '/_chat/pull-requests/'
@@ -392,6 +428,18 @@ const ChatPullRequestsRouteChildren: ChatPullRequestsRouteChildren = {
 const ChatPullRequestsRouteWithChildren =
   ChatPullRequestsRoute._addFileChildren(ChatPullRequestsRouteChildren)
 
+interface ChatSourceRouteChildren {
+  ChatSourceIndexRoute: typeof ChatSourceIndexRoute
+}
+
+const ChatSourceRouteChildren: ChatSourceRouteChildren = {
+  ChatSourceIndexRoute: ChatSourceIndexRoute,
+}
+
+const ChatSourceRouteWithChildren = ChatSourceRoute._addFileChildren(
+  ChatSourceRouteChildren,
+)
+
 interface ChatSupervisedRouteChildren {
   ChatSupervisedRoomIdRoute: typeof ChatSupervisedRoomIdRoute
   ChatSupervisedIndexRoute: typeof ChatSupervisedIndexRoute
@@ -429,6 +477,7 @@ interface ChatRouteChildren {
   ChatPluginsRoute: typeof ChatPluginsRoute
   ChatPullRequestsRoute: typeof ChatPullRequestsRouteWithChildren
   ChatSettingsRoute: typeof ChatSettingsRoute
+  ChatSourceRoute: typeof ChatSourceRouteWithChildren
   ChatSupervisedRoute: typeof ChatSupervisedRouteWithChildren
   ChatTasksRoute: typeof ChatTasksRouteWithChildren
   ChatIndexRoute: typeof ChatIndexRoute
@@ -441,6 +490,7 @@ const ChatRouteChildren: ChatRouteChildren = {
   ChatPluginsRoute: ChatPluginsRoute,
   ChatPullRequestsRoute: ChatPullRequestsRouteWithChildren,
   ChatSettingsRoute: ChatSettingsRoute,
+  ChatSourceRoute: ChatSourceRouteWithChildren,
   ChatSupervisedRoute: ChatSupervisedRouteWithChildren,
   ChatTasksRoute: ChatTasksRouteWithChildren,
   ChatIndexRoute: ChatIndexRoute,

@@ -192,6 +192,28 @@ export const GitListBranchesInput = Schema.Struct({
 });
 export type GitListBranchesInput = typeof GitListBranchesInput.Type;
 
+/** Bounded commit history for the Source graph surface. */
+export const GitListHistoryInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  /** Max commits to return (server clamps). */
+  limit: Schema.optional(PositiveInt),
+});
+export type GitListHistoryInput = typeof GitListHistoryInput.Type;
+
+export const GitHistoryCommit = Schema.Struct({
+  sha: TrimmedNonEmptyStringSchema,
+  shortSha: TrimmedNonEmptyStringSchema,
+  /** Parent SHAs newest-first log order; empty for root commits. */
+  parents: Schema.Array(TrimmedNonEmptyStringSchema),
+  subject: Schema.String,
+  authorName: Schema.String,
+  /** Author date as ISO-8601 when git provides it. */
+  authoredAt: Schema.String,
+  /** Decorations from `git log %D` (branch/tag names), already split. */
+  refs: Schema.Array(Schema.String),
+});
+export type GitHistoryCommit = typeof GitHistoryCommit.Type;
+
 export const GitCreateWorktreeInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
   branch: TrimmedNonEmptyStringSchema,
@@ -434,6 +456,14 @@ export const GitListBranchesResult = Schema.Struct({
   hasOriginRemote: Schema.Boolean,
 });
 export type GitListBranchesResult = typeof GitListBranchesResult.Type;
+
+export const GitListHistoryResult = Schema.Struct({
+  commits: Schema.Array(GitHistoryCommit),
+  isRepo: Schema.Boolean,
+  /** True when more history exists beyond `limit`. */
+  truncated: Schema.Boolean,
+});
+export type GitListHistoryResult = typeof GitListHistoryResult.Type;
 
 export const GitCreateWorktreeResult = Schema.Struct({
   worktree: GitWorktree,

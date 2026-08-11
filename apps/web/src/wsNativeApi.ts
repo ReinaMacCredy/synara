@@ -583,6 +583,7 @@ export function createWsNativeApi(): NativeApi {
           timeoutMs: null,
         }),
       listBranches: (input) => transport.request(WS_METHODS.gitListBranches, input),
+      listHistory: (input) => transport.request(WS_METHODS.gitListHistory, input),
       createWorktree: (input) => transport.request(WS_METHODS.gitCreateWorktree, input),
       // Worktree materialization scales with checkout size; progress events
       // keep the UI honest while the stream runs, so no fixed timeout.

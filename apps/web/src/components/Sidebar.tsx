@@ -14,6 +14,7 @@ import {
   EyeIcon,
   FolderOpenIcon,
   GiftIcon,
+  GitBranchIcon,
   KeyboardIcon,
   BellIcon,
   type LucideIcon,
@@ -1482,6 +1483,7 @@ export default function Sidebar() {
   const isOnSupervisedRoute = pathname.startsWith("/supervised");
   const isOnAutomations = pathname.startsWith("/automations");
   const isOnPullRequests = pathname.startsWith("/pull-requests");
+  const isOnSource = pathname.startsWith("/source");
   const isOnTasks = pathname.startsWith("/tasks") || pathname.includes("/tasks/");
   // Lightweight read of automations to drive the sidebar attention badge. Shares the
   // ["automations"] query cache with the Automations route (and its live stream updates).
@@ -6481,6 +6483,17 @@ export default function Sidebar() {
                         badge={taskNavigationSignal.badge}
                         activity={taskNavigationSignal.running}
                         onClick={handleOpenTasks}
+                      />
+                      <SidebarPrimaryAction
+                        icon={GitBranchIcon}
+                        label="Source"
+                        active={isOnSource}
+                        onClick={() => {
+                          void navigate({
+                            to: "/source",
+                            search: {},
+                          });
+                        }}
                       />
                       <SidebarPrimaryAction
                         icon={IoIosGitCompare}

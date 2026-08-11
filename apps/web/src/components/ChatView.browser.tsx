@@ -1283,6 +1283,25 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
       ],
     };
   }
+  if (tag === WS_METHODS.gitListHistory) {
+    const cwd = typeof body.cwd === "string" ? body.cwd : null;
+    const branchName = cwd ? (fixture.gitBranchByCwd[cwd] ?? "main") : "main";
+    return {
+      isRepo: true,
+      truncated: false,
+      commits: [
+        {
+          sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          shortSha: "aaaaaaa",
+          parents: [],
+          subject: "Initial commit",
+          authorName: "demo",
+          authoredAt: "2026-01-01T00:00:00Z",
+          refs: [branchName],
+        },
+      ],
+    };
+  }
   if (tag === WS_METHODS.gitStatus) {
     const cwd = typeof body.cwd === "string" ? body.cwd : null;
     const branchName = cwd ? (fixture.gitBranchByCwd[cwd] ?? "main") : "main";

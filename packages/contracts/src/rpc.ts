@@ -93,6 +93,8 @@ import {
   GitInitInput,
   GitListBranchesInput,
   GitListBranchesResult,
+  GitListHistoryInput,
+  GitListHistoryResult,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
   GitPullInput,
@@ -917,6 +919,12 @@ export const WsGitListBranchesRpc = Rpc.make(WS_METHODS.gitListBranches, {
   error: WsRpcError,
 });
 
+export const WsGitListHistoryRpc = Rpc.make(WS_METHODS.gitListHistory, {
+  payload: GitListHistoryInput,
+  success: GitListHistoryResult,
+  error: WsRpcError,
+});
+
 export const WsGitCreateWorktreeRpc = Rpc.make(WS_METHODS.gitCreateWorktree, {
   payload: GitCreateWorktreeInput,
   success: GitCreateWorktreeResult,
@@ -1472,6 +1480,7 @@ const WsGitFeatureRpcGroup = RpcGroup.make(
   WsPullRequestsCommentRpc,
   WsPullRequestsSetPinnedRpc,
   WsGitListBranchesRpc,
+  WsGitListHistoryRpc,
   WsGitCreateWorktreeRpc,
   WsGitCreateDetachedWorktreeRpc,
   WsGitRemoveWorktreeRpc,

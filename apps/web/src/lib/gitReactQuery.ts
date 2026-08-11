@@ -62,6 +62,7 @@ export const gitQueryKeys = {
   githubRepository: (cwd: string | null) => ["git", "github-repository", cwd] as const,
   status: (cwd: string | null) => ["git", "status", cwd] as const,
   branches: (cwd: string | null) => ["git", "branches", cwd] as const,
+  history: (cwd: string | null, limit: number) => ["git", "history", cwd, limit] as const,
   pullRequest: (cwd: string | null) => ["git", "pull-request", cwd] as const,
   workingTreeDiff: (
     cwd: string | null,
@@ -188,11 +189,16 @@ async function refreshGitAvailability(queryClient: QueryClient, cwd: string): Pr
       exact: true,
       refetchType: "none",
     }),
+    queryClient.invalidateQueries({
+      queryKey: ["git", "history", cwd] as const,
+      refetchType: "none",
+    }),
   ]);
   await Promise.all([
     refetchFreshGitQueries(queryClient, gitQueryKeys.githubRepository(cwd)),
     refetchFreshGitQueries(queryClient, gitQueryKeys.status(cwd)),
     refetchFreshGitQueries(queryClient, gitQueryKeys.branches(cwd)),
+    refetchFreshGitQueries(queryClient, ["git", "history", cwd] as const),
   ]);
 }
 
@@ -284,6 +290,7 @@ function cachedGitCwds(queryClient: QueryClient): string[] {
     "github-repository",
     "status",
     "branches",
+    "history",
     "working-tree-diff",
     "pull-request",
   ]);
@@ -365,6 +372,28 @@ export function gitGithubRepositoryQueryOptions(cwd: string | null, enabled = tr
     staleTime: 5 * 60_000,
     refetchOnWindowFocus: false,
     refetchOnReconnect: true,
+  });
+}
+
+const GIT_HISTORY_DEFAULT_LIMIT = 150;
+const GIT_HISTORY_STALE_TIME_MS = 20_000;
+const GIT_HISTORY_REFETCH_INTERVAL_MS = 300_000;
+
+export function gitHistoryQueryOptions(cwd: string | null, limit = GIT_HISTORY_DEFAULT_LIMIT) {
+  const clampedLimit = Math.min(Math.max(1, Math.floor(limit)), 500);
+  return queryOptions({
+    queryKey: gitQueryKeys.history(cwd, clampedLimit),
+    queryFn: async () => {
+      const api = ensureNativeApi();
+      if (!cwd) throw new Error("Git history is unavailable.");
+      return api.git.listHistory({ cwd, limit: clampedLimit });
+    },
+    enabled: cwd !== null,
+    staleTime: GIT_HISTORY_STALE_TIME_MS,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: "always",
+    refetchInterval: GIT_HISTORY_REFETCH_INTERVAL_MS,
+    ...GIT_EXPENSIVE_READ_RETRY_OPTIONS,
   });
 }
 

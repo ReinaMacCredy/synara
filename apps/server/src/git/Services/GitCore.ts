@@ -19,6 +19,8 @@ import type {
   GitInitInput,
   GitListBranchesInput,
   GitListBranchesResult,
+  GitListHistoryInput,
+  GitListHistoryResult,
   GitPullResult,
   GitRemoveIndexLockInput,
   GitRemoveWorktreeInput,
@@ -284,6 +286,13 @@ export interface GitCoreShape {
   readonly listBranches: (
     input: GitListBranchesInput,
   ) => Effect.Effect<GitListBranchesResult, GitCommandError>;
+
+  /**
+   * Bounded reverse-chronological commit history (parents included for graph lanes).
+   */
+  readonly listHistory: (
+    input: GitListHistoryInput,
+  ) => Effect.Effect<GitListHistoryResult, GitCommandError>;
 
   /**
    * Pull current branch from upstream using fast-forward only.

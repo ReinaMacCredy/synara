@@ -2174,6 +2174,111 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
         return { branches, isRepo: true, hasOriginRemote: remoteNames.includes("origin") };
       });
 
+    // Record separator RS (\x1e) + field separator US (\x1f) — safe against commit subjects.
+    const HISTORY_RECORD_SEP = "\x1e";
+    const HISTORY_FIELD_SEP = "\x1f";
+    const HISTORY_DEFAULT_LIMIT = 150;
+    const HISTORY_MAX_LIMIT = 500;
+
+    const listHistory: GitCoreShape["listHistory"] = (input) =>
+      Effect.gen(function* () {
+        const limit = Math.min(
+          Math.max(1, Math.floor(input.limit ?? HISTORY_DEFAULT_LIMIT)),
+          HISTORY_MAX_LIMIT,
+        );
+        // Fetch one extra row to detect truncation without a second count pass.
+        const fetchCount = limit + 1;
+        const pretty = [
+          "%H",
+          "%h",
+          "%P",
+          "%s",
+          "%an",
+          "%aI",
+          "%D",
+        ].join(HISTORY_FIELD_SEP);
+        const logResult = yield* executeGit(
+          "GitCore.listHistory",
+          input.cwd,
+          [
+            "log",
+            `--max-count=${fetchCount}`,
+            `--pretty=format:${pretty}${HISTORY_RECORD_SEP}`,
+            "--date-order",
+          ],
+          {
+            timeoutMs: 15_000,
+            allowNonZeroExit: true,
+          },
+        ).pipe(
+          Effect.catchIf(isMissingGitCwdError, () =>
+            Effect.succeed({
+              code: 128,
+              stdout: "",
+              stderr: "fatal: not a git repository",
+            }),
+          ),
+        );
+
+        if (logResult.code !== 0) {
+          const stderr = logResult.stderr.trim();
+          if (stderr.toLowerCase().includes("not a git repository")) {
+            return { commits: [], isRepo: false, truncated: false };
+          }
+          // Empty repo (no commits yet) surfaces as a failed log with a known message.
+          if (
+            stderr.toLowerCase().includes("does not have any commits") ||
+            stderr.toLowerCase().includes("bad default revision") ||
+            stderr.toLowerCase().includes("unknown revision")
+          ) {
+            return { commits: [], isRepo: true, truncated: false };
+          }
+          return yield* createGitCommandError(
+            "GitCore.listHistory",
+            input.cwd,
+            ["log"],
+            stderr || "git log failed",
+          );
+        }
+
+        const records = logResult.stdout
+          .split(HISTORY_RECORD_SEP)
+          .map((record) => record.trim())
+          .filter((record) => record.length > 0);
+
+        const truncated = records.length > limit;
+        const limited = truncated ? records.slice(0, limit) : records;
+        const commits = limited.flatMap((record) => {
+          const parts = record.split(HISTORY_FIELD_SEP);
+          if (parts.length < 6) return [];
+          const [sha, shortSha, parentsRaw, subject, authorName, authoredAt, refsRaw = ""] = parts;
+          if (!sha || !shortSha) return [];
+          const parents = (parentsRaw ?? "")
+            .trim()
+            .split(/\s+/)
+            .filter((parent) => parent.length > 0);
+          const refs = (refsRaw ?? "")
+            .split(",")
+            .map((ref) => ref.trim())
+            .filter((ref) => ref.length > 0)
+            .map((ref) => ref.replace(/^(HEAD -> |tag: |origin\/)/, "").trim())
+            .filter((ref) => ref.length > 0 && ref !== "HEAD");
+          return [
+            {
+              sha,
+              shortSha,
+              parents,
+              subject: subject ?? "",
+              authorName: authorName ?? "",
+              authoredAt: authoredAt ?? "",
+              refs: [...new Set(refs)],
+            },
+          ];
+        });
+
+        return { commits, isRepo: true, truncated };
+      });
+
     const createWorktree: GitCoreShape["createWorktree"] = (input) =>
       Effect.gen(function* () {
         const targetBranch = input.newBranch ?? input.branch;
@@ -3320,6 +3425,7 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
       readRangeContext,
       readConfigValue,
       listBranches,
+      listHistory,
       createWorktree,
       recordWorktreeOwnership,
       verifyWorktreeOwnership,

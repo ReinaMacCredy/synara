@@ -170,6 +170,23 @@ function resolveWsRpc(tag: string): unknown {
       branches: [{ name: "main", current: true, isDefault: true, worktreePath: null }],
     };
   }
+  if (tag === WS_METHODS.gitListHistory) {
+    return {
+      isRepo: true,
+      truncated: false,
+      commits: [
+        {
+          sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          shortSha: "aaaaaaa",
+          parents: [],
+          subject: "Initial commit",
+          authorName: "demo",
+          authoredAt: "2026-01-01T00:00:00Z",
+          refs: ["main"],
+        },
+      ],
+    };
+  }
   if (tag === WS_METHODS.gitStatus) {
     return {
       branch: "main",
