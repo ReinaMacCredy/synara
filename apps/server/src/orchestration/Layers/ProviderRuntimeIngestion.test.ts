@@ -2115,9 +2115,12 @@ describe("ProviderRuntimeIngestion", () => {
 
     const stableActivityId = "provider-reasoning:thread-1:antigravity-reasoning-1";
     const thread = await waitForThread(harness.engine, (entry) =>
-      entry.activities.some(
-        (activity: ProviderRuntimeTestActivity) => activity.id === stableActivityId,
-      ),
+      entry.activities.some((activity: ProviderRuntimeTestActivity) => {
+        if (activity.id !== stableActivityId || typeof activity.payload !== "object") {
+          return false;
+        }
+        return (activity.payload as { status?: unknown }).status === "completed";
+      }),
     );
 
     expect(
