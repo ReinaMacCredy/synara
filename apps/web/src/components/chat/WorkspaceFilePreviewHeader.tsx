@@ -35,6 +35,10 @@ interface WorkspaceFilePreviewHeaderProps {
   onAskWhyInChat?: ((reference: ChatFileReference) => void) | undefined;
   /** Shown when the preview only holds a partial read of a large file. */
   truncated?: boolean;
+  /** Marks the currently open source buffer as different from its saved version. */
+  dirty?: boolean;
+  /** Short reason the current source cannot be edited safely. */
+  readOnlyReason?: string | null;
 }
 
 // Source (raw file, where selecting text yields a precise line/column chat
@@ -128,6 +132,24 @@ export const WorkspaceFilePreviewHeader = function WorkspaceFilePreviewHeader(
       {props.truncated ? (
         <span className="hidden shrink-0 text-[10px] text-muted-foreground/70 @sm/header-actions:inline">
           Shown partially
+        </span>
+      ) : null}
+
+      {props.dirty ? (
+        <span
+          role="status"
+          aria-label="Unsaved changes"
+          title="Unsaved changes"
+          className="size-1.5 shrink-0 rounded-full bg-warning"
+        />
+      ) : null}
+
+      {props.readOnlyReason ? (
+        <span
+          className="hidden shrink-0 text-[10px] text-muted-foreground/70 @sm/header-actions:inline"
+          title={props.readOnlyReason}
+        >
+          Read-only
         </span>
       ) : null}
 

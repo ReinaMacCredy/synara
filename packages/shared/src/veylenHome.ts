@@ -54,7 +54,9 @@ export function resolveVeylenHomeDirectory(
   const homeDirectory = options.homeDirectory ?? OS.homedir();
   const env = options.env ?? process.env;
   const configured = (
-    options.configuredHome ?? env[VEYLEN_HOME_ENV_NAME] ?? env[LEGACY_SYNARA_HOME_ENV_NAME]
+    options.configuredHome ??
+    env[VEYLEN_HOME_ENV_NAME] ??
+    env[LEGACY_SYNARA_HOME_ENV_NAME]
   )?.trim();
   if (!configured) {
     const directoryName = options.directoryName ?? DEFAULT_VEYLEN_HOME_DIRECTORY_NAME;

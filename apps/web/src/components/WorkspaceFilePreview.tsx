@@ -515,6 +515,18 @@ export function WorkspaceFilePreview(props: WorkspaceFilePreviewProps) {
   const displayedFileContents = activeEditBuffer?.contents ?? fileContents;
   const lineCount =
     displayedFileContents.length === 0 ? 0 : displayedFileContents.split("\n").length;
+  const readOnlyReason =
+    !props.editable || showMarkdownPreview || fileQuery.data === undefined
+      ? null
+      : !fileIsWorkspaceRelative
+        ? "Only files inside the project can be edited."
+        : fileQuery.data.truncated
+          ? "Large files are read-only."
+          : fileQuery.data.lineEnding === "mixed"
+            ? "Files with mixed line endings are read-only to preserve their exact format."
+            : fileQuery.data.version === null || fileQuery.data.encoding === null
+              ? "This file format is read-only."
+              : null;
 
   const handleEditBufferChange = (contents: string) => {
     if (!editableDocument) return;
@@ -823,6 +835,8 @@ export function WorkspaceFilePreview(props: WorkspaceFilePreviewProps) {
         onReferenceInChat={onReferenceInChat}
         onAskWhyInChat={onAskWhyInChat}
         truncated={fileQuery.data?.truncated ?? false}
+        dirty={editBufferDirty}
+        readOnlyReason={readOnlyReason}
       />
       {activeEditBuffer?.error ? (
         <div

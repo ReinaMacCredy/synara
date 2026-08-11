@@ -27,10 +27,7 @@ const approvedImmediateUpstreamCompatibilityPaths = new Set([
 ]);
 
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const retiredImmediateUpstreamPattern = new RegExp(
-  escapeRegExp(retiredImmediateUpstreamName),
-  "i",
-);
+const retiredImmediateUpstreamPattern = new RegExp(escapeRegExp(retiredImmediateUpstreamName), "i");
 const joinedWithOptionalSeparator = (left: string, right: string): string =>
   `${escapeRegExp(left)}[\\s._/@:-]*${escapeRegExp(right)}`;
 
@@ -92,11 +89,11 @@ const approvedAttributions: readonly ApprovedAttribution[] = [
 const approvedVisualAssetDigests = new Map<string, string>([
   [
     "apps/marketing/public/screenshot.jpeg",
-    "0b4be139f13dd08885a1aac26fc1f7c623697db157777d16360e985c93d47bcf",
+    "373c75e1ae9c39be4ba4c17b75b505ada9a456dc9af390e1f55c7ef4058d262b",
   ],
   [
     "assets/prod/readme-screenshot.jpeg",
-    "0b4be139f13dd08885a1aac26fc1f7c623697db157777d16360e985c93d47bcf",
+    "373c75e1ae9c39be4ba4c17b75b505ada9a456dc9af390e1f55c7ef4058d262b",
   ],
 ]);
 

@@ -6,9 +6,7 @@ import { delimiter as pathDelimiter, join as pathJoin } from "node:path";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { NetService } from "@veylen/shared/Net";
-import {
-  applyLegacyEnvironmentAliases,
-} from "@veylen/shared/veylenHome";
+import { applyLegacyEnvironmentAliases } from "@veylen/shared/veylenHome";
 import {
   getBooleanFlagValue,
   optionalBooleanEnvironmentConfig,

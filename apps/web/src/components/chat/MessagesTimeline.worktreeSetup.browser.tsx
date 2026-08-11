@@ -154,6 +154,8 @@ const setupRow = () =>
   document.querySelector<HTMLElement>('[data-timeline-row-kind="worktree-setup"]');
 const workingRow = () =>
   document.querySelector<HTMLElement>('[data-timeline-row-kind="turn-activity"]');
+const thinkingRow = () =>
+  document.querySelector<HTMLElement>('[data-timeline-row-kind="reasoning-status"]');
 
 describe("MessagesTimeline worktree setup card", () => {
   afterEach(() => {
@@ -182,7 +184,7 @@ describe("MessagesTimeline worktree setup card", () => {
       await expect.poll(() => setupRow() === null, { timeout: 2000 }).toBe(true);
       expect(workingRow()).not.toBeNull();
       expect(workingRow()?.textContent).toContain("Working...");
-      expect(workingRow()?.textContent).toContain("Thinking");
+      expect(thinkingRow()?.textContent).toContain("Thinking");
     } finally {
       await screen.unmount();
     }

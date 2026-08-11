@@ -11,7 +11,7 @@ Veylen is a local-first desktop app for coding with the AI agents and subscripti
 
 It brings chats, terminals, browser previews, diffs, branches, provider sessions, and handoffs into one focused workspace so you can run agent work without juggling a dozen windows.
 
-![Veylen app showing parallel agent threads, terminal output, and project navigation](assets/prod/readme-screenshot.jpeg)
+![Veylen running locally with a real project and the new-thread composer](assets/prod/readme-screenshot.jpeg)
 
 ## What it does
 
@@ -27,7 +27,7 @@ It brings chats, terminals, browser previews, diffs, branches, provider sessions
 > [!WARNING]
 > You need to have [Codex CLI](https://github.com/openai/codex) installed and authorized for Codex sessions to work.
 
-Install the desktop app from the [Veylen Releases page](https://github.com/ReinaMacCredy/Veylen/releases).
+Install the desktop app from the [Veylen Releases page](https://github.com/ReinaMacCredy/veylen/releases).
 
 You can also run Veylen locally while the project is still early:
 
@@ -52,7 +52,7 @@ Focused issues and PRs are welcome, especially bug fixes, reliability fixes, and
 
 Read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening an issue or PR.
 
-Need support? [Open a GitHub issue](https://github.com/ReinaMacCredy/Veylen/issues).
+Need support? [Open a GitHub issue](https://github.com/ReinaMacCredy/veylen/issues).
 
 ## Origins
 

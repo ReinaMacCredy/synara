@@ -4,10 +4,7 @@ import * as Path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import {
-  applyLegacyEnvironmentAliases,
-  resolveVeylenHomeDirectory,
-} from "./veylenHome";
+import { applyLegacyEnvironmentAliases, resolveVeylenHomeDirectory } from "./veylenHome";
 
 describe("veylenHome", () => {
   it("prefers Veylen configuration while accepting the legacy Synara variable", () => {
