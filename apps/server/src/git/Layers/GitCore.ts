@@ -2189,15 +2189,7 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
         // Fetch one extra row to detect truncation without a second count pass.
         const fetchCount = limit + 1;
         // Leading RS so each record is `fields\nnumstat...` after split.
-        const pretty = [
-          "%H",
-          "%h",
-          "%P",
-          "%s",
-          "%an",
-          "%aI",
-          "%D",
-        ].join(HISTORY_FIELD_SEP);
+        const pretty = ["%H", "%h", "%P", "%s", "%an", "%aI", "%D"].join(HISTORY_FIELD_SEP);
         const logResult = yield* executeGit(
           "GitCore.listHistory",
           input.cwd,
@@ -2271,18 +2263,31 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
             .filter((ref) => ref.length > 0 && ref !== "HEAD");
           let additions = 0;
           let deletions = 0;
+          const files: Array<{ path: string; insertions: number; deletions: number }> = [];
           for (let lineIndex = 1; lineIndex < lines.length; lineIndex += 1) {
             const line = lines[lineIndex]!.trim();
             if (!line) continue;
-            const [addedRaw, deletedRaw] = line.split("\t");
+            const [addedRaw, deletedRaw, ...pathParts] = line.split("\t");
+            const filePath = pathParts.join("\t").trim();
+            let fileInsertions = 0;
+            let fileDeletions = 0;
             // Binary files use "-" for both columns.
             if (addedRaw && addedRaw !== "-") {
               const added = Number.parseInt(addedRaw, 10);
-              if (Number.isFinite(added)) additions += added;
+              if (Number.isFinite(added)) {
+                additions += added;
+                fileInsertions = added;
+              }
             }
             if (deletedRaw && deletedRaw !== "-") {
               const deleted = Number.parseInt(deletedRaw, 10);
-              if (Number.isFinite(deleted)) deletions += deleted;
+              if (Number.isFinite(deleted)) {
+                deletions += deleted;
+                fileDeletions = deleted;
+              }
+            }
+            if (filePath.length > 0) {
+              files.push({ path: filePath, insertions: fileInsertions, deletions: fileDeletions });
             }
           }
           return [
@@ -2296,6 +2301,7 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
               refs: [...new Set(refs)],
               additions,
               deletions,
+              files,
             },
           ];
         });

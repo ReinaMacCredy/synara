@@ -3,7 +3,7 @@
 // Layer: Source UI
 
 import type { GitHistoryCommit } from "@veylen/contracts";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef } from "react";
 
 import {
   assignGitGraphLanes,
@@ -14,8 +14,9 @@ import {
 import { SourceCommitRow } from "~/components/source/SourceCommitRow";
 import { LoaderCircleIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
+import "./sourceCommitGraph.css";
 
-const ROW_HEIGHT = 32;
+const ROW_HEIGHT = 56;
 
 function SourceHistoryLoadingFooter() {
   return (
@@ -54,14 +55,12 @@ export function SourceCommitGraph({
 
   const laneRows = useMemo(
     () =>
-      assignGitGraphLanes(
-        commits.map((commit) => ({ sha: commit.sha, parents: commit.parents })),
-      ),
+      assignGitGraphLanes(commits.map((commit) => ({ sha: commit.sha, parents: commit.parents }))),
     [commits],
   );
   const laneBySha = useMemo(() => new Map(laneRows.map((row) => [row.sha, row])), [laneRows]);
   const maxLane = useMemo(() => maxGitGraphLane(laneRows), [laneRows]);
-  const graphWidth = useMemo(() => gitGraphSvgWidth(maxLane, 10, 12), [maxLane]);
+  const graphWidth = useMemo(() => Math.min(gitGraphSvgWidth(maxLane, 10, 12), 90), [maxLane]);
 
   const loadMore = useCallback(() => {
     if (!hasMore || isLoadingMore) return;
@@ -87,26 +86,23 @@ export function SourceCommitGraph({
   return (
     <div
       ref={scrollRef}
-      className={cn("min-h-0 flex-1 overflow-auto", className)}
+      className={cn("source-history-container min-h-0 flex-1 overflow-auto", className)}
     >
       <div
-        className="sticky top-0 z-[1] grid gap-x-2.5 border-b border-border/40 bg-card/95 px-2 py-1.5 text-[11px] text-muted-foreground backdrop-blur-sm"
-        style={{
-          gridTemplateColumns: `${graphWidth}px minmax(0, 1fr) minmax(7.5rem, 9rem) 4.5rem minmax(6.5rem, 8rem)`,
-        }}
+        className="source-history-grid sticky top-0 z-[1] min-h-9 border-b border-border/40 bg-background/95 px-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/65 backdrop-blur-sm"
+        style={{ "--source-graph-width": `${graphWidth}px` } as CSSProperties}
       >
         <span>Graph</span>
-        <span>Description</span>
-        <span>Author</span>
         <span>Commit</span>
-        <span className="text-right">Date</span>
+        <span>Author</span>
+        <span>Changes</span>
+        <span className="text-right">When</span>
       </div>
 
       {commits.map((commit) => {
         const lane = laneBySha.get(commit.sha);
         const selected =
-          selectedSha != null &&
-          (commit.sha === selectedSha || commit.sha.startsWith(selectedSha));
+          selectedSha != null && (commit.sha === selectedSha || commit.sha.startsWith(selectedSha));
         const graphSvg = lane
           ? renderGitGraphLaneSvg({
               row: lane,

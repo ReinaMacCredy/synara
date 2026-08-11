@@ -71,11 +71,11 @@ const HOT_PATH_MODULES: readonly HotPathModule[] = [
   { relativePath: "Sidebar.tsx", allowedBailoutReasons: [] },
   {
     relativePath: "chat/MessagesTimeline.tsx",
-    // Three timeline helpers deliberately retain render-time refs for stable row
-    // identity, non-regressing elapsed labels, and same-paint settle transitions.
-    // Removing the retired thread-message component exposed all of those existing
-    // compiler boundaries, so keep the exact count locked while they are split out.
-    allowedBailoutReasons: Array.from({ length: 14 }, () => "Cannot access refs during render"),
+    // Timeline helpers deliberately retain render-time refs for stable row
+    // identity, non-regressing elapsed labels, same-paint settle transitions,
+    // and local live-work viewport correction. Keep the exact reviewed count
+    // locked while those boundaries are split out.
+    allowedBailoutReasons: Array.from({ length: 18 }, () => "Cannot access refs during render"),
   },
   { relativePath: "chat/TimelineWorkEntryRow.tsx", allowedBailoutReasons: [] },
   { relativePath: "chat/ChatTranscriptPane.tsx", allowedBailoutReasons: [] },

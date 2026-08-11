@@ -1,7 +1,7 @@
 import type { GitHistoryCommit, ProjectId } from "@veylen/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   CHAT_SURFACE_HEADER_DIVIDER_CLASS_NAME,
@@ -15,17 +15,28 @@ import {
 import { PanelStateMessage } from "~/components/chat/PanelStateMessage";
 import { RouteInsetSurface } from "~/components/RouteInsetSurface";
 import { SidebarHeaderNavigationControls } from "~/components/SidebarHeaderNavigationControls";
+import { SourceBranchesView } from "~/components/source/SourceBranchesView";
 import { SourceCommitGraph } from "~/components/source/SourceCommitGraph";
+import { SourceCommitInspector } from "~/components/source/SourceCommitInspector";
+import { SourceWorkingTreeView } from "~/components/source/SourceWorkingTreeView";
 import { Button } from "~/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "~/components/ui/empty";
 import { SearchInput } from "~/components/ui/search-input";
 import { Skeleton } from "~/components/ui/skeleton";
+import { toastManager } from "~/components/ui/toast";
 import {
   useDesktopTopBarTrafficLightGutterClassName,
   useDesktopTopBarWindowControlsGutterClassName,
 } from "~/hooks/useDesktopTopBarGutter";
-import { GitBranchIcon, RefreshCwIcon } from "~/lib/icons";
-import { gitBranchesQueryOptions, gitHistoryQueryOptions } from "~/lib/gitReactQuery";
+import { useHandleNewThread } from "~/hooks/useHandleNewThread";
+import { copyTextToClipboard } from "~/hooks/useCopyToClipboard";
+import { appendComposerPromptText } from "~/lib/chatReferences";
+import { LoaderCircleIcon, RefreshCwIcon } from "~/lib/icons";
+import {
+  gitBranchesQueryOptions,
+  gitHistoryQueryOptions,
+  gitStatusQueryOptions,
+} from "~/lib/gitReactQuery";
 import { cn } from "~/lib/utils";
 import { useStore } from "~/store";
 
@@ -35,35 +46,21 @@ export interface SourceSearch {
   q?: string;
 }
 
+type SourceView = "history" | "branches" | "workingTree";
+
 export const Route = createFileRoute("/_chat/source/")({
   validateSearch: (raw): SourceSearch => ({
     ...(typeof raw.projectId === "string" && raw.projectId
       ? { projectId: raw.projectId as ProjectId }
       : {}),
-    ...(typeof raw.sha === "string" && raw.sha.trim()
-      ? { sha: raw.sha.trim().slice(0, 64) }
-      : {}),
+    ...(typeof raw.sha === "string" && raw.sha.trim() ? { sha: raw.sha.trim().slice(0, 64) } : {}),
     ...(typeof raw.q === "string" && raw.q ? { q: raw.q.slice(0, 200) } : {}),
   }),
   component: SourceRouteView,
 });
 
-/** First paint + each infinite-scroll page (server clamps to 500). */
 const HISTORY_PAGE_SIZE = 250;
 const HISTORY_MAX = 500;
-
-function formatAuthoredAt(value: string): string {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
 function historyErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim()) return error.message;
@@ -79,9 +76,13 @@ function historyErrorMessage(error: unknown): string {
 function SourceRouteView() {
   const search = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
+  const { handleNewThread } = useHandleNewThread();
   const trafficLightGutter = useDesktopTopBarTrafficLightGutterClassName();
   const windowControlsGutter = useDesktopTopBarWindowControlsGutterClassName();
   const projects = useStore((store) => store.projects);
+  const [sourceView, setSourceView] = useState<SourceView>("history");
+  const [referenceFilter, setReferenceFilter] = useState("all");
+  const [openingCommitSha, setOpeningCommitSha] = useState<string | null>(null);
 
   const repositoryProjects = useMemo(
     () =>
@@ -102,19 +103,19 @@ function SourceRouteView() {
   const [historyLimit, setHistoryLimit] = useState(HISTORY_PAGE_SIZE);
   const historyQuery = useQuery({
     ...gitHistoryQueryOptions(cwd, historyLimit),
-    // Keep previous page painted while the next larger limit fetches (avoids blank flash).
     placeholderData: (previous) => previous,
   });
   const branchesQuery = useQuery(gitBranchesQueryOptions(cwd));
+  const statusQuery = useQuery(gitStatusQueryOptions(cwd));
   const [queryDraft, setQueryDraft] = useState(search.q ?? "");
 
   useEffect(() => {
     setQueryDraft(search.q ?? "");
   }, [search.q]);
 
-  // Reset page size when switching projects so we don't keep a huge limit for a new cwd.
   useEffect(() => {
     setHistoryLimit(HISTORY_PAGE_SIZE);
+    setReferenceFilter("all");
   }, [cwd]);
 
   useEffect(() => {
@@ -126,9 +127,10 @@ function SourceRouteView() {
   }, [activeProject, navigate, search.projectId]);
 
   const hasMoreHistory = historyQuery.data?.truncated === true && historyLimit < HISTORY_MAX;
-  // Fetching more while previous commits stay on screen (not the first empty load).
   const isLoadingMore =
-    historyQuery.isFetching && !historyQuery.isPending && (historyQuery.data?.commits.length ?? 0) > 0;
+    historyQuery.isFetching &&
+    !historyQuery.isPending &&
+    (historyQuery.data?.commits.length ?? 0) > 0;
 
   const loadMoreHistory = useCallback(() => {
     if (!hasMoreHistory || historyQuery.isFetching) return;
@@ -136,10 +138,16 @@ function SourceRouteView() {
   }, [hasMoreHistory, historyQuery.isFetching]);
 
   const commits = historyQuery.data?.commits ?? [];
+  const referenceOptions = useMemo(
+    () => [...new Set(commits.flatMap((commit) => commit.refs))].toSorted(),
+    [commits],
+  );
   const filteredCommits = useMemo(() => {
     const q = (search.q ?? "").trim().toLowerCase();
-    if (!q) return commits;
     return commits.filter((commit) => {
+      const matchesReference = referenceFilter === "all" || commit.refs.includes(referenceFilter);
+      if (!matchesReference) return false;
+      if (!q) return true;
       const haystack = [
         commit.subject,
         commit.authorName,
@@ -151,7 +159,7 @@ function SourceRouteView() {
         .toLowerCase();
       return haystack.includes(q);
     });
-  }, [commits, search.q]);
+  }, [commits, referenceFilter, search.q]);
 
   const selectedCommit = useMemo(() => {
     if (search.sha) {
@@ -164,10 +172,10 @@ function SourceRouteView() {
     return filteredCommits[0] ?? null;
   }, [filteredCommits, search.sha]);
 
-  const currentBranch = useMemo(() => {
-    const branches = branchesQuery.data?.branches ?? [];
-    return branches.find((branch) => branch.current && !branch.isRemote)?.name;
-  }, [branchesQuery.data?.branches]);
+  const branches = branchesQuery.data?.branches ?? [];
+  const currentBranch =
+    statusQuery.data?.branch ?? branches.find((branch) => branch.current && !branch.isRemote)?.name;
+  const workingTreeFileCount = statusQuery.data?.workingTree.files.length ?? 0;
 
   const selectCommit = (commit: GitHistoryCommit | { sha: string }) => {
     void navigate({
@@ -181,10 +189,7 @@ function SourceRouteView() {
   };
 
   const setProjectId = (projectId: ProjectId) => {
-    void navigate({
-      search: () => ({ projectId }),
-      replace: true,
-    });
+    void navigate({ search: () => ({ projectId }), replace: true });
   };
 
   const applySearch = (value: string) => {
@@ -202,6 +207,59 @@ function SourceRouteView() {
     });
   };
 
+  const refreshSource = () => {
+    void Promise.all([historyQuery.refetch(), branchesQuery.refetch(), statusQuery.refetch()]);
+  };
+
+  const copyCommitSha = (sha: string) => {
+    void copyTextToClipboard(sha).then(
+      () => toastManager.add({ type: "success", title: "Commit SHA copied" }),
+      (error: unknown) =>
+        toastManager.add({
+          type: "error",
+          title: "Could not copy commit SHA",
+          description: error instanceof Error ? error.message : "Clipboard unavailable.",
+        }),
+    );
+  };
+
+  const openCommitThread = (commit: GitHistoryCommit) => {
+    if (!activeProject || openingCommitSha) return;
+    setOpeningCommitSha(commit.sha);
+    const prompt = [
+      `Review commit ${commit.sha} (${commit.subject || "no subject"}) in this repository.`,
+      "Explain its intent, inspect the diff for correctness and regressions, and suggest any follow-up work.",
+    ].join(" ");
+    void Promise.resolve(
+      handleNewThread(activeProject.id, {
+        ...(currentBranch ? { branch: currentBranch } : {}),
+        fresh: true,
+      }),
+    )
+      .then((threadId) => {
+        if (!threadId) throw new Error("Could not create a draft thread for this commit.");
+        appendComposerPromptText(threadId, prompt);
+      })
+      .catch((error: unknown) => {
+        toastManager.add({
+          type: "error",
+          title: "Could not open commit in a thread",
+          description: error instanceof Error ? error.message : "Thread creation failed.",
+        });
+      })
+      .finally(() => setOpeningCommitSha(null));
+  };
+
+  const statusLabel = useMemo(() => {
+    if (!statusQuery.data) return currentBranch ?? "Repository";
+    const cleanliness = statusQuery.data.hasWorkingTreeChanges ? "changes" : "clean";
+    const sync =
+      statusQuery.data.aheadCount > 0 || statusQuery.data.behindCount > 0
+        ? `↑${statusQuery.data.aheadCount} ↓${statusQuery.data.behindCount}`
+        : "synced";
+    return [statusQuery.data.branch ?? currentBranch ?? "detached", cleanliness, sync].join(" · ");
+  }, [currentBranch, statusQuery.data]);
+
   return (
     <RouteInsetSurface className={CHAT_MAIN_VIEWPORT_SHELL_CLASS_NAME}>
       <div
@@ -218,10 +276,21 @@ function SourceRouteView() {
           <SidebarHeaderNavigationControls />
           <h1 className="truncate font-heading text-sm font-medium">Source</h1>
           {activeProject ? (
-            <span className="truncate text-xs text-muted-foreground">{activeProject.name}</span>
+            <span className="truncate text-xs text-muted-foreground">/ {activeProject.name}</span>
           ) : null}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          {activeProject ? (
+            <span className="hidden max-w-64 truncate text-[11px] text-muted-foreground sm:block">
+              <span
+                className={cn(
+                  "mr-2 inline-block size-1.5 rounded-full",
+                  statusQuery.data?.hasWorkingTreeChanges ? "bg-amber-400" : "bg-emerald-400",
+                )}
+              />
+              {statusLabel}
+            </span>
+          ) : null}
           {repositoryProjects.length > 1 ? (
             <select
               className="h-8 max-w-[200px] rounded-md border border-border/60 bg-background px-2 text-xs"
@@ -245,8 +314,8 @@ function SourceRouteView() {
             size="icon"
             className="size-8"
             disabled={!cwd || historyQuery.isFetching}
-            onClick={() => void historyQuery.refetch()}
-            aria-label="Refresh history"
+            onClick={refreshSource}
+            aria-label="Refresh source"
           >
             <RefreshCwIcon className={cn("size-3.5", historyQuery.isFetching && "animate-spin")} />
           </Button>
@@ -255,22 +324,16 @@ function SourceRouteView() {
 
       <div className={cn("flex min-h-0 flex-1 flex-col", CHAT_MAIN_CONTENT_SURFACE_CLASS_NAME)}>
         {!activeProject ? (
-          <div className="flex flex-1 items-center justify-center p-6">
-            <Empty>
-              <EmptyHeader>
-                <EmptyTitle>No project selected</EmptyTitle>
-                <EmptyDescription>
-                  Add a local project to browse its git graph and commit history.
-                </EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          </div>
+          <CenteredEmpty
+            title="No project selected"
+            description="Add a local project to browse its source history."
+          />
         ) : historyQuery.isLoading ? (
           <div className="flex flex-1 flex-col gap-3 p-4">
-            <Skeleton className="h-9 w-full rounded-full" />
-            <Skeleton className="h-12 w-full rounded-xl" />
-            <Skeleton className="h-12 w-full rounded-xl" />
-            <Skeleton className="h-12 w-full rounded-xl" />
+            <Skeleton className="h-9 w-full rounded-md" />
+            <Skeleton className="h-14 w-full rounded-md" />
+            <Skeleton className="h-14 w-full rounded-md" />
+            <Skeleton className="h-14 w-full rounded-md" />
           </div>
         ) : historyQuery.isError ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6">
@@ -285,164 +348,162 @@ function SourceRouteView() {
             </Button>
           </div>
         ) : historyQuery.data && !historyQuery.data.isRepo ? (
-          <div className="flex flex-1 items-center justify-center p-6">
-            <Empty>
-              <EmptyHeader>
-                <EmptyTitle>Not a git repository</EmptyTitle>
-                <EmptyDescription>
-                  {activeProject.name} has no git metadata at {activeProject.cwd}.
-                </EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          </div>
+          <CenteredEmpty
+            title="Not a git repository"
+            description={`${activeProject.name} has no git metadata at ${activeProject.cwd}.`}
+          />
         ) : commits.length === 0 ? (
-          <div className="flex flex-1 items-center justify-center p-6">
-            <Empty>
-              <EmptyHeader>
-                <EmptyTitle>No commits yet</EmptyTitle>
-                <EmptyDescription>This repository has no commit history to show.</EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          </div>
+          <CenteredEmpty
+            title="No commits yet"
+            description="This repository has no commit history to show."
+          />
         ) : (
-          <div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
-            <SearchInput
-              value={queryDraft}
-              onChange={(event) => setQueryDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  applySearch(queryDraft);
-                }
-              }}
-              onBlur={() => {
-                if (queryDraft !== (search.q ?? "")) applySearch(queryDraft);
-              }}
-              placeholder="Search commits, authors, SHAs, branches…"
-              className="h-9"
-            />
+          <>
+            <nav
+              className="flex h-12 shrink-0 items-end gap-6 border-b border-border/45 px-5"
+              aria-label="Source sections"
+            >
+              <SourceTab active={sourceView === "history"} onClick={() => setSourceView("history")}>
+                History{" "}
+                <span className="ml-1 text-[10px] text-muted-foreground/55">{commits.length}</span>
+              </SourceTab>
+              <SourceTab
+                active={sourceView === "branches"}
+                onClick={() => setSourceView("branches")}
+              >
+                Branches{" "}
+                <span className="ml-1 text-[10px] text-muted-foreground/55">{branches.length}</span>
+              </SourceTab>
+              <SourceTab
+                active={sourceView === "workingTree"}
+                onClick={() => setSourceView("workingTree")}
+              >
+                Working tree{" "}
+                <span className="ml-1 text-[10px] text-muted-foreground/55">
+                  {workingTreeFileCount}
+                </span>
+              </SourceTab>
+            </nav>
 
-            <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(260px,0.65fr)]">
-              <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-border/50 bg-card/30">
-                <div className="flex items-center justify-between border-b border-border/40 px-3 py-2 text-xs text-muted-foreground">
-                  <span>
-                    <span className="font-medium text-foreground">History</span>
-                    {historyQuery.data?.truncated ? " · truncated" : null}
-                  </span>
-                  <span>
-                    {filteredCommits.length}
-                    {filteredCommits.length !== commits.length ? ` of ${commits.length}` : ""}{" "}
-                    commits
-                  </span>
-                </div>
-                {filteredCommits.length === 0 ? (
-                  <p className="px-2 py-6 text-center text-sm text-muted-foreground">
-                    No commits match this search.
-                  </p>
-                ) : (
-                  <SourceCommitGraph
-                    commits={filteredCommits}
-                    {...(activeProject ? { projectName: activeProject.name } : {})}
-                    {...(currentBranch ? { currentBranch } : {})}
-                    selectedSha={selectedCommit?.sha ?? search.sha ?? null}
-                    hasMore={hasMoreHistory && !(search.q ?? "").trim()}
-                    isLoadingMore={isLoadingMore && !(search.q ?? "").trim()}
-                    onLoadMore={loadMoreHistory}
-                    onCommitSha={(sha) => selectCommit({ sha })}
-                    className="p-2"
+            {sourceView === "history" ? (
+              <>
+                <div className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] gap-2 border-b border-border/35 px-4 py-3 sm:grid-cols-[minmax(260px,1fr)_minmax(140px,210px)]">
+                  <SearchInput
+                    value={queryDraft}
+                    onChange={(event) => setQueryDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        applySearch(queryDraft);
+                      }
+                    }}
+                    onBlur={() => {
+                      if (queryDraft !== (search.q ?? "")) applySearch(queryDraft);
+                    }}
+                    placeholder="Search message, branch, author, or SHA"
+                    className="h-9"
                   />
-                )}
-              </section>
-
-              <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-border/50 bg-card/30">
-                <div className="flex items-center justify-between border-b border-border/40 px-3 py-2 text-xs text-muted-foreground">
-                  <span className="font-medium text-foreground">Commit</span>
-                  {selectedCommit ? (
-                    <span className="font-mono text-emerald-400/90">{selectedCommit.shortSha}</span>
-                  ) : null}
+                  <select
+                    value={referenceFilter}
+                    onChange={(event) => setReferenceFilter(event.target.value)}
+                    className="h-9 min-w-0 rounded-md border border-border/55 bg-background px-2.5 text-xs text-muted-foreground"
+                    aria-label="Filter by reference"
+                  >
+                    <option value="all">All refs</option>
+                    {referenceOptions.map((ref) => (
+                      <option key={ref} value={ref}>
+                        {ref}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-                {selectedCommit ? (
-                  <div className="min-h-0 flex-1 overflow-auto p-4">
-                    <h2 className="text-sm font-semibold leading-snug">{selectedCommit.subject}</h2>
-                    <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                      <span>{selectedCommit.authorName}</span>
-                      {selectedCommit.authoredAt ? (
-                        <span>{formatAuthoredAt(selectedCommit.authoredAt)}</span>
-                      ) : null}
-                      <span className="font-mono">{selectedCommit.sha.slice(0, 12)}</span>
-                    </div>
-                    {selectedCommit.refs.length > 0 ? (
-                      <div className="mt-3 flex flex-wrap gap-1.5">
-                        {selectedCommit.refs.map((ref) => (
-                          <span
-                            key={ref}
-                            className="inline-flex items-center gap-1 rounded-full bg-muted/60 px-2 py-0.5 text-[11px] text-muted-foreground"
-                          >
-                            <GitBranchIcon className="size-3" />
-                            {ref}
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
-                    {selectedCommit.parents.length > 0 ? (
-                      <div className="mt-4">
-                        <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                          Parents
-                        </p>
-                        <div className="flex flex-col gap-1">
-                          {selectedCommit.parents.map((parent) => (
-                            <button
-                              key={parent}
-                              type="button"
-                              className="rounded-md bg-muted/40 px-2 py-1 text-left font-mono text-[11px] text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-                              onClick={() => selectCommit({ sha: parent })}
-                            >
-                              {parent.slice(0, 12)}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-                    <div className="mt-5 flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => {
-                          void navigator.clipboard?.writeText(selectedCommit.sha);
-                        }}
-                      >
-                        Copy SHA
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          void navigate({
-                            to: "/pull-requests",
-                            search: {
-                              involvement: "all",
-                              state: "open",
-                              ...(activeProject ? { projectId: activeProject.id } : {}),
-                            },
-                          });
-                        }}
-                      >
-                        Open pull requests
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex flex-1 items-center justify-center p-6 text-sm text-muted-foreground">
-                    Select a commit
-                  </div>
-                )}
-              </section>
-            </div>
-          </div>
+                <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(280px,320px)]">
+                  <section className="flex min-h-0 min-w-0 flex-col overflow-hidden border-r border-border/35">
+                    {filteredCommits.length === 0 ? (
+                      <p className="px-3 py-10 text-center text-sm text-muted-foreground">
+                        No commits match these filters.
+                      </p>
+                    ) : (
+                      <SourceCommitGraph
+                        commits={filteredCommits}
+                        selectedSha={selectedCommit?.sha ?? search.sha ?? null}
+                        hasMore={
+                          hasMoreHistory && !(search.q ?? "").trim() && referenceFilter === "all"
+                        }
+                        isLoadingMore={
+                          isLoadingMore && !(search.q ?? "").trim() && referenceFilter === "all"
+                        }
+                        onLoadMore={loadMoreHistory}
+                        onCommitSha={(sha) => selectCommit({ sha })}
+                      />
+                    )}
+                  </section>
+                  <SourceCommitInspector
+                    commit={selectedCommit}
+                    openingThread={openingCommitSha === selectedCommit?.sha}
+                    onCopySha={copyCommitSha}
+                    onOpenThread={openCommitThread}
+                    onSelectParent={(sha) => selectCommit({ sha })}
+                  />
+                </div>
+              </>
+            ) : sourceView === "branches" ? (
+              branchesQuery.isLoading ? (
+                <div className="flex flex-1 items-center justify-center">
+                  <LoaderCircleIcon className="size-4 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <SourceBranchesView branches={branches} />
+              )
+            ) : (
+              <SourceWorkingTreeView status={statusQuery.data} />
+            )}
+          </>
         )}
       </div>
     </RouteInsetSurface>
+  );
+}
+
+function SourceTab({
+  active,
+  children,
+  onClick,
+}: {
+  readonly active: boolean;
+  readonly children: ReactNode;
+  readonly onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        "h-12 border-b-2 border-transparent text-xs text-muted-foreground transition-colors hover:text-foreground",
+        active && "border-violet-400 font-medium text-foreground",
+      )}
+      aria-current={active ? "page" : undefined}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
+
+function CenteredEmpty({
+  title,
+  description,
+}: {
+  readonly title: string;
+  readonly description: string;
+}) {
+  return (
+    <div className="flex flex-1 items-center justify-center p-6">
+      <Empty>
+        <EmptyHeader>
+          <EmptyTitle>{title}</EmptyTitle>
+          <EmptyDescription>{description}</EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    </div>
   );
 }

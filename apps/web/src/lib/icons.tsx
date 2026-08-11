@@ -145,6 +145,7 @@ export const CircleQuestionIcon: LucideIcon = centralIconWrapper("circle-questio
 export const ArrowUpCircleIcon: LucideIcon = centralIconWrapper("arrow-up-circle");
 export const CloudSyncIcon = centralIconWrapper("cloud-sync");
 export const Columns2Icon = adaptIcon(IconColumns2);
+export const KanbanIcon: LucideIcon = centralIconWrapper("columns-3-wide");
 export const ChangesIcon = centralIconWrapper("changes");
 export const CopyIcon = centralIconWrapper("square-behind-square-6");
 export const LinkIcon = centralIconWrapper("chain-link-3");
