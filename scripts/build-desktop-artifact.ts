@@ -829,9 +829,12 @@ const assertPackagedMacDeviceHelper = Effect.fn("assertPackagedMacDeviceHelper")
   const fs = yield* FileSystem.FileSystem;
   const entries = yield* fs.readDirectory(stageDistDir);
   for (const entry of entries) {
+    const packagedAppRoot = path.join(stageDistDir, entry);
+    const stat = yield* fs.stat(packagedAppRoot).pipe(Effect.catch(() => Effect.succeed(null)));
+    if (!stat || stat.type !== "Directory") continue;
+
     const helperRoot = path.join(
-      stageDistDir,
-      entry,
+      packagedAppRoot,
       `${productName}.app`,
       "Contents",
       MAC_DEVICE_HELPER_RESOURCE_PATH,
