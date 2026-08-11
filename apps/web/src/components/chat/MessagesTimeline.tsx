@@ -59,6 +59,7 @@ import {
 import { pinActionLabel } from "~/lib/pin";
 import { Button } from "../ui/button";
 import { CrossTaskOriginLabel, type CrossTaskOrigin } from "./CrossTaskOriginLabel";
+import { ForkSourceDivider, type ForkSourceReference } from "./ForkSourceDivider";
 import { VeylenThreadCreationCard } from "./VeylenThreadCreationCard";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { ProposedPlanCard } from "./ProposedPlanCard";
@@ -415,6 +416,8 @@ interface MessagesTimelineProps {
   tailAnchorScrollInFlightRef?: RefObject<boolean> | undefined;
   /** Provenance for a conversation created from another Veylen task. */
   crossTaskOrigin?: CrossTaskOrigin | null;
+  /** Immediate source chat for a forked transcript. */
+  forkSource?: ForkSourceReference | null;
   /** Marks the transcript as a temporary chat so user bubbles render the dashed primary outline. */
   isTemporaryThread?: boolean;
   timelineEntries: ReturnType<typeof deriveTimelineEntries>;
@@ -489,6 +492,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   tailAnchorMessageId: tailAnchorMessageIdProp,
   tailAnchorScrollInFlightRef,
   crossTaskOrigin: crossTaskOriginProp,
+  forkSource: forkSourceProp,
   isTemporaryThread: isTemporaryThreadProp,
   timelineEntries,
   turnDiffSummaryByAssistantMessageId,
@@ -540,6 +544,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const threadMarkers = threadMarkersProp ?? EMPTY_MESSAGE_MARKERS;
   const enteringUserMessageIds = enteringUserMessageIdsProp ?? EMPTY_MESSAGE_ID_SET;
   const tailAnchorMessageId = tailAnchorMessageIdProp ?? null;
+  const forkSource = forkSourceProp ?? null;
   const isTemporaryThread = isTemporaryThreadProp ?? false;
   const userMessageBubbleBorderClass = userMessageBubbleBorderClassName(isTemporaryThread);
   // The timeline remounts per thread (and when the agent-activity detail view
@@ -657,24 +662,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const fallbackListRef = useRef<LegendListRef | null>(null);
   const resolvedListRef = listRef ?? fallbackListRef;
   const timelineRootRef = useRef<HTMLDivElement | null>(null);
-  // Fixed bottom content inset. The variable space that lets a just-sent
-  // message anchor at the viewport top is reserved natively by LegendList's
-  // `anchoredEndSpace` below, not by resizing this footer — resizing the footer
-  // from outside fights the list's own footer-layout and initial-scroll
-  // machinery (visible as send-time scroll jumps).
-  const listFooter = useMemo(
-    () => (
-      <div>
-        {footerContent}
-        <div
-          aria-hidden="true"
-          data-tail-anchor-spacer="true"
-          style={{ height: BOTTOM_CONTENT_INSET_PX }}
-        />
-      </div>
-    ),
-    [footerContent],
-  );
   useTailAnchorScroll({
     listRef: resolvedListRef,
     timelineRootRef,
@@ -724,6 +711,49 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }
     return { keys };
   }, [rows]);
+  const canRenderForkSourceDivider = forkSource !== null && onOpenThread !== undefined;
+  const forkSourceDivider = useMemo(
+    () =>
+      forkSource && onOpenThread ? (
+        <ForkSourceDivider source={forkSource} onOpenSourceThread={onOpenThread} />
+      ) : null,
+    [forkSource, onOpenThread],
+  );
+  const forkDividerBeforeRowId = useMemo(() => {
+    if (!canRenderForkSourceDivider) {
+      return null;
+    }
+    let lastImportedMessageIndex = -1;
+    for (let index = 0; index < rows.length; index += 1) {
+      const row = rows[index]!;
+      if (row.kind === "message" && row.message.source === "fork-import") {
+        lastImportedMessageIndex = index;
+      }
+    }
+    return rows[lastImportedMessageIndex + 1]?.id ?? null;
+  }, [canRenderForkSourceDivider, rows]);
+  const forkDividerAtEnd = canRenderForkSourceDivider && forkDividerBeforeRowId === null;
+  // Fixed bottom content inset. The variable space that lets a just-sent
+  // message anchor at the viewport top is reserved natively by LegendList's
+  // `anchoredEndSpace` below, not by resizing this footer — resizing the footer
+  // from outside fights the list's own footer-layout and initial-scroll
+  // machinery (visible as send-time scroll jumps).
+  const listFooter = useMemo(
+    () => (
+      <div>
+        {forkDividerAtEnd ? (
+          <div className={cn(CHAT_COLUMN_FRAME_CLASS_NAME, "px-1")}>{forkSourceDivider}</div>
+        ) : null}
+        {footerContent}
+        <div
+          aria-hidden="true"
+          data-tail-anchor-spacer="true"
+          style={{ height: BOTTOM_CONTENT_INSET_PX }}
+        />
+      </div>
+    ),
+    [footerContent, forkDividerAtEnd, forkSourceDivider],
+  );
   // Native reserve for the anchored send: LegendList sizes an end space so the
   // anchor row can sit at the viewport top when scrolled to the end, keeps that
   // reserve in sync with measured tail sizes inside its own layout pass, and
@@ -1148,6 +1178,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       data-message-id={row.kind === "message" ? row.message.id : undefined}
       data-message-role={row.kind === "message" ? row.message.role : undefined}
     >
+      {forkDividerBeforeRowId === row.id ? forkSourceDivider : null}
       {row.kind === "work" &&
         (() => {
           const groupId = row.id;
@@ -2289,7 +2320,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
   // Transient rows (for example failed first-send worktree setup) must be able
   // to render even when there are no persisted chat messages yet.
-  const hasRenderableTranscriptContent = hasMessages || rows.length > 0 || footerContent != null;
+  const hasRenderableTranscriptContent =
+    hasMessages || rows.length > 0 || footerContent != null || canRenderForkSourceDivider;
   if (!hasRenderableTranscriptContent && !isWorking) {
     if (emptyStateContent) {
       return <div className="flex h-full items-center justify-center">{emptyStateContent}</div>;

@@ -9,6 +9,7 @@ import path from "node:path";
 
 import type {
   ProviderApprovalDecision,
+  ProviderForkThreadInput,
   ProviderRuntimeEvent,
   ProviderSendTurnInput,
   ProviderSession,
@@ -254,6 +255,19 @@ function makeFakeCodexAdapter(
     (_threadId: ThreadId): Effect.Effect<void, ProviderAdapterError> => Effect.void,
   );
 
+  const forkThread = vi.fn(
+    (
+      input: ProviderForkThreadInput,
+    ): Effect.Effect<
+      { readonly threadId: ThreadId; readonly resumeCursor: { readonly opaque: string } },
+      ProviderAdapterError
+    > =>
+      Effect.succeed({
+        threadId: input.threadId,
+        resumeCursor: { opaque: `fork-${String(input.threadId)}` },
+      }),
+  );
+
   const stopAll = vi.fn(
     (): Effect.Effect<void, ProviderAdapterError> =>
       Effect.sync(() => {
@@ -283,6 +297,7 @@ function makeFakeCodexAdapter(
     readThread,
     rollbackThread,
     compactThread,
+    forkThread,
     stopAll,
     streamEvents: Stream.fromPubSub(runtimeEventPubSub),
   };
@@ -328,6 +343,7 @@ function makeFakeCodexAdapter(
     readThread,
     rollbackThread,
     compactThread,
+    forkThread,
     stopAll,
   };
 }
@@ -768,6 +784,55 @@ routing.layer("ProviderServiceLive routing", (it) => {
       assert.match(adapterInput?.input ?? "", /"senderThreadId":"sender-thread"/);
       assert.match(adapterInput?.input ?? "", /"body":"Review the proposal\."/);
       yield* provider.stopSession({ threadId });
+    }),
+  );
+
+  it.effect("reuses a deferred native fork binding and preserves its inherited cwd", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const directory = yield* ProviderSessionDirectory;
+      const sourceThreadId = asThreadId("thread-native-fork-source");
+      const targetThreadId = asThreadId("thread-native-fork-target");
+
+      yield* provider.startSession(sourceThreadId, {
+        provider: "codex",
+        threadId: sourceThreadId,
+        cwd: "/tmp/native-fork-source",
+        runtimeMode: "full-access",
+      });
+      const forkCallCount = routing.codex.forkThread.mock.calls.length;
+      const forkInput = {
+        sourceThreadId,
+        threadId: targetThreadId,
+        runtimeMode: "full-access" as const,
+      };
+
+      const first = yield* provider.forkThread!(forkInput);
+      yield* provider.stopSession({ threadId: sourceThreadId });
+      yield* directory.remove(sourceThreadId);
+      const second = yield* provider.forkThread!(forkInput);
+      const startsBeforeRecovery = routing.codex.startSession.mock.calls.length;
+      yield* provider.sendTurn({
+        threadId: targetThreadId,
+        input: "continue the fork",
+        attachments: [],
+      });
+
+      assert.deepEqual(second, first);
+      assert.equal(routing.codex.forkThread.mock.calls.length - forkCallCount, 1);
+      assert.equal(routing.codex.startSession.mock.calls.length, startsBeforeRecovery + 1);
+      const recoveredStart = routing.codex.startSession.mock.calls.at(-1)?.[0];
+      assert.equal(recoveredStart?.threadId, targetThreadId);
+      assert.equal(recoveredStart?.cwd, "/tmp/native-fork-source");
+      assert.deepEqual(recoveredStart?.resumeCursor, first?.resumeCursor);
+      const targetBinding = Option.getOrUndefined(yield* directory.getBinding(targetThreadId));
+      assert.equal(targetBinding?.status, "running");
+      assert.equal(
+        asRuntimePayloadRecord(targetBinding?.runtimePayload).cwd,
+        "/tmp/native-fork-source",
+      );
+
+      yield* provider.stopSession({ threadId: targetThreadId });
     }),
   );
 
