@@ -29,9 +29,7 @@ try {
 
 const isWindows = process.platform === "win32";
 const shell = isWindows ? process.env.ComSpec || "cmd.exe" : "/bin/sh";
-const args = isWindows
-  ? ["/d", "/s", "/c", `echo ${expectedOutput}`]
-  : ["-lc", `printf '${expectedOutput}'`];
+const args = isWindows ? ["/d", "/q"] : ["-lc", `printf '${expectedOutput}'`];
 
 let output = "";
 let terminal;
@@ -67,6 +65,10 @@ exitSubscription = terminal.onExit((event) => {
   exitEvent = event;
   settleIfComplete();
 });
+
+if (isWindows) {
+  terminal.write(`echo ${expectedOutput}\r\nexit\r\n`);
+}
 
 function settleIfComplete() {
   if (!exitEvent) return;
