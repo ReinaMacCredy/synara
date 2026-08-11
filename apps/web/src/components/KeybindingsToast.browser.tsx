@@ -183,6 +183,8 @@ function resolveWsRpc(tag: string): unknown {
           authorName: "demo",
           authoredAt: "2026-01-01T00:00:00Z",
           refs: ["main"],
+          additions: 0,
+          deletions: 0,
         },
       ],
     };

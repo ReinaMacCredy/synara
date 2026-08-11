@@ -1298,6 +1298,8 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
           authorName: "demo",
           authoredAt: "2026-01-01T00:00:00Z",
           refs: [branchName],
+          additions: 0,
+          deletions: 0,
         },
       ],
     };

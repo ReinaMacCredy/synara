@@ -1,7 +1,7 @@
 import type { GitHistoryCommit, ProjectId } from "@veylen/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   CHAT_SURFACE_HEADER_DIVIDER_CLASS_NAME,
@@ -16,7 +16,6 @@ import { PanelStateMessage } from "~/components/chat/PanelStateMessage";
 import { RouteInsetSurface } from "~/components/RouteInsetSurface";
 import { SidebarHeaderNavigationControls } from "~/components/SidebarHeaderNavigationControls";
 import { SourceCommitGraph } from "~/components/source/SourceCommitGraph";
-import "~/components/source/sourceCommitGraph.css";
 import { Button } from "~/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "~/components/ui/empty";
 import { SearchInput } from "~/components/ui/search-input";
@@ -49,7 +48,9 @@ export const Route = createFileRoute("/_chat/source/")({
   component: SourceRouteView,
 });
 
-const HISTORY_LIMIT = 150;
+/** First paint + each infinite-scroll page (server clamps to 500). */
+const HISTORY_PAGE_SIZE = 250;
+const HISTORY_MAX = 500;
 
 function formatAuthoredAt(value: string): string {
   if (!value) return "";
@@ -98,13 +99,23 @@ function SourceRouteView() {
   }, [repositoryProjects, search.projectId]);
 
   const cwd = activeProject?.cwd ?? null;
-  const historyQuery = useQuery(gitHistoryQueryOptions(cwd, HISTORY_LIMIT));
+  const [historyLimit, setHistoryLimit] = useState(HISTORY_PAGE_SIZE);
+  const historyQuery = useQuery({
+    ...gitHistoryQueryOptions(cwd, historyLimit),
+    // Keep previous page painted while the next larger limit fetches (avoids blank flash).
+    placeholderData: (previous) => previous,
+  });
   const branchesQuery = useQuery(gitBranchesQueryOptions(cwd));
   const [queryDraft, setQueryDraft] = useState(search.q ?? "");
 
   useEffect(() => {
     setQueryDraft(search.q ?? "");
   }, [search.q]);
+
+  // Reset page size when switching projects so we don't keep a huge limit for a new cwd.
+  useEffect(() => {
+    setHistoryLimit(HISTORY_PAGE_SIZE);
+  }, [cwd]);
 
   useEffect(() => {
     if (search.projectId || !activeProject) return;
@@ -113,6 +124,16 @@ function SourceRouteView() {
       replace: true,
     });
   }, [activeProject, navigate, search.projectId]);
+
+  const hasMoreHistory = historyQuery.data?.truncated === true && historyLimit < HISTORY_MAX;
+  // Fetching more while previous commits stay on screen (not the first empty load).
+  const isLoadingMore =
+    historyQuery.isFetching && !historyQuery.isPending && (historyQuery.data?.commits.length ?? 0) > 0;
+
+  const loadMoreHistory = useCallback(() => {
+    if (!hasMoreHistory || historyQuery.isFetching) return;
+    setHistoryLimit((current) => Math.min(current + HISTORY_PAGE_SIZE, HISTORY_MAX));
+  }, [hasMoreHistory, historyQuery.isFetching]);
 
   const commits = historyQuery.data?.commits ?? [];
   const filteredCommits = useMemo(() => {
@@ -307,9 +328,6 @@ function SourceRouteView() {
                   <span>
                     <span className="font-medium text-foreground">History</span>
                     {historyQuery.data?.truncated ? " · truncated" : null}
-                    <span className="ml-2 text-[10px] uppercase tracking-wide opacity-70">
-                      commit-graph
-                    </span>
                   </span>
                   <span>
                     {filteredCommits.length}
@@ -324,7 +342,12 @@ function SourceRouteView() {
                 ) : (
                   <SourceCommitGraph
                     commits={filteredCommits}
+                    {...(activeProject ? { projectName: activeProject.name } : {})}
                     {...(currentBranch ? { currentBranch } : {})}
+                    selectedSha={selectedCommit?.sha ?? search.sha ?? null}
+                    hasMore={hasMoreHistory && !(search.q ?? "").trim()}
+                    isLoadingMore={isLoadingMore && !(search.q ?? "").trim()}
+                    onLoadMore={loadMoreHistory}
                     onCommitSha={(sha) => selectCommit({ sha })}
                     className="p-2"
                   />

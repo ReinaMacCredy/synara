@@ -211,6 +211,9 @@ export const GitHistoryCommit = Schema.Struct({
   authoredAt: Schema.String,
   /** Decorations from `git log %D` (branch/tag names), already split. */
   refs: Schema.Array(Schema.String),
+  /** Aggregate diff size from `git log --numstat` (0 when unavailable). */
+  additions: NonNegativeInt,
+  deletions: NonNegativeInt,
 });
 export type GitHistoryCommit = typeof GitHistoryCommit.Type;
 

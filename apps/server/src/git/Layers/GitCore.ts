@@ -2188,6 +2188,7 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
         );
         // Fetch one extra row to detect truncation without a second count pass.
         const fetchCount = limit + 1;
+        // Leading RS so each record is `fields\nnumstat...` after split.
         const pretty = [
           "%H",
           "%h",
@@ -2203,12 +2204,14 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
           [
             "log",
             `--max-count=${fetchCount}`,
-            `--pretty=format:${pretty}${HISTORY_RECORD_SEP}`,
+            `--pretty=format:${HISTORY_RECORD_SEP}${pretty}`,
             // Topo order keeps first-parent chains readable for the graph (VS Code style).
             "--topo-order",
+            // Per-file added/deleted counts; summed for the PR-list +/- column.
+            "--numstat",
           ],
           {
-            timeoutMs: 15_000,
+            timeoutMs: 20_000,
             allowNonZeroExit: true,
           },
         ).pipe(
@@ -2250,7 +2253,9 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
         const truncated = records.length > limit;
         const limited = truncated ? records.slice(0, limit) : records;
         const commits = limited.flatMap((record) => {
-          const parts = record.split(HISTORY_FIELD_SEP);
+          const lines = record.split("\n");
+          const header = lines[0] ?? "";
+          const parts = header.split(HISTORY_FIELD_SEP);
           if (parts.length < 6) return [];
           const [sha, shortSha, parentsRaw, subject, authorName, authoredAt, refsRaw = ""] = parts;
           if (!sha || !shortSha) return [];
@@ -2264,6 +2269,22 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
             .filter((ref) => ref.length > 0)
             .map((ref) => ref.replace(/^(HEAD -> |tag: |origin\/)/, "").trim())
             .filter((ref) => ref.length > 0 && ref !== "HEAD");
+          let additions = 0;
+          let deletions = 0;
+          for (let lineIndex = 1; lineIndex < lines.length; lineIndex += 1) {
+            const line = lines[lineIndex]!.trim();
+            if (!line) continue;
+            const [addedRaw, deletedRaw] = line.split("\t");
+            // Binary files use "-" for both columns.
+            if (addedRaw && addedRaw !== "-") {
+              const added = Number.parseInt(addedRaw, 10);
+              if (Number.isFinite(added)) additions += added;
+            }
+            if (deletedRaw && deletedRaw !== "-") {
+              const deleted = Number.parseInt(deletedRaw, 10);
+              if (Number.isFinite(deleted)) deletions += deleted;
+            }
+          }
           return [
             {
               sha,
@@ -2273,6 +2294,8 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
               authorName: authorName ?? "",
               authoredAt: authoredAt ?? "",
               refs: [...new Set(refs)],
+              additions,
+              deletions,
             },
           ];
         });
