@@ -24,13 +24,12 @@ import {
   SearchIcon,
   SettingsIcon,
   StopFilledIcon,
-  ProcessIcon,
+  KanbanIcon,
   TemporaryThreadIcon,
   TerminalIcon,
   Trash2,
   TriangleAlertIcon,
   WorktreeIcon,
-  WorkflowIcon,
   XIcon,
 } from "~/lib/icons";
 import { createCentralIconComponent } from "~/lib/central-icons";
@@ -88,7 +87,6 @@ import {
   PROVIDER_DISPLAY_NAMES,
   ProjectId,
   SpaceId,
-  TaskProcessId,
   type ProviderKind,
   ThreadId,
   type GitStatusResult,
@@ -159,12 +157,7 @@ import {
   resolveNewThreadModelPrefetchCwd,
   resolveNewThreadModelPrefetchProvider,
 } from "../lib/providerModelPrefetch";
-import {
-  serverConfigQueryOptions,
-  serverSettingsQueryOptions,
-  taskProcessesQueryOptions,
-  taskProcessSummaryQueryOptions,
-} from "../lib/serverReactQuery";
+import { serverConfigQueryOptions, serverSettingsQueryOptions } from "../lib/serverReactQuery";
 import { useProviderStatusesForLocalConfig } from "../hooks/useProviderStatusesForLocalConfig";
 import {
   onNativeApiServerCapabilitiesChange,
@@ -319,7 +312,6 @@ import {
   runExclusiveProjectAddition,
   runProjectProvisionWithCancellationRecovery,
   resolvePullRequestReviewBadge,
-  resolveTaskNavigationSignal,
   resolveSidebarThreadListPaging,
   DEBUG_FEATURE_FLAGS_MENU_STORAGE_KEY,
   resolveProjectEmptyState,
@@ -447,16 +439,6 @@ const THREAD_PREVIEW_LIMIT = 5;
 // Each "Show more" click reveals this many extra rows; "Show less" hides them again page by page.
 const THREAD_PREVIEW_PAGE_SIZE = 5;
 
-function resolveUserOwnedTaskProcessId(
-  items: readonly {
-    readonly id: TaskProcessId;
-    readonly owner: { readonly kind: string };
-    readonly state: string;
-  }[],
-): TaskProcessId | undefined {
-  const userOwned = items.filter((process) => process.owner.kind === "user");
-  return userOwned.find((process) => process.state === "active")?.id ?? userOwned[0]?.id;
-}
 // Mouse clicks must not focus the paging buttons, or the focus ring lingers as a solid block
 // after the click; they should only light up on hover/press. Keyboard focus is unaffected.
 const preventFocusOnMouseDown = (event: React.MouseEvent) => {
@@ -492,7 +474,7 @@ const DebugFeatureFlagsMenu = import.meta.env.DEV
 
 type ProjectContextMenuId =
   | "open-in-finder"
-  | "open-in-process"
+  | "open-in-kanban"
   | "copy-path"
   | "start-dev"
   | "stop-dev"
@@ -1482,7 +1464,7 @@ export default function Sidebar() {
   const isOnSupervisedRoute = pathname.startsWith("/supervised");
   const isOnAutomations = pathname.startsWith("/automations");
   const isOnPullRequests = pathname.startsWith("/pull-requests");
-  const isOnTasks = pathname.startsWith("/tasks") || pathname.includes("/tasks/");
+  const isOnKanban = pathname.startsWith("/kanban");
   // Lightweight read of automations to drive the sidebar attention badge. Shares the
   // ["automations"] query cache with the Automations route (and its live stream updates).
   const automationListQuery = useQuery({
@@ -1542,6 +1524,13 @@ export default function Sidebar() {
     select: (params) => {
       const value = params.threadId;
       return value ? ThreadId.makeUnsafe(value) : null;
+    },
+  });
+  const routeProjectId = useParams({
+    strict: false,
+    select: (params) => {
+      const value = params.projectId;
+      return value ? ProjectId.makeUnsafe(value) : null;
     },
   });
   const routeSearch = useDiffRouteSearch();
@@ -2693,69 +2682,9 @@ export default function Sidebar() {
       }),
     [currentProjectShortcutTargetId, latestUsableProjectId],
   );
-  const tasksProjectId = primaryNewThreadTarget?.projectId ?? null;
-  const taskProcessesQuery = useQuery(
-    taskProcessesQueryOptions({
-      projectId: tasksProjectId ?? ProjectId.makeUnsafe("sidebar-tasks-pending"),
-      includeArchived: false,
-      enabled: tasksProjectId !== null,
-    }),
-  );
-  const projectTaskProcessId = resolveUserOwnedTaskProcessId(taskProcessesQuery.data?.items ?? []);
-  const activeTaskProcessId = projectTaskProcessId;
-  const taskProcessSummaryQuery = useQuery({
-    ...taskProcessSummaryQueryOptions(
-      activeTaskProcessId ?? TaskProcessId.makeUnsafe("sidebar-task-summary-pending"),
-    ),
-    enabled: activeTaskProcessId !== null,
-  });
-  const taskNavigationSignal = resolveTaskNavigationSignal(taskProcessSummaryQuery.data?.summary);
-
-  const openOrCreateProjectTasks = useCallback(
-    async (projectId: ProjectId) => {
-      const api = readNativeApi();
-      const project = projectById.get(projectId);
-      if (!api || !project) return;
-      const result = await api.orchestration.listTaskProcesses({
-        projectId,
-        includeArchived: false,
-        limit: 100,
-      });
-      let processId = resolveUserOwnedTaskProcessId(result.items);
-      if (!processId) {
-        processId = TaskProcessId.makeUnsafe(randomUUID());
-        await api.orchestration.dispatchTaskProcessCommand({
-          command: {
-            type: "task-process.create",
-            commandId: newCommandId(),
-            processId,
-            projectId,
-            actor: { kind: "user", actorId: "owner" },
-            expectedRevision: 0,
-            createdAt: new Date().toISOString(),
-            title: `${project.name} Tasks`,
-            owner: { kind: "user" },
-          },
-        });
-      }
-      void navigate({ to: "/tasks/$processId", params: { processId } });
-    },
-    [navigate, projectById],
-  );
-
-  const handleOpenTasks = useCallback(() => {
-    if (!tasksProjectId) {
-      handleStartAddProject();
-      return;
-    }
-    void openOrCreateProjectTasks(tasksProjectId).catch((error) => {
-      toastManager.add({
-        type: "error",
-        title: "Unable to open Tasks",
-        description: error instanceof Error ? error.message : "The task board could not be opened.",
-      });
-    });
-  }, [handleStartAddProject, openOrCreateProjectTasks, tasksProjectId]);
+  const handleOpenKanban = useCallback(() => {
+    void navigate({ to: "/kanban" });
+  }, [navigate]);
 
   // Warm model discovery before ChatView mounts so new-thread composers skip
   // the "Loading models" skeleton when React Query already has a fresh cache hit.
@@ -3509,6 +3438,8 @@ export default function Sidebar() {
     sidebarThreads,
     sidebarThreadSortOrder: appSettings.sidebarThreadSortOrder,
     routeThreadId,
+    routeProjectId,
+    isOnKanban,
     activeRouteProject,
     activeRouteProjectId,
     activateThreadFromSidebarIntent,
@@ -3673,17 +3604,8 @@ export default function Sidebar() {
         }
         return;
       }
-      if (clicked === "open-in-process") {
-        try {
-          await openOrCreateProjectTasks(projectId);
-        } catch (error) {
-          toastManager.add({
-            type: "error",
-            title: "Unable to open Tasks",
-            description:
-              error instanceof Error ? error.message : "The task board could not be loaded.",
-          });
-        }
+      if (clicked === "open-in-kanban") {
+        void navigate({ to: "/kanban/$projectId", params: { projectId } });
         return;
       }
       if (clicked === "copy-path") {
@@ -3788,7 +3710,7 @@ export default function Sidebar() {
       deleteProjectThreads,
       handleOpenProjectRunServer,
       handleStopProjectRun,
-      openOrCreateProjectTasks,
+      navigate,
       openProjectRunDialog,
       projectById,
       removeDeletedProjectFromClientState,
@@ -6456,12 +6378,10 @@ export default function Sidebar() {
                         onClick={handleCreateSupervised}
                       />
                       <SidebarPrimaryAction
-                        icon={ProcessIcon}
-                        label="Tasks"
-                        active={isOnTasks}
-                        badge={taskNavigationSignal.badge}
-                        activity={taskNavigationSignal.running}
-                        onClick={handleOpenTasks}
+                        icon={KanbanIcon}
+                        label="Kanban"
+                        active={isOnKanban}
+                        onClick={handleOpenKanban}
                       />
                     </>
                   ) : (
@@ -6475,12 +6395,10 @@ export default function Sidebar() {
                         onFocus={prefetchModelsForPrimaryNewThread}
                       />
                       <SidebarPrimaryAction
-                        icon={ProcessIcon}
-                        label="Tasks"
-                        active={isOnTasks}
-                        badge={taskNavigationSignal.badge}
-                        activity={taskNavigationSignal.running}
-                        onClick={handleOpenTasks}
+                        icon={KanbanIcon}
+                        label="Kanban"
+                        active={isOnKanban}
+                        onClick={handleOpenKanban}
                       />
                       <SidebarPrimaryAction
                         icon={IoIosGitCompare}
@@ -6978,12 +6896,12 @@ export default function Sidebar() {
                 onClick={() =>
                   void handleProjectContextMenuAction(
                     projectContextMenuState.projectId,
-                    "open-in-process",
+                    "open-in-kanban",
                   )
                 }
               >
-                <ProjectContextMenuIcon icon={WorkflowIcon} />
-                <span>Open Tasks</span>
+                <ProjectContextMenuIcon icon={KanbanIcon} />
+                <span>Open Kanban</span>
               </MenuItem>
               <MenuItem
                 className={PROJECT_CONTEXT_MENU_ITEM_CLASS_NAME}
