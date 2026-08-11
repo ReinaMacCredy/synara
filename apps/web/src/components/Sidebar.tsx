@@ -107,6 +107,7 @@ import {
 } from "../appSettings";
 import { isElectron } from "../env";
 import { formatRelativeTime } from "../lib/relativeTime";
+import { isSupervisedKanbanSearch } from "../lib/kanbanRouteSearch";
 import { supervisedRuntimeQueryOptions } from "../lib/supervisedRuntime";
 import {
   compareSupervisedAgentSeats,
@@ -1459,6 +1460,9 @@ export default function Sidebar() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const pathname = useLocation({ select: (loc) => loc.pathname });
+  const isOnSupervisedKanban = useLocation({
+    select: (loc) => loc.pathname.startsWith("/kanban") && isSupervisedKanbanSearch(loc.search),
+  });
   const isOnSettings = useLocation({
     select: (loc) => loc.pathname === "/settings",
   });
@@ -1954,7 +1958,7 @@ export default function Sidebar() {
   const activeRouteProject = activeRouteProjectId
     ? (projectById.get(activeRouteProjectId) ?? null)
     : null;
-  const isOnSupervised = isOnSupervisedRoute;
+  const isOnSupervised = isOnSupervisedRoute || isOnSupervisedKanban;
   const ordinarySpaceProjects = useMemo(
     () =>
       projects.filter((project) => isOrdinarySpaceProject(project, { homeDir, chatWorkspaceRoot })),
@@ -2685,8 +2689,11 @@ export default function Sidebar() {
     [currentProjectShortcutTargetId, latestUsableProjectId],
   );
   const handleOpenKanban = useCallback(() => {
-    void navigate({ to: "/kanban" });
-  }, [navigate]);
+    void navigate({
+      to: "/kanban",
+      search: isOnSupervised ? { surface: "supervised" } : {},
+    });
+  }, [isOnSupervised, navigate]);
 
   // Warm model discovery before ChatView mounts so new-thread composers skip
   // the "Loading models" skeleton when React Query already has a fresh cache hit.
@@ -3607,7 +3614,11 @@ export default function Sidebar() {
         return;
       }
       if (clicked === "open-in-kanban") {
-        void navigate({ to: "/kanban/$projectId", params: { projectId } });
+        void navigate({
+          to: "/kanban/$projectId",
+          params: { projectId },
+          search: isOnSupervised ? { surface: "supervised" } : {},
+        });
         return;
       }
       if (clicked === "copy-path") {
@@ -3712,6 +3723,7 @@ export default function Sidebar() {
       deleteProjectThreads,
       handleOpenProjectRunServer,
       handleStopProjectRun,
+      isOnSupervised,
       navigate,
       openProjectRunDialog,
       projectById,

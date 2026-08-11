@@ -21,6 +21,7 @@ import { useNowMs } from "~/hooks/useNowMs";
 import { useThreadPullRequests } from "~/hooks/useThreadPullRequests";
 import { splitShortcutLabel } from "~/keybindings";
 import { ArrowLeftIcon, PlusIcon } from "~/lib/icons";
+import type { KanbanSurface } from "~/lib/kanbanRouteSearch";
 import { cn, isMacPlatform } from "~/lib/utils";
 
 // Kanban-scoped "Create task" shortcut: ⌘⌥T on macOS, Ctrl+Alt+T elsewhere —
@@ -56,7 +57,13 @@ import { useKanbanBoard } from "./useKanbanBoard";
 import { useKanbanCardContextMenu } from "./useKanbanCardContextMenu";
 import { overviewVisibleKanbanCards, type KanbanCard } from "./kanban.logic";
 
-export default function KanbanView({ projectId }: { projectId: string | null }) {
+export default function KanbanView({
+  projectId,
+  surface,
+}: {
+  projectId: string | null;
+  surface: KanbanSurface;
+}) {
   const navigate = useNavigate();
   const board = useKanbanBoard();
   const threadsHydrated = useStore((state) => state.threadsHydrated);
@@ -150,9 +157,13 @@ export default function KanbanView({ projectId }: { projectId: string | null }) 
     // Unknown/stale project id (deleted project, old link): fall back to the overview
     // instead of a blank board — but only once hydration can tell stale from loading.
     if (projectId !== null && projectBoard === null && threadsHydrated) {
-      void navigate({ to: "/kanban", replace: true });
+      void navigate({
+        to: "/kanban",
+        search: surface === "supervised" ? { surface } : {},
+        replace: true,
+      });
     }
-  }, [navigate, projectBoard, projectId, threadsHydrated]);
+  }, [navigate, projectBoard, projectId, surface, threadsHydrated]);
 
   const handleOpenCard = (card: KanbanCard) => {
     void navigate({ to: "/$threadId", params: { threadId: card.threadId } });
@@ -161,11 +172,18 @@ export default function KanbanView({ projectId }: { projectId: string | null }) 
   const { onCardContextMenu, renameDialog } = useKanbanCardContextMenu();
 
   const handleOpenProject = (targetProjectId: ProjectId) => {
-    void navigate({ to: "/kanban/$projectId", params: { projectId: targetProjectId } });
+    void navigate({
+      to: "/kanban/$projectId",
+      params: { projectId: targetProjectId },
+      search: surface === "supervised" ? { surface } : {},
+    });
   };
 
   const handleBackToOverview = () => {
-    void navigate({ to: "/kanban" });
+    void navigate({
+      to: "/kanban",
+      search: surface === "supervised" ? { surface } : {},
+    });
   };
 
   return (

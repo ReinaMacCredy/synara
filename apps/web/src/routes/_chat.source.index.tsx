@@ -417,7 +417,7 @@ function SourceRouteView() {
                     ))}
                   </select>
                 </div>
-                <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(300px,360px)]">
+                <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(280px,320px)]">
                   <section className="flex min-h-0 min-w-0 flex-col overflow-hidden border-r border-border/35">
                     {filteredCommits.length === 0 ? (
                       <p className="px-3 py-10 text-center text-sm text-muted-foreground">
