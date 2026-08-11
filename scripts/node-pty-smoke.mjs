@@ -58,23 +58,35 @@ const timeout = setTimeout(() => {
 
 const dataSubscription = terminal.onData((chunk) => {
   output += chunk;
+  settleIfComplete();
 });
 
+let exitEvent;
 let exitSubscription;
 exitSubscription = terminal.onExit((event) => {
+  exitEvent = event;
+  settleIfComplete();
+});
+
+function settleIfComplete() {
+  if (!exitEvent) return;
+  if (exitEvent.exitCode !== 0) {
+    clearTimeout(timeout);
+    dataSubscription.dispose();
+    exitSubscription?.dispose();
+    fail(`PTY process exited with code ${exitEvent.exitCode}.`, output);
+  }
+  // Windows ConPTY can report process exit before its reader delivers the
+  // final data chunk. Keep listening until both signals arrive instead of
+  // treating that normal event ordering as missing output.
+  if (!output.includes(expectedOutput)) return;
   clearTimeout(timeout);
   dataSubscription.dispose();
   exitSubscription?.dispose();
-  if (!output.includes(expectedOutput)) {
-    fail(`Expected PTY output "${expectedOutput}" was not observed.`, output);
-  }
-  if (event.exitCode !== 0) {
-    fail(`PTY process exited with code ${event.exitCode}.`, output);
-  }
   console.log("[node-pty-smoke] node-pty loaded and spawned successfully.");
   // node-pty's Windows ConPTY reader owns a worker thread that may remain
   // referenced after the child has naturally exited. This is a standalone
   // smoke process, so terminate explicitly once output and exit status have
   // both been verified instead of leaving CI waiting on that native handle.
   process.exit(0);
-});
+}
