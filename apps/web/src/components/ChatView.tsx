@@ -1438,6 +1438,22 @@ export default function ChatView({
         : null,
     [crossTaskSourceThread?.modelSelection.provider, crossTaskSourceThreadId],
   );
+  const forkSourceThreadId = serverThread?.sidechatSourceThreadId
+    ? null
+    : (serverThread?.forkSourceThreadId ?? null);
+  const forkSourceThread = useStore(
+    useMemo(() => createThreadSelector(forkSourceThreadId), [forkSourceThreadId]),
+  );
+  const forkSource = useMemo(
+    () =>
+      forkSourceThreadId
+        ? {
+            sourceThreadId: forkSourceThreadId,
+            sourceTitle: forkSourceThread?.title ?? "chat",
+          }
+        : null,
+    [forkSourceThread?.title, forkSourceThreadId],
+  );
   const fallbackDraftProjectId = draftThread?.projectId ?? null;
   const fallbackDraftProject = useStore(
     useMemo(() => createProjectSelector(fallbackDraftProjectId), [fallbackDraftProjectId]),
@@ -12448,6 +12464,7 @@ export default function ChatView({
                     }
                     tailAnchorScrollInFlightRef={tailAnchorScrollInFlightRef}
                     crossTaskOrigin={crossTaskOrigin}
+                    forkSource={forkSource}
                     isTemporaryThread={isThreadTemporary}
                     timelineEntries={timelineEntries}
                     turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}

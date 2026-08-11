@@ -16,6 +16,7 @@ function RouteSpaceSyncFixture() {
     routeProjectId,
     routeSpaceId: null,
     routeThreadId: null,
+    isOnKanban: true,
   });
 
   return (
