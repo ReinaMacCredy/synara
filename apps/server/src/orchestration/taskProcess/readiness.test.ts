@@ -7,7 +7,7 @@ import {
   TaskThreadBindingId,
   ThreadId,
   type ProjectTask,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { describe, expect, it } from "vitest";
 
 import { deriveProjectTaskProjection } from "./readiness.ts";

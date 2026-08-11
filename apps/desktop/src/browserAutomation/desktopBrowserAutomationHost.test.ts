@@ -1,4 +1,4 @@
-import { ThreadId, type BrowserElementRef, type BrowserSnapshotId } from "@synara/contracts";
+import { ThreadId, type BrowserElementRef, type BrowserSnapshotId } from "@veylen/contracts";
 import type { WebContents } from "electron";
 import { EventEmitter } from "node:events";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -112,7 +112,7 @@ const createWebContents = () => {
       const expression = String(params?.expression ?? "");
       if (expression.includes("performance.getEntriesByType")) return { result: { value: 0 } };
       if (
-        expression.includes('const key = "__synaraBrowserAutomationV1"') &&
+        expression.includes('const key = "__veylenBrowserAutomationV1"') &&
         expression.includes("elements = []")
       ) {
         return {
@@ -141,7 +141,7 @@ const createWebContents = () => {
       ) {
         return { result: { value: { count: 1, generation: 1 } } };
       }
-      if (expression.includes("globalThis.__synaraBrowserAutomationV1.currentTarget")) {
+      if (expression.includes("globalThis.__veylenBrowserAutomationV1.currentTarget")) {
         return { result: { objectId: "target-1", type: "object", subtype: "node" } };
       }
       if (expression.includes("document.activeElement || document.body")) {
@@ -835,8 +835,8 @@ describe("DesktopBrowserAutomationHost", () => {
         values: ["primary"],
       }),
     ).resolves.toMatchObject({ selectedValues: ["primary"] });
-    const workspaceRoot = await mkdtemp(join(tmpdir(), "synara-browser-host-upload-"));
-    const uploadUserDataRoot = await mkdtemp(join(tmpdir(), "synara-browser-host-user-data-"));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "veylen-browser-host-upload-"));
+    const uploadUserDataRoot = await mkdtemp(join(tmpdir(), "veylen-browser-host-user-data-"));
     configureWorkspaceUploadForTests(webContents, { userDataRoot: uploadUserDataRoot });
     await writeFile(join(workspaceRoot, "avatar.txt"), "avatar");
     try {
@@ -2225,7 +2225,7 @@ describe("snapshot target validity", () => {
           if (expression.includes("state.refs.get")) {
             return { result: { value: { count: 1, generation: 999, stale: false } } };
           }
-          if (expression.includes("globalThis.__synaraBrowserAutomationV1.currentTarget")) {
+          if (expression.includes("globalThis.__veylenBrowserAutomationV1.currentTarget")) {
             return { result: { objectId: "target-1", type: "object", subtype: "node" } };
           }
         }

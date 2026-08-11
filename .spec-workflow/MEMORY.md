@@ -2,7 +2,7 @@
 
 Budget: at most 12000 estimated tokens and 800 lines.
 Token estimate: deterministic Unicode character count divided by four, rounded up.
-Full-history index: `~/.agents/specs/synara/INDEX.md`
+Full-history index: `~/.agents/specs/veylen/INDEX.md`
 
 ## Current Truths and Boundaries
 
@@ -27,4 +27,4 @@ _No finalized work items yet._
 ## Retrieval
 
 Full SPEC, NOTES, VERIFY, assets, hashes, and receipts live under
-`~/.agents/specs/synara/`. Memory compaction snapshots live under `_memory-compactions/` there.
+`~/.agents/specs/veylen/`. Memory compaction snapshots live under `_memory-compactions/` there.

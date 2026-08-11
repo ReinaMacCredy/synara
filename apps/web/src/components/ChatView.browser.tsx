@@ -26,11 +26,11 @@ import {
   OrchestrationSessionStatus,
   emptySupervisedOrchestrationSnapshot,
   emptySupervisedRuntimeSnapshot,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import {
   ATTACHMENT_CANCEL_ROUTE_PATH,
   ATTACHMENT_UPLOAD_ROUTE_PATH,
-} from "@synara/shared/binaryTransfer";
+} from "@veylen/shared/binaryTransfer";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { HttpResponse, http, ws } from "msw";
 import { setupWorker } from "msw/browser";
@@ -1317,7 +1317,7 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
   if (tag === WS_METHODS.gitCreateDetachedWorktree) {
     return {
       worktree: {
-        path: "/repo/.codex/worktrees/generated/synara",
+        path: "/repo/.codex/worktrees/generated/veylen",
         ref: "0123456789abcdef0123456789abcdef01234567",
         branch: null,
       },
@@ -4081,7 +4081,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
             threadId: THREAD_ID,
             cwd: "/repo/project",
             env: {
-              SYNARA_PROJECT_ROOT: "/repo/project",
+              VEYLEN_PROJECT_ROOT: "/repo/project",
             },
           });
         },
@@ -4160,8 +4160,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
             threadId: THREAD_ID,
             cwd: "/repo/worktrees/feature-draft",
             env: {
-              SYNARA_PROJECT_ROOT: "/repo/project",
-              SYNARA_WORKTREE_PATH: "/repo/worktrees/feature-draft",
+              VEYLEN_PROJECT_ROOT: "/repo/project",
+              VEYLEN_WORKTREE_PATH: "/repo/worktrees/feature-draft",
             },
           });
         },
@@ -4734,7 +4734,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   it("steers a running turn when Follow-up behavior is set to Steer", async () => {
-    localStorage.setItem("synara:app-settings:v1", JSON.stringify({ followUpBehavior: "steer" }));
+    localStorage.setItem("veylen:app-settings:v1", JSON.stringify({ followUpBehavior: "steer" }));
     useComposerDraftStore.getState().setPrompt(THREAD_ID, "steer this running turn");
 
     const mounted = await mountChatView({
@@ -5473,7 +5473,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         nextFixture.welcome = {
           ...nextFixture.welcome,
           homeDir: "/Users/tester",
-          chatWorkspaceRoot: "/Users/tester/Documents/Synara",
+          chatWorkspaceRoot: "/Users/tester/Documents/Veylen",
         };
       },
     });
@@ -5559,7 +5559,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         nextFixture.welcome = {
           ...nextFixture.welcome,
           homeDir: "/Users/tester",
-          chatWorkspaceRoot: "/Users/tester/Documents/Synara",
+          chatWorkspaceRoot: "/Users/tester/Documents/Veylen",
         };
         nextFixture.gitBranchByCwd = {
           "/Users/tester": "home-main",
@@ -6237,8 +6237,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(createThreadRequest?.command).toMatchObject({
             envMode: "worktree",
             branch: null,
-            worktreePath: "/repo/.codex/worktrees/generated/synara",
-            associatedWorktreePath: "/repo/.codex/worktrees/generated/synara",
+            worktreePath: "/repo/.codex/worktrees/generated/veylen",
+            associatedWorktreePath: "/repo/.codex/worktrees/generated/veylen",
             associatedWorktreeBranch: null,
             associatedWorktreeRef: "0123456789abcdef0123456789abcdef01234567",
           });
@@ -6359,7 +6359,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 10_000, interval: 16 },
       );
       const createWorktreeIndex = wsRequests.indexOf(createWorktreeRequest);
-      const worktreePath = "/repo/.codex/worktrees/generated/synara";
+      const worktreePath = "/repo/.codex/worktrees/generated/veylen";
 
       const terminalOpenRequest = await vi.waitFor(
         () => {
@@ -6388,8 +6388,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
         _tag: WS_METHODS.terminalOpen,
         cwd: worktreePath,
         env: {
-          SYNARA_PROJECT_ROOT: "/repo/project",
-          SYNARA_WORKTREE_PATH: worktreePath,
+          VEYLEN_PROJECT_ROOT: "/repo/project",
+          VEYLEN_WORKTREE_PATH: worktreePath,
         },
       });
 

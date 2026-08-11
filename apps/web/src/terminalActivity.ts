@@ -1,5 +1,5 @@
-import type { TerminalEvent } from "@synara/contracts";
-import type { TerminalActivityState } from "@synara/shared/terminalThreads";
+import type { TerminalEvent } from "@veylen/contracts";
+import type { TerminalActivityState } from "@veylen/shared/terminalThreads";
 
 export interface TerminalActivityUpdate {
   agentState: TerminalActivityState | null;

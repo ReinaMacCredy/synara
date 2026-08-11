@@ -8,7 +8,7 @@ import type {
   SupervisedGovernanceSnapshot,
   SupervisedOrchestrationSnapshot,
   UserModelPreferenceProfile,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -89,4 +89,4 @@ export interface SupervisedGovernanceRepositoryShape {
 export class SupervisedGovernanceRepository extends ServiceMap.Service<
   SupervisedGovernanceRepository,
   SupervisedGovernanceRepositoryShape
->()("synara/persistence/Services/SupervisedGovernanceRepository/SupervisedGovernanceRepository") {}
+>()("veylen/persistence/Services/SupervisedGovernanceRepository/SupervisedGovernanceRepository") {}

@@ -1,4 +1,4 @@
-import { type HandoffRuntimeSelection, type ModelSlug, type ThreadId } from "@synara/contracts";
+import { type HandoffRuntimeSelection, type ModelSlug, type ThreadId } from "@veylen/contracts";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
@@ -81,7 +81,7 @@ export function CrossModeHandoffDialog(props: {
         <DialogHeader>
           <DialogTitle>Continue in {props.destinationLabel}</DialogTitle>
           <DialogDescription>
-            Synara opens the destination immediately while the configured one-shot agent prepares a
+            Veylen opens the destination immediately while the configured one-shot agent prepares a
             cited packet.
           </DialogDescription>
         </DialogHeader>

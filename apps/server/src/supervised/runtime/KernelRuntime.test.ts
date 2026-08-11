@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, it } from "vitest";
 
-import type { RunPolicy } from "@synara/contracts";
+import type { RunPolicy } from "@veylen/contracts";
 
 import { PersistentKernel } from "./KernelRuntime.ts";
 
@@ -22,7 +22,7 @@ const policy = {
 } as RunPolicy;
 
 async function directory() {
-  const result = await mkdtemp(path.join(os.tmpdir(), "synara-kernel-"));
+  const result = await mkdtemp(path.join(os.tmpdir(), "veylen-kernel-"));
   directories.push(result);
   return result;
 }
@@ -80,7 +80,7 @@ describe("PersistentKernel", () => {
     await assert.rejects(() =>
       PersistentKernel.start({
         language: "javascript",
-        workingDirectory: directories[0] ?? "/tmp/synara-kernel-unavailable",
+        workingDirectory: directories[0] ?? "/tmp/veylen-kernel-unavailable",
         policy,
         isolation: "required",
       }),

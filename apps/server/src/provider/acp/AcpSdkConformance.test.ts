@@ -1,4 +1,4 @@
-// Verifies the current Synara ACP boundary against an official-SDK subprocess.
+// Verifies the current Veylen ACP boundary against an official-SDK subprocess.
 
 import { spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -31,7 +31,7 @@ interface FixtureLogEntry {
 }
 
 function createFixtureLog(): string {
-  const directory = mkdtempSync(path.join(os.tmpdir(), "synara-acp-conformance-"));
+  const directory = mkdtempSync(path.join(os.tmpdir(), "veylen-acp-conformance-"));
   temporaryDirectories.push(directory);
   return path.join(directory, "fixture.jsonl");
 }
@@ -90,7 +90,7 @@ function runtimeLayer(logPath: string, env: Record<string, string> = {}) {
       args: [fixturePath],
       env: {
         VITEST: "true",
-        SYNARA_ACP_CONFORMANCE_LOG_PATH: logPath,
+        VEYLEN_ACP_CONFORMANCE_LOG_PATH: logPath,
         ...env,
       },
     },
@@ -98,14 +98,14 @@ function runtimeLayer(logPath: string, env: Record<string, string> = {}) {
     clientCapabilities: {
       _meta: {
         primitive: "client-meta",
-        nested: { source: "synara" },
+        nested: { source: "veylen" },
       },
     },
-    clientInfo: { name: "synara-conformance-test", version: "0.0.0" },
+    clientInfo: { name: "veylen-conformance-test", version: "0.0.0" },
     authMethodId: "test",
     authenticateMeta: {
       primitive: 11,
-      nested: { source: "synara-auth" },
+      nested: { source: "veylen-auth" },
     },
   });
 }
@@ -116,7 +116,7 @@ afterEach(() => {
   }
 });
 
-describe("official ACP SDK conformance at the current Synara boundary", () => {
+describe("official ACP SDK conformance at the current Veylen boundary", () => {
   it.effect("negotiates initialize and authentication using official SDK handlers", () => {
     const logPath = createFixtureLog();
     return Effect.gen(function* () {
@@ -148,13 +148,13 @@ describe("official ACP SDK conformance at the current Synara boundary", () => {
       ]);
       expect(entries[0]?.payload).toMatchObject({
         protocolVersion: 1,
-        clientInfo: { name: "synara-conformance-test", version: "0.0.0" },
+        clientInfo: { name: "veylen-conformance-test", version: "0.0.0" },
         clientCapabilities: {
           fs: { readTextFile: false, writeTextFile: false },
           terminal: false,
           _meta: {
             primitive: "client-meta",
-            nested: { source: "synara" },
+            nested: { source: "veylen" },
           },
         },
       });
@@ -162,7 +162,7 @@ describe("official ACP SDK conformance at the current Synara boundary", () => {
         methodId: "test",
         _meta: {
           primitive: 11,
-          nested: { source: "synara-auth" },
+          nested: { source: "veylen-auth" },
         },
       });
     }).pipe(
@@ -230,7 +230,7 @@ describe("official ACP SDK conformance at the current Synara boundary", () => {
     }).pipe(
       Effect.provide(
         runtimeLayer(logPath, {
-          SYNARA_ACP_CONFORMANCE_MALFORMED_PREFIX: "1",
+          VEYLEN_ACP_CONFORMANCE_MALFORMED_PREFIX: "1",
         }),
       ),
       Effect.scoped,
@@ -246,17 +246,17 @@ describe("official ACP SDK conformance at the current Synara boundary", () => {
 
       yield* runtime.notify("conformance/notice", {
         primitive: false,
-        nested: { source: "synara-notice" },
+        nested: { source: "veylen-notice" },
       });
       const response = yield* runtime.request("conformance/echo", {
         primitive: 42,
-        nested: { source: "synara-request" },
+        nested: { source: "veylen-request" },
       });
 
       expect(response).toEqual({
         echo: {
           primitive: 42,
-          nested: { source: "synara-request" },
+          nested: { source: "veylen-request" },
         },
         _meta: {
           primitive: true,
@@ -322,7 +322,7 @@ describe("official ACP SDK conformance at the current Synara boundary", () => {
       );
       yield* runtime.start();
       const request = yield* runtime
-        .request("conformance/wait-for-generic-cancel", { source: "synara" })
+        .request("conformance/wait-for-generic-cancel", { source: "veylen" })
         .pipe(Effect.forkChild);
 
       yield* Deferred.await(ready);
@@ -349,9 +349,9 @@ describe("official ACP SDK client against the official SDK mock agent", () => {
       cwd: process.cwd(),
       env: {
         ...process.env,
-        SYNARA_ACP_REQUEST_LOG_PATH: requestLogPath,
-        SYNARA_ACP_EXIT_LOG_PATH: exitLogPath,
-        SYNARA_ACP_PROMPT_RESPONSE_TEXT: "mock says héllo 👋",
+        VEYLEN_ACP_REQUEST_LOG_PATH: requestLogPath,
+        VEYLEN_ACP_EXIT_LOG_PATH: exitLogPath,
+        VEYLEN_ACP_PROMPT_RESPONSE_TEXT: "mock says héllo 👋",
       },
       stdio: ["pipe", "pipe", "pipe"],
     });

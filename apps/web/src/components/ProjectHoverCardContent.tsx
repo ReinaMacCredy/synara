@@ -22,7 +22,7 @@ export type ProjectHoverCardContentProps = {
   isPinned: boolean;
   itemCount: number;
   itemNoun: "chat" | "Root";
-  /** Display path (already home-abbreviated, e.g. ~/Developer/synara). */
+  /** Display path (already home-abbreviated, e.g. ~/Developer/veylen). */
   path: string;
   onTogglePin: () => void;
   onEditProject: () => void;

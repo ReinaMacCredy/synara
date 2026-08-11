@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { Schema } from "effect";
 import { describe, it } from "vitest";
 
-import { SubscriptionDefinition } from "@synara/contracts";
+import { SubscriptionDefinition } from "@veylen/contracts";
 import { makeSupervisedSyntheticEvent } from "./supervisedSyntheticEvent";
 
 const actor = { kind: "daemon" as const, actorId: "test" };

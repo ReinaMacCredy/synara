@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
-import type { AgentSeat, EffectiveAuthorityReceipt } from "@synara/contracts";
+import type { AgentSeat, EffectiveAuthorityReceipt } from "@veylen/contracts";
 
 import {
   authorizeSupervisedIntentTool,

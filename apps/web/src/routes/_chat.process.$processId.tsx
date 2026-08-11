@@ -1,4 +1,4 @@
-import { TaskProcessId } from "@synara/contracts";
+import { TaskProcessId } from "@veylen/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";

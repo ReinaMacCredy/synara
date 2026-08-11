@@ -11,7 +11,7 @@ import type {
   SupervisorSeat,
   WorkflowConflict,
   WorkflowDirective,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 export interface SupervisedGovernanceDecisionState {
   readonly revision: number;

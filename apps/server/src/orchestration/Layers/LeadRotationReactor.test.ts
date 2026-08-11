@@ -14,7 +14,7 @@ import {
   ThreadId,
   type LeadRotation,
   type OrchestrationEvent,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Effect, Exit, Layer, ManagedRuntime, Scope, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -90,7 +90,7 @@ describe("LeadRotationReactor", () => {
     const layer = LeadRotationReactorLive.pipe(
       Layer.provideMerge(orchestrationLayer),
       Layer.provideMerge(
-        ServerConfig.layerTest(process.cwd(), { prefix: "synara-lead-rotation-test-" }),
+        ServerConfig.layerTest(process.cwd(), { prefix: "veylen-lead-rotation-test-" }),
       ),
       Layer.provideMerge(NodeServices.layer),
       Layer.provideMerge(SqlitePersistenceMemory),

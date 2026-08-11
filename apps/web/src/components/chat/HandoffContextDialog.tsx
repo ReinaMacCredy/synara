@@ -1,4 +1,4 @@
-import type { HandoffDraftV1 } from "@synara/contracts";
+import type { HandoffDraftV1 } from "@veylen/contracts";
 import { useState } from "react";
 
 import { Button } from "../ui/button";

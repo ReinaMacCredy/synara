@@ -6,7 +6,7 @@ import {
   type OrchestrationThreadActivity,
   type ProviderKind,
   type ServerProviderStatus,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { describe, expect, it } from "vitest";
 import {
   buildThreadHandoffImportedActivities,

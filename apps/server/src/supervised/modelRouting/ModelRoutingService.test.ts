@@ -11,7 +11,7 @@ import {
   SupervisedWorkspaceId,
   UserModelPreferenceProfileId,
   emptySupervisedGovernanceSnapshot,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Effect, Layer, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
@@ -166,7 +166,7 @@ const request: ModelRoutingRequest = {
 
 describe("ModelRoutingService persistence", () => {
   it("reloads selection receipts and telemetry after the SQLite connection restarts", async () => {
-    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "synara-model-routing-"));
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "veylen-model-routing-"));
     tempDirectories.push(directory);
     const filename = path.join(directory, "state.sqlite");
 
@@ -253,7 +253,7 @@ describe("ModelRoutingService persistence", () => {
   });
 
   it("rejects selection when the acting seat's canonical authority is revoked", async () => {
-    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "synara-model-routing-revoked-"));
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "veylen-model-routing-revoked-"));
     tempDirectories.push(directory);
     const filename = path.join(directory, "state.sqlite");
 
@@ -281,7 +281,7 @@ describe("ModelRoutingService persistence", () => {
   });
 
   it("uses the next owner preference through the Supervisor HostTool without changing Root/Lead authority", async () => {
-    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "synara-model-preference-"));
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "veylen-model-preference-"));
     tempDirectories.push(directory);
     const filename = path.join(directory, "state.sqlite");
 

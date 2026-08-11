@@ -9,7 +9,7 @@ import nodePath from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { outboundHttp } from "@synara/shared/outboundHttp";
+import { outboundHttp } from "@veylen/shared/outboundHttp";
 import {
   __resetClaudeUsageRateLimitState,
   __setClaudeAuthNudgeDepsForTests,
@@ -63,7 +63,7 @@ function stubOutboundFetch(
 }
 
 function makeClaudeHome(creds: Record<string, unknown>) {
-  const homeDir = mkdtempSync(nodePath.join(os.tmpdir(), "synara-claude-usage-"));
+  const homeDir = mkdtempSync(nodePath.join(os.tmpdir(), "veylen-claude-usage-"));
   tempDirs.push(homeDir);
   const claudeDir = nodePath.join(homeDir, ".claude");
   mkdirSync(claudeDir, { recursive: true });
@@ -73,7 +73,7 @@ function makeClaudeHome(creds: Record<string, unknown>) {
 }
 
 function makeClaudeConfigDir(creds: Record<string, unknown>) {
-  const configDir = mkdtempSync(nodePath.join(os.tmpdir(), "synara-claude-config-"));
+  const configDir = mkdtempSync(nodePath.join(os.tmpdir(), "veylen-claude-config-"));
   tempDirs.push(configDir);
   const credentialsPath = nodePath.join(configDir, ".credentials.json");
   writeFileSync(credentialsPath, JSON.stringify({ claudeAiOauth: creds }), "utf8");
@@ -120,7 +120,7 @@ afterEach(() => {
 
 describe("claudeUsageFetcher", () => {
   it("prefers the current macOS account before the service-only keychain fallback", async () => {
-    const homeDir = mkdtempSync(nodePath.join(os.tmpdir(), "synara-claude-keychain-"));
+    const homeDir = mkdtempSync(nodePath.join(os.tmpdir(), "veylen-claude-keychain-"));
     tempDirs.push(homeDir);
     readKeychainPasswordMock.mockResolvedValueOnce(null).mockResolvedValueOnce(
       JSON.stringify({

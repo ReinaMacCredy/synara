@@ -1,4 +1,4 @@
-import { ProjectId, TaskProcessId, type TaskProcessGraphProjection } from "@synara/contracts";
+import { ProjectId, TaskProcessId, type TaskProcessGraphProjection } from "@veylen/contracts";
 import { describe, expect, it } from "vitest";
 
 import { ProcessWorkspace, resolveProcessAuthority } from "./ProcessWorkspace";

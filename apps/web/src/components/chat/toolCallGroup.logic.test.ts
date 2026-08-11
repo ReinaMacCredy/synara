@@ -93,7 +93,7 @@ describe("isSummarizableToolCallEntry", () => {
       isSummarizableToolCallEntry(
         workEntry({
           id: "threads",
-          synaraThreadCreation: {
+          veylenThreadCreation: {
             operationId: "op",
             requestedCount: 1,
             createdCount: 1,

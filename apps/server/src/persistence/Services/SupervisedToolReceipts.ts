@@ -2,7 +2,7 @@ import {
   SupervisedToolInvocationReceiptId,
   type SupervisedToolInvocationReceipt,
   type SupervisedToolResultState,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { ServiceMap } from "effect";
 import type { Effect, Option } from "effect";
 
@@ -40,4 +40,4 @@ export interface SupervisedToolReceiptRepositoryShape {
 export class SupervisedToolReceiptRepository extends ServiceMap.Service<
   SupervisedToolReceiptRepository,
   SupervisedToolReceiptRepositoryShape
->()("synara/persistence/Services/SupervisedToolReceiptRepository") {}
+>()("veylen/persistence/Services/SupervisedToolReceiptRepository") {}

@@ -1,4 +1,4 @@
-import type { HandoffCapsuleItemV1 } from "@synara/contracts";
+import type { HandoffCapsuleItemV1 } from "@veylen/contracts";
 
 const sourceReferenceKind = (item: HandoffCapsuleItemV1): "message" | "note" | "activity" => {
   if (item.role === "note") return "note";

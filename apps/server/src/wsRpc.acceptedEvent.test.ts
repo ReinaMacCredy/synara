@@ -1,4 +1,4 @@
-import { CommandId } from "@synara/contracts";
+import { CommandId } from "@veylen/contracts";
 import { describe, expect, it } from "vitest";
 
 import { findAcceptedAggregateEvent } from "./wsRpc";

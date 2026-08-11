@@ -2,7 +2,7 @@
 // Purpose: Pins shared Working→Worked gates for normal + Supervised.
 
 import { describe, expect, it, beforeEach } from "vitest";
-import { ThreadId, TurnId } from "@synara/contracts";
+import { ThreadId, TurnId } from "@veylen/contracts";
 
 import {
   clearTurnWorkStartedAt,

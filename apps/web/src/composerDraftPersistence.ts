@@ -21,7 +21,7 @@ import {
   ThreadHandoffImportedMessage,
   HandoffDraftV1,
   ThreadId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import * as Schema from "effect/Schema";
 import type { DeepMutable } from "effect/Types";
 

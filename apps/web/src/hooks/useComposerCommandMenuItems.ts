@@ -6,8 +6,8 @@ import type {
   ProviderMentionReference,
   ProviderPluginDescriptor,
   ProviderSkillDescriptor,
-} from "@synara/contracts";
-import { getAgentMentionAutocompleteAliases } from "@synara/contracts";
+} from "@veylen/contracts";
+import { getAgentMentionAutocompleteAliases } from "@veylen/contracts";
 import {
   buildCommandSearchFields,
   buildPluginSearchFields,
@@ -28,7 +28,7 @@ import {
   getProviderNativeSlashCommandSearchTerms,
   shouldHideProviderNativeCommandFromComposerMenu,
 } from "../composerSlashCommands";
-import { threadMentionPathForThreadId } from "@synara/shared/threadMentions";
+import { threadMentionPathForThreadId } from "@veylen/shared/threadMentions";
 
 import type { ComposerCommandItem } from "../components/chat/ComposerCommandMenu";
 import type { ProviderModelOption } from "../providerModelOptions";

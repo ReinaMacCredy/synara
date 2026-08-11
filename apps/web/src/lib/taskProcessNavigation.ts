@@ -1,4 +1,4 @@
-import type { TaskProcessId, TaskProcessOwner } from "@synara/contracts";
+import type { TaskProcessId, TaskProcessOwner } from "@veylen/contracts";
 
 export type TaskProcessNavigationTarget = {
   readonly mode: "project";

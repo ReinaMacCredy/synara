@@ -10,7 +10,7 @@ import {
   type TaskProcess,
   type TaskProcessCommand,
   type TaskProcessDomainEvent,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Effect } from "effect";
 
 import { OrchestrationCommandInvariantError } from "../Errors.ts";

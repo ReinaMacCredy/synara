@@ -1,4 +1,4 @@
-import { ProfilePresetId, type ProfilePreset, type ProfileSnapshot } from "@synara/contracts";
+import { ProfilePresetId, type ProfilePreset, type ProfileSnapshot } from "@veylen/contracts";
 import { useNavigate } from "@tanstack/react-router";
 
 import { ChevronDownIcon, EyeIcon, SettingsIcon } from "~/lib/icons";

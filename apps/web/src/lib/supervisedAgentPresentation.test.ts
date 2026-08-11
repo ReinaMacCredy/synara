@@ -5,7 +5,7 @@ import {
   SupervisedWorkspaceId,
   ThreadId,
   type AgentSeat,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { describe, expect, it } from "vitest";
 
 import {

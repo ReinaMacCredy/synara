@@ -6,8 +6,8 @@
 import { Duration, Effect, Exit, Fiber, Layer, Scope, Sink, Stream } from "effect";
 import { type ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { TestClock } from "effect/testing";
-import type { ChatAttachment } from "@synara/contracts";
-import { resolveWindowsComSpec } from "@synara/shared/windowsProcess";
+import type { ChatAttachment } from "@veylen/contracts";
+import { resolveWindowsComSpec } from "@veylen/shared/windowsProcess";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -163,14 +163,14 @@ describe("toOpenCodeFileParts", () => {
     expect(
       toOpenCodeFileParts({
         attachments: [attachment],
-        resolveAttachmentPath: () => "/tmp/synara-attachments/screenshot.png",
+        resolveAttachmentPath: () => "/tmp/veylen-attachments/screenshot.png",
       }),
     ).toEqual([
       {
         type: "file",
         mime: "image/png",
         filename: "screenshot.png",
-        url: "file:///tmp/synara-attachments/screenshot.png",
+        url: "file:///tmp/veylen-attachments/screenshot.png",
       },
     ]);
   });
@@ -187,7 +187,7 @@ describe("toOpenCodeFileParts", () => {
     expect(
       toOpenCodeFileParts({
         attachments: [attachment],
-        resolveAttachmentPath: () => "/tmp/synara-attachments/notes.docx",
+        resolveAttachmentPath: () => "/tmp/veylen-attachments/notes.docx",
       }),
     ).toEqual([]);
   });
@@ -215,18 +215,18 @@ describe("buildOpenCodeServerProcessEnv", () => {
     expect(env.OPENCODE_CONFIG_CONTENT).toBe('{"provider":{"openai":{}}}');
   });
 
-  it("strips inherited Synara authority from managed server processes", () => {
+  it("strips inherited Veylen authority from managed server processes", () => {
     const env = buildOpenCodeServerProcessEnv({
       baseEnv: {
         OPENAI_API_KEY: "provider-key",
-        SYNARA_AUTH_TOKEN: "server-secret",
-        SYNARA_BROWSER_USE_PIPE_PATH: "/tmp/browser.sock",
+        VEYLEN_AUTH_TOKEN: "server-secret",
+        VEYLEN_BROWSER_USE_PIPE_PATH: "/tmp/browser.sock",
       },
     });
 
     expect(env.OPENAI_API_KEY).toBe("provider-key");
-    expect(env.SYNARA_AUTH_TOKEN).toBeUndefined();
-    expect(env.SYNARA_BROWSER_USE_PIPE_PATH).toBeUndefined();
+    expect(env.VEYLEN_AUTH_TOKEN).toBeUndefined();
+    expect(env.VEYLEN_BROWSER_USE_PIPE_PATH).toBeUndefined();
   });
 });
 
@@ -429,7 +429,7 @@ describe("OpenCodeRuntime local server pool", () => {
             .connectToOpenCodeServer({
               binaryPath: "kilo",
               cliSpec: KILO_CLI_SPEC,
-              poolIsolationKey: "synara-kilo-thread",
+              poolIsolationKey: "veylen-kilo-thread",
             })
             .pipe(Effect.provideService(Scope.Scope, serverScope), Effect.forkChild);
 
@@ -593,14 +593,14 @@ describe("OpenCodeRuntime local server pool", () => {
             .connectToOpenCodeServer({
               binaryPath: "opencode",
               cwd: "/repo",
-              poolIsolationKey: "synara-thread-a",
+              poolIsolationKey: "veylen-thread-a",
             })
             .pipe(Effect.provideService(Scope.Scope, firstScope));
           const second = yield* runtime
             .connectToOpenCodeServer({
               binaryPath: "opencode",
               cwd: "/repo",
-              poolIsolationKey: "synara-thread-b",
+              poolIsolationKey: "veylen-thread-b",
             })
             .pipe(Effect.provideService(Scope.Scope, secondScope));
 

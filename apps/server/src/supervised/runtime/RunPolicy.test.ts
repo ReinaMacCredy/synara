@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
 
-import type { Run, RunPolicy } from "@synara/contracts";
+import type { Run, RunPolicy } from "@veylen/contracts";
 
 import { evaluateRunPolicy, mayTransitionRun, transitionRun } from "./RunPolicy.ts";
 

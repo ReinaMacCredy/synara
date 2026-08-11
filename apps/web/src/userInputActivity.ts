@@ -1,4 +1,4 @@
-import type { ProviderUserInputAnswers, UserInputQuestion } from "@synara/contracts";
+import type { ProviderUserInputAnswers, UserInputQuestion } from "@veylen/contracts";
 
 export function parseUserInputQuestions(
   payload: Record<string, unknown> | null,

@@ -1,4 +1,4 @@
-import type { LeadRotation, LeadSeat } from "@synara/contracts";
+import type { LeadRotation, LeadSeat } from "@veylen/contracts";
 
 const NEXT_STATES: Readonly<Record<LeadRotation["state"], ReadonlySet<LeadRotation["state"]>>> = {
   requested: new Set(["frozen", "failed"]),

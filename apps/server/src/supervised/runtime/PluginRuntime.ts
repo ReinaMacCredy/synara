@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { ControlPlaneEvent, PluginInstallation, RunPolicy } from "@synara/contracts";
+import type { ControlPlaneEvent, PluginInstallation, RunPolicy } from "@veylen/contracts";
 
 import { evaluateRunPolicy, type RunResourceUsage } from "./RunPolicy.ts";
 import { PersistentKernel, type KernelExecutionResult } from "./KernelRuntime.ts";

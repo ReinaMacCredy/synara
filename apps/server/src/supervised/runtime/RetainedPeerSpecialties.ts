@@ -1,4 +1,4 @@
-import type { AuthorityScope, PeerSpecialty, PeerSpecialtySnapshot } from "@synara/contracts";
+import type { AuthorityScope, PeerSpecialty, PeerSpecialtySnapshot } from "@veylen/contracts";
 
 const sameScope = (left: AuthorityScope, right: AuthorityScope) =>
   JSON.stringify(left) === JSON.stringify(right);

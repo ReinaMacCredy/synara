@@ -1,8 +1,8 @@
-export const APP_BASE_NAME = "Synara";
+export const APP_BASE_NAME = "Veylen";
 const isCanaryDesktop =
-  typeof window !== "undefined" && window.location?.protocol === "synara-canary:";
+  typeof window !== "undefined" && window.location?.protocol === "veylen-canary:";
 export const APP_DISPLAY_NAME = isCanaryDesktop
-  ? "Synara Canary"
+  ? "Veylen Canary"
   : import.meta.env.DEV
     ? `${APP_BASE_NAME} (Dev)`
     : APP_BASE_NAME;

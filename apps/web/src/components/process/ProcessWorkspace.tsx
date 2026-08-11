@@ -7,7 +7,7 @@ import {
   type ProjectTaskRisk,
   type TaskProcessCommand,
   type TaskProcessGraphProjection,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useMemo, useState } from "react";

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import type { HandoffCapsuleItemV1 } from "@synara/contracts";
+import type { HandoffCapsuleItemV1 } from "@veylen/contracts";
 
 interface HandoffSourceMessage {
   readonly id: string;

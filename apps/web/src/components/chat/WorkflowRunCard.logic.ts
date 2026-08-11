@@ -9,7 +9,7 @@
 // Exports: deriveWorkflowRunState, WorkflowRunState, WorkflowAgentRow,
 // workflowElapsedMs, and buildWorkflowResumePrompt
 
-import { ThreadId, type OrchestrationThreadActivity } from "@synara/contracts";
+import { ThreadId, type OrchestrationThreadActivity } from "@veylen/contracts";
 
 import { orderedActivities } from "../../session-logic";
 import { formatSubagentModelLabel, type SubagentStatusKind } from "../../lib/subagentPresentation";

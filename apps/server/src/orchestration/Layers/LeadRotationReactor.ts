@@ -11,7 +11,7 @@ import {
   type OrchestrationThread,
   type ProfileSnapshot,
   type RuntimeMode,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Cause, Effect, Exit, Layer, Semaphore, Stream } from "effect";
 
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
@@ -59,7 +59,7 @@ const importedHandoffMessages = (source: OrchestrationThread, rotation: LeadRota
 
 const bootstrapText = (rotation: LeadRotation, profile: ProfileSnapshot) =>
   [
-    "<synara_lead_replacement>",
+    "<veylen_lead_replacement>",
     "You are being provisioned as the replacement Lead for an existing Room.",
     `lead_seat_id: ${rotation.leadSeatId}`,
     `predecessor_thread_id: ${rotation.predecessorThreadId}`,
@@ -67,7 +67,7 @@ const bootstrapText = (rotation: LeadRotation, profile: ProfileSnapshot) =>
     "Review the imported handoff context. Do not claim that Root has transferred until the durable Room topology says this thread is active.",
     "Apply this owner-resolved profile guidance while provisioning:",
     profile.runtime.developerInstructions,
-    "</synara_lead_replacement>",
+    "</veylen_lead_replacement>",
   ].join("\n");
 
 const providerFailure = (thread: OrchestrationThread): string | null => {

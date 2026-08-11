@@ -4,7 +4,7 @@ import { describe, it } from "vitest";
 import type {
   SupervisorNotebookCompactionReceipt,
   SupervisorNotebookEntry,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 import {
   buildSupervisorNotebookView,

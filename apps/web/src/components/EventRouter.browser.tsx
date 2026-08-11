@@ -17,7 +17,7 @@ import {
   WS_METHODS,
   emptySupervisedOrchestrationSnapshot,
   emptySupervisedRuntimeSnapshot,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { HttpResponse, http, ws } from "msw";
 import { setupWorker } from "msw/browser";

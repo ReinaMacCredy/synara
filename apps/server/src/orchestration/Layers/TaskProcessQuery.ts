@@ -7,7 +7,7 @@ import {
   type TaskProcessSummaryProjection,
   type TaskThreadBindingProjection,
   type ThreadId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Effect, Layer, Option } from "effect";
 
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";

@@ -14,7 +14,7 @@ import { CheckpointStoreLive } from "./CheckpointStore.ts";
 import { CheckpointStore } from "../Services/CheckpointStore.ts";
 import { GitCore, type GitCoreShape } from "../../git/Services/GitCore.ts";
 import { GitCommandError } from "../../git/Errors.ts";
-import { CheckpointRef } from "@synara/contracts";
+import { CheckpointRef } from "@veylen/contracts";
 
 async function waitFor(predicate: () => boolean, timeoutMs = 1_000): Promise<void> {
   const started = Date.now();
@@ -73,7 +73,7 @@ describe("CheckpointStoreLive", () => {
         const store = yield* CheckpointStore;
         const input = {
           cwd: "/repo",
-          checkpointRef: CheckpointRef.makeUnsafe("refs/synara-checkpoints/thread/message"),
+          checkpointRef: CheckpointRef.makeUnsafe("refs/veylen-checkpoints/thread/message"),
         };
 
         const first = yield* store.captureCheckpoint(input).pipe(Effect.forkChild);
@@ -95,7 +95,7 @@ describe("CheckpointStoreLive", () => {
   });
 
   it("seeds a capture from the working index so Git can reuse its stat cache", async () => {
-    const tempDir = mkdtempSync(join(tmpdir(), "synara-checkpoint-index-test-"));
+    const tempDir = mkdtempSync(join(tmpdir(), "veylen-checkpoint-index-test-"));
     const workingIndexPath = join(tempDir, "index");
     writeFileSync(workingIndexPath, "working-index-stat-cache");
     const workingIndexTime = new Date("2020-01-02T03:04:05.000Z");
@@ -143,7 +143,7 @@ describe("CheckpointStoreLive", () => {
           const store = yield* CheckpointStore;
           yield* store.captureCheckpoint({
             cwd: tempDir,
-            checkpointRef: CheckpointRef.makeUnsafe("refs/synara-checkpoints/thread/stat-cache"),
+            checkpointRef: CheckpointRef.makeUnsafe("refs/veylen-checkpoints/thread/stat-cache"),
           });
         }),
       );
@@ -202,7 +202,7 @@ describe("CheckpointStoreLive", () => {
         const store = yield* CheckpointStore;
         const input = {
           cwd: "/repo",
-          checkpointRef: CheckpointRef.makeUnsafe("refs/synara-checkpoints/thread/message"),
+          checkpointRef: CheckpointRef.makeUnsafe("refs/veylen-checkpoints/thread/message"),
         };
 
         const first = yield* store.captureCheckpoint(input).pipe(Effect.forkChild);
@@ -230,8 +230,8 @@ describe("CheckpointStoreLive", () => {
   });
 
   it("skips the capture when skipIfExists is set and the ref already exists", async () => {
-    const existingRef = "refs/synara-checkpoints/thread/existing";
-    const missingRef = "refs/synara-checkpoints/thread/missing";
+    const existingRef = "refs/veylen-checkpoints/thread/existing";
+    const missingRef = "refs/veylen-checkpoints/thread/missing";
     const execute = vi.fn<GitCoreShape["execute"]>((input) => {
       const args = input.args.join(" ");
       if (args === `rev-parse --verify --quiet ${existingRef}^{commit}`) {
@@ -291,8 +291,8 @@ describe("CheckpointStoreLive", () => {
   });
 
   it("restores the worktree patch when resetting the index fails during file undo", async () => {
-    const fromRef = CheckpointRef.makeUnsafe("refs/synara-checkpoints/thread/turn/start");
-    const toRef = CheckpointRef.makeUnsafe("refs/synara-checkpoints/thread/turn/end");
+    const fromRef = CheckpointRef.makeUnsafe("refs/veylen-checkpoints/thread/turn/start");
+    const toRef = CheckpointRef.makeUnsafe("refs/veylen-checkpoints/thread/turn/end");
     const commands: string[] = [];
     const execute = vi.fn<GitCoreShape["execute"]>((input) => {
       const args = input.args.join(" ");
@@ -355,8 +355,8 @@ describe("CheckpointStoreLive", () => {
   });
 
   it("fails when a checkpoint ref cannot be deleted", async () => {
-    const lockedRef = CheckpointRef.makeUnsafe("refs/synara/checkpoints/thread/turn/locked");
-    const deletableRef = CheckpointRef.makeUnsafe("refs/synara/checkpoints/thread/turn/ok");
+    const lockedRef = CheckpointRef.makeUnsafe("refs/veylen/checkpoints/thread/turn/locked");
+    const deletableRef = CheckpointRef.makeUnsafe("refs/veylen/checkpoints/thread/turn/ok");
     const execute = vi.fn<GitCoreShape["execute"]>((input) => {
       const args = input.args.join(" ");
       if (args === `update-ref -d ${lockedRef}`) {
@@ -396,7 +396,7 @@ describe("CheckpointStoreLive", () => {
   it("tolerates deleting checkpoint refs that are already absent", async () => {
     // `git update-ref -d` exits 0 for a ref that does not exist, so the
     // exit-code check must not turn best-effort cleanup into a hard failure.
-    const missingRef = CheckpointRef.makeUnsafe("refs/synara/checkpoints/thread/turn/gone");
+    const missingRef = CheckpointRef.makeUnsafe("refs/veylen/checkpoints/thread/turn/gone");
     const execute = vi.fn<GitCoreShape["execute"]>(() =>
       Effect.succeed({ code: 0, stdout: "", stderr: "" }),
     );

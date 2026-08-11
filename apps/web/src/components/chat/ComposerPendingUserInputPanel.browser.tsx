@@ -2,7 +2,7 @@
 // Purpose: Browser regression coverage for the inline request_user_input question flow.
 // Layer: Chat composer UI browser test
 
-import { ApprovalRequestId, ThreadId, type UserInputQuestion } from "@synara/contracts";
+import { ApprovalRequestId, ThreadId, type UserInputQuestion } from "@veylen/contracts";
 import { useState } from "react";
 import { page, userEvent } from "vitest/browser";
 import { describe, expect, it, vi } from "vitest";

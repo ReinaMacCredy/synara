@@ -4,7 +4,7 @@
 // Layer: Chat turn work-status derivation
 // Exports: deriveTurnWorkStatus, per-turn remount seed helpers
 
-import type { ThreadId, TurnId } from "@synara/contracts";
+import type { ThreadId, TurnId } from "@veylen/contracts";
 
 import { deriveActiveWorkStartedAt, isLatestTurnSettled } from "./session-logic";
 

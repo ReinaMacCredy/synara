@@ -433,7 +433,7 @@ describe("agent gateway browser tools", () => {
 
     const requests = execute.mock.calls.map(([request]) => request);
     const keys = requests.map((request) => request.arguments.idempotencyKey);
-    expect(keys[0]).toMatch(/^synara-mcp-[a-f0-9]{40}$/u);
+    expect(keys[0]).toMatch(/^veylen-mcp-[a-f0-9]{40}$/u);
     expect(keys[1]).toBe(keys[0]);
     expect(keys[2]).not.toBe(keys[0]);
     expect(keys[3]).not.toBe(keys[0]);

@@ -7,7 +7,7 @@ import {
   TaskProgressEntryId,
   TaskThreadBindingId,
   ThreadId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Exit, Layer, Option } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";

@@ -1,5 +1,5 @@
 // FILE: codexProcessEnv.ts
-// Purpose: Builds the exact environment used when Synara launches Codex subprocesses.
+// Purpose: Builds the exact environment used when Veylen launches Codex subprocesses.
 // Layer: Server runtime utility
 // Exports: Codex process env builder and browser-plugin overlay helpers.
 // Depends on: Codex home path helpers, shared Codex config parsing, login-shell env reader.
@@ -7,21 +7,21 @@
 import * as fs from "node:fs/promises";
 import path from "node:path";
 
-import { readActiveCodexProviderEnvKey } from "@synara/shared/codexConfig";
+import { readActiveCodexProviderEnvKey } from "@veylen/shared/codexConfig";
 import {
   readEnvironmentFromLoginShell,
   resolveLoginShell,
   type ShellEnvironmentReader,
-} from "@synara/shared/shell";
+} from "@veylen/shared/shell";
 
-import { resolveBaseCodexHomePath, resolveSynaraCodexHomeOverlayPath } from "./codexHomePaths.ts";
+import { resolveBaseCodexHomePath, resolveVeylenCodexHomeOverlayPath } from "./codexHomePaths.ts";
 import { buildProviderChildEnvironment } from "./providerChildEnvironment.ts";
 
 const CODEX_PROCESS_SHELL_ENV_NAMES = ["PATH", "SSH_AUTH_SOCK"] as const;
 const CODEX_OVERLAY_SHARED_STATE_FILES = new Set(["auth.json"]);
-const SYNARA_CONFIG_SUPPRESSIONS_FILE = "synara-config-suppressions-v1.json";
-const SYNARA_MANAGED_MCP_TABLE_HEADER = "[mcp_servers.synara]";
-export const SYNARA_COMPETING_BROWSER_PLUGIN_SECTION_HEADERS = [
+const VEYLEN_CONFIG_SUPPRESSIONS_FILE = "veylen-config-suppressions-v1.json";
+const VEYLEN_MANAGED_MCP_TABLE_HEADER = "[mcp_servers.veylen]";
+export const VEYLEN_COMPETING_BROWSER_PLUGIN_SECTION_HEADERS = [
   '[plugins."browser@openai-bundled"]',
   '[plugins."chrome@openai-bundled"]',
   '[plugins."computer-use@openai-bundled"]',
@@ -47,7 +47,7 @@ function isSafePluginSectionHeader(value: unknown): value is string {
   );
 }
 
-export async function readSynaraConfigSuppressions(markerPath: string): Promise<readonly string[]> {
+export async function readVeylenConfigSuppressions(markerPath: string): Promise<readonly string[]> {
   try {
     const parsed = JSON.parse(await fs.readFile(markerPath, "utf8")) as unknown;
     if (typeof parsed !== "object" || parsed === null) return [];
@@ -131,7 +131,7 @@ export function disableCodexConfigSections(
   return output.join("\n");
 }
 
-async function writeSynaraConfigSuppressions(
+async function writeVeylenConfigSuppressions(
   markerPath: string,
   sectionHeaders: readonly string[],
 ): Promise<void> {
@@ -232,16 +232,16 @@ export function appendCodexConfigSection(config: string, section: string): strin
   return base.length > 0 ? `${base}\n\n${trimmedSection}\n` : `${trimmedSection}\n`;
 }
 
-export const SYNARA_MANAGED_CODEX_CONFIG_BEGIN = "# >>> synara managed config >>>";
-export const SYNARA_MANAGED_CODEX_CONFIG_END = "# <<< synara managed config <<<";
+export const VEYLEN_MANAGED_CODEX_CONFIG_BEGIN = "# >>> veylen managed config >>>";
+export const VEYLEN_MANAGED_CODEX_CONFIG_END = "# <<< veylen managed config <<<";
 
 export function extractManagedCodexConfigSection(config: string): string | undefined {
-  const begin = config.indexOf(SYNARA_MANAGED_CODEX_CONFIG_BEGIN);
+  const begin = config.indexOf(VEYLEN_MANAGED_CODEX_CONFIG_BEGIN);
   if (begin === -1) {
     return undefined;
   }
-  const contentStart = begin + SYNARA_MANAGED_CODEX_CONFIG_BEGIN.length;
-  const end = config.indexOf(SYNARA_MANAGED_CODEX_CONFIG_END, contentStart);
+  const contentStart = begin + VEYLEN_MANAGED_CODEX_CONFIG_BEGIN.length;
+  const end = config.indexOf(VEYLEN_MANAGED_CODEX_CONFIG_END, contentStart);
   if (end === -1) {
     return undefined;
   }
@@ -551,7 +551,7 @@ export function mergeShellEnvPolicyExclude(config: string, envVarName: string): 
 
 function appendManagedCodexConfigSection(config: string, section: string): string {
   let overlayConfig = config;
-  const managedMcpTableName = normalizeTomlTableHeaderName(SYNARA_MANAGED_MCP_TABLE_HEADER);
+  const managedMcpTableName = normalizeTomlTableHeaderName(VEYLEN_MANAGED_MCP_TABLE_HEADER);
   const tables: string[] = [];
 
   for (const table of splitTomlTables(section.trim())) {
@@ -561,9 +561,9 @@ function appendManagedCodexConfigSection(config: string, section: string): strin
       continue;
     }
     if (normalizeTomlTableHeaderName(header) === managedMcpTableName) {
-      // The session-scoped gateway entry is authoritative inside Synara's
+      // The session-scoped gateway entry is authoritative inside Veylen's
       // overlay. The user's source config remains untouched.
-      overlayConfig = removeTomlTableNamespace(overlayConfig, SYNARA_MANAGED_MCP_TABLE_HEADER);
+      overlayConfig = removeTomlTableNamespace(overlayConfig, VEYLEN_MANAGED_MCP_TABLE_HEADER);
       tables.push(table);
       continue;
     }
@@ -577,7 +577,7 @@ function appendManagedCodexConfigSection(config: string, section: string): strin
   }
   return appendCodexConfigSection(
     overlayConfig,
-    `${SYNARA_MANAGED_CODEX_CONFIG_BEGIN}\n${tables.join("\n\n")}\n${SYNARA_MANAGED_CODEX_CONFIG_END}`,
+    `${VEYLEN_MANAGED_CODEX_CONFIG_BEGIN}\n${tables.join("\n\n")}\n${VEYLEN_MANAGED_CODEX_CONFIG_END}`,
   );
 }
 
@@ -601,13 +601,13 @@ async function serializeCodexOverlayPreparation<A>(
   }
 }
 
-async function prepareSynaraCodexHomeOverlayUnlocked(input: {
+async function prepareVeylenCodexHomeOverlayUnlocked(input: {
   readonly env: NodeJS.ProcessEnv;
   readonly homePath?: string;
   readonly appendConfigToml?: string;
 }): Promise<string | undefined> {
   const sourceHomePath = resolveBaseCodexHomePath(input.env, input.homePath);
-  const overlayHomePath = resolveSynaraCodexHomeOverlayPath(input.env, sourceHomePath);
+  const overlayHomePath = resolveVeylenCodexHomeOverlayPath(input.env, sourceHomePath);
   if (path.resolve(sourceHomePath) === path.resolve(overlayHomePath)) {
     return undefined;
   }
@@ -643,12 +643,12 @@ async function prepareSynaraCodexHomeOverlayUnlocked(input: {
     }
     throw cause;
   });
-  const suppressionMarkerPath = path.join(overlayHomePath, SYNARA_CONFIG_SUPPRESSIONS_FILE);
+  const suppressionMarkerPath = path.join(overlayHomePath, VEYLEN_CONFIG_SUPPRESSIONS_FILE);
   const suppressedSections = [
     ...new Set([
-      ...SYNARA_COMPETING_BROWSER_PLUGIN_SECTION_HEADERS,
+      ...VEYLEN_COMPETING_BROWSER_PLUGIN_SECTION_HEADERS,
       ...findConflictingLocalBrowserPluginSections(sourceConfig),
-      ...(await readSynaraConfigSuppressions(suppressionMarkerPath)),
+      ...(await readVeylenConfigSuppressions(suppressionMarkerPath)),
     ]),
   ].slice(0, MAX_CONFIG_SUPPRESSION_SECTIONS);
   const overlayConfigPath = path.join(overlayHomePath, "config.toml");
@@ -672,23 +672,23 @@ async function prepareSynaraCodexHomeOverlayUnlocked(input: {
     }
   }
   await fs.writeFile(overlayConfigPath, overlayConfig, "utf8");
-  await writeSynaraConfigSuppressions(suppressionMarkerPath, suppressedSections);
+  await writeVeylenConfigSuppressions(suppressionMarkerPath, suppressedSections);
 
   return overlayHomePath;
 }
 
-async function prepareSynaraCodexHomeOverlay(input: {
+async function prepareVeylenCodexHomeOverlay(input: {
   readonly env: NodeJS.ProcessEnv;
   readonly homePath?: string;
   readonly appendConfigToml?: string;
 }): Promise<string | undefined> {
   const sourceHomePath = resolveBaseCodexHomePath(input.env, input.homePath);
-  const overlayHomePath = resolveSynaraCodexHomeOverlayPath(input.env, sourceHomePath);
+  const overlayHomePath = resolveVeylenCodexHomeOverlayPath(input.env, sourceHomePath);
   if (path.resolve(sourceHomePath) === path.resolve(overlayHomePath)) {
     return undefined;
   }
   return serializeCodexOverlayPreparation(overlayHomePath, () =>
-    prepareSynaraCodexHomeOverlayUnlocked(input),
+    prepareVeylenCodexHomeOverlayUnlocked(input),
   );
 }
 
@@ -702,7 +702,7 @@ export async function buildCodexProcessEnv(
   } = {},
 ): Promise<NodeJS.ProcessEnv> {
   const baseEnv = { ...(input.env ?? process.env) };
-  const overlayHomePath = await prepareSynaraCodexHomeOverlay({
+  const overlayHomePath = await prepareVeylenCodexHomeOverlay({
     env: baseEnv,
     ...(input.homePath ? { homePath: input.homePath } : {}),
     ...(input.appendConfigToml ? { appendConfigToml: input.appendConfigToml } : {}),

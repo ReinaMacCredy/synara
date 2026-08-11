@@ -2,7 +2,7 @@ import type {
   SupervisedCommand,
   SupervisedGovernanceSnapshot,
   SupervisedRuntimeSnapshot,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 const rootOwnedCommands = new Set<SupervisedCommand["type"]>([
   "supervised.room.update",

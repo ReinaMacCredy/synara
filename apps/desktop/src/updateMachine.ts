@@ -1,4 +1,4 @@
-import type { DesktopRuntimeInfo, DesktopUpdateState } from "@synara/contracts";
+import type { DesktopRuntimeInfo, DesktopUpdateState } from "@veylen/contracts";
 
 import { getCanRetryAfterDownloadFailure, nextStatusAfterDownloadFailure } from "./updateState";
 

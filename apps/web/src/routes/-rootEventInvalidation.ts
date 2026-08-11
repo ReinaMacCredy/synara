@@ -3,8 +3,8 @@
 // Layer: Root route utility
 // Exports: Event invalidation predicates for provider, project, and Git caches.
 
-import { type OrchestrationEvent, type ThreadId } from "@synara/contracts";
-import { resolveThreadWorkspaceCwd } from "@synara/shared/threadEnvironment";
+import { type OrchestrationEvent, type ThreadId } from "@veylen/contracts";
+import { resolveThreadWorkspaceCwd } from "@veylen/shared/threadEnvironment";
 
 import type { AppState } from "../storeState";
 import { getThreadFromState } from "../threadDerivation";

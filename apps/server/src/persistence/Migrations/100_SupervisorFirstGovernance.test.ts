@@ -15,7 +15,7 @@ import {
   emptySupervisedGovernanceSnapshot,
   emptySupervisedRuntimeSnapshot,
   ThreadId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 import { emptySupervisedGovernanceDecisionState } from "../../orchestration/supervised/governanceState.ts";
 import type { SupervisedGovernanceDecisionState } from "../../orchestration/supervised/governanceState.ts";

@@ -5,26 +5,31 @@ import { delimiter as pathDelimiter, join as pathJoin } from "node:path";
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { NetService } from "@synara/shared/Net";
+import { NetService } from "@veylen/shared/Net";
+import {
+  applyLegacyEnvironmentAliases,
+} from "@veylen/shared/veylenHome";
 import {
   getBooleanFlagValue,
   optionalBooleanEnvironmentConfig,
   optionalBooleanFlag,
   type BooleanFlagInput,
-} from "@synara/shared/cli";
-import { applyShellEnvironmentHydrationMarker } from "@synara/shared/shell";
+} from "@veylen/shared/cli";
+import { applyShellEnvironmentHydrationMarker } from "@veylen/shared/shell";
 import { Config, Data, Effect, Hash, Layer, Logger, Option, Path, Schema } from "effect";
 import * as ConfigProvider from "effect/ConfigProvider";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 import { ChildProcess } from "effect/unstable/process";
+
+applyLegacyEnvironmentAliases();
 
 const BASE_SERVER_PORT = 3773;
 const BASE_WEB_PORT = 5733;
 const MAX_HASH_OFFSET = 3000;
 const MAX_PORT = 65535;
 
-export const DEFAULT_SYNARA_HOME = Effect.map(Effect.service(Path.Path), (path) =>
-  path.join(homedir(), ".synara"),
+export const DEFAULT_VEYLEN_HOME = Effect.map(Effect.service(Path.Path), (path) =>
+  path.join(homedir(), ".veylen"),
 );
 
 const MODE_ARGS = {
@@ -32,14 +37,14 @@ const MODE_ARGS = {
     "run",
     "dev",
     "--ui=tui",
-    "--filter=@synara/contracts",
-    "--filter=@synara/web",
-    "--filter=@synara/cli",
+    "--filter=@veylen/contracts",
+    "--filter=@veylen/web",
+    "--filter=@veylen/cli",
     "--parallel",
   ],
-  "dev:server": ["run", "dev", "--filter=@synara/cli"],
-  "dev:web": ["run", "dev", "--filter=@synara/web"],
-  "dev:desktop": ["run", "dev", "--filter=@synara/desktop", "--filter=@synara/web", "--parallel"],
+  "dev:server": ["run", "dev", "--filter=@veylen/cli"],
+  "dev:web": ["run", "dev", "--filter=@veylen/web"],
+  "dev:desktop": ["run", "dev", "--filter=@veylen/desktop", "--filter=@veylen/web", "--parallel"],
 } as const satisfies Record<string, ReadonlyArray<string>>;
 
 type DevMode = keyof typeof MODE_ARGS;
@@ -74,16 +79,16 @@ const optionalUrlConfig = (name: string): Config.Config<URL | undefined> =>
   );
 
 const OffsetConfig = Config.all({
-  portOffset: optionalIntegerConfig("SYNARA_PORT_OFFSET"),
-  devInstance: optionalStringConfig("SYNARA_DEV_INSTANCE"),
+  portOffset: optionalIntegerConfig("VEYLEN_PORT_OFFSET"),
+  devInstance: optionalStringConfig("VEYLEN_DEV_INSTANCE"),
 });
-const HomeConfig = optionalStringConfig("SYNARA_HOME");
+const HomeConfig = optionalStringConfig("VEYLEN_HOME");
 const BooleanEnvConfig = Config.all({
-  noBrowser: optionalBooleanEnvironmentConfig("SYNARA_NO_BROWSER"),
+  noBrowser: optionalBooleanEnvironmentConfig("VEYLEN_NO_BROWSER"),
   autoBootstrapProjectFromCwd: optionalBooleanEnvironmentConfig(
-    "SYNARA_AUTO_BOOTSTRAP_PROJECT_FROM_CWD",
+    "VEYLEN_AUTO_BOOTSTRAP_PROJECT_FROM_CWD",
   ),
-  logWebSocketEvents: optionalBooleanEnvironmentConfig("SYNARA_LOG_WS_EVENTS"),
+  logWebSocketEvents: optionalBooleanEnvironmentConfig("VEYLEN_LOG_WS_EVENTS"),
 });
 
 export const readDevRunnerBooleanEnvironment = (environment: NodeJS.ProcessEnv) => {
@@ -109,11 +114,11 @@ export function resolveOffset(config: {
 }): { readonly offset: number; readonly source: string } {
   if (config.portOffset !== undefined) {
     if (config.portOffset < 0) {
-      throw new Error(`Invalid SYNARA_PORT_OFFSET: ${config.portOffset}`);
+      throw new Error(`Invalid VEYLEN_PORT_OFFSET: ${config.portOffset}`);
     }
     return {
       offset: config.portOffset,
-      source: `SYNARA_PORT_OFFSET=${config.portOffset}`,
+      source: `VEYLEN_PORT_OFFSET=${config.portOffset}`,
     };
   }
 
@@ -123,11 +128,11 @@ export function resolveOffset(config: {
   }
 
   if (/^\d+$/.test(seed)) {
-    return { offset: Number(seed), source: `numeric SYNARA_DEV_INSTANCE=${seed}` };
+    return { offset: Number(seed), source: `numeric VEYLEN_DEV_INSTANCE=${seed}` };
   }
 
   const offset = ((Hash.string(seed) >>> 0) % MAX_HASH_OFFSET) + 1;
-  return { offset, source: `hashed SYNARA_DEV_INSTANCE=${seed}` };
+  return { offset, source: `hashed VEYLEN_DEV_INSTANCE=${seed}` };
 }
 
 function resolveBaseDir(baseDir: string | undefined): Effect.Effect<string, never, Path.Path> {
@@ -139,7 +144,7 @@ function resolveBaseDir(baseDir: string | undefined): Effect.Effect<string, neve
       return path.resolve(configured);
     }
 
-    return yield* DEFAULT_SYNARA_HOME;
+    return yield* DEFAULT_VEYLEN_HOME;
   });
 }
 
@@ -148,7 +153,7 @@ interface CreateDevRunnerEnvInput {
   readonly baseEnv: NodeJS.ProcessEnv;
   readonly serverOffset: number;
   readonly webOffset: number;
-  readonly synaraHome: string | undefined;
+  readonly veylenHome: string | undefined;
   readonly authToken: string | undefined;
   readonly noBrowser: boolean | undefined;
   readonly autoBootstrapProjectFromCwd: boolean | undefined;
@@ -163,7 +168,7 @@ export function createDevRunnerEnv({
   baseEnv,
   serverOffset,
   webOffset,
-  synaraHome,
+  veylenHome,
   authToken,
   noBrowser,
   autoBootstrapProjectFromCwd,
@@ -175,7 +180,7 @@ export function createDevRunnerEnv({
   return Effect.gen(function* () {
     const serverPort = port ?? BASE_SERVER_PORT + serverOffset;
     const webPort = BASE_WEB_PORT + webOffset;
-    const resolvedBaseDir = yield* resolveBaseDir(synaraHome);
+    const resolvedBaseDir = yield* resolveBaseDir(veylenHome);
     const configuredHost = host ?? "127.0.0.1";
     // Brackets are URL syntax, not valid listen-host syntax. Keep the bind host
     // portable while adding brackets back only when constructing an IPv6 URL.
@@ -188,13 +193,13 @@ export function createDevRunnerEnv({
 
     const output: NodeJS.ProcessEnv = {
       ...baseEnv,
-      SYNARA_PORT: String(serverPort),
+      VEYLEN_PORT: String(serverPort),
       PORT: String(webPort),
       ELECTRON_RENDERER_PORT: String(webPort),
       VITE_WS_URL: `ws://${formattedClientHost}:${serverPort}`,
       VITE_DEV_SERVER_URL: devUrl?.toString() ?? `http://${formattedClientHost}:${webPort}`,
-      SYNARA_HOME: resolvedBaseDir,
-      SYNARA_HOST: serverHost,
+      VEYLEN_HOME: resolvedBaseDir,
+      VEYLEN_HOST: serverHost,
     };
 
     const pathKey = process.platform === "win32" ? "Path" : "PATH";
@@ -217,37 +222,37 @@ export function createDevRunnerEnv({
     applyShellEnvironmentHydrationMarker(output, inheritedPathIsUsable);
 
     if (authToken !== undefined) {
-      output.SYNARA_AUTH_TOKEN = authToken;
+      output.VEYLEN_AUTH_TOKEN = authToken;
     } else {
-      delete output.SYNARA_AUTH_TOKEN;
+      delete output.VEYLEN_AUTH_TOKEN;
     }
 
     if (noBrowser !== undefined) {
-      output.SYNARA_NO_BROWSER = noBrowser ? "1" : "0";
+      output.VEYLEN_NO_BROWSER = noBrowser ? "1" : "0";
     } else {
-      delete output.SYNARA_NO_BROWSER;
+      delete output.VEYLEN_NO_BROWSER;
     }
 
     if (autoBootstrapProjectFromCwd !== undefined) {
-      output.SYNARA_AUTO_BOOTSTRAP_PROJECT_FROM_CWD = autoBootstrapProjectFromCwd ? "1" : "0";
+      output.VEYLEN_AUTO_BOOTSTRAP_PROJECT_FROM_CWD = autoBootstrapProjectFromCwd ? "1" : "0";
     } else {
-      delete output.SYNARA_AUTO_BOOTSTRAP_PROJECT_FROM_CWD;
+      delete output.VEYLEN_AUTO_BOOTSTRAP_PROJECT_FROM_CWD;
     }
 
     if (logWebSocketEvents !== undefined) {
-      output.SYNARA_LOG_WS_EVENTS = logWebSocketEvents ? "1" : "0";
+      output.VEYLEN_LOG_WS_EVENTS = logWebSocketEvents ? "1" : "0";
     } else {
-      delete output.SYNARA_LOG_WS_EVENTS;
+      delete output.VEYLEN_LOG_WS_EVENTS;
     }
 
     if (mode === "dev") {
-      output.SYNARA_MODE = "web";
-      delete output.SYNARA_DESKTOP_WS_URL;
+      output.VEYLEN_MODE = "web";
+      delete output.VEYLEN_DESKTOP_WS_URL;
     }
 
     if (mode === "dev:server" || mode === "dev:web") {
-      output.SYNARA_MODE = "web";
-      delete output.SYNARA_DESKTOP_WS_URL;
+      output.VEYLEN_MODE = "web";
+      delete output.VEYLEN_DESKTOP_WS_URL;
     }
 
     return output;
@@ -388,7 +393,7 @@ export function resolveModePortOffsets<R = NetService>({
 
 interface DevRunnerCliInput {
   readonly mode: DevMode;
-  readonly synaraHome: string | undefined;
+  readonly veylenHome: string | undefined;
   readonly authToken: string | undefined;
   readonly noBrowser: BooleanFlagInput;
   readonly autoBootstrapProjectFromCwd: BooleanFlagInput;
@@ -429,7 +434,7 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
       Effect.mapError(
         (cause) =>
           new DevRunnerError({
-            message: "Failed to read SYNARA_PORT_OFFSET/SYNARA_DEV_INSTANCE configuration.",
+            message: "Failed to read VEYLEN_PORT_OFFSET/VEYLEN_DEV_INSTANCE configuration.",
             cause,
           }),
       ),
@@ -459,7 +464,7 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
       baseEnv: process.env,
       serverOffset,
       webOffset,
-      synaraHome: input.synaraHome,
+      veylenHome: input.veylenHome,
       authToken: input.authToken,
       noBrowser: booleanOverrides.noBrowser,
       autoBootstrapProjectFromCwd: booleanOverrides.autoBootstrapProjectFromCwd,
@@ -475,7 +480,7 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
         : "";
 
     yield* Effect.logInfo(
-      `[dev-runner] mode=${input.mode} source=${source}${selectionSuffix} serverPort=${String(env.SYNARA_PORT)} webPort=${String(env.PORT)} baseDir=${String(env.SYNARA_HOME)}`,
+      `[dev-runner] mode=${input.mode} source=${source}${selectionSuffix} serverPort=${String(env.VEYLEN_PORT)} webPort=${String(env.PORT)} baseDir=${String(env.VEYLEN_HOME)}`,
     );
 
     if (input.dryRun) {
@@ -523,36 +528,36 @@ const devRunnerCli = Command.make("dev-runner", {
   mode: Argument.choice("mode", DEV_RUNNER_MODES).pipe(
     Argument.withDescription("Development mode to run."),
   ),
-  synaraHome: Flag.string("home-dir").pipe(
-    Flag.withDescription("Base directory for all Synara data (equivalent to SYNARA_HOME)."),
+  veylenHome: Flag.string("home-dir").pipe(
+    Flag.withDescription("Base directory for all Veylen data (equivalent to VEYLEN_HOME)."),
     Flag.withFallbackConfig(HomeConfig),
   ),
   authToken: Flag.string("auth-token").pipe(
-    Flag.withDescription("Auth token (forwards to SYNARA_AUTH_TOKEN)."),
+    Flag.withDescription("Auth token (forwards to VEYLEN_AUTH_TOKEN)."),
     Flag.withAlias("token"),
-    Flag.withFallbackConfig(optionalStringConfig("SYNARA_AUTH_TOKEN")),
+    Flag.withFallbackConfig(optionalStringConfig("VEYLEN_AUTH_TOKEN")),
   ),
   noBrowser: optionalBooleanFlag("no-browser", {
-    description: "Disable browser auto-open (equivalent to SYNARA_NO_BROWSER).",
+    description: "Disable browser auto-open (equivalent to VEYLEN_NO_BROWSER).",
     negativeName: "browser",
     negativeDescription: "Enable browser auto-open.",
   }),
   autoBootstrapProjectFromCwd: optionalBooleanFlag("auto-bootstrap-project-from-cwd", {
     description:
-      "Enable project auto-bootstrap (equivalent to SYNARA_AUTO_BOOTSTRAP_PROJECT_FROM_CWD).",
+      "Enable project auto-bootstrap (equivalent to VEYLEN_AUTO_BOOTSTRAP_PROJECT_FROM_CWD).",
   }),
   logWebSocketEvents: optionalBooleanFlag("log-websocket-events", {
-    description: "Enable WebSocket event logging (equivalent to SYNARA_LOG_WS_EVENTS).",
+    description: "Enable WebSocket event logging (equivalent to VEYLEN_LOG_WS_EVENTS).",
     aliases: ["log-ws-events"],
   }),
   host: Flag.string("host").pipe(
-    Flag.withDescription("Server host/interface override (forwards to SYNARA_HOST)."),
-    Flag.withFallbackConfig(optionalStringConfig("SYNARA_HOST")),
+    Flag.withDescription("Server host/interface override (forwards to VEYLEN_HOST)."),
+    Flag.withFallbackConfig(optionalStringConfig("VEYLEN_HOST")),
   ),
   port: Flag.integer("port").pipe(
     Flag.withSchema(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 }))),
-    Flag.withDescription("Server port override (forwards to SYNARA_PORT)."),
-    Flag.withFallbackConfig(optionalPortConfig("SYNARA_PORT")),
+    Flag.withDescription("Server port override (forwards to VEYLEN_PORT)."),
+    Flag.withFallbackConfig(optionalPortConfig("VEYLEN_PORT")),
   ),
   devUrl: Flag.string("dev-url").pipe(
     Flag.withSchema(Schema.URLFromString),

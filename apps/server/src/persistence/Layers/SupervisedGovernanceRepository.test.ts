@@ -7,7 +7,7 @@ import {
   SupervisedGovernanceSnapshot,
   type SupervisorNotebookCompactionReceipt,
   type SupervisorNotebookCursor,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 import { SqlitePersistenceMemory } from "./Sqlite.ts";
 import { SupervisedGovernanceRepositoryLive } from "./SupervisedGovernanceRepository.ts";

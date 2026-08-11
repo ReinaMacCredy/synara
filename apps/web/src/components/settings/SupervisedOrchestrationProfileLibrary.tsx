@@ -1,4 +1,4 @@
-import type { ProfilePreset, ProfilePresetId } from "@synara/contracts";
+import type { ProfilePreset, ProfilePresetId } from "@veylen/contracts";
 import {
   useCallback,
   useEffect,

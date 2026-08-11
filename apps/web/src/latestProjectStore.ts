@@ -1,8 +1,8 @@
-import type { ProjectId } from "@synara/contracts";
+import type { ProjectId } from "@veylen/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-const LATEST_PROJECT_STORAGE_KEY = "synara:latest-project:v1";
+const LATEST_PROJECT_STORAGE_KEY = "veylen:latest-project:v1";
 
 interface LatestProjectStore {
   latestProjectId: ProjectId | null;

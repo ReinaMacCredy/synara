@@ -1,5 +1,5 @@
 // FILE: theme.seed.generated.ts
-// Purpose: Stores normalized theme seeds with Synara's zero-contrast default.
+// Purpose: Stores normalized theme seeds with Veylen's zero-contrast default.
 // Layer: Web appearance generated catalog
 // Exports: THEME_SEED_CATALOG for code-theme seed lookup.
 
@@ -126,7 +126,7 @@ export const THEME_SEED_CATALOG: Record<string, Partial<Record<ThemeVariant, Chr
       surface: "#ffffff",
     },
   },
-  synara: {
+  veylen: {
     dark: {
       accent: "#6073cc",
       contrast: 0,

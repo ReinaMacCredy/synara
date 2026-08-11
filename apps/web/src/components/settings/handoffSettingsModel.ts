@@ -1,5 +1,5 @@
-import type { ProviderKind } from "@synara/contracts";
-import { getDefaultModel } from "@synara/shared/model";
+import type { ProviderKind } from "@veylen/contracts";
+import { getDefaultModel } from "@veylen/shared/model";
 
 type HandoffModelOption = {
   readonly slug: string;

@@ -15,7 +15,7 @@ import type {
   ProviderStartReviewInput,
   ProviderSteerTurnInput,
   ProviderTurnStartResult,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import {
   ApprovalRequestId,
   EventId,
@@ -23,7 +23,7 @@ import {
   ProviderSessionStartInput,
   ThreadId,
   TurnId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { it, assert, vi } from "@effect/vitest";
 import { assertFailure } from "@effect/vitest/utils";
 
@@ -482,7 +482,7 @@ const restartRollbackRouting = makeProviderServiceLayer(undefined, {
 const piInteractionRouting = makeProviderServiceLayer(undefined, { includePi: true });
 it.effect("ProviderServiceLive keeps persisted resumable sessions on startup", () =>
   Effect.gen(function* () {
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "synara-provider-service-"));
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "veylen-provider-service-"));
     const dbPath = path.join(tempDir, "orchestration.sqlite");
 
     const codex = makeFakeCodexAdapter();
@@ -547,7 +547,7 @@ it.effect(
   "ProviderServiceLive persists active sessions as stopped before adapter cleanup runs",
   () =>
     Effect.gen(function* () {
-      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "synara-provider-service-stopall-"));
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "veylen-provider-service-stopall-"));
       const dbPath = path.join(tempDir, "orchestration.sqlite");
       const persistenceLayer = makeSqlitePersistenceLive(dbPath);
       const runtimeRepositoryLayer = ProviderSessionRuntimeRepositoryLive.pipe(
@@ -622,7 +622,7 @@ it.effect(
   "ProviderServiceLive restores rollback routing after restart using persisted thread mapping",
   () =>
     Effect.gen(function* () {
-      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "synara-provider-service-restart-"));
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "veylen-provider-service-restart-"));
       const dbPath = path.join(tempDir, "orchestration.sqlite");
       const persistenceLayer = makeSqlitePersistenceLive(dbPath);
       const runtimeRepositoryLayer = ProviderSessionRuntimeRepositoryLive.pipe(
@@ -2910,7 +2910,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
 
   it.effect("reuses persisted resume cursor when startSession is called after a restart", () =>
     Effect.gen(function* () {
-      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "synara-provider-service-start-"));
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "veylen-provider-service-start-"));
       const dbPath = path.join(tempDir, "orchestration.sqlite");
       const persistenceLayer = makeSqlitePersistenceLive(dbPath);
       const runtimeRepositoryLayer = ProviderSessionRuntimeRepositoryLive.pipe(
@@ -2998,7 +2998,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
 
   it.effect("clears stale resume cursor while preserving provider options for fresh restart", () =>
     Effect.gen(function* () {
-      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "synara-provider-service-clear-"));
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "veylen-provider-service-clear-"));
       const dbPath = path.join(tempDir, "orchestration.sqlite");
       const persistenceLayer = makeSqlitePersistenceLive(dbPath);
       const runtimeRepositoryLayer = ProviderSessionRuntimeRepositoryLive.pipe(
@@ -3088,7 +3088,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
   it.effect("stops the live runtime while preserving resume cursor and provider options", () =>
     Effect.gen(function* () {
       const tempDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), "synara-provider-service-stop-runtime-"),
+        path.join(os.tmpdir(), "veylen-provider-service-stop-runtime-"),
       );
       const dbPath = path.join(tempDir, "orchestration.sqlite");
       const persistenceLayer = makeSqlitePersistenceLive(dbPath);

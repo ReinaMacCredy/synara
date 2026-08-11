@@ -22,7 +22,7 @@ import {
   WS_METHODS,
   type WsPush,
   type ServerProviderStatus,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const requestMock = vi.fn<(...args: Array<unknown>) => Promise<unknown>>();
@@ -149,7 +149,7 @@ describe("wsNativeApi", () => {
     const listener = vi.fn();
     onServerWelcome(listener);
 
-    const payload = { cwd: "/tmp/workspace", homeDir: "/Users/tester", projectName: "synara-code" };
+    const payload = { cwd: "/tmp/workspace", homeDir: "/Users/tester", projectName: "veylen-code" };
     emitPush(WS_CHANNELS.serverWelcome, payload);
 
     expect(listener).toHaveBeenCalledTimes(1);
@@ -172,7 +172,7 @@ describe("wsNativeApi", () => {
     emitPush(WS_CHANNELS.serverWelcome, {
       cwd: "/tmp/workspace",
       homeDir: "/Users/tester",
-      projectName: "synara-code",
+      projectName: "veylen-code",
       bootstrapProjectId: ProjectId.makeUnsafe("project-1"),
       bootstrapThreadId: ThreadId.makeUnsafe("thread-1"),
     });
@@ -182,7 +182,7 @@ describe("wsNativeApi", () => {
       expect.objectContaining({
         cwd: "/tmp/workspace",
         homeDir: "/Users/tester",
-        projectName: "synara-code",
+        projectName: "veylen-code",
         bootstrapProjectId: "project-1",
         bootstrapThreadId: "thread-1",
       }),
@@ -204,7 +204,7 @@ describe("wsNativeApi", () => {
     emitPush(WS_CHANNELS.serverWelcome, {
       cwd: "/tmp/workspace",
       homeDir: "/Users/tester",
-      projectName: "synara-code",
+      projectName: "veylen-code",
     });
 
     expect(listener).toHaveBeenCalledTimes(2);
@@ -212,7 +212,7 @@ describe("wsNativeApi", () => {
       expect.objectContaining({
         cwd: "/tmp/workspace",
         homeDir: "/Users/tester",
-        projectName: "synara-code",
+        projectName: "veylen-code",
       }),
     );
   });
@@ -699,7 +699,7 @@ describe("wsNativeApi", () => {
             policy: "loopback-browser",
             bootstrapMethods: ["one-time-token"],
             sessionMethods: ["browser-session-cookie", "bearer-session-token"],
-            sessionCookieName: "synara_session",
+            sessionCookieName: "veylen_session",
           },
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },

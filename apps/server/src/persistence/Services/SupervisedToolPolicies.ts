@@ -1,4 +1,4 @@
-import type { SupervisedIntentToolId, SupervisedToolPolicy } from "@synara/contracts";
+import type { SupervisedIntentToolId, SupervisedToolPolicy } from "@veylen/contracts";
 import { ServiceMap } from "effect";
 import type { Effect, Option } from "effect";
 
@@ -30,4 +30,4 @@ export interface SupervisedToolPolicyRepositoryShape {
 export class SupervisedToolPolicyRepository extends ServiceMap.Service<
   SupervisedToolPolicyRepository,
   SupervisedToolPolicyRepositoryShape
->()("synara/persistence/Services/SupervisedToolPolicyRepository") {}
+>()("veylen/persistence/Services/SupervisedToolPolicyRepository") {}

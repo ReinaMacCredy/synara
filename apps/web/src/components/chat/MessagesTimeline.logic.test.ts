@@ -1,4 +1,4 @@
-import { CheckpointRef, MessageId, OrchestrationProposedPlanId, TurnId } from "@synara/contracts";
+import { CheckpointRef, MessageId, OrchestrationProposedPlanId, TurnId } from "@veylen/contracts";
 import { describe, expect, it } from "vitest";
 import {
   buildTurnDiffSummaryByAssistantMessageId,
@@ -383,7 +383,7 @@ describe("computeStableMessagesTimelineRows", () => {
             tone: "info",
             automation: {
               id: "automation-7",
-              name: "Watch Synara PR 231",
+              name: "Watch Veylen PR 231",
               cadenceLabel: "Every 5m",
             },
           },
@@ -1377,22 +1377,22 @@ describe("deriveMessagesTimelineRows", () => {
     expect(collapsedSignature(messageRow(rows, "a2")!)).toEqual(["narration:a1", "work:w1"]);
   });
 
-  it("preserves Synara tool calls when a separate creation recap is present", () => {
+  it("preserves Veylen tool calls when a separate creation recap is present", () => {
     const createTool = workEntry(
-      "synara-create-tool",
+      "veylen-create-tool",
       "2026-01-01T00:00:01Z",
-      "Synara created threads",
+      "Veylen created threads",
     );
     const creationRecap: TimelineEntry = {
-      id: "entry-synara-create-recap",
+      id: "entry-veylen-create-recap",
       kind: "work",
       createdAt: "2026-01-01T00:00:02Z",
       entry: {
-        id: "synara-create-recap",
+        id: "veylen-create-recap",
         createdAt: "2026-01-01T00:00:02Z",
-        label: "Created 2 Synara threads",
+        label: "Created 2 Veylen threads",
         tone: "info",
-        synaraThreadCreation: {
+        veylenThreadCreation: {
           operationId: "gateway:create:two",
           requestedCount: 2,
           createdCount: 2,
@@ -1432,8 +1432,8 @@ describe("deriveMessagesTimelineRows", () => {
     });
 
     expect(collapsedSignature(messageRow(rows, "a1")!)).toEqual([
-      "work:synara-create-tool",
-      "work:synara-create-recap",
+      "work:veylen-create-tool",
+      "work:veylen-create-recap",
     ]);
   });
 

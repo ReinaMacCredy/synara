@@ -28,7 +28,7 @@ import type {
   GitStashInfoResult,
   GitStatusInput,
   GitStatusResult,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 import type { GitCheckoutDirtyWorktreeError, GitCommandError } from "../Errors.ts";
 
@@ -453,5 +453,5 @@ export interface GitCoreShape {
  * GitCore - Service tag for low-level Git repository operations.
  */
 export class GitCore extends ServiceMap.Service<GitCore, GitCoreShape>()(
-  "synara/git/Services/GitCore",
+  "veylen/git/Services/GitCore",
 ) {}

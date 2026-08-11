@@ -3,7 +3,7 @@ import type {
   ProjectTaskProjection,
   SessionProgressProjection,
   TaskProcessId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 import { DisclosureRegion } from "~/components/ui/DisclosureRegion";

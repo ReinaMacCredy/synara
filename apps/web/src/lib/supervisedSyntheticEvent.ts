@@ -1,4 +1,4 @@
-import type { ControlPlaneEvent, SubscriptionDefinition } from "@synara/contracts";
+import type { ControlPlaneEvent, SubscriptionDefinition } from "@veylen/contracts";
 
 export function makeSupervisedSyntheticEvent(
   subscription: SubscriptionDefinition,

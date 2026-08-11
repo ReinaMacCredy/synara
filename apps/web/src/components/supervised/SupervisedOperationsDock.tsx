@@ -2,7 +2,7 @@ import type {
   DerivedSignal,
   SubscriptionDefinition,
   SupervisedRuntimeSnapshot,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 

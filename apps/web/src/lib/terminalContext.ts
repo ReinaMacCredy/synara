@@ -1,4 +1,4 @@
-import { type MessageId, type ThreadId } from "@synara/contracts";
+import { type MessageId, type ThreadId } from "@veylen/contracts";
 import {
   extractTrailingAssistantSelections,
   type ParsedAssistantSelectionEntry,

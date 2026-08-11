@@ -1,4 +1,4 @@
-import { type ProjectId, ThreadId } from "@synara/contracts";
+import { type ProjectId, ThreadId } from "@veylen/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";

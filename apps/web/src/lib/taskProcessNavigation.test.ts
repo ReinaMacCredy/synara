@@ -1,4 +1,4 @@
-import { TaskProcessId } from "@synara/contracts";
+import { TaskProcessId } from "@veylen/contracts";
 import { describe, expect, it } from "vitest";
 
 import { resolveTaskProcessNavigationTarget } from "./taskProcessNavigation";

@@ -1,4 +1,4 @@
-import type { Run, RunPolicy } from "@synara/contracts";
+import type { Run, RunPolicy } from "@veylen/contracts";
 
 export interface RunResourceUsage {
   readonly wallTimeMs: number;

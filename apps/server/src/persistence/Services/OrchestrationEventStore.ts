@@ -16,7 +16,7 @@ import {
   SpaceId,
   TaskProcessId,
   ThreadId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { ServiceMap } from "effect";
 import type { Effect, Stream } from "effect";
 
@@ -127,4 +127,4 @@ export interface OrchestrationEventStoreShape {
 export class OrchestrationEventStore extends ServiceMap.Service<
   OrchestrationEventStore,
   OrchestrationEventStoreShape
->()("synara/persistence/Services/OrchestrationEventStore") {}
+>()("veylen/persistence/Services/OrchestrationEventStore") {}

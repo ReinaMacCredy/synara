@@ -2,7 +2,7 @@ import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { AgentSeat, SupervisedOrchestrationSnapshot } from "@synara/contracts";
+import { AgentSeat, SupervisedOrchestrationSnapshot } from "@veylen/contracts";
 
 import { runMigrations } from "../Migrations.ts";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";

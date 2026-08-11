@@ -21,7 +21,7 @@ import {
   type OrchestrationThread,
   type Room,
   type SupervisedRuntimeSnapshot,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Effect, Schema } from "effect";
 
 import type { OrchestrationEngineShape } from "../../orchestration/Services/OrchestrationEngine.ts";

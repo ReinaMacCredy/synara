@@ -11,7 +11,7 @@ import {
   type OrchestrationReadModel,
   type TaskProcessCommand,
   type TaskProcessDomainEvent,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
 

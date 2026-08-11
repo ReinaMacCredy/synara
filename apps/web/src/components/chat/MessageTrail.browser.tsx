@@ -1,6 +1,6 @@
 import "../../index.css";
 
-import { MessageId } from "@synara/contracts";
+import { MessageId } from "@veylen/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { page } from "vitest/browser";
 import { render } from "vitest-browser-react";

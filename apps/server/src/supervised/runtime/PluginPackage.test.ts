@@ -37,9 +37,9 @@ function manifest(entry = "handler.mjs") {
 
 describe("Supervised plugin package inspection", () => {
   it("resolves a local package and replaces client provenance with a host hash", async () => {
-    const directory = await mkdtemp(path.join(os.tmpdir(), "synara-plugin-"));
+    const directory = await mkdtemp(path.join(os.tmpdir(), "veylen-plugin-"));
     try {
-      await writeFile(path.join(directory, "synara-plugin.json"), JSON.stringify(manifest()));
+      await writeFile(path.join(directory, "veylen-plugin.json"), JSON.stringify(manifest()));
       await writeFile(
         path.join(directory, "handler.mjs"),
         "export function handle() { return {}; }",
@@ -59,12 +59,12 @@ describe("Supervised plugin package inspection", () => {
   });
 
   it("rejects a handler symlink that escapes the package", async () => {
-    const directory = await mkdtemp(path.join(os.tmpdir(), "synara-plugin-"));
-    const outside = await mkdtemp(path.join(os.tmpdir(), "synara-plugin-outside-"));
+    const directory = await mkdtemp(path.join(os.tmpdir(), "veylen-plugin-"));
+    const outside = await mkdtemp(path.join(os.tmpdir(), "veylen-plugin-outside-"));
     try {
       await mkdir(path.join(directory, "nested"));
       await writeFile(
-        path.join(directory, "synara-plugin.json"),
+        path.join(directory, "veylen-plugin.json"),
         JSON.stringify(manifest("nested/handler.mjs")),
       );
       await writeFile(path.join(outside, "handler.mjs"), "export function handle() { return {}; }");

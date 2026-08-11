@@ -9,8 +9,8 @@ import {
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   RuntimeMode,
   ThreadId,
-} from "@synara/contracts";
-import { getDefaultModel, normalizeModelSlug } from "@synara/shared/model";
+} from "@veylen/contracts";
+import { getDefaultModel, normalizeModelSlug } from "@veylen/shared/model";
 import * as Equal from "effect/Equal";
 import * as Schema from "effect/Schema";
 import type { StateCreator } from "zustand";

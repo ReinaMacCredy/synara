@@ -1,4 +1,4 @@
-import type { EventId, EvidenceId, HarnessPatch, SupervisedActor } from "@synara/contracts";
+import type { EventId, EvidenceId, HarnessPatch, SupervisedActor } from "@veylen/contracts";
 
 import {
   assertHarnessPatchUsesCurrentBasePolicy,

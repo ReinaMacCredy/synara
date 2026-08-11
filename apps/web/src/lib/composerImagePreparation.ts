@@ -5,7 +5,7 @@
 import {
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   PROVIDER_SEND_TURN_MAX_IMAGE_IMPORT_BYTES,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 const MEBIBYTE = 1024 * 1024;
 const JPEG_HEADER_READ_BYTES = 1024 * 1024;
@@ -415,7 +415,7 @@ export async function prepareComposerImageFile(file: File): Promise<File> {
     return await optimizeOversizedComposerImage(file);
   } catch (cause) {
     if (cause instanceof ComposerImagePreparationError) throw cause;
-    throw new ComposerImagePreparationError(`Synara could not optimize '${imageName(file)}'.`, {
+    throw new ComposerImagePreparationError(`Veylen could not optimize '${imageName(file)}'.`, {
       cause,
     });
   }

@@ -16,8 +16,8 @@ import type {
   SupervisedGovernanceSnapshot,
   SupervisedCommand,
   SupervisedRuntimeSnapshot,
-} from "@synara/contracts";
-import { CommandId, ControlPlaneEvent, EvidenceId, MessageId } from "@synara/contracts";
+} from "@veylen/contracts";
+import { CommandId, ControlPlaneEvent, EvidenceId, MessageId } from "@veylen/contracts";
 import {
   Effect,
   Exit,

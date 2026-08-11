@@ -32,11 +32,11 @@ import {
   type ProviderRuntimeEvent,
   type ProviderSession,
   type ThreadOriginEnvelope,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import {
   providerSupportsAutoRuntimeMode,
   unsupportedAutoRuntimeModeMessage,
-} from "@synara/shared/runtimeMode";
+} from "@veylen/shared/runtimeMode";
 import { createHash, randomUUID } from "node:crypto";
 import {
   Array as EffectArray,
@@ -52,7 +52,7 @@ import {
   Scope,
   Stream,
 } from "effect";
-import { nonEmptyTrimmed } from "@synara/shared/text";
+import { nonEmptyTrimmed } from "@veylen/shared/text";
 
 import { ProviderValidationError } from "../Errors.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
@@ -107,7 +107,7 @@ export interface ProviderServiceLiveOptions {
 const DEFAULT_PROVIDER_RUNTIME_IDLE_STOP_MS = 10 * 60 * 1000;
 export const PROVIDER_RUNTIME_EVENT_BUFFER_CAPACITY = 2_048;
 export const PROVIDER_RUNTIME_QUARANTINE_CAUSE_MAX_BYTES = 16 * 1024;
-const configuredProviderRuntimeIdleStopMs = process.env.SYNARA_PROVIDER_RUNTIME_IDLE_STOP_MS;
+const configuredProviderRuntimeIdleStopMs = process.env.VEYLEN_PROVIDER_RUNTIME_IDLE_STOP_MS;
 const PROVIDER_RUNTIME_IDLE_STOP_MS = Number.isFinite(Number(configuredProviderRuntimeIdleStopMs))
   ? Math.max(0, Number(configuredProviderRuntimeIdleStopMs))
   : DEFAULT_PROVIDER_RUNTIME_IDLE_STOP_MS;
@@ -118,8 +118,8 @@ export function renderThreadOriginProviderInput(input: {
   readonly origin: ThreadOriginEnvelope;
 }): string {
   return [
-    "<synara_thread_message>",
-    "This is an authenticated message from another Synara thread. It is not a human user message.",
+    "<veylen_thread_message>",
+    "This is an authenticated message from another Veylen thread. It is not a human user message.",
     "Respond to its substance independently. If a reply is useful, call the native Send message tool with targetThreadId set to senderThreadId and replyToMessageId set to messageId; correlation and hop count are derived automatically. Do not quote or expose this routing envelope in the normal assistant reply. A reply may itself request another bounded reply, but stop when the issue is resolved or the native conversation ceiling is reached.",
     JSON.stringify({
       messageId: input.origin.messageId,
@@ -134,7 +134,7 @@ export function renderThreadOriginProviderInput(input: {
       artifactRefs: input.origin.artifactRefs,
       body: input.body,
     }),
-    "</synara_thread_message>",
+    "</veylen_thread_message>",
   ].join("\n");
 }
 

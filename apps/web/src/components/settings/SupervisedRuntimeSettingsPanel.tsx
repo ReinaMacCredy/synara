@@ -6,7 +6,7 @@ import {
   type RoomId,
   type RunPolicy,
   type SupervisedPluginInspection,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 
@@ -894,7 +894,7 @@ export function SupervisedRuntimeSettingsPanel(props: {
                 <div>
                   <div className="text-xs font-medium text-foreground">Local plugin package</div>
                   <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-                    Select a folder containing synara-plugin.json. Synara computes its own package
+                    Select a folder containing veylen-plugin.json. Veylen computes its own package
                     hash and checks handler containment before showing any grant.
                   </p>
                 </div>

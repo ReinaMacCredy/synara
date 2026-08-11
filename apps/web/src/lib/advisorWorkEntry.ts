@@ -6,7 +6,7 @@ import {
   extractAdvisorConsultationQuestion,
   isAdvisorConsultationPrompt,
   isAdvisorIdentity,
-} from "@synara/shared/advisor";
+} from "@veylen/shared/advisor";
 
 import type { WorkLogEntry, WorkLogSubagent } from "../session-logic";
 
@@ -51,7 +51,7 @@ export function isAdvisorConsultationWorkEntry(
     | "toolTitle"
   >,
 ): boolean {
-  // Preferred path: Synara gateway tool (same fork pipeline as type 1/2).
+  // Preferred path: Veylen gateway tool (same fork pipeline as type 1/2).
   const toolName = normalizeToolName(entry.toolName);
   const toolTitle = normalizeToolName(entry.toolTitle);
   const label = normalizeToolName(entry.label);

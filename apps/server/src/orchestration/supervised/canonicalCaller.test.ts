@@ -4,7 +4,7 @@ import {
   emptySupervisedGovernanceSnapshot,
   type AgentSeat,
   type EffectiveAuthorityReceipt,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { describe, it } from "vitest";
 
 import {

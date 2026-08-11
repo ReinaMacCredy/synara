@@ -1,10 +1,10 @@
 import {
-  SYNARA_GATEWAY_MAX_THREADS_PER_OPERATION,
+  VEYLEN_GATEWAY_MAX_THREADS_PER_OPERATION,
   ThreadId,
   TurnId,
   type OrchestrationThreadShell,
   type ProviderKind,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Effect, Option } from "effect";
 
 import {
@@ -14,7 +14,7 @@ import {
 import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import type { ProjectionTurnRepositoryShape } from "../persistence/Services/ProjectionTurns.ts";
 import type { ProviderDiscoveryServiceShape } from "../provider/Services/ProviderDiscoveryService.ts";
-import { SYNARA_HARNESS_POLICY_VERSION } from "./harnessPolicy.ts";
+import { VEYLEN_HARNESS_POLICY_VERSION } from "./harnessPolicy.ts";
 import { mcpToolResultError, mcpToolResultJson } from "./protocol.ts";
 import {
   AGENT_GATEWAY_TARGET_OPTIONS_DESCRIPTION,
@@ -77,12 +77,12 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
   const contextTool: ToolEntry = {
     requiredCapability: "thread:read",
     definition: {
-      name: "synara_context",
+      name: "veylen_context",
       description:
-        "Inspect the current Synara harness identity, caller thread/turn, and authorized coordination capabilities.",
+        "Inspect the current Veylen harness identity, caller thread/turn, and authorized coordination capabilities.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       annotations: {
-        title: "Synara context",
+        title: "Veylen context",
         readOnlyHint: true,
         destructiveHint: false,
         idempotentHint: true,
@@ -94,7 +94,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
         const caller = yield* requireThreadShell(context.callerThreadId);
         const turnId = caller.latestTurn?.state === "running" ? caller.latestTurn.turnId : null;
         return mcpToolResultJson({
-          harness: { name: "Synara", policyVersion: SYNARA_HARNESS_POLICY_VERSION },
+          harness: { name: "Veylen", policyVersion: VEYLEN_HARNESS_POLICY_VERSION },
           caller: {
             threadId: caller.id,
             turnId,
@@ -115,11 +115,11 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
   const capabilitiesTool: ToolEntry = {
     requiredCapability: "thread:read",
     definition: {
-      name: "synara_capabilities",
-      description: `List canonical Synara provider/model targets, exact provider option keys, examples, and gateway limits used to validate thread creation. ${AGENT_GATEWAY_TARGET_OPTIONS_DESCRIPTION}`,
+      name: "veylen_capabilities",
+      description: `List canonical Veylen provider/model targets, exact provider option keys, examples, and gateway limits used to validate thread creation. ${AGENT_GATEWAY_TARGET_OPTIONS_DESCRIPTION}`,
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       annotations: {
-        title: "Synara capabilities",
+        title: "Veylen capabilities",
         readOnlyHint: true,
         destructiveHint: false,
         idempotentHint: true,
@@ -163,7 +163,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
           targetConstruction,
           providers,
           limits: {
-            maxThreadsPerOperation: SYNARA_GATEWAY_MAX_THREADS_PER_OPERATION,
+            maxThreadsPerOperation: VEYLEN_GATEWAY_MAX_THREADS_PER_OPERATION,
             maxWaitMs: 60_000,
             oneCreationPlanPerActiveTurn: true,
           },
@@ -174,11 +174,11 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
   const listProjects: ToolEntry = {
     requiredCapability: "thread:read",
     definition: {
-      name: "synara_list_projects",
+      name: "veylen_list_projects",
       description:
-        "List Synara projects (id, title, workspace root). System-managed chat containers are excluded. Use before creating a thread in another project.",
+        "List Veylen projects (id, title, workspace root). System-managed chat containers are excluded. Use before creating a thread in another project.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
-      annotations: { title: "List Synara projects", ...READ_ONLY_TOOL_ANNOTATIONS },
+      annotations: { title: "List Veylen projects", ...READ_ONLY_TOOL_ANNOTATIONS },
     },
     handler: () =>
       snapshotQuery.getShellSnapshot().pipe(
@@ -208,9 +208,9 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
   const listThreads: ToolEntry = {
     requiredCapability: "thread:read",
     definition: {
-      name: "synara_list_threads",
+      name: "veylen_list_threads",
       description:
-        "Discover Synara threads by project, hierarchy, provider, model, status, title, creation source, or update window. Archived threads are hidden unless includeArchived is true.",
+        "Discover Veylen threads by project, hierarchy, provider, model, status, title, creation source, or update window. Archived threads are hidden unless includeArchived is true.",
       inputSchema: {
         type: "object",
         properties: {
@@ -235,7 +235,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
         },
         additionalProperties: false,
       },
-      annotations: { title: "List Synara threads", ...READ_ONLY_TOOL_ANNOTATIONS },
+      annotations: { title: "List Veylen threads", ...READ_ONLY_TOOL_ANNOTATIONS },
     },
     handler: (args, context) =>
       Effect.gen(function* () {
@@ -285,9 +285,9 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
   const readThread: ToolEntry = {
     requiredCapability: "thread:read",
     definition: {
-      name: "synara_read_thread",
+      name: "veylen_read_thread",
       description:
-        "Read one Synara thread's status and recent messages (newest last, truncated). Pass the returned nextCursor as cursor to page older messages.",
+        "Read one Veylen thread's status and recent messages (newest last, truncated). Pass the returned nextCursor as cursor to page older messages.",
       inputSchema: {
         type: "object",
         properties: {
@@ -302,7 +302,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
         required: ["threadId"],
         additionalProperties: false,
       },
-      annotations: { title: "Read a Synara thread", ...READ_ONLY_TOOL_ANNOTATIONS },
+      annotations: { title: "Read a Veylen thread", ...READ_ONLY_TOOL_ANNOTATIONS },
     },
     handler: (args, context) =>
       Effect.gen(function* () {
@@ -333,20 +333,20 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
   const waitForThreads: ToolEntry = {
     requiredCapability: "thread:read",
     definition: {
-      name: "synara_wait_for_threads",
-      description: `Wait for the pinned turns of 1–20 Synara threads and return every outcome in input order. Assistant summaries are capped at ${WAIT_THREAD_SUMMARY_MAX_CHARS} characters; use each result's readThread call to page the full transcript. Timeouts only report progress; they never retry, replace, cancel, or create work.`,
+      name: "veylen_wait_for_threads",
+      description: `Wait for the pinned turns of 1–20 Veylen threads and return every outcome in input order. Assistant summaries are capped at ${WAIT_THREAD_SUMMARY_MAX_CHARS} characters; use each result's readThread call to page the full transcript. Timeouts only report progress; they never retry, replace, cancel, or create work.`,
       inputSchema: {
         type: "object",
         properties: {
           threadIds: {
             type: "array",
             minItems: 1,
-            maxItems: SYNARA_GATEWAY_MAX_THREADS_PER_OPERATION,
+            maxItems: VEYLEN_GATEWAY_MAX_THREADS_PER_OPERATION,
             items: { type: "string" },
           },
           runIds: {
             type: "array",
-            maxItems: SYNARA_GATEWAY_MAX_THREADS_PER_OPERATION,
+            maxItems: VEYLEN_GATEWAY_MAX_THREADS_PER_OPERATION,
             items: { type: ["string", "null"] },
             description: "Optional pinned turn ids from a prior wait. Must match threadIds length.",
           },
@@ -361,7 +361,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
         additionalProperties: false,
       },
       annotations: {
-        title: "Wait for Synara threads",
+        title: "Wait for Veylen threads",
         readOnlyHint: true,
         destructiveHint: false,
         idempotentHint: true,
@@ -456,7 +456,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
                       summaryTruncated: false,
                       error: null as string | null,
                       readThread: {
-                        tool: "synara_read_thread" as const,
+                        tool: "veylen_read_thread" as const,
                         arguments: { threadId: pin.threadId },
                       },
                     };

@@ -1,4 +1,4 @@
-import type { PullRequestDetailInput, PullRequestSetPinnedInput } from "@synara/contracts";
+import type { PullRequestDetailInput, PullRequestSetPinnedInput } from "@veylen/contracts";
 import type { QueryClient } from "@tanstack/react-query";
 
 import type {

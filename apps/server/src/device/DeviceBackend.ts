@@ -25,7 +25,7 @@ import type {
   DeviceScreenshotResult,
   DeviceStartRecordingResult,
   DeviceStopRecordingResult,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 /**
  * One encoded video frame as the backend produces it. `sequence` is owned by

@@ -7,8 +7,8 @@ import {
   defaultTerminalTitleForCliKind,
   type TerminalCliKind,
   type TerminalVisualState,
-} from "@synara/shared/terminalThreads";
-import { pendingRequestInstanceKey } from "@synara/shared/threadSummary";
+} from "@veylen/shared/terminalThreads";
+import { pendingRequestInstanceKey } from "@veylen/shared/threadSummary";
 import type { Thread, ThreadSession } from "../types";
 import {
   derivePendingApprovals,

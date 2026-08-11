@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 
-import { KernelLanguage, type RunPolicy } from "@synara/contracts";
+import { KernelLanguage, type RunPolicy } from "@veylen/contracts";
 
 export type KernelIsolationMode = "required" | "auto" | "trusted-process";
 export type KernelIsolationBackend = "macos-sandbox" | "trusted-process";
@@ -100,7 +100,7 @@ function sanitizedEnvironment(overrides: Readonly<Record<string, string>> = {}) 
     if (value) environment[key] = value;
   }
   for (const [key, value] of Object.entries(overrides)) {
-    if (!ALLOWED_ENV_KEYS.has(key) && !key.startsWith("SYNARA_KERNEL_")) {
+    if (!ALLOWED_ENV_KEYS.has(key) && !key.startsWith("VEYLEN_KERNEL_")) {
       throw new Error(`Kernel environment key '${key}' is not allowlisted.`);
     }
     environment[key] = value;

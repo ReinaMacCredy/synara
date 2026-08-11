@@ -9,11 +9,11 @@ import {
   type RuntimeMode,
   type ServerProviderAuthStatus,
   type ThreadId as ThreadIdType,
-} from "@synara/contracts";
-import { normalizeModelSlug } from "@synara/shared/model";
-import { buildSynaraBranchName } from "@synara/shared/git";
-import { isGenericChatThreadTitle } from "@synara/shared/chatThreads";
-import { isGenericTerminalThreadTitle } from "@synara/shared/terminalThreads";
+} from "@veylen/contracts";
+import { normalizeModelSlug } from "@veylen/shared/model";
+import { buildVeylenBranchName } from "@veylen/shared/git";
+import { isGenericChatThreadTitle } from "@veylen/shared/chatThreads";
+import { isGenericTerminalThreadTitle } from "@veylen/shared/terminalThreads";
 import {
   type ChatMessage,
   type SessionPhase,
@@ -46,8 +46,8 @@ import {
 import { localSubagentThreadId } from "./ChatView.selectors";
 import type { ProviderModelOption } from "../providerModelOptions";
 
-export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "synara:last-invoked-script-by-project";
-export const DISMISSED_PROVIDER_HEALTH_BANNERS_KEY = "synara:dismissed-provider-health-banners";
+export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "veylen:last-invoked-script-by-project";
+export const DISMISSED_PROVIDER_HEALTH_BANNERS_KEY = "veylen:dismissed-provider-health-banners";
 export const PROMPT_HISTORY_MAX_ENTRIES = 100;
 
 export const LastInvokedScriptByProjectSchema = Schema.Record(ProjectId, Schema.String);
@@ -836,7 +836,7 @@ export function describeVoiceRecordingStartError(error: unknown): string {
   const errorName = typeof error.name === "string" ? error.name : "";
 
   if (errorName === "NotAllowedError" || errorName === "PermissionDeniedError") {
-    return "Microphone access was denied. Enable it in macOS Privacy & Security > Microphone for Synara, then try again.";
+    return "Microphone access was denied. Enable it in macOS Privacy & Security > Microphone for Veylen, then try again.";
   }
   if (errorName === "NotFoundError" || errorName === "DevicesNotFoundError") {
     return "No microphone was found. Connect one and try again.";
@@ -1265,7 +1265,7 @@ export function buildSuggestedWorktreeName(input: {
   associatedWorktreeBranch?: string | null;
   title?: string | null;
 }): string {
-  return buildSynaraBranchName(input.associatedWorktreeBranch ?? input.title);
+  return buildVeylenBranchName(input.associatedWorktreeBranch ?? input.title);
 }
 
 export function deriveComposerSendState(options: {

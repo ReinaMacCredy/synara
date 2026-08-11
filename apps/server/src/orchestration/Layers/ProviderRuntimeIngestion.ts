@@ -17,23 +17,23 @@ import {
   type ProviderKind,
   type ProviderRuntimeEvent,
   type RuntimeMode,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Cache, Cause, Deferred, Duration, Effect, Layer, Option, Ref, Stream } from "effect";
 import * as Semaphore from "effect/Semaphore";
-import { makeDrainableWorker, startDrainableWorkerProducers } from "@synara/shared/DrainableWorker";
-import { providerSupportsNativeTurnSteering } from "@synara/shared/providerMetadata";
-import { buildStalePendingRequestFailureDetail } from "@synara/shared/threadSummary";
+import { makeDrainableWorker, startDrainableWorkerProducers } from "@veylen/shared/DrainableWorker";
+import { providerSupportsNativeTurnSteering } from "@veylen/shared/providerMetadata";
+import { buildStalePendingRequestFailureDetail } from "@veylen/shared/threadSummary";
 import {
   ADVISOR_NICKNAME,
   ADVISOR_ROLE,
   isAdvisorConsultationPrompt,
-} from "@synara/shared/advisor";
+} from "@veylen/shared/advisor";
 import {
   buildSubagentIdentityDirectory,
   collectSubagentProviderThreadIds,
   extractSubagentIdentityHints,
   resolveSubagentIdentityFromDirectory,
-} from "@synara/shared/subagents";
+} from "@veylen/shared/subagents";
 
 import {
   generatedImageMarkdown,
@@ -128,7 +128,7 @@ const MAX_BUFFERED_TOOL_OUTPUT_CHARS = 24_000;
 const MAX_BUFFERED_REASONING_SUMMARY_CHARS = 8_000;
 const MAX_BUFFERED_REASONING_SUMMARY_PARTS = 24;
 const BUFFERED_TEXT_TRUNCATION_MARKER = "... [truncated]";
-const STRICT_PROVIDER_LIFECYCLE_GUARD = process.env.SYNARA_STRICT_PROVIDER_LIFECYCLE_GUARD !== "0";
+const STRICT_PROVIDER_LIFECYCLE_GUARD = process.env.VEYLEN_STRICT_PROVIDER_LIFECYCLE_GUARD !== "0";
 
 /**
  * Back off the durable-journal safety poll while the live persisted-event
@@ -1815,7 +1815,7 @@ const make = Effect.gen(function* () {
                   id: overflowId,
                   tone: "error",
                   kind: "subagent.materialization.capped",
-                  summary: `Synara limited this provider turn to ${MAX_NATIVE_CHILDREN_PER_PARENT_TURN} visible native subagents.`,
+                  summary: `Veylen limited this provider turn to ${MAX_NATIVE_CHILDREN_PER_PARENT_TURN} visible native subagents.`,
                   payload: {
                     source: "provider_native",
                     cap: MAX_NATIVE_CHILDREN_PER_PARENT_TURN,

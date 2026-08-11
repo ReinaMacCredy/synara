@@ -4,7 +4,7 @@
 // Layer: Chat transcript shell (presentation-adjacent logic, unit-tested)
 // Depends on: timeline entry shape only — no React, no DOM.
 
-import { type MessageId } from "@synara/contracts";
+import { type MessageId } from "@veylen/contracts";
 import { type TimelineEntry } from "../../session-logic";
 import { deriveDisplayedUserMessageState } from "../../lib/terminalContext";
 

@@ -1,4 +1,4 @@
-import type { ServerDiagnosticsResult, SupervisedRuntimeSnapshot } from "@synara/contracts";
+import type { ServerDiagnosticsResult, SupervisedRuntimeSnapshot } from "@veylen/contracts";
 
 export type SupervisedRuntimeTraceKind =
   | "audit"

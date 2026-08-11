@@ -1,4 +1,4 @@
-import type { ControlPlaneEvent, SupervisedRuntimeHealth } from "@synara/contracts";
+import type { ControlPlaneEvent, SupervisedRuntimeHealth } from "@veylen/contracts";
 import { ServiceMap } from "effect";
 import type { Effect, Scope } from "effect";
 
@@ -16,4 +16,4 @@ export interface SupervisedRuntimeDaemonShape {
 export class SupervisedRuntimeDaemon extends ServiceMap.Service<
   SupervisedRuntimeDaemon,
   SupervisedRuntimeDaemonShape
->()("synara/orchestration/Services/SupervisedRuntimeDaemon") {}
+>()("veylen/orchestration/Services/SupervisedRuntimeDaemon") {}

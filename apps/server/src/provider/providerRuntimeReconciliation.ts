@@ -13,8 +13,8 @@ import {
   type OrchestrationThreadShell,
   type ProviderSession,
   type ThreadId,
-} from "@synara/contracts";
-import { nonEmptyTrimmed } from "@synara/shared/text";
+} from "@veylen/contracts";
+import { nonEmptyTrimmed } from "@veylen/shared/text";
 
 import type { ProviderRuntimeEventPumpHealth } from "./Services/ProviderService.ts";
 import type { ProviderRuntimeBinding } from "./Services/ProviderSessionDirectory.ts";

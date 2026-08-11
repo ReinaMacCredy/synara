@@ -1,5 +1,5 @@
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
-import type { ProviderKind } from "@synara/contracts";
+import type { ProviderKind } from "@veylen/contracts";
 import { Effect, Option } from "effect";
 import { z } from "zod";
 
@@ -10,7 +10,7 @@ import {
   type HostToolInvocationContext,
 } from "../orchestration/hostTools/runtime.ts";
 
-const SYNARA_HOST_MCP_SERVER_NAME = "synara-host";
+const VEYLEN_HOST_MCP_SERVER_NAME = "veylen-host";
 
 export const claudeSupportedHostToolDefinitions = (
   catalog: ReadonlyArray<HostToolDefinition>,
@@ -84,9 +84,9 @@ export function buildClaudeHostSdkMcpServer(input: {
   );
 
   return createSdkMcpServer({
-    name: SYNARA_HOST_MCP_SERVER_NAME,
+    name: VEYLEN_HOST_MCP_SERVER_NAME,
     version: "1.0.0",
-    instructions: "Governed Synara host tools for this supervised session.",
+    instructions: "Governed Veylen host tools for this supervised session.",
     tools,
     alwaysLoad: true,
   });
@@ -100,7 +100,7 @@ export function buildClaudeHostMcpServers(input: {
 }): Record<string, unknown> {
   const servers: Record<string, unknown> = {};
   if (input.httpConnection) {
-    servers.synara = {
+    servers.veylen = {
       type: "http",
       url: input.httpConnection.url,
       headers: { Authorization: `Bearer ${input.httpConnection.bearerToken}` },
@@ -111,7 +111,7 @@ export function buildClaudeHostMcpServers(input: {
     Option.isSome(input.hostRuntime) &&
     claudeSupportedHostToolDefinitions(input.hostRuntime.value.catalog).length > 0
   ) {
-    servers[SYNARA_HOST_MCP_SERVER_NAME] = buildClaudeHostSdkMcpServer({
+    servers[VEYLEN_HOST_MCP_SERVER_NAME] = buildClaudeHostSdkMcpServer({
       runtime: input.hostRuntime.value,
       threadId: input.threadId,
     });

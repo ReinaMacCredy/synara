@@ -6,7 +6,7 @@ import {
   type HandoffCapsuleV1,
   type HandoffRuntimeSelection,
   type ProviderEvent,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 import { CodexAppServerManager } from "../codexAppServerManager.ts";
 import { HANDOFF_CORE_INSTRUCTION } from "./handoffCoreInstruction.ts";

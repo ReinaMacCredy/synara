@@ -2,7 +2,7 @@ import type {
   ProjectTaskId,
   SessionProgressProjection,
   TaskProgressEntry,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 export type SessionProgressActivityState =
   | "inactive"

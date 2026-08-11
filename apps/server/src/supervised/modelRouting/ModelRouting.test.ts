@@ -10,7 +10,7 @@ import {
   UserModelPreferenceProfile,
   type ModelCapabilityProfile as ModelCapabilityProfileType,
   type UserModelPreferenceProfile as UserModelPreferenceProfileType,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Schema } from "effect";
 
 import { builtInRunPolicy } from "../signal/BuiltInSubscriptions.ts";

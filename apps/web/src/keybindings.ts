@@ -8,8 +8,8 @@ import {
   type SpaceJumpKeybindingCommand,
   THREAD_JUMP_KEYBINDING_COMMANDS,
   type ThreadJumpKeybindingCommand,
-} from "@synara/contracts";
-import { isKeyboardShortcutsHelpChord } from "@synara/shared/browserShortcuts";
+} from "@veylen/contracts";
+import { isKeyboardShortcutsHelpChord } from "@veylen/shared/browserShortcuts";
 import { isMacPlatform, isWindowsPlatform } from "./lib/utils";
 
 export interface ShortcutEventLike {

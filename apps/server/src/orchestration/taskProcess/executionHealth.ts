@@ -4,7 +4,7 @@ import type {
   TaskProgressEntry,
   TaskThreadBinding,
   ThreadId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 export type BoundThreadRuntimeState =
   | "running"

@@ -1,4 +1,4 @@
-import { ProjectId, ThreadId, TurnId } from "@synara/contracts";
+import { ProjectId, ThreadId, TurnId } from "@veylen/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -47,7 +47,7 @@ describe("resolveFilePreviewWorkspaceRoot", () => {
   it("uses an explicit local working directory ahead of the project cwd", () => {
     expect(
       resolveFilePreviewWorkspaceRoot({
-        projectCwd: "/synara/project",
+        projectCwd: "/veylen/project",
         threadEnvMode: "local",
         threadWorktreePath: null,
         threadWorkingDirectory: "/repo/external",

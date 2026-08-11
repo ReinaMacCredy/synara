@@ -8,7 +8,7 @@ import {
   ProjectId,
   ThreadId,
   type OrchestrationEvent,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { describe, expect, it } from "vitest";
 
 import {

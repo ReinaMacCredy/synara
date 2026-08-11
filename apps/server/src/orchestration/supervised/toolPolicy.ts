@@ -4,7 +4,7 @@ import type {
   SupervisedGovernanceSnapshot,
   SupervisionMission,
   ThreadId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 import { missionScopeContainsLead } from "./missionScope.ts";
 

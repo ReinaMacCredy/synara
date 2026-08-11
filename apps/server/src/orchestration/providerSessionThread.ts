@@ -1,5 +1,5 @@
-import type { ThreadId } from "@synara/contracts";
-import { isAdvisorIdentity } from "@synara/shared/advisor";
+import type { ThreadId } from "@veylen/contracts";
+import { isAdvisorIdentity } from "@veylen/shared/advisor";
 import { Effect, Option } from "effect";
 
 import type { ProjectionSnapshotQueryShape } from "./Services/ProjectionSnapshotQuery.ts";

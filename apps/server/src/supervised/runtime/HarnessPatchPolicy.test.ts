@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { describe, it } from "vitest";
 
-import type { HarnessPatch } from "@synara/contracts";
+import type { HarnessPatch } from "@veylen/contracts";
 
 import {
   resolveEffectiveHarnessPatchOverlays,

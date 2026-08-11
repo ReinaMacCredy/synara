@@ -20,7 +20,7 @@ import type {
   SupervisedDomainEvent,
   SupervisedRuntimeHealth,
   SupervisedRuntimeSnapshot,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -148,4 +148,4 @@ export interface SupervisedRuntimeRepositoryShape {
 export class SupervisedRuntimeRepository extends ServiceMap.Service<
   SupervisedRuntimeRepository,
   SupervisedRuntimeRepositoryShape
->()("synara/persistence/Services/SupervisedRuntimeRepository/SupervisedRuntimeRepository") {}
+>()("veylen/persistence/Services/SupervisedRuntimeRepository/SupervisedRuntimeRepository") {}

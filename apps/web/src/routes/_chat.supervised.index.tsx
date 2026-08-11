@@ -1,4 +1,4 @@
-import { type ProjectId, type ThreadId } from "@synara/contracts";
+import { type ProjectId, type ThreadId } from "@veylen/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
@@ -82,7 +82,7 @@ function SupervisedIndexRouteView() {
       if (!projectId) throw new Error("Unable to prepare the Supervised workspace.");
       if (!useStore.getState().projects.some((project) => project.id === projectId)) {
         const api = readNativeApi();
-        if (!api) throw new Error("The Synara server is unavailable.");
+        if (!api) throw new Error("The Veylen server is unavailable.");
         useStore.getState().syncServerShellSnapshot(await api.orchestration.getShellSnapshot());
       }
     })().catch((error: unknown) => {

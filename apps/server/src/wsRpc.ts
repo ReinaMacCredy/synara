@@ -39,7 +39,7 @@ import {
   type ServerDiagnosticsResult,
   type ServerLifecycleStreamEvent,
   type SupervisedToolPolicy,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { clamp } from "effect/Number";
 import { Effect, FileSystem, Layer, Option, Path, Queue, Schema, Scope, Stream } from "effect";
 import { Headers, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
@@ -58,11 +58,11 @@ import { SessionCredentialService } from "./auth/Services/SessionCredentialServi
 import { CheckpointDiffQuery } from "./checkpointing/Services/CheckpointDiffQuery";
 import { ServerConfig, type ServerConfigShape } from "./config";
 import { realpathNearestExisting } from "./realpathNearestExisting";
-import { workspaceRootsEqual } from "@synara/shared/threadWorkspace";
+import { workspaceRootsEqual } from "@veylen/shared/threadWorkspace";
 import {
   isThreadDetailEventFor,
   THREAD_DETAIL_EVENT_TYPES,
-} from "@synara/shared/threadDetailEvents";
+} from "@veylen/shared/threadDetailEvents";
 import { DevServerManager, findProjectDevServerForLocalServer } from "./devServerManager";
 import { DeviceService } from "./device/Services/DeviceService";
 import { makeWsDeviceHandlers } from "./device/wsDeviceHandlers";
@@ -100,7 +100,7 @@ import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnap
 import { TaskProcessQuery } from "./orchestration/Services/TaskProcessQuery";
 import { shouldPublishThreadShellForEvent } from "./orchestration/threadShellEvents";
 import { ProviderDiscoveryService } from "./provider/Services/ProviderDiscoveryService";
-import { discoverSkillsCatalog, synaraSkillsDir } from "./provider/skillsCatalog";
+import { discoverSkillsCatalog, veylenSkillsDir } from "./provider/skillsCatalog";
 import { recoverUnregisteredGitHubCheckout } from "./project/githubProjectRegistration";
 import { ProviderAdapterRegistry } from "./provider/Services/ProviderAdapterRegistry";
 import { ProviderHealth } from "./provider/Services/ProviderHealth";
@@ -197,7 +197,7 @@ const THREAD_DETAIL_SNAPSHOT_BOOTSTRAP_TIMEOUT_MS = 5_000;
 const THREAD_DETAIL_SNAPSHOT_BOOTSTRAP_POLL_MS = 100;
 
 class WsRequestAdmissionMiddleware extends RpcMiddleware.Service<WsRequestAdmissionMiddleware>()(
-  "synara/WsRequestAdmissionMiddleware",
+  "veylen/WsRequestAdmissionMiddleware",
   { error: WsRpcError, requiredForClient: false },
 ) {}
 
@@ -2031,7 +2031,7 @@ const makeWsRpcHandlersLayer = () =>
                     operationId: input.operationId,
                     kind: "phase",
                     phase: "registering",
-                    message: "Adding project to Synara",
+                    message: "Adding project to Veylen",
                   });
 
                   const { command: normalizedCommand, prepareWorkspaceRoot } =
@@ -2693,13 +2693,13 @@ const makeWsRpcHandlersLayer = () =>
               discoverSkillsCatalog({
                 cwd: input.cwd ?? null,
                 homeDir: config.homeDir,
-                synaraBaseDir: config.baseDir,
+                veylenBaseDir: config.baseDir,
                 includeDuplicateOrigins: true,
               }),
             ).pipe(
               Effect.map((skills) => ({
                 skills,
-                synaraSkillsDir: synaraSkillsDir(config.baseDir),
+                veylenSkillsDir: veylenSkillsDir(config.baseDir),
               })),
             ),
             "Failed to list the skills catalog",
@@ -3002,7 +3002,7 @@ function makeWsNegotiateHttpRouteLayer() {
               headers: { "Cache-Control": "no-store", Vary: "Origin" },
             });
           }
-          // The desktop app fetches cross-origin (synara://app); reflect only
+          // The desktop app fetches cross-origin (veylen://app); reflect only
           // origins the WS upgrade itself would trust.
           const origin = normalizeCorsOrigin(request.headers.origin);
           const corsHeaders =

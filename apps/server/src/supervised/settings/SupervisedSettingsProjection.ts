@@ -3,7 +3,7 @@ import type {
   SupervisedSettingsSnapshot,
   SupervisedToolInvocationReceipt,
   SupervisedToolPolicy,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 import type { HostToolDefinition } from "../../orchestration/hostTools/runtime.ts";
 import {
@@ -84,7 +84,7 @@ export function projectSupervisedSystemTools(input: {
           ? `${definitions.length} provider-facing adapters share this canonical intent.`
           : "Canonical intent is registered but has no provider-facing adapter in this build."),
       schemaVersion: definitions[0]?.supervised?.schemaVersion ?? descriptor.schemaVersion,
-      source: definitions.length > 0 ? "Synara host runtime" : "Canonical intent registry",
+      source: definitions.length > 0 ? "Veylen host runtime" : "Canonical intent registry",
       readOnly: descriptor.readOnly,
       allowedRoles: [...descriptor.roles],
       internalCommands: [...descriptor.internalCommands],

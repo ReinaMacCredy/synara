@@ -4,7 +4,7 @@
 // Layer: Route UI logic helpers
 // Exports: home-chat restore-route resolution.
 
-import type { ProjectId, SpaceId, ThreadId } from "@synara/contracts";
+import type { ProjectId, SpaceId, ThreadId } from "@veylen/contracts";
 
 import { resolveRestorableThreadRoute, type LastThreadRoute } from "../chatRouteRestore";
 import type { ServerWorkspacePaths } from "../lib/serverWorkspacePaths";

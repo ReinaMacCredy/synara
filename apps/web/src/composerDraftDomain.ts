@@ -21,7 +21,7 @@ import {
   type ThreadHandoffImportedMessage,
   type HandoffDraftV1,
   type ThreadId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import * as Equal from "effect/Equal";
 import * as Schema from "effect/Schema";
 
@@ -49,7 +49,7 @@ import {
   type ThreadPrimarySurface,
 } from "./types";
 
-export const COMPOSER_DRAFT_STORAGE_KEY = "synara:composer-drafts:v1";
+export const COMPOSER_DRAFT_STORAGE_KEY = "veylen:composer-drafts:v1";
 export const COMPOSER_DRAFT_STORAGE_VERSION = 10;
 export type DraftThreadEnvMode = "local" | "worktree";
 export type DraftThreadEntryPoint = ThreadPrimarySurface | "supervised";

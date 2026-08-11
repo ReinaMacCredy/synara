@@ -1,21 +1,21 @@
 // FILE: desktopIdentity.ts
 // Purpose: Defines the canonical desktop application identity across packaging and runtime.
 
-export const SYNARA_DESKTOP_SCHEME = "synara";
-export const SYNARA_DESKTOP_ORIGIN = `${SYNARA_DESKTOP_SCHEME}://app`;
-export const SYNARA_DESKTOP_ENTRY_URL = `${SYNARA_DESKTOP_ORIGIN}/index.html`;
-export const SYNARA_DESKTOP_UPDATE_CHANNEL = "synara";
-export const SYNARA_PRODUCTION_BUNDLE_ID = "com.emanueledipietro.synara";
-export const SYNARA_DEVELOPMENT_BUNDLE_ID = `${SYNARA_PRODUCTION_BUNDLE_ID}.dev`;
-export const SYNARA_CANARY_BUNDLE_ID = `${SYNARA_PRODUCTION_BUNDLE_ID}.canary`;
-export const SYNARA_CANARY_DESKTOP_SCHEME = "synara-canary";
-export const SYNARA_CANARY_DESKTOP_ORIGIN = `${SYNARA_CANARY_DESKTOP_SCHEME}://app`;
-export const SYNARA_CANARY_DESKTOP_ENTRY_URL = `${SYNARA_CANARY_DESKTOP_ORIGIN}/index.html`;
+export const VEYLEN_DESKTOP_SCHEME = "veylen";
+export const VEYLEN_DESKTOP_ORIGIN = `${VEYLEN_DESKTOP_SCHEME}://app`;
+export const VEYLEN_DESKTOP_ENTRY_URL = `${VEYLEN_DESKTOP_ORIGIN}/index.html`;
+export const VEYLEN_DESKTOP_UPDATE_CHANNEL = "veylen";
+export const VEYLEN_PRODUCTION_BUNDLE_ID = "com.reinamaccredy.veylen";
+export const VEYLEN_DEVELOPMENT_BUNDLE_ID = `${VEYLEN_PRODUCTION_BUNDLE_ID}.dev`;
+export const VEYLEN_CANARY_BUNDLE_ID = `${VEYLEN_PRODUCTION_BUNDLE_ID}.canary`;
+export const VEYLEN_CANARY_DESKTOP_SCHEME = "veylen-canary";
+export const VEYLEN_CANARY_DESKTOP_ORIGIN = `${VEYLEN_CANARY_DESKTOP_SCHEME}://app`;
+export const VEYLEN_CANARY_DESKTOP_ENTRY_URL = `${VEYLEN_CANARY_DESKTOP_ORIGIN}/index.html`;
 
-export type SynaraDesktopFlavor = "production" | "development" | "canary";
+export type VeylenDesktopFlavor = "production" | "development" | "canary";
 
-export interface SynaraDesktopIdentity {
-  readonly flavor: SynaraDesktopFlavor;
+export interface VeylenDesktopIdentity {
+  readonly flavor: VeylenDesktopFlavor;
   readonly displayName: string;
   readonly bundleId: string;
   readonly scheme: string;
@@ -26,56 +26,56 @@ export interface SynaraDesktopIdentity {
   readonly usesScriptedUpdates: boolean;
 }
 
-export function resolveSynaraDesktopFlavor(input: {
+export function resolveVeylenDesktopFlavor(input: {
   readonly isDevelopment: boolean;
   readonly requestedFlavor?: string | undefined;
-}): SynaraDesktopFlavor {
+}): VeylenDesktopFlavor {
   if (input.requestedFlavor?.trim().toLowerCase() === "canary") {
     return "canary";
   }
   return input.isDevelopment ? "development" : "production";
 }
 
-export function synaraDesktopIdentity(flavor: SynaraDesktopFlavor): SynaraDesktopIdentity {
+export function veylenDesktopIdentity(flavor: VeylenDesktopFlavor): VeylenDesktopIdentity {
   if (flavor === "canary") {
     return {
       flavor,
-      displayName: "Synara Canary",
-      bundleId: SYNARA_CANARY_BUNDLE_ID,
-      scheme: SYNARA_CANARY_DESKTOP_SCHEME,
-      origin: SYNARA_CANARY_DESKTOP_ORIGIN,
-      entryUrl: SYNARA_CANARY_DESKTOP_ENTRY_URL,
-      userDataDirectoryName: "synara-canary",
-      defaultHomeDirectoryName: ".synara-canary",
+      displayName: "Veylen Canary",
+      bundleId: VEYLEN_CANARY_BUNDLE_ID,
+      scheme: VEYLEN_CANARY_DESKTOP_SCHEME,
+      origin: VEYLEN_CANARY_DESKTOP_ORIGIN,
+      entryUrl: VEYLEN_CANARY_DESKTOP_ENTRY_URL,
+      userDataDirectoryName: "veylen-canary",
+      defaultHomeDirectoryName: ".veylen-canary",
       usesScriptedUpdates: true,
     };
   }
   if (flavor === "development") {
     return {
       flavor,
-      displayName: "Synara (Dev)",
-      bundleId: SYNARA_DEVELOPMENT_BUNDLE_ID,
-      scheme: SYNARA_DESKTOP_SCHEME,
-      origin: SYNARA_DESKTOP_ORIGIN,
-      entryUrl: SYNARA_DESKTOP_ENTRY_URL,
-      userDataDirectoryName: "synara-dev",
-      defaultHomeDirectoryName: ".synara",
+      displayName: "Veylen (Dev)",
+      bundleId: VEYLEN_DEVELOPMENT_BUNDLE_ID,
+      scheme: VEYLEN_DESKTOP_SCHEME,
+      origin: VEYLEN_DESKTOP_ORIGIN,
+      entryUrl: VEYLEN_DESKTOP_ENTRY_URL,
+      userDataDirectoryName: "veylen-dev",
+      defaultHomeDirectoryName: ".veylen",
       usesScriptedUpdates: false,
     };
   }
   return {
     flavor,
-    displayName: "Synara",
-    bundleId: SYNARA_PRODUCTION_BUNDLE_ID,
-    scheme: SYNARA_DESKTOP_SCHEME,
-    origin: SYNARA_DESKTOP_ORIGIN,
-    entryUrl: SYNARA_DESKTOP_ENTRY_URL,
-    userDataDirectoryName: "synara",
-    defaultHomeDirectoryName: ".synara",
+    displayName: "Veylen",
+    bundleId: VEYLEN_PRODUCTION_BUNDLE_ID,
+    scheme: VEYLEN_DESKTOP_SCHEME,
+    origin: VEYLEN_DESKTOP_ORIGIN,
+    entryUrl: VEYLEN_DESKTOP_ENTRY_URL,
+    userDataDirectoryName: "veylen",
+    defaultHomeDirectoryName: ".veylen",
     usesScriptedUpdates: false,
   };
 }
 
-export function synaraBundleId(isDevelopment: boolean): string {
-  return synaraDesktopIdentity(isDevelopment ? "development" : "production").bundleId;
+export function veylenBundleId(isDevelopment: boolean): string {
+  return veylenDesktopIdentity(isDevelopment ? "development" : "production").bundleId;
 }

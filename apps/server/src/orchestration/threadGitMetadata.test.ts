@@ -1,4 +1,4 @@
-import type { OrchestrationThreadPullRequest } from "@synara/contracts";
+import type { OrchestrationThreadPullRequest } from "@veylen/contracts";
 import { describe, expect, it } from "vitest";
 
 import { deriveThreadGitMetadataPatch } from "./threadGitMetadata.ts";
@@ -6,7 +6,7 @@ import { deriveThreadGitMetadataPatch } from "./threadGitMetadata.ts";
 const pullRequest: OrchestrationThreadPullRequest = {
   number: 574,
   title: "Cache provider usage",
-  url: "https://github.com/Emanuele-web04/synara/pull/574",
+  url: "https://github.com/ReinaMacCredy/Veylen/pull/574",
   baseBranch: "main",
   headBranch: "feat/provider-usage-snapshot-cache",
   state: "open",
@@ -21,7 +21,7 @@ describe("deriveThreadGitMetadataPatch", () => {
   it("adopts the observed branch and its pull request", () => {
     expect(
       deriveThreadGitMetadataPatch({
-        currentBranch: "synara/old-branch",
+        currentBranch: "veylen/old-branch",
         currentPullRequest: null,
         observedBranch: "feat/provider-usage-snapshot-cache",
         pullRequestLookup: { status: "resolved", pullRequest },
@@ -81,7 +81,7 @@ describe("deriveThreadGitMetadataPatch", () => {
       deriveThreadGitMetadataPatch({
         currentBranch: pullRequest.headBranch,
         currentPullRequest: pullRequest,
-        observedBranch: "synara/deadbeef",
+        observedBranch: "veylen/deadbeef",
         pullRequestLookup: { status: "resolved", pullRequest: null },
       }),
     ).toBeNull();
@@ -108,7 +108,7 @@ describe("deriveThreadGitMetadataPatch", () => {
         dedicatedWorktree: {
           cwd: "/repo/.worktrees/thread",
           currentPath: "/repo/.worktrees/thread",
-          currentBranch: "synara/stale-branch",
+          currentBranch: "veylen/stale-branch",
         },
       }),
     ).toEqual({

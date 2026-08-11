@@ -5,16 +5,16 @@ import {
   type AutomationWorktreeMode,
   type ModelSelection,
   type ProviderOptionDescriptor,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import {
   automationContinuationThreadId,
   automationRequiresTargetThread,
-} from "@synara/shared/automationMode";
+} from "@veylen/shared/automationMode";
 import {
   getModelCapabilities,
   getProviderOptionCurrentValue,
   getProviderOptionDescriptors,
-} from "@synara/shared/model";
+} from "@veylen/shared/model";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
@@ -41,7 +41,7 @@ import {
 import {
   completionPolicyFromStopWhen,
   stopWhenFromCompletionPolicy,
-} from "@synara/shared/automationCompletionPolicy";
+} from "@veylen/shared/automationCompletionPolicy";
 import { automationLifecycleState, canPauseAutomation } from "~/lib/automationStatus";
 import {
   useDesktopTopBarTrafficLightGutterClassName,

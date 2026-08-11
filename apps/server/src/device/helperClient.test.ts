@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { decodeDeviceFrame, encodeDeviceFrame } from "@synara/shared/deviceFrame";
+import { decodeDeviceFrame, encodeDeviceFrame } from "@veylen/shared/deviceFrame";
 
 import {
   DeviceFramePrefixParser,

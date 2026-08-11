@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "vitest";
 import { Schema } from "effect";
 
-import { SupervisedDomainEvent } from "@synara/contracts";
+import { SupervisedDomainEvent } from "@veylen/contracts";
 
 import { upcastLegacyPeerEventV1 } from "./peerUpcaster.ts";
 

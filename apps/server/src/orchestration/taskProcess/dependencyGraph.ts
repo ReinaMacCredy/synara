@@ -3,7 +3,7 @@ import type {
   ProjectTaskId,
   TaskDependencyEdge,
   TaskProcessId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 export interface DependencyValidationIssue {
   readonly code:

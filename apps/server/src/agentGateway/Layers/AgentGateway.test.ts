@@ -12,7 +12,7 @@ import type {
   ServerProviderStatus,
   TaskProcessGraphProjection,
   ThreadId as ThreadIdType,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import {
   AutomationId,
   DEFAULT_AUTOMATION_STOP_CONFIDENCE_THRESHOLD,
@@ -23,8 +23,8 @@ import {
   TaskProcessId,
   ThreadId,
   TurnId,
-} from "@synara/contracts";
-import { isTemporaryWorktreeBranch } from "@synara/shared/git";
+} from "@veylen/contracts";
+import { isTemporaryWorktreeBranch } from "@veylen/shared/git";
 import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 
@@ -745,7 +745,7 @@ function makeHarnessLayer(
         }
         return {
           worktree: {
-            path: input.path ?? "/tmp/worktrees/generated/synara",
+            path: input.path ?? "/tmp/worktrees/generated/veylen",
             ref: input.ref,
             branch: input.newBranch ?? null,
           },
@@ -1299,7 +1299,7 @@ describe("AgentGateway", () => {
           jsonrpc: "2.0",
           id: true,
           method: "tools/call",
-          params: { name: "synara_set_thread_title", arguments: { title: "Must not run" } },
+          params: { name: "veylen_set_thread_title", arguments: { title: "Must not run" } },
         },
       });
       assert.equal((response.body as { error?: { code: number } }).error?.code, -32600);
@@ -1356,7 +1356,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent-readonly",
-        name: "synara_create_threads",
+        name: "veylen_create_threads",
         args: {
           requestId: "readonly-create",
           threads: [
@@ -1381,7 +1381,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent-readonly",
-        name: "synara_diagnose_thread",
+        name: "veylen_diagnose_thread",
         args: { threadId: "thread-parent" },
       });
       const error = toolResultJson(response.result).error as {
@@ -1402,7 +1402,7 @@ describe("AgentGateway", () => {
         id,
         method: "tools/call",
         params: {
-          name: "synara_create_threads",
+          name: "veylen_create_threads",
           arguments: {
             requestId,
             threads: [
@@ -1450,7 +1450,7 @@ describe("AgentGateway", () => {
       assert.equal(initResult.protocolVersion, "2025-06-18");
       assert.isString(initResult.instructions);
       assert.isBelow(String(initResult.instructions).length, 200);
-      assert.notInclude(String(initResult.instructions), "[Synara harness policy");
+      assert.notInclude(String(initResult.instructions), "[Veylen harness policy");
 
       const list = yield* harness.postRaw({
         authorizationHeader: "Bearer token-parent",
@@ -1469,32 +1469,32 @@ describe("AgentGateway", () => {
       ).result.tools;
       const names = tools.map((tool) => tool.name);
       assert.includeMembers(names, [
-        "synara_context",
-        "synara_capabilities",
-        "synara_list_projects",
-        "synara_list_threads",
-        "synara_read_thread",
-        "synara_read_thread_activity",
-        "synara_read_thread_events",
-        "synara_read_thread_runtime_events",
-        "synara_diagnose_thread",
-        "synara_wait_for_threads",
-        "synara_create_threads",
-        "synara_create_thread",
-        "synara_send_message",
-        "synara_interrupt_thread",
-        "synara_set_thread_title",
-        "synara_set_thread_archived",
-        "synara_create_automation",
-        "synara_list_automations",
-        "synara_view_automation",
-        "synara_update_automation",
-        "synara_cancel_automation",
-        "synara_update_automation_memory",
-        "synara_report_automation_result",
-        "synara_consult_advisor",
+        "veylen_context",
+        "veylen_capabilities",
+        "veylen_list_projects",
+        "veylen_list_threads",
+        "veylen_read_thread",
+        "veylen_read_thread_activity",
+        "veylen_read_thread_events",
+        "veylen_read_thread_runtime_events",
+        "veylen_diagnose_thread",
+        "veylen_wait_for_threads",
+        "veylen_create_threads",
+        "veylen_create_thread",
+        "veylen_send_message",
+        "veylen_interrupt_thread",
+        "veylen_set_thread_title",
+        "veylen_set_thread_archived",
+        "veylen_create_automation",
+        "veylen_list_automations",
+        "veylen_view_automation",
+        "veylen_update_automation",
+        "veylen_cancel_automation",
+        "veylen_update_automation_memory",
+        "veylen_report_automation_result",
+        "veylen_consult_advisor",
       ]);
-      const createThreadProperties = tools.find((tool) => tool.name === "synara_create_thread")
+      const createThreadProperties = tools.find((tool) => tool.name === "veylen_create_thread")
         ?.inputSchema.properties;
       assert.property(createThreadProperties, "baseRef");
       assert.notProperty(createThreadProperties, "baseBranch");
@@ -1503,7 +1503,7 @@ describe("AgentGateway", () => {
         (createThreadProperties?.runtimeMode as { enum?: string[] } | undefined)?.enum,
         ["approval-required", "full-access"],
       );
-      const createThreadsTool = tools.find((tool) => tool.name === "synara_create_threads");
+      const createThreadsTool = tools.find((tool) => tool.name === "veylen_create_threads");
       const createThreadsItems = (
         createThreadsTool?.inputSchema.properties?.threads as
           | {
@@ -1518,7 +1518,7 @@ describe("AgentGateway", () => {
         ["approval-required", "full-access"],
       );
 
-      const createAutomation = tools.find((tool) => tool.name === "synara_create_automation");
+      const createAutomation = tools.find((tool) => tool.name === "veylen_create_automation");
       assert.include(createAutomation?.description ?? "", "self-contained brief");
       const createAutomationProperties = createAutomation?.inputSchema.properties as
         | Record<string, { description?: string }>
@@ -1536,10 +1536,10 @@ describe("AgentGateway", () => {
         "notifying the user versus staying silent",
       );
       const updateAutomationMemory = tools.find(
-        (tool) => tool.name === "synara_update_automation_memory",
+        (tool) => tool.name === "veylen_update_automation_memory",
       );
       const reportAutomationResult = tools.find(
-        (tool) => tool.name === "synara_report_automation_result",
+        (tool) => tool.name === "veylen_report_automation_result",
       );
       assert.include(
         updateAutomationMemory?.description ?? "",
@@ -1551,7 +1551,7 @@ describe("AgentGateway", () => {
       );
 
       const updateAutomationProperties = tools.find(
-        (tool) => tool.name === "synara_update_automation",
+        (tool) => tool.name === "veylen_update_automation",
       )?.inputSchema.properties as Record<string, { description?: string }> | undefined;
       assert.equal(
         updateAutomationProperties?.name?.description,
@@ -1592,8 +1592,8 @@ describe("AgentGateway", () => {
           ...makeProjectShell(),
           id: ProjectId.makeUnsafe("project-chat-container"),
           kind: "chat",
-          title: "che progetti ci sono in synara",
-          workspaceRoot: `${homeDir}/Documents/Synara/2026-03-01/chat`,
+          title: "che progetti ci sono in veylen",
+          workspaceRoot: `${homeDir}/Documents/Veylen/2026-03-01/chat`,
         },
         {
           ...makeProjectShell(),
@@ -1608,7 +1608,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_list_projects",
+        name: "veylen_list_projects",
         args: {},
       });
       const payload = toolResultJson(response.result);
@@ -1626,7 +1626,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_capabilities",
+        name: "veylen_capabilities",
         args: {},
       });
       const payload = toolResultJson(response.result);
@@ -1721,7 +1721,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_list_threads",
+        name: "veylen_list_threads",
         args: {},
       });
       const payload = toolResultJson(response.result);
@@ -1739,7 +1739,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_list_threads",
+        name: "veylen_list_threads",
         args: { limit: 1 },
       });
       const payload = toolResultJson(response.result);
@@ -1755,7 +1755,7 @@ describe("AgentGateway", () => {
       const threads = [
         makeThreadShell("thread-parent", {
           title: "Investigate stream gap",
-          creationSource: "synara_mcp",
+          creationSource: "veylen_mcp",
           updatedAt: "2026-03-02T10:00:00.000Z",
           latestTurn: {
             turnId: TurnId.makeUnsafe("turn-running"),
@@ -1777,12 +1777,12 @@ describe("AgentGateway", () => {
         const harness = yield* makeHarness;
         const response = yield* harness.callTool({
           token: "token-parent",
-          name: "synara_list_threads",
+          name: "veylen_list_threads",
           args: {
             provider: "codex",
             status: "working",
             titleContains: "STREAM",
-            creationSource: "synara_mcp",
+            creationSource: "veylen_mcp",
             updatedAfter: "2026-03-01T00:00:00.000Z",
             updatedBefore: "2026-03-03T00:00:00.000Z",
           },
@@ -1817,7 +1817,7 @@ describe("AgentGateway", () => {
       const first = toolResultJson(
         (yield* harness.callTool({
           token: "token-parent",
-          name: "synara_read_thread_activity",
+          name: "veylen_read_thread_activity",
           args: { threadId: "thread-parent", limit: 1, includeDetails: true },
         })).result,
       );
@@ -1826,7 +1826,7 @@ describe("AgentGateway", () => {
       const second = toolResultJson(
         (yield* harness.callTool({
           token: "token-parent",
-          name: "synara_read_thread_activity",
+          name: "veylen_read_thread_activity",
           args: { threadId: "thread-parent", limit: 1, cursor: first.nextCursor },
         })).result,
       );
@@ -1837,7 +1837,7 @@ describe("AgentGateway", () => {
       });
       const changedFilter = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_read_thread_activity",
+        name: "veylen_read_thread_activity",
         args: {
           threadId: "thread-parent",
           limit: 1,
@@ -1898,7 +1898,7 @@ describe("AgentGateway", () => {
       const first = toolResultJson(
         (yield* harness.callTool({
           token: "token-parent",
-          name: "synara_read_thread_events",
+          name: "veylen_read_thread_events",
           args: { threadId, limit: 1 },
         })).result,
       );
@@ -1911,7 +1911,7 @@ describe("AgentGateway", () => {
       const second = toolResultJson(
         (yield* harness.callTool({
           token: "token-parent",
-          name: "synara_read_thread_events",
+          name: "veylen_read_thread_events",
           args: { threadId, limit: 1, cursor: first.nextCursor },
         })).result,
       );
@@ -1991,7 +1991,7 @@ describe("AgentGateway", () => {
       const payload = toolResultJson(
         (yield* harness.callTool({
           token: "token-parent",
-          name: "synara_diagnose_thread",
+          name: "veylen_diagnose_thread",
           args: { threadId: "thread-parent" },
         })).result,
       );
@@ -2012,7 +2012,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_thread",
+        name: "veylen_create_thread",
         args: { requestId: "create-grok", prompt: "analyze the feature", provider: "grok" },
       });
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
@@ -2050,7 +2050,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "veylen_create_threads",
         args: {
           requestId: "create-provider-plan-agents",
           threads: [
@@ -2094,7 +2094,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_thread",
+        name: "veylen_create_thread",
         args: {
           requestId: "create-worktree",
           prompt: "refactor module X",
@@ -2132,7 +2132,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_thread",
+        name: "veylen_create_thread",
         args: {
           requestId: "explicit-head-from-caller-worktree",
           prompt: "continue from this checkout",
@@ -2157,7 +2157,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_thread",
+        name: "veylen_create_thread",
         args: {
           requestId: "github-pr-head",
           prompt: "review the pull request",
@@ -2171,7 +2171,7 @@ describe("AgentGateway", () => {
       assert.deepEqual(harness.fetchedPullRequests, [425]);
       assert.deepEqual(harness.fetchedPullRequestRepositories, ["example/repo"]);
       assert.equal(harness.worktreeCreates[0]?.ref, "fedcba9876543210fedcba9876543210fedcba98");
-      // The worktree is born on a temporary synara/* branch, but no branch is
+      // The worktree is born on a temporary veylen/* branch, but no branch is
       // ever created for the pull request itself.
       assert.isTrue(isTemporaryWorktreeBranch(harness.worktreeCreates[0]?.newBranch ?? ""));
     }).pipe(Effect.provide(gatewayLayer));
@@ -2183,7 +2183,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_thread",
+        name: "veylen_create_thread",
         args: {
           requestId: "local-pull-path-ref",
           prompt: "continue from the local ref",
@@ -2213,7 +2213,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_thread",
+        name: "veylen_create_thread",
         args: { requestId: "create-crowded", prompt: "one more", provider: "codex" },
       });
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
@@ -2253,7 +2253,7 @@ describe("AgentGateway", () => {
       [
         ...baseThreads,
         makeThreadShell("agent:restart-child", {
-          creationSource: "synara_mcp",
+          creationSource: "veylen_mcp",
           sourceThreadId: ThreadId.makeUnsafe("thread-parent"),
           sourceTurnId: TurnId.makeUnsafe("turn-parent-active"),
           gatewayOperationId: "gateway:create:restart",
@@ -2639,7 +2639,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "veylen_create_threads",
         args: {
           requestId: "pre-existing-branch",
           threads: [
@@ -2678,7 +2678,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "veylen_create_threads",
         args: {
           requestId: "detached-attempt",
           threads: [
@@ -2716,7 +2716,7 @@ describe("AgentGateway", () => {
             id: 1,
             method: "tools/call",
             params: {
-              name: "synara_create_threads",
+              name: "veylen_create_threads",
               arguments: {
                 requestId: "turn-a-plan",
                 threads: [
@@ -2734,7 +2734,7 @@ describe("AgentGateway", () => {
             id: 2,
             method: "tools/call",
             params: {
-              name: "synara_create_threads",
+              name: "veylen_create_threads",
               arguments: {
                 requestId: "must-not-use-turn-b",
                 threads: [
@@ -2799,35 +2799,35 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const attempts = [
         {
-          name: "synara_create_threads",
+          name: "veylen_create_threads",
           args: {
             requestId: "late-batch",
             threads: [{ prompt: "late", target: { provider: "codex", model: "gpt-5.5" } }],
           },
         },
         {
-          name: "synara_create_thread",
+          name: "veylen_create_thread",
           args: { requestId: "late-single", prompt: "late", provider: "codex" },
         },
         {
-          name: "synara_send_message",
+          name: "veylen_send_message",
           args: { threadId: "thread-child", message: "late" },
         },
-        { name: "synara_interrupt_thread", args: { threadId: "thread-child" } },
+        { name: "veylen_interrupt_thread", args: { threadId: "thread-child" } },
         {
-          name: "synara_set_thread_title",
+          name: "veylen_set_thread_title",
           args: { threadId: "thread-child", title: "Late rename" },
         },
         {
-          name: "synara_set_thread_archived",
+          name: "veylen_set_thread_archived",
           args: { threadId: "thread-child", archived: true },
         },
         {
-          name: "synara_create_automation",
+          name: "veylen_create_automation",
           args: { name: "late monitor", prompt: "late" },
         },
         {
-          name: "synara_cancel_automation",
+          name: "veylen_cancel_automation",
           args: { automationId: "automation-1" },
         },
       ];
@@ -2847,7 +2847,7 @@ describe("AgentGateway", () => {
 
       const read = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_list_threads",
+        name: "veylen_list_threads",
         args: {},
       });
       assert.isFalse(isToolError(read.result), toolErrorText(read.result));
@@ -2870,7 +2870,7 @@ describe("AgentGateway", () => {
       };
       const first = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "veylen_create_threads",
         args,
       });
       harness.setProviderStatuses([
@@ -2893,7 +2893,7 @@ describe("AgentGateway", () => {
       ]);
       const replay = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "veylen_create_threads",
         args,
       });
       assert.isFalse(isToolError(first.result), toolErrorText(first.result));
@@ -2913,7 +2913,7 @@ describe("AgentGateway", () => {
       const creationRecaps = harness.dispatched.filter(
         (command) =>
           command.type === "thread.activity.append" &&
-          command.activity.kind === "synara.threads.created",
+          command.activity.kind === "veylen.threads.created",
       );
       assert.equal(creationRecaps.length, 1);
       const creationRecap = creationRecaps[0];
@@ -2922,14 +2922,14 @@ describe("AgentGateway", () => {
         assert.equal(creationRecap.threadId, ThreadId.makeUnsafe("thread-parent"));
         assert.equal(creationRecap.activity.turnId, TurnId.makeUnsafe("turn-parent-active"));
         assert.deepInclude(creationRecap.activity.payload as Record<string, unknown>, {
-          source: "synara_mcp",
+          source: "veylen_mcp",
           requestedCount: 2,
           createdCount: 2,
         });
       }
       const conflict = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "veylen_create_threads",
         args: {
           ...args,
           threads: [
@@ -2956,7 +2956,7 @@ describe("AgentGateway", () => {
           parentThreadId: command.parentThreadId,
         })),
         [0, 1].map((index) => ({
-          creationSource: "synara_mcp" as const,
+          creationSource: "veylen_mcp" as const,
           sourceThreadId: ThreadId.makeUnsafe("thread-parent"),
           sourceTurnId: TurnId.makeUnsafe("turn-parent-active"),
           gatewayOperationId: operationId,
@@ -2976,7 +2976,7 @@ describe("AgentGateway", () => {
       const call = () =>
         harness.callTool({
           token: "token-parent",
-          name: "synara_create_threads",
+          name: "veylen_create_threads",
           args: {
             requestId: "concurrent-exact-plan",
             threads: [
@@ -3017,7 +3017,7 @@ describe("AgentGateway", () => {
       const create = (requestId: string, prompt: string) =>
         harness.callTool({
           token: "token-parent",
-          name: "synara_create_threads",
+          name: "veylen_create_threads",
           args: {
             requestId,
             threads: [{ prompt, target: { provider: "codex", model: "gpt-5.5" } }],
@@ -3026,7 +3026,7 @@ describe("AgentGateway", () => {
       yield* create("first-plan", "first");
       const second = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "veylen_create_threads",
         args: {
           requestId: "second-plan",
           threads: [
@@ -3055,7 +3055,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "veylen_create_threads",
         args: {
           requestId: "bad-terra",
           threads: [
@@ -3092,7 +3092,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "veylen_create_threads",
         args: {
           requestId: "unavailable-provider",
           threads: [
@@ -3118,7 +3118,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "veylen_create_threads",
         args: {
           requestId: "terra-low",
           threads: [
@@ -3152,7 +3152,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "veylen_create_threads",
         args: {
           requestId: "atomic-preflight",
           threads: [
@@ -3179,7 +3179,7 @@ describe("AgentGateway", () => {
         const harness = yield* makeHarness;
         const response = yield* harness.callTool({
           token: "token-parent",
-          name: "synara_create_threads",
+          name: "veylen_create_threads",
           args: {
             requestId: "ownership-marker-failure",
             threads: [
@@ -3217,7 +3217,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "veylen_create_threads",
         args: {
           requestId: "ownership-marker-and-cleanup-failure",
           threads: [
@@ -3258,7 +3258,7 @@ describe("AgentGateway", () => {
       const requestFiber = yield* harness
         .callTool({
           token: "token-parent",
-          name: "synara_create_threads",
+          name: "veylen_create_threads",
           args: {
             requestId: "interrupt-after-reservation",
             threads: [
@@ -3300,7 +3300,7 @@ describe("AgentGateway", () => {
       const requestFiber = yield* harness
         .callTool({
           token: "token-parent",
-          name: "synara_create_threads",
+          name: "veylen_create_threads",
           args: {
             requestId: "interrupt-after-worktree-create",
             threads: [
@@ -3363,7 +3363,7 @@ describe("AgentGateway", () => {
       const requestFiber = yield* harness
         .callTool({
           token: "token-parent",
-          name: "synara_create_threads",
+          name: "veylen_create_threads",
           args: {
             requestId: "interrupt-during-setup-script",
             threads: [
@@ -3411,7 +3411,7 @@ describe("AgentGateway", () => {
       const requestFiber = yield* harness
         .callTool({
           token: "token-parent",
-          name: "synara_create_threads",
+          name: "veylen_create_threads",
           args: {
             requestId: "interrupt-after-thread-create",
             threads: [
@@ -3460,7 +3460,7 @@ describe("AgentGateway", () => {
     });
     const request = {
       token: "token-parent",
-      name: "synara_create_threads",
+      name: "veylen_create_threads",
       args: {
         requestId: "interrupt-after-operation-complete",
         threads: [
@@ -3517,7 +3517,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "veylen_create_threads",
         args: {
           requestId: "compensated-batch",
           threads: [
@@ -3564,7 +3564,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "veylen_create_threads",
         args: {
           requestId: "completion-persistence-failure",
           threads: [
@@ -3601,7 +3601,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "veylen_create_threads",
         args: {
           requestId: "cleanup-failure",
           threads: [
@@ -3692,7 +3692,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_wait_for_threads",
+        name: "veylen_wait_for_threads",
         args: { threadIds: ["thread-result-a", "thread-result-b"], timeoutMs: 0 },
       });
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
@@ -3751,7 +3751,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_wait_for_threads",
+        name: "veylen_wait_for_threads",
         args: { threadIds: ["thread-long-result"], timeoutMs: 0 },
       });
       const result = (
@@ -3761,7 +3761,7 @@ describe("AgentGateway", () => {
       assert.match(result.summary as string, /\[\.\.\. truncated \d+ chars\]$/);
       assert.equal((result.summary as string).length, 2_000);
       assert.deepEqual(result.readThread, {
-        tool: "synara_read_thread",
+        tool: "veylen_read_thread",
         arguments: { threadId: "thread-long-result" },
       });
     }).pipe(Effect.provide(gatewayLayer));
@@ -3790,7 +3790,7 @@ describe("AgentGateway", () => {
         const harness = yield* makeHarness;
         const response = yield* harness.callTool({
           token: "token-parent",
-          name: "synara_wait_for_threads",
+          name: "veylen_wait_for_threads",
           args: { threadIds: pending.map((thread) => thread.id), timeoutMs: 0 },
         });
         assert.equal(toolResultJson(response.result).timedOut, true);
@@ -3819,7 +3819,7 @@ describe("AgentGateway", () => {
       const fiber = yield* harness
         .callTool({
           token: "token-parent",
-          name: "synara_wait_for_threads",
+          name: "veylen_wait_for_threads",
           args: { threadIds: ["thread-deleted-during-wait"], timeoutMs: 5_000 },
         })
         .pipe(Effect.forkChild);
@@ -3859,12 +3859,12 @@ describe("AgentGateway", () => {
       };
       const created = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "veylen_create_threads",
         args,
       });
       const replay = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "veylen_create_threads",
         args,
       });
       assert.isFalse(isToolError(created.result), toolErrorText(created.result));
@@ -3913,7 +3913,7 @@ describe("AgentGateway", () => {
 
       const waited = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_wait_for_threads",
+        name: "veylen_wait_for_threads",
         args: { threadIds, timeoutMs: 0 },
       });
       assert.deepEqual(
@@ -3939,7 +3939,7 @@ describe("AgentGateway", () => {
       );
       const detachedFallback = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "veylen_create_threads",
         args: {
           requestId: "detached-opencode-fallback",
           threads: [
@@ -4011,7 +4011,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const first = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_wait_for_threads",
+        name: "veylen_wait_for_threads",
         args: {
           threadIds: ["thread-wait-idle", "thread-wait-failed", "thread-wait-running"],
           timeoutMs: 0,
@@ -4080,7 +4080,7 @@ describe("AgentGateway", () => {
       );
       const second = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_wait_for_threads",
+        name: "veylen_wait_for_threads",
         args: {
           threadIds: ["thread-wait-running"],
           runIds: ["turn-wait-pinned"],
@@ -4119,7 +4119,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_send_message",
+        name: "veylen_send_message",
         args: { threadId: "thread-child", message: "status check please", mode: "steer" },
       });
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
@@ -4139,7 +4139,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_send_message",
+        name: "veylen_send_message",
         args: { threadId: "thread-child", message: "status check please", mode: "steer" },
       });
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
@@ -4163,7 +4163,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_send_message",
+        name: "veylen_send_message",
         args: { threadId: "thread-full-access", message: "run something dangerous" },
       });
       assert.isTrue(isToolError(response.result));
@@ -4181,7 +4181,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_interrupt_thread",
+        name: "veylen_interrupt_thread",
         args: { threadId: "thread-full-access" },
       });
       assert.isTrue(isToolError(response.result));
@@ -4199,7 +4199,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_automation",
+        name: "veylen_create_automation",
         args: {
           name: "escalate",
           prompt: "keep running privileged work",
@@ -4225,7 +4225,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_send_message",
+        name: "veylen_send_message",
         args: { threadId: "thread-local", message: "edit the main checkout" },
       });
       assert.isTrue(isToolError(response.result));
@@ -4259,7 +4259,7 @@ describe("AgentGateway", () => {
 
       const rejected = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_thread",
+        name: "veylen_create_thread",
         args: {
           requestId: "create-local-rejected",
           prompt: "touch the main checkout",
@@ -4274,7 +4274,7 @@ describe("AgentGateway", () => {
       // Omitting environment defaults to an isolated worktree, not local.
       const defaulted = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_thread",
+        name: "veylen_create_thread",
         args: { requestId: "create-isolated", prompt: "do isolated work", provider: "codex" },
       });
       assert.isFalse(isToolError(defaulted.result), toolErrorText(defaulted.result));
@@ -4293,7 +4293,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_thread",
+        name: "veylen_create_thread",
         args: {
           requestId: "create-escalated",
           prompt: "escalate please",
@@ -4313,7 +4313,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_automation",
+        name: "veylen_create_automation",
         args: { name: "monitor children", prompt: "check the child threads", everyMinutes: 5 },
       });
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
@@ -4336,7 +4336,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_automation",
+        name: "veylen_create_automation",
         args: {
           name: "Daily review",
           prompt: "Review the project.",
@@ -4371,7 +4371,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_automation",
+        name: "veylen_create_automation",
         args: {
           name: "Release watch",
           prompt: "Track the release branch.",
@@ -4398,7 +4398,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_automation",
+        name: "veylen_create_automation",
         args: {
           name: "Release watch",
           prompt: "Track the release branch.",
@@ -4419,7 +4419,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_automation",
+        name: "veylen_create_automation",
         args: {
           name: "Cross-project review",
           prompt: "Review another project.",
@@ -4442,7 +4442,7 @@ describe("AgentGateway", () => {
         const harness = yield* makeHarness;
         const rejected = yield* harness.callTool({
           token: "token-parent",
-          name: "synara_create_automation",
+          name: "veylen_create_automation",
           args: {
             name: "Fast monitor",
             prompt: "Check quickly.",
@@ -4454,7 +4454,7 @@ describe("AgentGateway", () => {
 
         const accepted = yield* harness.callTool({
           token: "token-parent",
-          name: "synara_create_automation",
+          name: "veylen_create_automation",
           args: {
             name: "Fast monitor",
             prompt: "Check quickly.",
@@ -4479,17 +4479,17 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const implicit = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_update_automation_memory",
+        name: "veylen_update_automation_memory",
         args: { memory: "Iteration 1 complete." },
       });
       const legacy = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_update_automation_memory",
+        name: "veylen_update_automation_memory",
         args: { automationId: "automation-1", content: "Legacy payload." },
       });
       const missing = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_update_automation_memory",
+        name: "veylen_update_automation_memory",
         args: { automationId: "automation-1" },
       });
 
@@ -4510,7 +4510,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_automation",
+        name: "veylen_create_automation",
         args: {
           name: "Suggested monitor",
           prompt: "Watch the build.",
@@ -4551,7 +4551,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_view_automation",
+        name: "veylen_view_automation",
         args: { automationId: definition.id, runLimit: 1 },
       });
 
@@ -4570,7 +4570,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_cancel_automation",
+        name: "veylen_cancel_automation",
         args: { automationId: "automation-1" },
       });
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
@@ -4605,7 +4605,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_cancel_automation",
+        name: "veylen_cancel_automation",
         args: { automationId: "automation-standalone" },
       });
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
@@ -4638,7 +4638,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_cancel_automation",
+        name: "veylen_cancel_automation",
         args: { automationId: "automation-standalone" },
       });
       assert.isTrue(isToolError(response.result));
@@ -4652,7 +4652,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_automation",
+        name: "veylen_create_automation",
         args: {
           name: "Watch PR 142 CI",
           prompt: "Watch PR 142 and report when CI finishes.",
@@ -4693,7 +4693,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_cancel_automation",
+        name: "veylen_cancel_automation",
         args: { automationId: "automation-elevated" },
       });
       assert.isTrue(isToolError(response.result));
@@ -4711,7 +4711,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_update_automation",
+        name: "veylen_update_automation",
         args: {
           automationId: "automation-1",
           name: "Only a name",
@@ -4731,7 +4731,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_update_automation",
+        name: "veylen_update_automation",
         args: {
           automationId: "automation-1",
           name: "Updated monitor",
@@ -4765,12 +4765,12 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       yield* harness.callTool({
         token: "token-parent",
-        name: "synara_set_thread_title",
+        name: "veylen_set_thread_title",
         args: { threadId: "thread-child", title: "Renamed worker" },
       });
       yield* harness.callTool({
         token: "token-parent",
-        name: "synara_set_thread_archived",
+        name: "veylen_set_thread_archived",
         args: { threadId: "thread-child", archived: true },
       });
       assert.equal(harness.dispatched[0]?.type, "thread.meta.update");
@@ -4788,7 +4788,7 @@ describe("AgentGateway", () => {
 
       const rename = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_set_thread_title",
+        name: "veylen_set_thread_title",
         args: { threadId: "thread-elevated", title: "Hidden work" },
       });
       assert.isTrue(isToolError(rename.result));
@@ -4796,7 +4796,7 @@ describe("AgentGateway", () => {
 
       const archive = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_set_thread_archived",
+        name: "veylen_set_thread_archived",
         args: { threadId: "thread-elevated", archived: true },
       });
       assert.isTrue(isToolError(archive.result));
@@ -4815,7 +4815,7 @@ describe("AgentGateway", () => {
           jsonrpc: "2.0",
           id: 9,
           method: "tools/call",
-          params: { name: "synara_unknown" },
+          params: { name: "veylen_unknown" },
         },
       });
       const error = (response.body as { error?: { code: number } }).error;

@@ -11,7 +11,7 @@ import {
   TaskProgressEntry,
   TaskThreadBinding,
   ThreadId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Option, Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -102,4 +102,4 @@ export interface ProjectionTaskProcessRepositoryShape {
 export class ProjectionTaskProcessRepository extends ServiceMap.Service<
   ProjectionTaskProcessRepository,
   ProjectionTaskProcessRepositoryShape
->()("synara/persistence/Services/ProjectionTaskProcess/ProjectionTaskProcessRepository") {}
+>()("veylen/persistence/Services/ProjectionTaskProcess/ProjectionTaskProcessRepository") {}

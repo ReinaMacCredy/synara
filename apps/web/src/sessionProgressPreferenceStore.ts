@@ -1,4 +1,4 @@
-import type { ThreadId } from "@synara/contracts";
+import type { ThreadId } from "@veylen/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -61,7 +61,7 @@ export const useSessionProgressPreferenceStore = create<SessionProgressPreferenc
         }),
     }),
     {
-      name: "synara:session-progress-preferences:v1",
+      name: "veylen:session-progress-preferences:v1",
       version: 2,
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({

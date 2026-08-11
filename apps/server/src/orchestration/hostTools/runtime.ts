@@ -2,7 +2,7 @@ import type {
   ProviderKind,
   SupervisedIntentToolId,
   SupervisedToolInvocationReceipt,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import type { Effect } from "effect";
 
 export type HostToolProviderSupport = "native" | "unsupported";
@@ -92,7 +92,7 @@ export const hostToolTranscriptValue = (result: HostToolExecutionResult): unknow
   const base = result.ok ? result.value : { ok: false, error: result.error };
   if (!result.receipt) return base;
   if (base !== null && typeof base === "object" && !Array.isArray(base)) {
-    return { ...base, _synaraReceipt: result.receipt };
+    return { ...base, _veylenReceipt: result.receipt };
   }
-  return { value: base, _synaraReceipt: result.receipt };
+  return { value: base, _veylenReceipt: result.receipt };
 };

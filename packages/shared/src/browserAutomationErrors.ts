@@ -4,7 +4,7 @@ import {
   BrowserFixedAutomationErrorInvariants,
   type BrowserAutomationErrorInput,
   type BrowserMcpToolErrorEnvelope,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Schema } from "effect";
 
 type BrowserFixedAutomationErrorCode = keyof typeof BrowserFixedAutomationErrorInvariants;
@@ -39,7 +39,7 @@ export const makeBrowserAutomationError = (
 export const makeBrowserMcpToolErrorEnvelope = (
   input: BrowserAutomationErrorInput,
 ): BrowserMcpToolErrorEnvelope => ({
-  type: "synara_browser_error",
+  type: "veylen_browser_error",
   version: 1,
   error: makeBrowserAutomationError(input),
 });

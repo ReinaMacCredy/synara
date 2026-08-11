@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
 
-import { HarnessPatch } from "@synara/contracts";
+import { HarnessPatch } from "@veylen/contracts";
 import { Schema } from "effect";
 
 import {

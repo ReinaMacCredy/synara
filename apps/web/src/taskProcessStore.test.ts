@@ -1,4 +1,4 @@
-import { ProjectTaskId, TaskProcessId } from "@synara/contracts";
+import { ProjectTaskId, TaskProcessId } from "@veylen/contracts";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { useTaskProcessStore } from "./taskProcessStore";

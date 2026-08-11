@@ -3,8 +3,8 @@
 // Layer: Component rendering tests
 // Depends on: SupervisedOperationsDock and the supervised runtime snapshot contract.
 
-import type { DerivedSignal } from "@synara/contracts";
-import { emptySupervisedRuntimeSnapshot } from "@synara/contracts";
+import type { DerivedSignal } from "@veylen/contracts";
+import { emptySupervisedRuntimeSnapshot } from "@veylen/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 

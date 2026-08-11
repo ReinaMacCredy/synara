@@ -4,7 +4,7 @@ import {
   ProfilePresetId,
   ProjectId,
   ThreadId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { partializeComposerDraftStoreState, useComposerDraftStore } from "./composerDraftStore";
 import { normalizeCurrentPersistedComposerDraftStoreState } from "./composerDraftPersistence";

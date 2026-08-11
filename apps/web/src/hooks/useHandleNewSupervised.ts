@@ -1,4 +1,4 @@
-import { CommandId, RoomId, type ProjectId, type ThreadId } from "@synara/contracts";
+import { CommandId, RoomId, type ProjectId, type ThreadId } from "@veylen/contracts";
 
 import { useComposerDraftStore } from "../composerDraftStore";
 import { buildThreadHandoffImportedMessages } from "../lib/threadHandoff";
@@ -77,7 +77,7 @@ export async function ensureSupervisedRoom(input: {
   readonly title?: string;
 }): Promise<RoomId> {
   const api = readNativeApi();
-  if (!api) throw new Error("The Synara server is unavailable.");
+  if (!api) throw new Error("The Veylen server is unavailable.");
   const roomId = RoomId.makeUnsafe(input.threadId);
   const readExisting = async () => {
     const snapshot = await api.orchestration.getSupervisedRuntime({

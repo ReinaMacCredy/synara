@@ -7,7 +7,7 @@ import type {
   SupervisorNotebookEntry,
   SupervisorNotebookView,
   SupervisedGovernanceSnapshot,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 import type { SupervisedGovernanceRepositoryShape } from "../../persistence/Services/SupervisedGovernanceRepository.ts";
 import { makeSupervisedTools } from "../../orchestration/supervised/toolRegistry.ts";

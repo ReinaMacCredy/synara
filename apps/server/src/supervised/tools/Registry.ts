@@ -5,7 +5,7 @@ import type {
   EffectiveAuthorityReceipt,
   SupervisedIntentToolId,
   SupervisedInternalCommandId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 export interface SupervisedIntentToolDescriptor {
   readonly id: SupervisedIntentToolId;

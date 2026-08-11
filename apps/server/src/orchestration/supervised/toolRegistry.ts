@@ -33,7 +33,7 @@ import {
   type SupervisedGovernanceSnapshot,
   type SupervisionMission,
   type SupervisorNotebookEntry,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Effect, Option, Schema } from "effect";
 
 import type { SupervisedGovernanceRepositoryShape } from "../../persistence/Services/SupervisedGovernanceRepository.ts";

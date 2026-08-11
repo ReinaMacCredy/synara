@@ -12,7 +12,7 @@ import {
   type PluginInstallation,
   type SubscriptionDefinition,
   type SubscriptionDelivery,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -568,7 +568,7 @@ layer("SupervisedSignalDelivery", (it) => {
     () =>
       Effect.gen(function* () {
         const directory = yield* Effect.tryPromise(() =>
-          mkdtemp(path.join(os.tmpdir(), "synara-delivery-plugin-")),
+          mkdtemp(path.join(os.tmpdir(), "veylen-delivery-plugin-")),
         );
         try {
           const repository = yield* SupervisedRuntimeRepository;

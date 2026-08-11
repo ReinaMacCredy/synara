@@ -2,7 +2,7 @@ import type {
   ModelCapabilityProfile,
   ProviderListModelsResult,
   ProviderModelDescriptor,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 export const OWNER_CURATED_MODEL_PROVENANCE = "owner-curated";
 

@@ -30,7 +30,7 @@ import {
   ProviderItemId,
   ThreadId,
   TurnId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Cause, Effect, Layer, Option, Queue, Schema, ServiceMap, Stream } from "effect";
 
 import {
@@ -69,7 +69,7 @@ import { ServerConfig } from "../../config.ts";
 import { makeRuntimeTaskListItem } from "../runtimeTaskList.ts";
 import { extractProposedPlanMarkdown } from "../planMode.ts";
 import { appendFileAttachmentsPromptBlock } from "../attachmentProjection.ts";
-import { synaraSkillsDir } from "../skillsCatalog.ts";
+import { veylenSkillsDir } from "../skillsCatalog.ts";
 import {
   HostToolRuntime,
   type HostToolRuntimeShape,
@@ -92,9 +92,9 @@ const PROVIDER = "codex" as const;
 // activity at all for this long, abort it instead of showing "Working" forever.
 // Every turn-scoped event (reasoning, tool output, deltas) resets the clock and
 // a pending question/approval pauses it, so only a wedged child trips this.
-// Generous by design; override with SYNARA_CODEX_TURN_IDLE_TIMEOUT_MS.
+// Generous by design; override with VEYLEN_CODEX_TURN_IDLE_TIMEOUT_MS.
 const CODEX_TURN_IDLE_TIMEOUT_MS = resolveAcpTurnIdleTimeoutMs({
-  envVar: "SYNARA_CODEX_TURN_IDLE_TIMEOUT_MS",
+  envVar: "VEYLEN_CODEX_TURN_IDLE_TIMEOUT_MS",
   defaultMs: 900_000,
 });
 const CODEX_TURN_WATCHDOG_INTERVAL_MS = 15_000;
@@ -122,7 +122,7 @@ function compactCodexNativeEventForIngress(event: ProviderEvent): ProviderEvent 
   return {
     ...event,
     payload: {
-      synaraTruncated: true,
+      veylenTruncated: true,
       reason: "Codex native event exceeded the callback ingress size limit",
       originalBytes,
     },
@@ -1722,7 +1722,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
         return (
           options?.makeManager?.(services) ??
           new CodexAppServerManager(services, {
-            synaraSkillsDir: synaraSkillsDir(serverConfig.baseDir),
+            veylenSkillsDir: veylenSkillsDir(serverConfig.baseDir),
             ...(hostToolRuntime ? { hostToolRuntime } : {}),
             ...(agentGatewayCredentials
               ? {

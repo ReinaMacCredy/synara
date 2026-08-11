@@ -1,4 +1,4 @@
-import type { OrchestrationEvent } from "@synara/contracts";
+import type { OrchestrationEvent } from "@veylen/contracts";
 import { ServiceMap } from "effect";
 import type { Effect, Scope } from "effect";
 
@@ -11,4 +11,4 @@ export interface SupervisedWakeReactorShape {
 export class SupervisedWakeReactor extends ServiceMap.Service<
   SupervisedWakeReactor,
   SupervisedWakeReactorShape
->()("synara/orchestration/Services/SupervisedWakeReactor") {}
+>()("veylen/orchestration/Services/SupervisedWakeReactor") {}

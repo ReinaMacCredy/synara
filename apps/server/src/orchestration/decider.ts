@@ -6,7 +6,7 @@ import type {
   OrchestrationThread,
   ProjectKind,
   ThreadMarker,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import {
   EventId,
   MAX_PINNED_PROJECTS,
@@ -16,20 +16,20 @@ import {
   THREAD_MARKERS_MAX_COUNT,
   TurnId,
   SupervisedCommand,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import {
   deriveAssociatedWorktreeMetadata,
   deriveAssociatedWorktreeMetadataPatch,
   workspaceRootsEqual,
-} from "@synara/shared/threadWorkspace";
-import { doThreadMarkerRangesOverlap } from "@synara/shared/threadMarkers";
-import { collectSubagentDescendants } from "@synara/shared/threadHierarchy";
-import { autoRuntimeModeSelectionIssue } from "@synara/shared/runtimeMode";
-import { providerSupportsNativeTurnSteering } from "@synara/shared/providerMetadata";
+} from "@veylen/shared/threadWorkspace";
+import { doThreadMarkerRangesOverlap } from "@veylen/shared/threadMarkers";
+import { collectSubagentDescendants } from "@veylen/shared/threadHierarchy";
+import { autoRuntimeModeSelectionIssue } from "@veylen/shared/runtimeMode";
+import { providerSupportsNativeTurnSteering } from "@veylen/shared/providerMetadata";
 import {
   collectTailTurnIds,
   resolveTailUserMessageEditTarget,
-} from "@synara/shared/conversationEdit";
+} from "@veylen/shared/conversationEdit";
 import { Effect, Schema } from "effect";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
@@ -818,7 +818,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         threadId: command.threadId,
       });
       // Provider-native threads mirror subagents the provider already runs;
-      // Synara never starts a session for them, so the Auto-mode capability
+      // Veylen never starts a session for them, so the Auto-mode capability
       // check can only reject the projection (and durably poison the runtime
       // journal replaying it), never prevent an unverified Auto session.
       if (command.creationSource !== "provider_native") {

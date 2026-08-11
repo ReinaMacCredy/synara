@@ -14,9 +14,9 @@ import {
   type ReactNode,
 } from "react";
 
-import type { OrchestrationThreadPullRequest, ProjectId, ThreadId } from "@synara/contracts";
+import type { OrchestrationThreadPullRequest, ProjectId, ThreadId } from "@veylen/contracts";
 import { GoRepoForked } from "react-icons/go";
-import { resolveThreadEnvironmentMode } from "@synara/shared/threadEnvironment";
+import { resolveThreadEnvironmentMode } from "@veylen/shared/threadEnvironment";
 
 import {
   AddPlusIcon,
@@ -394,7 +394,7 @@ function ActivityScopeMenu({
     scopeSelection === null
       ? "All activity"
       : scopeSelection === "chats"
-        ? "Synara"
+        ? "Veylen"
         : resolveThreadProjectLabel(projectById.get(scopeSelection));
 
   return (
@@ -447,7 +447,7 @@ function ActivityScopeMenu({
                 <span className="min-w-0 flex-1 truncate">
                   {option.kind === "project"
                     ? resolveThreadProjectLabel(projectById.get(option.projectId))
-                    : "Synara"}
+                    : "Veylen"}
                 </span>
                 <span className="ml-2 shrink-0 tabular-nums text-muted-foreground/60">
                   {option.threadCount}
@@ -782,7 +782,7 @@ export function SidebarActivityView({
     activeScope === null
       ? "No activity yet"
       : activeScope === "chats"
-        ? "No activity in Synara chats"
+        ? "No activity in Veylen chats"
         : "No activity for this project";
 
   return (
@@ -845,7 +845,7 @@ export function SidebarActivityView({
             <ActivitySectionLabel
               label={
                 group.kind === "chats"
-                  ? "Synara"
+                  ? "Veylen"
                   : resolveThreadProjectLabel(projectById.get(group.projectId))
               }
               {...(group.kind === "project"

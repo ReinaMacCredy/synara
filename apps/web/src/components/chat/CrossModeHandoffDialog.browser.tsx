@@ -1,6 +1,6 @@
 import "../../index.css";
 
-import { DEFAULT_SERVER_SETTINGS, type ModelSlug, ThreadId } from "@synara/contracts";
+import { DEFAULT_SERVER_SETTINGS, type ModelSlug, ThreadId } from "@veylen/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { page } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";

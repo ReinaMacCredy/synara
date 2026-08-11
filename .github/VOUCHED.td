@@ -9,5 +9,5 @@
 #   -github:username reason for denouncement
 #
 # Keep entries sorted alphabetically.
-github:Emanuele-web04
+github:ReinaMacCredy
 github:Marve10s

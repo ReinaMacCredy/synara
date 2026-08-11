@@ -126,7 +126,7 @@ describe("trusted browser input", () => {
   it("uses Chromium drag interception so HTML drag data reaches the drop target", async () => {
     const harness = makeRuntime();
     const dragData = {
-      items: [{ mimeType: "text/plain", data: "synara-drag", title: "", baseURL: "" }],
+      items: [{ mimeType: "text/plain", data: "veylen-drag", title: "", baseURL: "" }],
       dragOperationsMask: 1,
     };
     let intercepted = false;

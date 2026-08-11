@@ -1,4 +1,4 @@
-import { MessageId } from "@synara/contracts";
+import { MessageId } from "@veylen/contracts";
 import { describe, expect, it } from "vitest";
 import type { TimelineEntry } from "../../session-logic";
 import {

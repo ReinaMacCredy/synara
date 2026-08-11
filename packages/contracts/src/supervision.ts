@@ -294,7 +294,7 @@ export const LeadRotation = Schema.Struct({
 });
 export type LeadRotation = typeof LeadRotation.Type;
 
-// TODO(synara): Remove this legacy supervision schema envelope on or after 2027-08-09
+// TODO(veylen): Remove this legacy supervision schema envelope on or after 2027-08-09
 // once every supported database has replayed migration 108. New runtime traffic uses
 // the canonical schemas in supervisedGovernance.ts.
 export const SupervisionSnapshot = Schema.Struct({

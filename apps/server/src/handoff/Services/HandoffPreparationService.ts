@@ -12,7 +12,7 @@ import {
   type HandoffPreparationSnapshot,
   type HandoffRuntimeSelection,
   type StartHandoffPreparationInput,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Effect, Layer, Option, Schema, ServiceMap } from "effect";
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -51,7 +51,7 @@ export interface HandoffPreparationServiceShape {
 export class HandoffPreparationService extends ServiceMap.Service<
   HandoffPreparationService,
   HandoffPreparationServiceShape
->()("synara/handoff/Services/HandoffPreparationService") {}
+>()("veylen/handoff/Services/HandoffPreparationService") {}
 
 const makeHandoffPreparationService = Effect.gen(function* () {
   const projections = yield* ProjectionSnapshotQuery;

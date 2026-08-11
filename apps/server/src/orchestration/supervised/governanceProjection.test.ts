@@ -9,7 +9,7 @@ import {
   SupervisedGovernanceAggregateId,
   emptySupervisedOrchestrationSnapshot,
   type SupervisedGovernanceDomainEvent,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 import { decideSupervisedGovernanceCommand } from "./governanceDecider.ts";
 import { projectSupervisedGovernanceEvent } from "./governanceProjection.ts";

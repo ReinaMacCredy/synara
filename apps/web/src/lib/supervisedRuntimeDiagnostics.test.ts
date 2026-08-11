@@ -53,8 +53,8 @@ describe("Supervised runtime diagnostics", () => {
       } as never,
       server: {
         generatedAt: "2026-08-07T08:00:00.000Z",
-        logsDirectory: "/tmp/synara/logs",
-        serverLogPath: "/tmp/synara/logs/server.log",
+        logsDirectory: "/tmp/veylen/logs",
+        serverLogPath: "/tmp/veylen/logs/server.log",
         process: { pid: 42, uptimeSeconds: 10, memory: {} },
         childProcesses: [{ command: "secret-child-command" }],
         childProcessTotalCount: 1,
@@ -163,8 +163,8 @@ describe("Supervised runtime diagnostics", () => {
       runtime,
       server: {
         generatedAt: "2026-08-09T00:00:05.000Z",
-        logsDirectory: "/tmp/synara/logs",
-        serverLogPath: "/tmp/synara/logs/server.log",
+        logsDirectory: "/tmp/veylen/logs",
+        serverLogPath: "/tmp/veylen/logs/server.log",
         process: { pid: 42, uptimeSeconds: 10, memory: {} },
         childProcesses: [],
         childProcessTotalCount: 0,

@@ -1,4 +1,4 @@
-import { ThreadId, type BrowserElementRef, type BrowserSnapshotId } from "@synara/contracts";
+import { ThreadId, type BrowserElementRef, type BrowserSnapshotId } from "@veylen/contracts";
 import type { WebContents } from "electron";
 import { describe, expect, it, vi } from "vitest";
 
@@ -221,7 +221,7 @@ const snapshotHarness = (root: FakeElement): PageHarness => ({
 });
 
 const automationState = (harness: PageHarness): StoredRefState =>
-  harness.globalObject.__synaraBrowserAutomationV1 as StoredRefState;
+  harness.globalObject.__veylenBrowserAutomationV1 as StoredRefState;
 
 describe("semantic snapshot context", () => {
   it("redacts password input values regardless of attribute casing", () => {

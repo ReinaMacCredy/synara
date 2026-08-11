@@ -18,7 +18,7 @@ import type {
   ServerProviderUsageLimit,
   ServerProviderUsageLine,
   ServerProviderUsageSnapshot,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 import { createLogger } from "../../logger";
 import { acquireClaudeAuthStatusLock } from "../../provider/claudeAuthStatusLock";

@@ -1,4 +1,4 @@
-import type { ModelSelection, ProviderKind } from "@synara/contracts";
+import type { ModelSelection, ProviderKind } from "@veylen/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState, type KeyboardEvent } from "react";
 

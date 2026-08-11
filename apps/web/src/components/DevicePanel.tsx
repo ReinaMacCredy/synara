@@ -11,7 +11,7 @@ import type {
   DeviceHardwareButton,
   DeviceUdid,
   ThreadId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ensureNativeApi } from "~/nativeApi";
@@ -164,7 +164,7 @@ export default function DevicePanel(props: {
       if (state === "open") seed();
     });
     // Setup progress is the one state nothing pushes. Installing Xcode,
-    // accepting its licence or downloading a runtime all happen outside Synara
+    // accepting its licence or downloading a runtime all happen outside Veylen
     // and raise no device event, so a pane opened on the checklist would sit on
     // a stale list and a spinner forever on a perfectly healthy connection.
     // Polling only while the checklist is up and retryable, and only every few
@@ -252,7 +252,7 @@ export default function DevicePanel(props: {
               setPendingDevice(null);
               setBootLimit({
                 limit: result.limit,
-                candidates: result.synaraBooted,
+                candidates: result.veylenBooted,
                 pendingUdid: udid,
                 pendingName: entry.device.name,
               });
@@ -287,7 +287,7 @@ export default function DevicePanel(props: {
           const result = await api.device.boot({ udid: pending.pendingUdid });
           if (result.kind === "boot-limit-reached") {
             setPendingDevice(null);
-            setBootLimit({ ...pending, limit: result.limit, candidates: result.synaraBooted });
+            setBootLimit({ ...pending, limit: result.limit, candidates: result.veylenBooted });
             return;
           }
           await attachDevice(pending.pendingUdid);
@@ -564,7 +564,7 @@ export default function DevicePanel(props: {
         if (direction === "down") pressButton(hardwareButton);
         return;
       }
-      // Every other Cmd chord belongs to Synara (Cmd+W, Cmd+R, the dock
+      // Every other Cmd chord belongs to Veylen (Cmd+W, Cmd+R, the dock
       // shortcuts), so it is deliberately not injected.
       if (event.metaKey || event.ctrlKey) return;
 
@@ -893,7 +893,7 @@ function DeviceVideoOverlay(props: {
     return (
       <p className="text-balance text-center text-[10px] text-white/70 leading-snug">
         This browser cannot decode the simulator stream. Chrome, Edge, or Safari 17+ support the
-        WebCodecs video decoder Synara uses.
+        WebCodecs video decoder Veylen uses.
       </p>
     );
   }
@@ -938,7 +938,7 @@ function DeviceBootLimitDialog(props: {
             and one of them is about to lose whatever is on it.
           */}
           <DialogDescription>
-            Synara keeps at most {state?.limit ?? 0} simulators running at once, because each one
+            Veylen keeps at most {state?.limit ?? 0} simulators running at once, because each one
             holds a few gigabytes of memory. Pick one to shut down — anything running on it closes —
             and {props.deviceName} starts in its place.
           </DialogDescription>

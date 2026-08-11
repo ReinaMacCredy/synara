@@ -1,4 +1,4 @@
-import type { OrchestrationThreadActivity, ProviderRuntimeEvent } from "@synara/contracts";
+import type { OrchestrationThreadActivity, ProviderRuntimeEvent } from "@veylen/contracts";
 import {
   ApprovalRequestId,
   CommandId,
@@ -7,7 +7,7 @@ import {
   RuntimeItemId,
   ThreadId,
   TurnId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -591,7 +591,7 @@ describe("provider runtime activity projection", () => {
     const payload = activity?.payload as { data?: Record<string, unknown> };
 
     expect(JSON.stringify(payload.data).length).toBeLessThanOrEqual(16_000);
-    expect(payload.data?.__synaraTruncated).toBe(true);
+    expect(payload.data?.__veylenTruncated).toBe(true);
     expect(payload.data?.originalJsonChars).toBeGreaterThan(300_000);
   });
 

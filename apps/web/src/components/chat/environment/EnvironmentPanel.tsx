@@ -22,7 +22,7 @@ import type {
   ThreadMarkerId,
   SessionProgressProjection,
   TaskProcessId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { useNavigate } from "@tanstack/react-router";
 
 import { useAppSettings } from "~/appSettings";

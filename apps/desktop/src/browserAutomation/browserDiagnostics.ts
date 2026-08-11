@@ -5,7 +5,7 @@ import type {
   BrowserLogsOutput,
   BrowserNetworkLogEntry,
   BrowserTabId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import type { WebContents } from "electron";
 
 import type { BrowserAutomationVisibleRuntime } from "../browserManager";

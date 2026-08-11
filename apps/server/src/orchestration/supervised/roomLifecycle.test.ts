@@ -7,7 +7,7 @@ import {
   type ProjectId,
   type Room,
   type SupervisedGovernanceSnapshot,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Effect } from "effect";
 import { describe, it } from "vitest";
 

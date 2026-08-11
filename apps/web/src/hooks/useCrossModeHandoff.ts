@@ -5,7 +5,7 @@ import {
   type HandoffRuntimeSelection,
   type ProjectId,
   type ThreadId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { useNavigate } from "@tanstack/react-router";
 
 import { useComposerDraftStore } from "../composerDraftStore";
@@ -98,7 +98,7 @@ export function useCrossModeHandoff(input: {
       throw new Error("The source thread and Project must be available before handoff.");
     }
     const api = readNativeApi();
-    if (!api) throw new Error("Synara server is unavailable.");
+    if (!api) throw new Error("Veylen server is unavailable.");
     const destinationMode: HandoffConversationMode =
       input.sourceMode === "project" ? "supervised" : "project";
     const store = useComposerDraftStore.getState();

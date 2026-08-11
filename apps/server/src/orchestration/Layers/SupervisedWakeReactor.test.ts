@@ -4,7 +4,7 @@ import {
   emptySupervisedGovernanceSnapshot,
   type OrchestrationCommand,
   type SupervisionWake,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { it } from "@effect/vitest";
 import { Effect, Option } from "effect";
 

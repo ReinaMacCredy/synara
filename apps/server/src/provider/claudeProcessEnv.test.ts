@@ -48,20 +48,20 @@ describe("claudeProcessEnv", () => {
     assert.equal(result.ANTHROPIC_API_KEY, "api-key-auth");
   });
 
-  it("does not grant Synara control-plane authority to Claude", () => {
+  it("does not grant Veylen control-plane authority to Claude", () => {
     const result = buildClaudeProcessEnv({
       env: {
         ANTHROPIC_API_KEY: "api-key-auth",
-        SYNARA_AUTH_TOKEN: "server-secret",
-        SYNARA_BROWSER_USE_PIPE_PATH: "/tmp/browser.sock",
+        VEYLEN_AUTH_TOKEN: "server-secret",
+        VEYLEN_BROWSER_USE_PIPE_PATH: "/tmp/browser.sock",
         NODE_OPTIONS: "--require=/tmp/inject.js",
       },
       hasClaudeCliCredentials: false,
     });
 
     assert.equal(result.ANTHROPIC_API_KEY, "api-key-auth");
-    assert.equal(result.SYNARA_AUTH_TOKEN, undefined);
-    assert.equal(result.SYNARA_BROWSER_USE_PIPE_PATH, undefined);
+    assert.equal(result.VEYLEN_AUTH_TOKEN, undefined);
+    assert.equal(result.VEYLEN_BROWSER_USE_PIPE_PATH, undefined);
     assert.equal(result.NODE_OPTIONS, undefined);
   });
 

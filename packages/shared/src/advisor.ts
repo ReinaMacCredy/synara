@@ -1,9 +1,9 @@
 // FILE: advisor.ts
 // Purpose: Shared identity and prompt contract for bounded Advisor consultations.
 
-export const ADVISOR_CONSULTATION_MARKER = "SYNARA_ADVISOR_CONSULTATION_V1";
-export const ADVISOR_QUESTION_PREFIX = "SYNARA_ADVISOR_QUESTION_JSON:";
-export const ADVISOR_ORIGIN_PREFIX = "SYNARA_ADVISOR_ORIGIN:";
+export const ADVISOR_CONSULTATION_MARKER = "VEYLEN_ADVISOR_CONSULTATION_V1";
+export const ADVISOR_QUESTION_PREFIX = "VEYLEN_ADVISOR_QUESTION_JSON:";
+export const ADVISOR_ORIGIN_PREFIX = "VEYLEN_ADVISOR_ORIGIN:";
 export const ADVISOR_NICKNAME = "Advisor";
 export const ADVISOR_ROLE = "advisor";
 

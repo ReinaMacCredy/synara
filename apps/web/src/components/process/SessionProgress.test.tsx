@@ -4,7 +4,7 @@ import {
   TaskProcessId,
   ThreadId,
   type SessionProgressProjection,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 

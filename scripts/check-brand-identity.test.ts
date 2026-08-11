@@ -12,24 +12,25 @@ const firstDisplayName = characters(84, 51, 67, 111, 100, 101);
 const firstSpacedDisplayName = `${characters(84, 51)} Code`;
 const secondName = characters(100, 112, 99, 111, 100, 101);
 const companyDisplayName = `${characters(84, 51)} ${characters(84, 111, 111, 108, 115)}`;
+const immediateUpstreamName = characters(83, 121, 110, 97, 114, 97);
 const legalNotice = `Copyright (c) 2026 ${companyDisplayName} Inc.`;
-const originsAttribution = `Synara began as a clone of [${firstDisplayName}](https://github.com/pingdotgg/${firstName}), but it has since become a substantially different product with its own branding, packaging, release system, provider orchestration, desktop app behavior, and product direction.`;
-const releaseAttribution = `**A review of the Synara codebase found an analytics configuration that came from the original ${firstSpacedDisplayName} codebase when Synara was created as a clone in March. We did not add it, and we have no access to the PostHog project receiving the events.**`;
-const inAppReleaseAttribution = `"A review of the Synara codebase found an analytics configuration that came from the original ${firstSpacedDisplayName} codebase when Synara was created as a clone in March.",`;
+const originsAttribution = `Veylen is an independent project maintained by Reina MacCredy. It began as a fork of [${immediateUpstreamName}](https://github.com/Emanuele-web04/${immediateUpstreamName}), which itself began as a clone of [${firstDisplayName}](https://github.com/pingdotgg/${firstName}). Veylen retains the upstream MIT notices and Git history while developing its own branding, packaging, release system, provider orchestration, desktop app behavior, and product direction.`;
+const releaseAttribution = `**A review of the Veylen codebase found an analytics configuration that came from the original ${firstSpacedDisplayName} codebase when Veylen was created as a clone in March. We did not add it, and we have no access to the PostHog project receiving the events.**`;
+const inAppReleaseAttribution = `"A review of the Veylen codebase found an analytics configuration that came from the original ${firstSpacedDisplayName} codebase when Veylen was created as a clone in March.",`;
 
 describe("brand identity guard", () => {
   it("detects retired names in paths and text", () => {
     const violations = findBrandIdentityViolations([
-      { path: `docs/${firstName}.md`, contents: "Synara" },
+      { path: `docs/${firstName}.md`, contents: "Veylen" },
       { path: "source.ts", contents: `const value = "${secondName}:state";` },
     ]);
     expect(violations).toHaveLength(2);
   });
 
-  it("does not match ordinary numeric type names or canonical Synara text", () => {
+  it("does not match ordinary numeric type names or canonical Veylen text", () => {
     expect(
       findBrandIdentityViolations([
-        { path: "source.ts", contents: "const value = new Uint32Array(); // Synara" },
+        { path: "source.ts", contents: "const value = new Uint32Array(); // Veylen" },
       ]),
     ).toEqual([]);
   });
@@ -86,8 +87,8 @@ describe("brand identity guard", () => {
   });
 
   it("requires user-facing raster assets to match a visually approved digest", () => {
-    const approvedContents = new TextEncoder().encode("approved Synara screenshot");
-    const approvedDigest = "a553296ca5a2d3ad7b64a6bc1b36c2834da750eae6611642177482b99ba85bd8";
+    const approvedContents = new TextEncoder().encode("approved Veylen screenshot");
+    const approvedDigest = "b4468a5d75909b7481e2b6f6241dd1fae0c94a2a60ee21a16d1dc40616125412";
     const approvedDigests = new Map([["screenshot.jpeg", approvedDigest]]);
 
     expect(

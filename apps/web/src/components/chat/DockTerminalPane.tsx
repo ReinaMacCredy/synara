@@ -8,8 +8,8 @@
 // shared with other terminal surfaces through useTerminalSurfaceController; only the
 // "ensure a terminal is open" policy is surface-specific (here: a single terminal-only page).
 
-import { type ProjectId, type ThreadId } from "@synara/contracts";
-import { resolveThreadWorkspaceCwd } from "@synara/shared/threadEnvironment";
+import { type ProjectId, type ThreadId } from "@veylen/contracts";
+import { resolveThreadWorkspaceCwd } from "@veylen/shared/threadEnvironment";
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import { useTerminalSurfaceController } from "~/hooks/useTerminalSurfaceController";

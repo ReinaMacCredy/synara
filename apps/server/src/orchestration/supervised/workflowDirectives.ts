@@ -1,4 +1,4 @@
-import type { WorkflowConflict, WorkflowDirective } from "@synara/contracts";
+import type { WorkflowConflict, WorkflowDirective } from "@veylen/contracts";
 
 export function effectiveWorkflowDirectives(input: {
   readonly directives: readonly WorkflowDirective[];

@@ -2,7 +2,7 @@ import type {
   RootAuthorityLease,
   SupervisedGovernanceSnapshot,
   SupervisedRuntimeSnapshot,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 import { isPeerModelSessionRole } from "~/lib/supervisedOrchestration";
 

@@ -2,14 +2,14 @@
 // Purpose: Normalizes generic tool-call titles and humanizes command executions for timeline rows.
 // Layer: UI utility
 // Exports: deriveReadableToolTitle, deriveReadableCommandDisplay, deriveFriendlyCommandTarget, command icon classifiers, deriveInlineCommandCall, normalizeCompactToolLabel, isGenericToolTitle, extractWebFetchUrl
-// Depends on: @synara/contracts tool lifecycle item types
+// Depends on: @veylen/contracts tool lifecycle item types
 
 import {
   BROWSER_TOOL_NAMES,
   type BrowserToolName,
   type ToolLifecycleItemType,
-} from "@synara/contracts";
-import { BROWSER_TOOL_TITLES } from "@synara/shared/browserAutomationPresentation";
+} from "@veylen/contracts";
+import { BROWSER_TOOL_TITLES } from "@veylen/shared/browserAutomationPresentation";
 import { basenameOfPath } from "../file-icons";
 import { extractToolArgumentField } from "./toolArgumentSummary";
 
@@ -119,254 +119,254 @@ export interface ReadableToolTitleInput {
   readonly isRunning?: boolean;
 }
 
-interface SynaraMcpToolPresentation {
+interface VeylenMcpToolPresentation {
   readonly running: string;
   readonly completed: string;
   readonly failed: string;
 }
 
-type SynaraBrowserToolName = `synara_${BrowserToolName}`;
+type VeylenBrowserToolName = `veylen_${BrowserToolName}`;
 const BROWSER_TOOL_NAME_SET = new Set<string>(BROWSER_TOOL_NAMES);
 
-const SYNARA_BROWSER_TOOL_PRESENTATIONS = Object.fromEntries(
+const VEYLEN_BROWSER_TOOL_PRESENTATIONS = Object.fromEntries(
   BROWSER_TOOL_NAMES.map((toolName) => {
     const title = BROWSER_TOOL_TITLES[toolName];
-    return [`synara_${toolName}`, { running: title, completed: title, failed: title }];
+    return [`veylen_${toolName}`, { running: title, completed: title, failed: title }];
   }),
-) as Record<SynaraBrowserToolName, SynaraMcpToolPresentation>;
+) as Record<VeylenBrowserToolName, VeylenMcpToolPresentation>;
 
-const SYNARA_MCP_TOOL_PRESENTATIONS = {
-  synara_context: {
-    running: "Synara is checking its context",
-    completed: "Synara checked its context",
-    failed: "Synara couldn't check its context",
+const VEYLEN_MCP_TOOL_PRESENTATIONS = {
+  veylen_context: {
+    running: "Veylen is checking its context",
+    completed: "Veylen checked its context",
+    failed: "Veylen couldn't check its context",
   },
-  synara_capabilities: {
-    running: "Synara is checking available agents",
-    completed: "Synara checked available agents",
-    failed: "Synara couldn't check available agents",
+  veylen_capabilities: {
+    running: "Veylen is checking available agents",
+    completed: "Veylen checked available agents",
+    failed: "Veylen couldn't check available agents",
   },
-  synara_overview: {
-    running: "Synara is gathering an overview",
-    completed: "Synara gathered an overview",
-    failed: "Synara couldn't gather an overview",
+  veylen_overview: {
+    running: "Veylen is gathering an overview",
+    completed: "Veylen gathered an overview",
+    failed: "Veylen couldn't gather an overview",
   },
-  synara_list_allowed_projects: {
-    running: "Synara is listing allowed projects",
-    completed: "Synara listed allowed projects",
-    failed: "Synara couldn't list allowed projects",
+  veylen_list_allowed_projects: {
+    running: "Veylen is listing allowed projects",
+    completed: "Veylen listed allowed projects",
+    failed: "Veylen couldn't list allowed projects",
   },
-  synara_create_task: {
-    running: "Synara is creating a task",
-    completed: "Synara created a task",
-    failed: "Synara couldn't create a task",
+  veylen_create_task: {
+    running: "Veylen is creating a task",
+    completed: "Veylen created a task",
+    failed: "Veylen couldn't create a task",
   },
-  synara_wait_for_task: {
-    running: "Synara is waiting for a task",
-    completed: "Synara finished waiting for a task",
-    failed: "Synara couldn't wait for a task",
+  veylen_wait_for_task: {
+    running: "Veylen is waiting for a task",
+    completed: "Veylen finished waiting for a task",
+    failed: "Veylen couldn't wait for a task",
   },
-  synara_read_task: {
-    running: "Synara is reading a task",
-    completed: "Synara read a task",
-    failed: "Synara couldn't read a task",
+  veylen_read_task: {
+    running: "Veylen is reading a task",
+    completed: "Veylen read a task",
+    failed: "Veylen couldn't read a task",
   },
-  synara_list_projects: {
-    running: "Synara is listing projects",
-    completed: "Synara listed projects",
-    failed: "Synara couldn't list projects",
+  veylen_list_projects: {
+    running: "Veylen is listing projects",
+    completed: "Veylen listed projects",
+    failed: "Veylen couldn't list projects",
   },
-  synara_list_threads: {
-    running: "Synara is listing threads",
-    completed: "Synara listed threads",
-    failed: "Synara couldn't list threads",
+  veylen_list_threads: {
+    running: "Veylen is listing threads",
+    completed: "Veylen listed threads",
+    failed: "Veylen couldn't list threads",
   },
-  synara_read_thread: {
-    running: "Synara is reading a thread",
-    completed: "Synara read a thread",
-    failed: "Synara couldn't read a thread",
+  veylen_read_thread: {
+    running: "Veylen is reading a thread",
+    completed: "Veylen read a thread",
+    failed: "Veylen couldn't read a thread",
   },
-  synara_read_thread_activity: {
-    running: "Synara is reading thread activity",
-    completed: "Synara read thread activity",
-    failed: "Synara couldn't read thread activity",
+  veylen_read_thread_activity: {
+    running: "Veylen is reading thread activity",
+    completed: "Veylen read thread activity",
+    failed: "Veylen couldn't read thread activity",
   },
-  synara_read_thread_events: {
-    running: "Synara is reading thread events",
-    completed: "Synara read thread events",
-    failed: "Synara couldn't read thread events",
+  veylen_read_thread_events: {
+    running: "Veylen is reading thread events",
+    completed: "Veylen read thread events",
+    failed: "Veylen couldn't read thread events",
   },
-  synara_read_thread_runtime_events: {
-    running: "Synara is reading thread runtime events",
-    completed: "Synara read thread runtime events",
-    failed: "Synara couldn't read thread runtime events",
+  veylen_read_thread_runtime_events: {
+    running: "Veylen is reading thread runtime events",
+    completed: "Veylen read thread runtime events",
+    failed: "Veylen couldn't read thread runtime events",
   },
-  synara_diagnose_thread: {
-    running: "Synara is diagnosing a thread",
-    completed: "Synara diagnosed a thread",
-    failed: "Synara couldn't diagnose a thread",
+  veylen_diagnose_thread: {
+    running: "Veylen is diagnosing a thread",
+    completed: "Veylen diagnosed a thread",
+    failed: "Veylen couldn't diagnose a thread",
   },
-  synara_create_thread: {
-    running: "Synara is creating a thread",
-    completed: "Synara created a thread",
-    failed: "Synara couldn't create a thread",
+  veylen_create_thread: {
+    running: "Veylen is creating a thread",
+    completed: "Veylen created a thread",
+    failed: "Veylen couldn't create a thread",
   },
-  synara_create_threads: {
-    running: "Synara is creating threads",
-    completed: "Synara created threads",
-    failed: "Synara couldn't create threads",
+  veylen_create_threads: {
+    running: "Veylen is creating threads",
+    completed: "Veylen created threads",
+    failed: "Veylen couldn't create threads",
   },
-  synara_wait_for_threads: {
-    running: "Synara is waiting for threads",
-    completed: "Synara finished waiting for threads",
-    failed: "Synara couldn't wait for threads",
+  veylen_wait_for_threads: {
+    running: "Veylen is waiting for threads",
+    completed: "Veylen finished waiting for threads",
+    failed: "Veylen couldn't wait for threads",
   },
-  synara_send_message: {
-    running: "Synara is sending a message",
-    completed: "Synara sent a message",
-    failed: "Synara couldn't send a message",
+  veylen_send_message: {
+    running: "Veylen is sending a message",
+    completed: "Veylen sent a message",
+    failed: "Veylen couldn't send a message",
   },
-  synara_interrupt_thread: {
-    running: "Synara is interrupting a thread",
-    completed: "Synara interrupted a thread",
-    failed: "Synara couldn't interrupt a thread",
+  veylen_interrupt_thread: {
+    running: "Veylen is interrupting a thread",
+    completed: "Veylen interrupted a thread",
+    failed: "Veylen couldn't interrupt a thread",
   },
-  synara_set_thread_title: {
-    running: "Synara is renaming a thread",
-    completed: "Synara renamed a thread",
-    failed: "Synara couldn't rename a thread",
+  veylen_set_thread_title: {
+    running: "Veylen is renaming a thread",
+    completed: "Veylen renamed a thread",
+    failed: "Veylen couldn't rename a thread",
   },
-  synara_set_thread_archived: {
-    running: "Synara is updating a thread",
-    completed: "Synara updated a thread",
-    failed: "Synara couldn't update a thread",
+  veylen_set_thread_archived: {
+    running: "Veylen is updating a thread",
+    completed: "Veylen updated a thread",
+    failed: "Veylen couldn't update a thread",
   },
-  synara_create_automation: {
-    running: "Synara is creating an automation",
-    completed: "Synara created an automation",
-    failed: "Synara couldn't create an automation",
+  veylen_create_automation: {
+    running: "Veylen is creating an automation",
+    completed: "Veylen created an automation",
+    failed: "Veylen couldn't create an automation",
   },
-  synara_list_automations: {
-    running: "Synara is listing automations",
-    completed: "Synara listed automations",
-    failed: "Synara couldn't list automations",
+  veylen_list_automations: {
+    running: "Veylen is listing automations",
+    completed: "Veylen listed automations",
+    failed: "Veylen couldn't list automations",
   },
-  synara_view_automation: {
-    running: "Synara is viewing an automation",
-    completed: "Synara viewed an automation",
-    failed: "Synara couldn't view an automation",
+  veylen_view_automation: {
+    running: "Veylen is viewing an automation",
+    completed: "Veylen viewed an automation",
+    failed: "Veylen couldn't view an automation",
   },
-  synara_update_automation: {
-    running: "Synara is updating an automation",
-    completed: "Synara updated an automation",
-    failed: "Synara couldn't update an automation",
+  veylen_update_automation: {
+    running: "Veylen is updating an automation",
+    completed: "Veylen updated an automation",
+    failed: "Veylen couldn't update an automation",
   },
-  synara_update_automation_memory: {
-    running: "Synara is updating automation memory",
-    completed: "Synara updated automation memory",
-    failed: "Synara couldn't update automation memory",
+  veylen_update_automation_memory: {
+    running: "Veylen is updating automation memory",
+    completed: "Veylen updated automation memory",
+    failed: "Veylen couldn't update automation memory",
   },
-  synara_report_automation_result: {
-    running: "Synara is reporting an automation result",
-    completed: "Synara reported an automation result",
-    failed: "Synara couldn't report an automation result",
+  veylen_report_automation_result: {
+    running: "Veylen is reporting an automation result",
+    completed: "Veylen reported an automation result",
+    failed: "Veylen couldn't report an automation result",
   },
-  synara_cancel_automation: {
-    running: "Synara is stopping an automation",
-    completed: "Synara stopped an automation",
-    failed: "Synara couldn't stop an automation",
+  veylen_cancel_automation: {
+    running: "Veylen is stopping an automation",
+    completed: "Veylen stopped an automation",
+    failed: "Veylen couldn't stop an automation",
   },
-  synara_consult_advisor: {
+  veylen_consult_advisor: {
     running: "Asking Advisor",
     completed: "Got a second opinion",
     failed: "Advisor could not complete",
   },
-  ...SYNARA_BROWSER_TOOL_PRESENTATIONS,
-} as const satisfies Record<string, SynaraMcpToolPresentation>;
+  ...VEYLEN_BROWSER_TOOL_PRESENTATIONS,
+} as const satisfies Record<string, VeylenMcpToolPresentation>;
 
-function normalizeSynaraMcpIdentifier(value: string): string {
+function normalizeVeylenMcpIdentifier(value: string): string {
   return value
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
 }
 
-const SYNARA_BROWSER_TOOL_NAME_BY_PRESENTATION = new Map<string, SynaraBrowserToolName>(
+const VEYLEN_BROWSER_TOOL_NAME_BY_PRESENTATION = new Map<string, VeylenBrowserToolName>(
   BROWSER_TOOL_NAMES.map((toolName) => [
-    normalizeSynaraMcpIdentifier(BROWSER_TOOL_TITLES[toolName]),
-    `synara_${toolName}`,
+    normalizeVeylenMcpIdentifier(BROWSER_TOOL_TITLES[toolName]),
+    `veylen_${toolName}`,
   ]),
 );
 
-const SYNARA_MCP_TOOL_PRESENTATION_ENTRIES = Object.entries(SYNARA_MCP_TOOL_PRESENTATIONS).map(
+const VEYLEN_MCP_TOOL_PRESENTATION_ENTRIES = Object.entries(VEYLEN_MCP_TOOL_PRESENTATIONS).map(
   ([toolName, presentation]) => ({
     toolName,
     presentation,
-    normalizedRunning: normalizeSynaraMcpIdentifier(presentation.running),
-    normalizedCompleted: normalizeSynaraMcpIdentifier(presentation.completed),
-    normalizedFailed: normalizeSynaraMcpIdentifier(presentation.failed),
+    normalizedRunning: normalizeVeylenMcpIdentifier(presentation.running),
+    normalizedCompleted: normalizeVeylenMcpIdentifier(presentation.completed),
+    normalizedFailed: normalizeVeylenMcpIdentifier(presentation.failed),
   }),
 );
 
-function extractSynaraMcpToolName(normalizedCandidate: string): string | null {
+function extractVeylenMcpToolName(normalizedCandidate: string): string | null {
   if (BROWSER_TOOL_NAME_SET.has(normalizedCandidate)) {
-    return `synara_${normalizedCandidate}`;
+    return `veylen_${normalizedCandidate}`;
   }
-  if (normalizedCandidate.startsWith("mcp_synara_synara_")) {
-    return normalizedCandidate.slice("mcp_synara_".length);
+  if (normalizedCandidate.startsWith("mcp_veylen_veylen_")) {
+    return normalizedCandidate.slice("mcp_veylen_".length);
   }
-  if (normalizedCandidate.startsWith("mcp_synara_")) {
-    return `synara_${normalizedCandidate.slice("mcp_synara_".length)}`;
+  if (normalizedCandidate.startsWith("mcp_veylen_")) {
+    return `veylen_${normalizedCandidate.slice("mcp_veylen_".length)}`;
   }
-  if (normalizedCandidate.startsWith("synara_synara_")) {
-    return normalizedCandidate.slice("synara_".length);
+  if (normalizedCandidate.startsWith("veylen_veylen_")) {
+    return normalizedCandidate.slice("veylen_".length);
   }
-  if (normalizedCandidate.startsWith("synara_")) {
+  if (normalizedCandidate.startsWith("veylen_")) {
     return normalizedCandidate;
   }
   return null;
 }
 
-function resolveSynaraBrowserToolName(
+function resolveVeylenBrowserToolName(
   candidates: ReadonlyArray<string | null | undefined>,
-): SynaraBrowserToolName | null {
+): VeylenBrowserToolName | null {
   for (const candidate of candidates) {
     if (!candidate) continue;
-    const normalizedCandidate = normalizeSynaraMcpIdentifier(candidate);
-    const extractedToolName = extractSynaraMcpToolName(normalizedCandidate);
+    const normalizedCandidate = normalizeVeylenMcpIdentifier(candidate);
+    const extractedToolName = extractVeylenMcpToolName(normalizedCandidate);
     const candidateToolName =
       extractedToolName ??
-      SYNARA_BROWSER_TOOL_NAME_BY_PRESENTATION.get(normalizedCandidate) ??
+      VEYLEN_BROWSER_TOOL_NAME_BY_PRESENTATION.get(normalizedCandidate) ??
       normalizedCandidate;
-    if (candidateToolName in SYNARA_BROWSER_TOOL_PRESENTATIONS) {
-      return candidateToolName as SynaraBrowserToolName;
+    if (candidateToolName in VEYLEN_BROWSER_TOOL_PRESENTATIONS) {
+      return candidateToolName as VeylenBrowserToolName;
     }
   }
   return null;
 }
 
-function fallbackSynaraMcpToolPresentation(toolName: string): SynaraMcpToolPresentation {
+function fallbackVeylenMcpToolPresentation(toolName: string): VeylenMcpToolPresentation {
   const action =
     toolName
-      .replace(/^synara_/, "")
+      .replace(/^veylen_/, "")
       .replace(/_+/g, " ")
       .trim() || "an action";
   return {
-    running: `Synara is handling ${action}`,
-    completed: `Synara handled ${action}`,
-    failed: `Synara couldn't handle ${action}`,
+    running: `Veylen is handling ${action}`,
+    completed: `Veylen handled ${action}`,
+    failed: `Veylen couldn't handle ${action}`,
   };
 }
 
-function resolveSynaraMcpToolPresentation(
+function resolveVeylenMcpToolPresentation(
   candidates: ReadonlyArray<string | null | undefined>,
-): SynaraMcpToolPresentation | null {
+): VeylenMcpToolPresentation | null {
   for (const candidate of candidates) {
     if (!candidate) {
       continue;
     }
-    const normalizedCandidate = normalizeSynaraMcpIdentifier(candidate);
-    for (const entry of SYNARA_MCP_TOOL_PRESENTATION_ENTRIES) {
+    const normalizedCandidate = normalizeVeylenMcpIdentifier(candidate);
+    for (const entry of VEYLEN_MCP_TOOL_PRESENTATION_ENTRIES) {
       if (
         normalizedCandidate === entry.normalizedRunning ||
         normalizedCandidate === entry.normalizedCompleted ||
@@ -375,62 +375,62 @@ function resolveSynaraMcpToolPresentation(
         return entry.presentation;
       }
     }
-    const toolName = extractSynaraMcpToolName(normalizedCandidate);
+    const toolName = extractVeylenMcpToolName(normalizedCandidate);
     const knownPresentation = toolName
-      ? (SYNARA_MCP_TOOL_PRESENTATIONS[toolName as keyof typeof SYNARA_MCP_TOOL_PRESENTATIONS] as
-          | SynaraMcpToolPresentation
+      ? (VEYLEN_MCP_TOOL_PRESENTATIONS[toolName as keyof typeof VEYLEN_MCP_TOOL_PRESENTATIONS] as
+          | VeylenMcpToolPresentation
           | undefined)
       : undefined;
     if (knownPresentation) {
       return knownPresentation;
     }
     // Free-text summaries (e.g. reconciler activity lines) can begin with the
-    // word "Synara" and normalize into a fake tool identifier; only
+    // word "Veylen" and normalize into a fake tool identifier; only
     // identifier-shaped candidates may take an invented fallback presentation.
     if (/\s/.test(candidate.trim())) {
       continue;
     }
-    if (normalizedCandidate.startsWith("synara_is_handling_")) {
-      return fallbackSynaraMcpToolPresentation(
-        `synara_${normalizedCandidate.slice("synara_is_handling_".length)}`,
+    if (normalizedCandidate.startsWith("veylen_is_handling_")) {
+      return fallbackVeylenMcpToolPresentation(
+        `veylen_${normalizedCandidate.slice("veylen_is_handling_".length)}`,
       );
     }
-    if (normalizedCandidate.startsWith("synara_handled_")) {
-      return fallbackSynaraMcpToolPresentation(
-        `synara_${normalizedCandidate.slice("synara_handled_".length)}`,
+    if (normalizedCandidate.startsWith("veylen_handled_")) {
+      return fallbackVeylenMcpToolPresentation(
+        `veylen_${normalizedCandidate.slice("veylen_handled_".length)}`,
       );
     }
-    if (normalizedCandidate.startsWith("synara_couldn_t_handle_")) {
-      return fallbackSynaraMcpToolPresentation(
-        `synara_${normalizedCandidate.slice("synara_couldn_t_handle_".length)}`,
+    if (normalizedCandidate.startsWith("veylen_couldn_t_handle_")) {
+      return fallbackVeylenMcpToolPresentation(
+        `veylen_${normalizedCandidate.slice("veylen_couldn_t_handle_".length)}`,
       );
     }
     if (!toolName) {
       continue;
     }
-    return fallbackSynaraMcpToolPresentation(toolName);
+    return fallbackVeylenMcpToolPresentation(toolName);
   }
   return null;
 }
 
-export type SynaraMcpToolStatus = "running" | "completed" | "failed" | "cancelled";
+export type VeylenMcpToolStatus = "running" | "completed" | "failed" | "cancelled";
 
-export interface SynaraMcpToolTitleInput {
+export interface VeylenMcpToolTitleInput {
   readonly toolName?: string | null | undefined;
   readonly title?: string | null | undefined;
   readonly fallbackLabel?: string | null | undefined;
-  readonly status?: SynaraMcpToolStatus | undefined;
+  readonly status?: VeylenMcpToolStatus | undefined;
 }
 
-export function isSynaraBrowserToolCall(input: SynaraMcpToolTitleInput): boolean {
-  return resolveSynaraBrowserToolName([input.toolName, input.title, input.fallbackLabel]) !== null;
+export function isVeylenBrowserToolCall(input: VeylenMcpToolTitleInput): boolean {
+  return resolveVeylenBrowserToolName([input.toolName, input.title, input.fallbackLabel]) !== null;
 }
 
-// Every provider exposes Synara's MCP tools differently: MCP, dynamic, and even
+// Every provider exposes Veylen's MCP tools differently: MCP, dynamic, and even
 // file-change rows can all represent the same gateway action. Normalize by tool
 // identity instead of provider item type so transport details never reach the UI.
-export function deriveSynaraMcpToolTitle(input: SynaraMcpToolTitleInput): string | null {
-  const presentation = resolveSynaraMcpToolPresentation([
+export function deriveVeylenMcpToolTitle(input: VeylenMcpToolTitleInput): string | null {
+  const presentation = resolveVeylenMcpToolPresentation([
     input.toolName,
     input.title,
     input.fallbackLabel,
@@ -446,23 +446,23 @@ export function deriveSynaraMcpToolTitle(input: SynaraMcpToolTitleInput): string
     case "failed":
       return presentation.failed;
     case "cancelled":
-      return presentation.running.startsWith("Synara is ")
-        ? `Synara stopped ${presentation.running.slice("Synara is ".length)}`
+      return presentation.running.startsWith("Veylen is ")
+        ? `Veylen stopped ${presentation.running.slice("Veylen is ".length)}`
         : `Cancelled ${presentation.running}`;
   }
 }
 
-export function sanitizeSynaraMcpToolPreview(input: {
+export function sanitizeVeylenMcpToolPreview(input: {
   readonly preview?: string | null | undefined;
   readonly heading: string;
-  readonly status?: SynaraMcpToolStatus | undefined;
+  readonly status?: VeylenMcpToolStatus | undefined;
 }): string | null {
   const preview = input.preview?.trim();
   if (!preview) return null;
-  const previewTitle = deriveSynaraMcpToolTitle({ title: preview, status: input.status });
+  const previewTitle = deriveVeylenMcpToolTitle({ title: preview, status: input.status });
   if (
     previewTitle &&
-    normalizeSynaraMcpIdentifier(previewTitle) === normalizeSynaraMcpIdentifier(input.heading)
+    normalizeVeylenMcpIdentifier(previewTitle) === normalizeVeylenMcpIdentifier(input.heading)
   ) {
     return null;
   }

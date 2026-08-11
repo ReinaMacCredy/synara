@@ -9,4 +9,4 @@ export interface ProviderRuntimeReconcilerShape {
 export class ProviderRuntimeReconciler extends ServiceMap.Service<
   ProviderRuntimeReconciler,
   ProviderRuntimeReconcilerShape
->()("synara/provider/Services/ProviderRuntimeReconciler") {}
+>()("veylen/provider/Services/ProviderRuntimeReconciler") {}

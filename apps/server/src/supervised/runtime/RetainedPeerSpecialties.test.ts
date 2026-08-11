@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import { describe, it } from "vitest";
 
-import type { PeerSpecialty, PeerSpecialtySnapshot } from "@synara/contracts";
+import type { PeerSpecialty, PeerSpecialtySnapshot } from "@veylen/contracts";
 
 import { mayResumePeerSpecialty } from "./RetainedPeerSpecialties.ts";
 

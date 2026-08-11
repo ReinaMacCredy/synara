@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
 
-import type { OrchestrationThread } from "@synara/contracts";
+import type { OrchestrationThread } from "@veylen/contracts";
 
 import {
   buildRlmSynthesisPrompt,

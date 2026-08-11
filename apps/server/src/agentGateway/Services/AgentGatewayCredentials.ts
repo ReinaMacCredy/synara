@@ -1,5 +1,5 @@
 /**
- * AgentGatewayCredentials - Per-session credentials for the Synara agent
+ * AgentGatewayCredentials - Per-session credentials for the Veylen agent
  * gateway.
  *
  * Small service split out from the gateway itself so provider adapters can
@@ -8,7 +8,7 @@
  *
  * @module agentGateway/Services/AgentGatewayCredentials
  */
-import type { ProviderKind, ThreadId } from "@synara/contracts";
+import type { ProviderKind, ThreadId } from "@veylen/contracts";
 import { ServiceMap } from "effect";
 import type {
   AgentGatewaySessionIdentity,
@@ -35,7 +35,7 @@ export interface AgentGatewayStdioProxySpawn {
 }
 
 export interface AgentGatewayCredentialsShape {
-  /** Streamable-HTTP MCP endpoint served by this Synara instance. */
+  /** Streamable-HTTP MCP endpoint served by this Veylen instance. */
   readonly mcpEndpointUrl: string;
   /** Update the endpoint after the HTTP server resolves a dynamic listen port. */
   readonly setListeningPort: (port: number) => void;
@@ -86,4 +86,4 @@ export interface AgentGatewayCredentialsShape {
 export class AgentGatewayCredentials extends ServiceMap.Service<
   AgentGatewayCredentials,
   AgentGatewayCredentialsShape
->()("synara/agentGateway/Services/AgentGatewayCredentials") {}
+>()("veylen/agentGateway/Services/AgentGatewayCredentials") {}

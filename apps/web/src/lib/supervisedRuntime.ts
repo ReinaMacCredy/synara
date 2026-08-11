@@ -12,7 +12,7 @@ export const supervisedRuntimeQueryOptions = () =>
     queryKey: supervisedRuntimeQueryKeys.snapshot(),
     queryFn: async () => {
       const api = readNativeApi();
-      if (!api) throw new Error("Synara server unavailable.");
+      if (!api) throw new Error("Veylen server unavailable.");
       return api.orchestration.getSupervisedRuntime({ includeDisabled: true, limit: 500 });
     },
     refetchInterval: 5_000,

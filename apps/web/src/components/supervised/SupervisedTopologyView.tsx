@@ -1,4 +1,4 @@
-import type { SupervisedGovernanceSnapshot, SupervisedRuntimeSnapshot } from "@synara/contracts";
+import type { SupervisedGovernanceSnapshot, SupervisedRuntimeSnapshot } from "@veylen/contracts";
 import { useQuery } from "@tanstack/react-query";
 import {
   Background,

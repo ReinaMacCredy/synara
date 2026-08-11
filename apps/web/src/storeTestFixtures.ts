@@ -13,7 +13,7 @@ import {
   type OrchestrationReadModel,
   type OrchestrationShellSnapshot,
   type OrchestrationThreadActivity,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 import { getThreadsFromState } from "./threadDerivation";
 import type { AppState } from "./storeState";

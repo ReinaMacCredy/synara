@@ -8,7 +8,7 @@ import {
   type SupervisorNotebookCursor,
   type SupervisorNotebookEntry,
   type SupervisorNotebookView,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 const cursorId = (workspaceId: string, seatId: string) =>
   SupervisorNotebookCursorId.makeUnsafe(

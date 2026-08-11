@@ -10,7 +10,7 @@ import {
   RootAuthorityLeaseId,
   Room,
   SupervisedGovernanceSnapshot,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 import {
   assertExclusiveRootLeases,

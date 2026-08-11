@@ -5,7 +5,7 @@ import {
   ProfileSnapshotId,
   SupervisionMissionId,
   SupervisorSeatId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Effect } from "effect";
 
 import { SUPERVISED_BASE_POLICY_HASH } from "../../supervised/runtime/HarnessPatchPolicy.ts";

@@ -4,7 +4,7 @@ export const SUPERVISED_WAKE_EVENT_TYPES = new Set([
   "supervised.specialist-upserted",
   "supervised.signal-derived",
   "supervised.signal-reset",
-  // TODO(synara): Remove these legacy governance event names on or after 2027-08-09
+  // TODO(veylen): Remove these legacy governance event names on or after 2027-08-09
   // once every supported database has replayed migration 108.
   "supervision.workflow-conflicted",
   "supervision.lead-replaced",

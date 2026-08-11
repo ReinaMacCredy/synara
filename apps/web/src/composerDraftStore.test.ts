@@ -1,4 +1,4 @@
-import { LeadSeatId, ProfilePresetId, ProjectId, ThreadId } from "@synara/contracts";
+import { LeadSeatId, ProfilePresetId, ProjectId, ThreadId } from "@veylen/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { selectComposerThreadDraft } from "./composerDraftDomain";
 import {

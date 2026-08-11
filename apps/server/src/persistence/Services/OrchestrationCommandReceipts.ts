@@ -17,7 +17,7 @@ import {
   SpaceId,
   TaskProcessId,
   ThreadId,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Option, Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -86,5 +86,5 @@ export class OrchestrationCommandReceiptRepository extends ServiceMap.Service<
   OrchestrationCommandReceiptRepository,
   OrchestrationCommandReceiptRepositoryShape
 >()(
-  "synara/persistence/Services/OrchestrationCommandReceipts/OrchestrationCommandReceiptRepository",
+  "veylen/persistence/Services/OrchestrationCommandReceipts/OrchestrationCommandReceiptRepository",
 ) {}

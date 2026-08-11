@@ -4,7 +4,7 @@ import {
   ProjectId,
   ThreadId,
   type AcceptedCrossModeHandoffV1,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { Effect, Option } from "effect";
 import { describe, expect, it } from "vitest";
 

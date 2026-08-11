@@ -1,11 +1,11 @@
 /**
- * Provider-facing config builders for the Synara agent gateway.
+ * Provider-facing config builders for the Veylen agent gateway.
  *
  * One shared module shapes the same MCP connection (endpoint URL + per-thread
  * bearer token) into every provider's native MCP configuration format so the
  * injection rules cannot drift between adapters:
  *
- * - Codex: `[mcp_servers.synara]` TOML block (streamable HTTP +
+ * - Codex: `[mcp_servers.veylen]` TOML block (streamable HTTP +
  *   `bearer_token_env_var` resolved from the per-session process env).
  * - Claude Agent SDK: `mcpServers` record with an HTTP entry.
  * - ACP agents (cursor/grok/droid): `mcpServers` session entries; HTTP when
@@ -21,10 +21,10 @@ import type {
   AgentGatewayStdioProxySpawn,
 } from "./Services/AgentGatewayCredentials.ts";
 
-export const SYNARA_MCP_SERVER_NAME = "synara";
-export const SYNARA_AGENT_GATEWAY_TOKEN_ENV = "SYNARA_AGENT_GATEWAY_TOKEN";
-export const SYNARA_AGENT_GATEWAY_BOOTSTRAP_TOKEN_ENV = "SYNARA_AGENT_GATEWAY_BOOTSTRAP_TOKEN";
-export const SYNARA_AGENT_GATEWAY_URL_ENV = "SYNARA_AGENT_GATEWAY_URL";
+export const VEYLEN_MCP_SERVER_NAME = "veylen";
+export const VEYLEN_AGENT_GATEWAY_TOKEN_ENV = "VEYLEN_AGENT_GATEWAY_TOKEN";
+export const VEYLEN_AGENT_GATEWAY_BOOTSTRAP_TOKEN_ENV = "VEYLEN_AGENT_GATEWAY_BOOTSTRAP_TOKEN";
+export const VEYLEN_AGENT_GATEWAY_URL_ENV = "VEYLEN_AGENT_GATEWAY_URL";
 
 function authorizationHeader(connection: AgentGatewayMcpConnection): string {
   return `Bearer ${connection.bearerToken}`;
@@ -33,7 +33,7 @@ function authorizationHeader(connection: AgentGatewayMcpConnection): string {
 /**
  * Codex reads MCP servers from `config.toml`; the config file is shared by all
  * sessions of one Codex home, so the token is never written into it. Instead
- * the block references an env var that Synara sets per app-server process.
+ * the block references an env var that Veylen sets per app-server process.
  *
  * The shell_environment_policy table keeps that env var out of exec tool
  * subprocesses: codex defaults to `ignore_default_excludes = true`, so the
@@ -43,12 +43,12 @@ function authorizationHeader(connection: AgentGatewayMcpConnection): string {
  */
 export function buildCodexMcpConfigToml(endpointUrl: string): string {
   return [
-    `[mcp_servers.${SYNARA_MCP_SERVER_NAME}]`,
+    `[mcp_servers.${VEYLEN_MCP_SERVER_NAME}]`,
     `url = ${JSON.stringify(endpointUrl)}`,
-    `bearer_token_env_var = ${JSON.stringify(SYNARA_AGENT_GATEWAY_TOKEN_ENV)}`,
+    `bearer_token_env_var = ${JSON.stringify(VEYLEN_AGENT_GATEWAY_TOKEN_ENV)}`,
     "",
     "[shell_environment_policy]",
-    `exclude = [${JSON.stringify(SYNARA_AGENT_GATEWAY_TOKEN_ENV)}]`,
+    `exclude = [${JSON.stringify(VEYLEN_AGENT_GATEWAY_TOKEN_ENV)}]`,
   ].join("\n");
 }
 
@@ -69,7 +69,7 @@ export interface OpenCodeMcpRemoteServerConfig {
 /**
  * OpenCode's dynamic `mcp.add` endpoint is server/directory scoped rather
  * than session scoped. Callers must install this config through either a
- * provider process dedicated to the owning Synara thread or an exclusive
+ * provider process dedicated to the owning Veylen thread or an exclusive
  * external-server/directory lock held for the full agent turn.
  */
 export function buildOpenCodeMcpServer(
@@ -124,18 +124,18 @@ async function postAgentGatewayJsonRpc(input: {
     ...(input.signal === undefined ? {} : { signal: input.signal }),
   });
   if (!response.ok) {
-    throw new Error(`Synara MCP request failed with HTTP ${String(response.status)}.`);
+    throw new Error(`Veylen MCP request failed with HTTP ${String(response.status)}.`);
   }
   const payload: unknown = await response.json();
   if (!isRecord(payload) || payload.jsonrpc !== "2.0") {
-    throw new Error("Synara MCP returned an invalid JSON-RPC response.");
+    throw new Error("Veylen MCP returned an invalid JSON-RPC response.");
   }
   if ("error" in payload) {
     const failure = isRecord(payload.error) ? payload.error : null;
-    throw new Error(failure?.message ? String(failure.message) : "Synara MCP request failed.");
+    throw new Error(failure?.message ? String(failure.message) : "Veylen MCP request failed.");
   }
   if (payload.id !== id || !("result" in payload)) {
-    throw new Error("Synara MCP returned a mismatched JSON-RPC response.");
+    throw new Error("Veylen MCP returned a mismatched JSON-RPC response.");
   }
   return payload.result;
 }
@@ -151,7 +151,7 @@ export async function listAgentGatewayMcpTools(input: {
     method: "tools/list",
   });
   if (!isRecord(result) || !Array.isArray(result.tools)) {
-    throw new Error("Synara MCP tools/list returned an invalid tool catalog.");
+    throw new Error("Veylen MCP tools/list returned an invalid tool catalog.");
   }
   return result.tools.map((value) => {
     if (
@@ -160,7 +160,7 @@ export async function listAgentGatewayMcpTools(input: {
       typeof value.description !== "string" ||
       !isRecord(value.inputSchema)
     ) {
-      throw new Error("Synara MCP tools/list returned an invalid tool descriptor.");
+      throw new Error("Veylen MCP tools/list returned an invalid tool descriptor.");
     }
     return {
       name: value.name,
@@ -191,7 +191,7 @@ export function buildClaudeMcpServers(
   connection: AgentGatewayMcpConnection,
 ): Record<string, ClaudeMcpHttpServerConfig> {
   return {
-    [SYNARA_MCP_SERVER_NAME]: {
+    [VEYLEN_MCP_SERVER_NAME]: {
       type: "http",
       url: connection.url,
       headers: { Authorization: authorizationHeader(connection) },
@@ -215,7 +215,7 @@ export interface AntigravityMcpPluginConfig {
 }
 
 /**
- * Build the secret-free MCP fragment installed with Synara's Antigravity
+ * Build the secret-free MCP fragment installed with Veylen's Antigravity
  * plugin. Antigravity expands the endpoint plus a one-shot bootstrap value
  * from each `agy` process. The stdio proxy consumes that value during MCP
  * initialization and keeps the exchanged session bearer in its own memory,
@@ -230,12 +230,12 @@ export function buildAntigravityMcpPluginConfig(
 ): AntigravityMcpPluginConfig {
   return {
     mcpServers: {
-      [SYNARA_MCP_SERVER_NAME]: {
+      [VEYLEN_MCP_SERVER_NAME]: {
         command: stdioProxy.command,
         args: [...stdioProxy.args],
         env: {
-          [SYNARA_AGENT_GATEWAY_URL_ENV]: `$${SYNARA_AGENT_GATEWAY_URL_ENV}`,
-          [SYNARA_AGENT_GATEWAY_BOOTSTRAP_TOKEN_ENV]: `$${SYNARA_AGENT_GATEWAY_BOOTSTRAP_TOKEN_ENV}`,
+          [VEYLEN_AGENT_GATEWAY_URL_ENV]: `$${VEYLEN_AGENT_GATEWAY_URL_ENV}`,
+          [VEYLEN_AGENT_GATEWAY_BOOTSTRAP_TOKEN_ENV]: `$${VEYLEN_AGENT_GATEWAY_BOOTSTRAP_TOKEN_ENV}`,
           ELECTRON_RUN_AS_NODE: "1",
         },
         disabled: false,
@@ -261,7 +261,7 @@ export interface AcpInitializeCapabilitiesView {
  * falls back to the stdio->HTTP proxy script otherwise (stdio is the ACP
  * baseline every agent must accept).
  */
-export function buildAcpSynaraMcpServers(input: {
+export function buildAcpVeylenMcpServers(input: {
   readonly connection: AgentGatewayMcpConnection;
   readonly initializeResult: AcpInitializeCapabilitiesView;
   readonly stdioProxy: AcpStdioProxySpawn;
@@ -271,7 +271,7 @@ export function buildAcpSynaraMcpServers(input: {
     return [
       {
         type: "http",
-        name: SYNARA_MCP_SERVER_NAME,
+        name: VEYLEN_MCP_SERVER_NAME,
         url: input.connection.url,
         headers: [{ name: "Authorization", value: authorizationHeader(input.connection) }],
       },
@@ -279,12 +279,12 @@ export function buildAcpSynaraMcpServers(input: {
   }
   return [
     {
-      name: SYNARA_MCP_SERVER_NAME,
+      name: VEYLEN_MCP_SERVER_NAME,
       command: input.stdioProxy.command,
       args: [...input.stdioProxy.args],
       env: [
-        { name: SYNARA_AGENT_GATEWAY_URL_ENV, value: input.connection.url },
-        { name: SYNARA_AGENT_GATEWAY_TOKEN_ENV, value: input.connection.bearerToken },
+        { name: VEYLEN_AGENT_GATEWAY_URL_ENV, value: input.connection.url },
+        { name: VEYLEN_AGENT_GATEWAY_TOKEN_ENV, value: input.connection.bearerToken },
       ],
     },
   ];

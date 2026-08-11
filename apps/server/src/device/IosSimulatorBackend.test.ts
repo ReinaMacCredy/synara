@@ -44,11 +44,11 @@ const successfulProcessResult = (stdout = ""): ProcessRunResult => ({
 
 describe("device helper source resolution", () => {
   it("prefers a physical helper directory supplied by packaged desktop", () => {
-    const external = "/Applications/Synara.app/Contents/Resources/device-helper";
+    const external = "/Applications/Veylen.app/Contents/Resources/device-helper";
 
     expect(
       resolveDeviceHelperSourceDir(
-        "/Applications/Synara.app/Contents/Resources/app.asar/apps/server/dist",
+        "/Applications/Veylen.app/Contents/Resources/app.asar/apps/server/dist",
         (candidate) => candidate === external,
         external,
       ),
@@ -102,7 +102,7 @@ async function makeRecordingBackend(options: {
   readonly autoStart?: boolean;
   readonly now?: () => number;
 }) {
-  const directory = await mkdtemp(path.join(tmpdir(), "synara-recording-test-"));
+  const directory = await mkdtemp(path.join(tmpdir(), "veylen-recording-test-"));
   const children: FakeRecordingProcess[] = [];
   const spawnCalls: Array<{ readonly command: string; readonly args: readonly string[] }> = [];
   const backend = new IosSimulatorBackend({
@@ -341,7 +341,7 @@ describe("saving a screenshot", () => {
 
   /** A backend whose `simctl io screenshot` writes a real PNG to the given path. */
   async function makeScreenshotBackend() {
-    const directory = await mkdtemp(path.join(tmpdir(), "synara-screenshot-test-"));
+    const directory = await mkdtemp(path.join(tmpdir(), "veylen-screenshot-test-"));
     const backend = new IosSimulatorBackend({
       platform: "darwin",
       recordingDirectory: directory,
@@ -477,7 +477,7 @@ describe("simulator screen recording", () => {
   });
 
   it("falls back when an earlier recording directory exists but is not writable", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "synara-recording-directory-test-"));
+    const root = await mkdtemp(path.join(tmpdir(), "veylen-recording-directory-test-"));
     const desktop = path.join(root, "Desktop");
     const downloads = path.join(root, "Downloads");
     await mkdir(desktop);

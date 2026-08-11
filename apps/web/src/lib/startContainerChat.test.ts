@@ -1,4 +1,4 @@
-import { ProjectId, ThreadId } from "@synara/contracts";
+import { ProjectId, ThreadId } from "@veylen/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import { startContainerChat } from "./startContainerChat";

@@ -3,7 +3,7 @@ import type {
   ProjectTaskProjection,
   TaskDependencyEdgeId,
   TaskProcessGraphProjection,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { useId } from "react";
 
 export interface ProcessGraphWave {

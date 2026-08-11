@@ -8,7 +8,7 @@ import {
   type ProviderKind,
   type ProviderModelDescriptor,
   type SupervisedOrchestrationSnapshot,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useAppSettings } from "~/appSettings";
@@ -772,7 +772,7 @@ export function SupervisedOrchestrationSettingsPanel(props: { readonly active: b
 
   const refresh = async () => {
     const api = readNativeApi();
-    if (!api) throw new Error("Synara server unavailable.");
+    if (!api) throw new Error("Veylen server unavailable.");
     const next = await api.orchestration.getSupervisedSettings();
     if (next.governance.orchestration) setSnapshot(next.governance.orchestration);
     syncServerShellSnapshot(await api.orchestration.getShellSnapshot());
@@ -877,7 +877,7 @@ export function SupervisedOrchestrationSettingsPanel(props: { readonly active: b
     const validationError = Object.values(currentErrors).find(Boolean);
     if (validationError) throw new Error(validationError);
     const api = readNativeApi();
-    if (!api) throw new Error("Synara server unavailable.");
+    if (!api) throw new Error("Veylen server unavailable.");
     const name = draft.name.trim();
     const model = draft.model.trim();
     const providerOptions = draft.providerOptions.trim()
@@ -922,7 +922,7 @@ export function SupervisedOrchestrationSettingsPanel(props: { readonly active: b
     type: "supervised.profile.archive" | "supervised.profile.restore" | "supervised.profile.clear",
   ) => {
     const api = readNativeApi();
-    if (!api) throw new Error("Synara server unavailable.");
+    if (!api) throw new Error("Veylen server unavailable.");
     await api.orchestration.dispatchCommand({
       type,
       commandId: newCommandId(),
@@ -936,7 +936,7 @@ export function SupervisedOrchestrationSettingsPanel(props: { readonly active: b
 
   const restoreDefaultProfiles = async () => {
     const api = readNativeApi();
-    if (!api) throw new Error("Synara server unavailable.");
+    if (!api) throw new Error("Veylen server unavailable.");
     const archivedDefaults = snapshot.profiles.filter(
       (profile) => profile.isDefault && profile.archivedAt !== null,
     );

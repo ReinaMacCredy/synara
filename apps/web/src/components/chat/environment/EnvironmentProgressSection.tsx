@@ -1,4 +1,4 @@
-import type { ProjectTaskId, SessionProgressProjection, TaskProcessId } from "@synara/contracts";
+import type { ProjectTaskId, SessionProgressProjection, TaskProcessId } from "@veylen/contracts";
 
 import { SessionProgress } from "~/components/process/SessionProgress";
 import { useSessionProgressPreferenceStore } from "~/sessionProgressPreferenceStore";

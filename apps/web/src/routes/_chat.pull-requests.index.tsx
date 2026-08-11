@@ -3,11 +3,11 @@ import type {
   PullRequestInvolvement,
   PullRequestListEntry,
   PullRequestState,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import {
   coalescePullRequestListEntries,
   isValidGitHubRepositoryNameWithOwner,
-} from "@synara/shared/githubRepository";
+} from "@veylen/shared/githubRepository";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";

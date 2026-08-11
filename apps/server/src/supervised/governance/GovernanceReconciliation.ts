@@ -20,7 +20,7 @@ import {
   type SupervisedGovernanceSnapshot,
   type SupervisedRuntimeSnapshot,
   type SupervisorSeat,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 import {
   defaultSupervisedCommandsForRole,

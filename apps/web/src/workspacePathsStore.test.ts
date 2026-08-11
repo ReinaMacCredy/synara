@@ -60,11 +60,11 @@ describe("workspacePathsStore", () => {
 
     const { useWorkspacePathsStore } = await import("./workspacePathsStore");
 
-    useWorkspacePathsStore.getState().setChatWorkspaceRoot("/Users/tester/Documents/Synara");
+    useWorkspacePathsStore.getState().setChatWorkspaceRoot("/Users/tester/Documents/Veylen");
     useWorkspacePathsStore.getState().setChatWorkspaceRoot(undefined);
 
     expect(useWorkspacePathsStore.getState().chatWorkspaceRoot).toBe(
-      "/Users/tester/Documents/Synara",
+      "/Users/tester/Documents/Veylen",
     );
   });
 
@@ -76,12 +76,12 @@ describe("workspacePathsStore", () => {
 
     useWorkspacePathsStore.getState().setServerWorkspacePaths({
       homeDir: "/Users/tester",
-      chatWorkspaceRoot: "/Users/tester/Documents/Synara",
+      chatWorkspaceRoot: "/Users/tester/Documents/Veylen",
     });
 
     expect(useWorkspacePathsStore.getState().homeDir).toBe("/Users/tester");
     expect(useWorkspacePathsStore.getState().chatWorkspaceRoot).toBe(
-      "/Users/tester/Documents/Synara",
+      "/Users/tester/Documents/Veylen",
     );
   });
 
@@ -92,7 +92,7 @@ describe("workspacePathsStore", () => {
     let workspaceModule = await import("./workspacePathsStore");
     workspaceModule.useWorkspacePathsStore.getState().setServerWorkspacePaths({
       homeDir: "/Users/tester",
-      chatWorkspaceRoot: "/Users/tester/Documents/Synara",
+      chatWorkspaceRoot: "/Users/tester/Documents/Veylen",
     });
 
     vi.resetModules();
@@ -100,18 +100,18 @@ describe("workspacePathsStore", () => {
 
     expect(workspaceModule.useWorkspacePathsStore.getState().homeDir).toBe("/Users/tester");
     expect(workspaceModule.useWorkspacePathsStore.getState().chatWorkspaceRoot).toBe(
-      "/Users/tester/Documents/Synara",
+      "/Users/tester/Documents/Veylen",
     );
   });
 
   it("migrates cached paths without retaining legacy workspace pages", async () => {
     installMemoryLocalStorage();
     localStorage.setItem(
-      "synara:workspace-pages:v2",
+      "veylen:workspace-pages:v2",
       JSON.stringify({
         state: {
           homeDir: "/Users/legacy",
-          chatWorkspaceRoot: "/Users/legacy/Documents/Synara",
+          chatWorkspaceRoot: "/Users/legacy/Documents/Veylen",
           workspacePages: [{ id: "retired-workspace", title: "Workspace 1" }],
         },
         version: 2,
@@ -123,12 +123,12 @@ describe("workspacePathsStore", () => {
 
     expect(useWorkspacePathsStore.getState().homeDir).toBe("/Users/legacy");
     expect(useWorkspacePathsStore.getState().chatWorkspaceRoot).toBe(
-      "/Users/legacy/Documents/Synara",
+      "/Users/legacy/Documents/Veylen",
     );
     expect(useWorkspacePathsStore.getState()).not.toHaveProperty("workspacePages");
 
     useWorkspacePathsStore.getState().setHomeDir("/Users/current");
-    expect(localStorage.getItem("synara:workspace-pages:v2")).toBeNull();
-    expect(localStorage.getItem("synara:workspace-paths:v1")).not.toBeNull();
+    expect(localStorage.getItem("veylen:workspace-pages:v2")).toBeNull();
+    expect(localStorage.getItem("veylen:workspace-paths:v1")).not.toBeNull();
   });
 });

@@ -19,7 +19,7 @@ import type {
   PullRequestMergeCapabilities,
   PullRequestMergeMethod,
   PullRequestState,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 import type { ProcessRunResult } from "../../processRunner";
 import type { GitHubCliError } from "../Errors.ts";
@@ -305,5 +305,5 @@ export interface GitHubCliShape {
  * GitHubCli - Service tag for GitHub CLI process execution.
  */
 export class GitHubCli extends ServiceMap.Service<GitHubCli, GitHubCliShape>()(
-  "synara/git/Services/GitHubCli",
+  "veylen/git/Services/GitHubCli",
 ) {}

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import type { HarnessPatch, ProfilePresetId, ProjectId, RoomId, TaskId } from "@synara/contracts";
+import type { HarnessPatch, ProfilePresetId, ProjectId, RoomId, TaskId } from "@veylen/contracts";
 
 export const SUPERVISED_BASE_POLICY_LAWS = Object.freeze([
   "Communication routing and canonical authority are independent.",

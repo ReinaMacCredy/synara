@@ -16,7 +16,7 @@ typedef struct {
   unsigned int msgh_local_port;
   unsigned int msgh_voucher_port;
   unsigned int msgh_id;
-} SynaraIndigoMachHeader;
+} VeylenIndigoMachHeader;
 
 typedef struct {
   unsigned int field1;
@@ -37,7 +37,7 @@ typedef struct {
   double field16;
   double field17;
   double field18;
-} SynaraIndigoTouch;
+} VeylenIndigoTouch;
 
 typedef struct {
   unsigned int eventSource;
@@ -45,27 +45,27 @@ typedef struct {
   unsigned int eventTarget;
   unsigned int keyCode;
   unsigned int field5;
-} SynaraIndigoButton;
+} VeylenIndigoButton;
 
 typedef union {
-  SynaraIndigoTouch touch;
-  SynaraIndigoButton button;
+  VeylenIndigoTouch touch;
+  VeylenIndigoButton button;
   unsigned char raw[144];
-} SynaraIndigoEvent;
+} VeylenIndigoEvent;
 
 typedef struct {
   unsigned int field1;
   unsigned long long timestamp;
   unsigned int field3;
-  SynaraIndigoEvent event;
-} SynaraIndigoPayload;
+  VeylenIndigoEvent event;
+} VeylenIndigoPayload;
 
 typedef struct {
-  SynaraIndigoMachHeader header;
+  VeylenIndigoMachHeader header;
   unsigned int innerSize;
   unsigned char eventType;
-  SynaraIndigoPayload payload;
-} SynaraIndigoMessage;
+  VeylenIndigoPayload payload;
+} VeylenIndigoMessage;
 
 #pragma pack(pop)
 
@@ -91,57 +91,57 @@ static const int kButtonOpUp = 0x2;
 // The mouse/touch seed message target, ported from idb.
 static const int kTouchTarget = 0x32;
 
-typedef SynaraIndigoMessage *(*SynaraIndigoButtonFn)(int keyCode, int op, int target);
-typedef SynaraIndigoMessage *(*SynaraIndigoKeyboardFn)(uint32_t usage, int op);
-typedef SynaraIndigoMessage *(*SynaraIndigoMouseFn)(CGPoint *point0, CGPoint *point1, int target,
+typedef VeylenIndigoMessage *(*VeylenIndigoButtonFn)(int keyCode, int op, int target);
+typedef VeylenIndigoMessage *(*VeylenIndigoKeyboardFn)(uint32_t usage, int op);
+typedef VeylenIndigoMessage *(*VeylenIndigoMouseFn)(CGPoint *point0, CGPoint *point1, int target,
                                                     int eventType, BOOL extra);
-typedef SynaraIndigoMessage *(*SynaraIndigoArbitraryFn)(int target, uint32_t page, uint32_t usage,
+typedef VeylenIndigoMessage *(*VeylenIndigoArbitraryFn)(int target, uint32_t page, uint32_t usage,
                                                         int op);
 
-BOOL SynaraHardwareButtonFromName(NSString *name, SynaraHardwareButton *outButton) {
+BOOL VeylenHardwareButtonFromName(NSString *name, VeylenHardwareButton *outButton) {
   NSDictionary<NSString *, NSNumber *> *map = @{
-    @"home": @(SynaraHardwareButtonHome),
-    @"lock": @(SynaraHardwareButtonLock),
-    @"side": @(SynaraHardwareButtonSide),
-    @"siri": @(SynaraHardwareButtonSiri),
-    @"volume-up": @(SynaraHardwareButtonVolumeUp),
-    @"volume-down": @(SynaraHardwareButtonVolumeDown),
+    @"home": @(VeylenHardwareButtonHome),
+    @"lock": @(VeylenHardwareButtonLock),
+    @"side": @(VeylenHardwareButtonSide),
+    @"siri": @(VeylenHardwareButtonSiri),
+    @"volume-up": @(VeylenHardwareButtonVolumeUp),
+    @"volume-down": @(VeylenHardwareButtonVolumeDown),
   };
   NSNumber *found = map[name.lowercaseString];
   if (found == nil) {
     return NO;
   }
   if (outButton != NULL) {
-    *outButton = (SynaraHardwareButton)found.integerValue;
+    *outButton = (VeylenHardwareButton)found.integerValue;
   }
   return YES;
 }
 
-static int SynaraButtonSource(SynaraHardwareButton button) {
+static int VeylenButtonSource(VeylenHardwareButton button) {
   switch (button) {
-    case SynaraHardwareButtonHome: return kButtonSourceHome;
-    case SynaraHardwareButtonLock: return kButtonSourceLock;
-    case SynaraHardwareButtonSide: return kButtonSourceSide;
-    case SynaraHardwareButtonSiri: return kButtonSourceSiri;
-    case SynaraHardwareButtonVolumeUp:
-    case SynaraHardwareButtonVolumeDown: return -1;
+    case VeylenHardwareButtonHome: return kButtonSourceHome;
+    case VeylenHardwareButtonLock: return kButtonSourceLock;
+    case VeylenHardwareButtonSide: return kButtonSourceSide;
+    case VeylenHardwareButtonSiri: return kButtonSourceSiri;
+    case VeylenHardwareButtonVolumeUp:
+    case VeylenHardwareButtonVolumeDown: return -1;
   }
   return kButtonSourceHome;
 }
 
 /// Consumer-page usage for the two volume keys, or 0 for the buttons that
 /// travel as Indigo button events instead.
-static uint32_t SynaraConsumerUsage(SynaraHardwareButton button) {
+static uint32_t VeylenConsumerUsage(VeylenHardwareButton button) {
   switch (button) {
-    case SynaraHardwareButtonVolumeUp: return kHIDUsageVolumeIncrement;
-    case SynaraHardwareButtonVolumeDown: return kHIDUsageVolumeDecrement;
+    case VeylenHardwareButtonVolumeUp: return kHIDUsageVolumeIncrement;
+    case VeylenHardwareButtonVolumeDown: return kHIDUsageVolumeDecrement;
     default: return 0;
   }
 }
 
 /// USB HID usage for a printable ASCII character, plus whether shift is needed.
 /// Returns 0 for characters with no mapping.
-static uint32_t SynaraUsageForCharacter(unichar c, BOOL *outShift) {
+static uint32_t VeylenUsageForCharacter(unichar c, BOOL *outShift) {
   BOOL shift = NO;
   uint32_t usage = 0;
 
@@ -205,13 +205,13 @@ static uint32_t SynaraUsageForCharacter(unichar c, BOOL *outShift) {
 
 static const uint32_t kUsageLeftShift = 225;
 
-@implementation SynaraHIDBridge {
+@implementation VeylenHIDBridge {
   id _client;
   dispatch_queue_t _sendQueue;
-  SynaraIndigoButtonFn _buttonFn;
-  SynaraIndigoKeyboardFn _keyboardFn;
-  SynaraIndigoMouseFn _mouseFn;
-  SynaraIndigoArbitraryFn _arbitraryFn;
+  VeylenIndigoButtonFn _buttonFn;
+  VeylenIndigoKeyboardFn _keyboardFn;
+  VeylenIndigoMouseFn _mouseFn;
+  VeylenIndigoArbitraryFn _arbitraryFn;
   NSInteger _undelivered;
 }
 
@@ -230,7 +230,7 @@ static const uint32_t kUsageLeftShift = 225;
 }
 
 - (BOOL)attachToDevice:(id)device error:(NSError **)error {
-  NSString *developerDir = NSProcessInfo.processInfo.environment[@"SYNARA_DEVELOPER_DIR"];
+  NSString *developerDir = NSProcessInfo.processInfo.environment[@"VEYLEN_DEVELOPER_DIR"];
   if (developerDir.length == 0) {
     developerDir = @"/Applications/Xcode.app/Contents/Developer";
   }
@@ -239,7 +239,7 @@ static const uint32_t kUsageLeftShift = 225;
   void *kit = dlopen(kitPath.fileSystemRepresentation, RTLD_NOW);
   if (kit == NULL) {
     if (error) {
-      *error = [NSError errorWithDomain:@"dev.synara.device-helper.hid"
+      *error = [NSError errorWithDomain:@"dev.veylen.device-helper.hid"
                                    code:1
                                userInfo:@{NSLocalizedDescriptionKey:
                                             [NSString stringWithFormat:@"cannot load SimulatorKit at %@", kitPath]}];
@@ -247,13 +247,13 @@ static const uint32_t kUsageLeftShift = 225;
     return NO;
   }
 
-  _arbitraryFn = (SynaraIndigoArbitraryFn)dlsym(kit, "IndigoHIDMessageForHIDArbitrary");
-  _buttonFn = (SynaraIndigoButtonFn)dlsym(kit, "IndigoHIDMessageForButton");
-  _keyboardFn = (SynaraIndigoKeyboardFn)dlsym(kit, "IndigoHIDMessageForKeyboardArbitrary");
-  _mouseFn = (SynaraIndigoMouseFn)dlsym(kit, "IndigoHIDMessageForMouseNSEvent");
+  _arbitraryFn = (VeylenIndigoArbitraryFn)dlsym(kit, "IndigoHIDMessageForHIDArbitrary");
+  _buttonFn = (VeylenIndigoButtonFn)dlsym(kit, "IndigoHIDMessageForButton");
+  _keyboardFn = (VeylenIndigoKeyboardFn)dlsym(kit, "IndigoHIDMessageForKeyboardArbitrary");
+  _mouseFn = (VeylenIndigoMouseFn)dlsym(kit, "IndigoHIDMessageForMouseNSEvent");
   if (_buttonFn == NULL || _keyboardFn == NULL || _mouseFn == NULL || _arbitraryFn == NULL) {
     if (error) {
-      *error = [NSError errorWithDomain:@"dev.synara.device-helper.hid"
+      *error = [NSError errorWithDomain:@"dev.veylen.device-helper.hid"
                                    code:2
                                userInfo:@{NSLocalizedDescriptionKey: @"SimulatorKit Indigo symbols missing"}];
     }
@@ -266,7 +266,7 @@ static const uint32_t kUsageLeftShift = 225;
   }
   if (clientClass == nil) {
     if (error) {
-      *error = [NSError errorWithDomain:@"dev.synara.device-helper.hid"
+      *error = [NSError errorWithDomain:@"dev.veylen.device-helper.hid"
                                    code:3
                                userInfo:@{NSLocalizedDescriptionKey: @"SimDeviceLegacyHIDClient class missing"}];
     }
@@ -279,7 +279,7 @@ static const uint32_t kUsageLeftShift = 225;
   id client = ((id (*)(id, SEL, id, NSError **))objc_msgSend)(allocated, initSelector, device, &initError);
   if (client == nil) {
     if (error) {
-      *error = initError ?: [NSError errorWithDomain:@"dev.synara.device-helper.hid"
+      *error = initError ?: [NSError errorWithDomain:@"dev.veylen.device-helper.hid"
                                                 code:4
                                             userInfo:@{NSLocalizedDescriptionKey: @"HID client init failed"}];
     }
@@ -287,11 +287,11 @@ static const uint32_t kUsageLeftShift = 225;
   }
 
   _client = client;
-  _sendQueue = dispatch_queue_create("dev.synara.device-helper.hid", DISPATCH_QUEUE_SERIAL);
+  _sendQueue = dispatch_queue_create("dev.veylen.device-helper.hid", DISPATCH_QUEUE_SERIAL);
   return YES;
 }
 
-- (void)sendMessage:(SynaraIndigoMessage *)message {
+- (void)sendMessage:(VeylenIndigoMessage *)message {
   if (_client == nil || message == NULL) {
     [self noteUndelivered];
     return;
@@ -300,7 +300,7 @@ static const uint32_t kUsageLeftShift = 225;
   void (^completion)(NSError *) = ^(NSError *sendError) {
     // Errors here are per-event and non-fatal; the stream keeps going.
   };
-  ((void (*)(id, SEL, SynaraIndigoMessage *, BOOL, dispatch_queue_t, void (^)(NSError *)))objc_msgSend)(
+  ((void (*)(id, SEL, VeylenIndigoMessage *, BOOL, dispatch_queue_t, void (^)(NSError *)))objc_msgSend)(
       _client, selector, message, YES, _sendQueue, completion);
 }
 
@@ -310,7 +310,7 @@ static const uint32_t kUsageLeftShift = 225;
     return;
   }
   CGPoint point = CGPointMake(x, y);
-  SynaraIndigoMessage *seed = _mouseFn(&point, NULL, kTouchTarget, down ? kButtonOpDown : kButtonOpUp, NO);
+  VeylenIndigoMessage *seed = _mouseFn(&point, NULL, kTouchTarget, down ? kButtonOpDown : kButtonOpUp, NO);
   if (seed == NULL) {
     [self noteUndelivered];
     return;
@@ -318,8 +318,8 @@ static const uint32_t kUsageLeftShift = 225;
 
   // A touch is delivered as two payloads in one message; the seed only supplies
   // the first, so it is duplicated and the digitizer fields fixed up.
-  size_t stride = sizeof(SynaraIndigoPayload);
-  SynaraIndigoMessage *message = calloc(1, sizeof(SynaraIndigoMessage) + stride);
+  size_t stride = sizeof(VeylenIndigoPayload);
+  VeylenIndigoMessage *message = calloc(1, sizeof(VeylenIndigoMessage) + stride);
   if (message == NULL) {
     free(seed);
     [self noteUndelivered];
@@ -330,14 +330,14 @@ static const uint32_t kUsageLeftShift = 225;
   message->payload.field1 = 0x0000000b;
   message->payload.timestamp = mach_absolute_time();
 
-  memcpy(&message->payload.event.touch, &seed->payload.event.touch, sizeof(SynaraIndigoTouch));
+  memcpy(&message->payload.event.touch, &seed->payload.event.touch, sizeof(VeylenIndigoTouch));
   message->payload.event.touch.xRatio = x;
   message->payload.event.touch.yRatio = y;
 
   void *first = &message->payload;
   void *second = (void *)((uintptr_t)first + stride);
   memcpy(second, first, stride);
-  SynaraIndigoPayload *secondPayload = (SynaraIndigoPayload *)second;
+  VeylenIndigoPayload *secondPayload = (VeylenIndigoPayload *)second;
   secondPayload->event.touch.field1 = 0x00000001;
   secondPayload->event.touch.field2 = 0x00000002;
 
@@ -378,7 +378,7 @@ static const uint32_t kUsageLeftShift = 225;
     [self noteUndelivered];
     return;
   }
-  SynaraIndigoMessage *message = _keyboardFn(usage, down ? kButtonOpDown : kButtonOpUp);
+  VeylenIndigoMessage *message = _keyboardFn(usage, down ? kButtonOpDown : kButtonOpUp);
   [self sendMessage:message];
 }
 
@@ -394,7 +394,7 @@ static const uint32_t kUsageLeftShift = 225;
   for (NSUInteger index = 0; index < length; index++) {
     unichar character = [text characterAtIndex:index];
     BOOL needsShift = NO;
-    uint32_t usage = SynaraUsageForCharacter(character, &needsShift);
+    uint32_t usage = VeylenUsageForCharacter(character, &needsShift);
     if (usage == 0) {
       skipped++;
       continue;
@@ -412,9 +412,9 @@ static const uint32_t kUsageLeftShift = 225;
   return skipped;
 }
 
-- (void)sendButton:(SynaraHardwareButton)button down:(BOOL)down {
+- (void)sendButton:(VeylenHardwareButton)button down:(BOOL)down {
   int op = down ? kButtonOpDown : kButtonOpUp;
-  uint32_t consumerUsage = SynaraConsumerUsage(button);
+  uint32_t consumerUsage = VeylenConsumerUsage(button);
 
   if (consumerUsage != 0) {
     if (_arbitraryFn == NULL) {
@@ -429,10 +429,10 @@ static const uint32_t kUsageLeftShift = 225;
     [self noteUndelivered];
     return;
   }
-  [self sendMessage:_buttonFn(SynaraButtonSource(button), op, kButtonTargetHardware)];
+  [self sendMessage:_buttonFn(VeylenButtonSource(button), op, kButtonTargetHardware)];
 }
 
-- (void)tapButton:(SynaraHardwareButton)button {
+- (void)tapButton:(VeylenHardwareButton)button {
   [self sendButton:button down:YES];
   usleep(90000);
   [self sendButton:button down:NO];

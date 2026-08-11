@@ -7,8 +7,8 @@ import {
   PROVIDER_DISPLAY_NAMES,
   type ModelSelection,
   type ProviderKind,
-} from "@synara/contracts";
-import { getModelOptions, normalizeModelSlug } from "@synara/shared/model";
+} from "@veylen/contracts";
+import { getModelOptions, normalizeModelSlug } from "@veylen/shared/model";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
 

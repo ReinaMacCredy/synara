@@ -85,7 +85,7 @@ describe("localServerMonitor", () => {
     );
   });
 
-  it("keeps dev servers and ignores Electron/Synara-style application listeners", () => {
+  it("keeps dev servers and ignores Electron/Veylen-style application listeners", () => {
     expect(
       isLikelyDevServerProcess({
         command: "node",
@@ -96,21 +96,21 @@ describe("localServerMonitor", () => {
     expect(
       isIgnoredLocalServerProcess({
         command: "Electron",
-        args: "/Applications/Synara.app/Contents/MacOS/Synara",
+        args: "/Applications/Veylen.app/Contents/MacOS/Veylen",
         ports: [61449],
       }),
     ).toBe(true);
     expect(
       isIgnoredLocalServerProcess({
-        command: "Synara",
-        args: "/Applications/Synara.app/Contents/MacOS/Synara",
+        command: "Veylen",
+        args: "/Applications/Veylen.app/Contents/MacOS/Veylen",
         ports: [61449],
       }),
     ).toBe(true);
     expect(
       isLikelyDevServerProcess({
         command: "node",
-        args: "node /Users/emanueledipietro/Developer/synara/apps/web/node_modules/.bin/vite",
+        args: "node /Users/emanueledipietro/Developer/veylen/apps/web/node_modules/.bin/vite",
         ports: [5733],
       }),
     ).toBe(true);
@@ -232,7 +232,7 @@ describe("localServerMonitor", () => {
         {
           ppid: 12064,
           commandLine:
-            "node /Users/emanueledipietro/Developer/synara-website/node_modules/.bin/next dev",
+            "node /Users/emanueledipietro/Developer/veylen-website/node_modules/.bin/next dev",
         },
       ],
       [

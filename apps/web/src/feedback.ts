@@ -1,7 +1,7 @@
 // FILE: feedback.ts
 // Purpose: Owns feedback categories, privacy-safe diagnostics, and delivery.
 // Layer: Web feature logic
-// Depends on: The public trysynara feedback endpoint.
+// Depends on: An owner-configured Veylen feedback endpoint.
 
 import { APP_VERSION } from "./branding";
 
@@ -13,7 +13,7 @@ export const FEEDBACK_CATEGORIES = [
   { value: "bug", label: "Bug", lead: "I ran into a bug" },
   { value: "session", label: "Session", lead: "I hit a session problem" },
   { value: "ui", label: "UI", lead: "Something looked wrong" },
-  { value: "performance", label: "Performance", lead: "Synara felt slow" },
+  { value: "performance", label: "Performance", lead: "Veylen felt slow" },
   { value: "idea", label: "Idea", lead: "I have an idea" },
   { value: "other", label: "Other", lead: "I have some feedback" },
 ] as const;
@@ -55,7 +55,6 @@ export interface FeedbackSubmission {
   diagnostics: FeedbackDiagnostics;
 }
 
-const DEFAULT_FEEDBACK_ENDPOINT = "https://www.trysynara.com/api/feedback";
 const FEEDBACK_REQUEST_TIMEOUT_MS = 20_000;
 
 function formatStateFlags(diagnostics: FeedbackThreadContext): string {
@@ -109,7 +108,7 @@ export function formatFeedbackSummary(input: {
     .filter((row): row is [string, string] => row[1] !== null && row[1] !== "")
     .map(([label, value]) => `${label}: ${value}`);
 
-  return [`${lead} in Synara ${diagnostics.appVersion}${usageContext}.`, "", ...detailLines].join(
+  return [`${lead} in Veylen ${diagnostics.appVersion}${usageContext}.`, "", ...detailLines].join(
     "\n",
   );
 }
@@ -147,7 +146,7 @@ export function buildFeedbackSubmission(input: {
 }
 
 function feedbackEndpoint(): string {
-  return import.meta.env.VITE_FEEDBACK_ENDPOINT?.trim() || DEFAULT_FEEDBACK_ENDPOINT;
+  return import.meta.env.VITE_FEEDBACK_ENDPOINT?.trim() ?? "";
 }
 
 export async function submitFeedback(
@@ -157,11 +156,17 @@ export async function submitFeedback(
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), FEEDBACK_REQUEST_TIMEOUT_MS);
   try {
-    const response = await fetchImplementation(feedbackEndpoint(), {
+    const endpoint = feedbackEndpoint();
+    if (!endpoint) {
+      throw new Error(
+        "Feedback delivery is not configured yet. Open an issue at github.com/ReinaMacCredy/Veylen/issues.",
+      );
+    }
+    const response = await fetchImplementation(endpoint, {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-synara-feedback": "1",
+        "x-veylen-feedback": "1",
       },
       body: JSON.stringify(submission),
       signal: controller.signal,

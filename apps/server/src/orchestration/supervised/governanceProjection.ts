@@ -3,7 +3,7 @@ import {
   type SupervisedGovernanceDomainEvent,
   type SupervisedOrchestrationSnapshot,
   type SupervisionDomainEvent,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 
 import { projectSupervisedGovernanceDecisionEvent } from "./governanceProjector.ts";
 
@@ -18,7 +18,7 @@ const assertCanonicalVersion = (event: SupervisedGovernanceDomainEvent): void =>
   }
 };
 
-// TODO(synara): Remove the legacy event adapter on or after 2027-08-09 once every
+// TODO(veylen): Remove the legacy event adapter on or after 2027-08-09 once every
 // supported database has replayed migration 108 and no supervision events remain.
 export const upcastLegacySupervisionEvent = (
   event: SupervisionDomainEvent,

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
 
-import type { HarnessPatch, SupervisedActor } from "@synara/contracts";
+import type { HarnessPatch, SupervisedActor } from "@veylen/contracts";
 
 import {
   applyHarnessPatchSandboxEvaluation,

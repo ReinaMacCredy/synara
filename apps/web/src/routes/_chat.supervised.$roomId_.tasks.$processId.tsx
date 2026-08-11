@@ -1,4 +1,4 @@
-import { TaskProcessId } from "@synara/contracts";
+import { TaskProcessId } from "@veylen/contracts";
 import { createFileRoute } from "@tanstack/react-router";
 
 import { ProcessWorkspace } from "~/components/process/ProcessWorkspace";

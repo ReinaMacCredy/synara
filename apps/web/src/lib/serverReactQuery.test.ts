@@ -8,7 +8,7 @@ import {
   ThreadId,
   type ServerConfig,
   type ServerProviderStatus,
-} from "@synara/contracts";
+} from "@veylen/contracts";
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 
@@ -59,11 +59,11 @@ describe("TaskProcess projection queries", () => {
 
 function makeServerConfig(providers: readonly ServerProviderStatus[]): ServerConfig {
   return {
-    cwd: "G:\\synara",
+    cwd: "G:\\veylen",
     homeDir: "C:\\Users\\tester",
-    chatWorkspaceRoot: "C:\\Users\\tester\\Documents\\Synara",
-    worktreesDir: "C:\\SynaraDev\\worktrees",
-    keybindingsConfigPath: "C:\\SynaraDev\\keybindings.json",
+    chatWorkspaceRoot: "C:\\Users\\tester\\Documents\\Veylen",
+    worktreesDir: "C:\\VeylenDev\\worktrees",
+    keybindingsConfigPath: "C:\\VeylenDev\\keybindings.json",
     keybindings: [],
     issues: [],
     providers,
@@ -197,7 +197,7 @@ describe("serverLocalServersQueryOptions", () => {
     expect(options.refetchOnWindowFocus).toBe(true);
   });
 
-  it("uses visible polling while a Synara-owned project run is active", () => {
+  it("uses visible polling while a Veylen-owned project run is active", () => {
     const options = sidebarLocalServersQueryOptions({
       hasActiveProjectRun: true,
       hasProjects: true,

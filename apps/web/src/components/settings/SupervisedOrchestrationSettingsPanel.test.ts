@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 
-import { ProfilePresetId, type ProfilePreset } from "@synara/contracts";
+import { ProfilePresetId, type ProfilePreset } from "@veylen/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
