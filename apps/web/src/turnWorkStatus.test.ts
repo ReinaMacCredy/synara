@@ -97,6 +97,44 @@ describe("deriveTurnWorkStatus", () => {
     expect(status.isWorking).toBe(false);
   });
 
+  it("stays idle when hasLiveTurn flaps after a true idle settle", () => {
+    // First frame: true idle → sticky. Second: hasLiveTurn flap must not re-open.
+    const base = {
+      messages: [
+        { role: "user" as const, id: "u1", createdAt: "2026-08-05T18:36:00.000Z" },
+        { role: "assistant" as const, id: "a1", createdAt: "2026-08-05T18:36:22.000Z" },
+      ],
+      latestTurn: {
+        turnId: turn1,
+        state: "completed" as const,
+        startedAt: "2026-08-05T18:36:01.000Z",
+        completedAt: "2026-08-05T18:36:22.000Z",
+        requestedAt: "2026-08-05T18:36:00.500Z",
+      },
+      localDispatchActive: false,
+      localDispatchStartedAt: null as string | null,
+      isConnecting: false,
+      hasStreamingAssistantText: false,
+      persistedStartedAtForTurn: "2026-08-05T18:36:00.000Z" as string | null,
+    };
+    const idle = deriveTurnWorkStatus({
+      ...base,
+      session: { status: "ready", orchestrationStatus: "ready", activeTurnId: undefined },
+      hasLiveTurn: false,
+      hasLiveTurnTail: false,
+    });
+    expect(idle.activeTurnInProgress).toBe(false);
+
+    const flap = deriveTurnWorkStatus({
+      ...base,
+      session: { status: "running", orchestrationStatus: "running", activeTurnId: turn1 },
+      hasLiveTurn: true,
+      hasLiveTurnTail: true,
+    });
+    expect(flap.activeTurnInProgress).toBe(false);
+    expect(flap.isWorking).toBe(false);
+  });
+
   it("uses the latest user message as startedAt for a live turn", () => {
     const userAt = "2026-08-05T19:00:00.000Z";
     const status = deriveTurnWorkStatus({

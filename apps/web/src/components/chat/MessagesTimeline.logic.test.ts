@@ -1,5 +1,5 @@
 import { CheckpointRef, MessageId, OrchestrationProposedPlanId, TurnId } from "@veylen/contracts";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
   buildTurnDiffSummaryByAssistantMessageId,
   canSubmitUserMessageEdit,
@@ -13,6 +13,7 @@ import {
   findLastLiveWorkGroupId,
   normalizeCompactToolLabel,
   planWorkEntryRenderChunks,
+  resetMessagesTimelineStickySettleForTests,
   resolveAssistantMessageCopyState,
   resolveAssistantMessageDisplayText,
   type CollapsedTurnItem,
@@ -866,6 +867,10 @@ describe("resolveAssistantMessageDisplayText", () => {
 describe("deriveMessagesTimelineRows", () => {
   type MessageTimelineRow = Extract<MessagesTimelineRow, { kind: "message" }>;
 
+  beforeEach(() => {
+    resetMessagesTimelineStickySettleForTests();
+  });
+
   const baseInput = {
     isWorking: false,
     worktreeSetup: null as WorktreeSetupSnapshot | null,
@@ -1028,8 +1033,12 @@ describe("deriveMessagesTimelineRows", () => {
       "work:w2",
     ]);
     expect(terminal!.inlineWorkEntries).toBeUndefined();
-    // Timed from the user message, not from the last intermediate narration.
-    expect(terminal!.collapsedWorkElapsed).toBe("6.0s");
+    // Same origin as live Working: first agent-work item (:02), not user send.
+    expect(terminal!.collapsedWorkElapsed).toBe("4.0s");
+    expect(rows.find((row) => row.kind === "turn-activity")).toMatchObject({
+      createdAt: "2026-01-01T00:00:02Z",
+      state: "settled",
+    });
     expect(rows.some((row) => row.kind === "work")).toBe(false);
   });
 
@@ -1065,10 +1074,9 @@ describe("deriveMessagesTimelineRows", () => {
     expect(terminal?.collapsedTurnItems).toBeUndefined();
   });
 
-  it("times the collapsed disclosure from the turn start, not the last intermediate assistant message", () => {
-    // Mirrors a provider failure + retry: the first attempt's assistant message
-    // completes 22m20s in, the retry answers 40s later. The disclosure folds
-    // the whole run, so the timer must cover it too — not just the retry tail.
+  it("times the collapsed disclosure from first agent work, covering the full folded run", () => {
+    // Provider failure + retry: fold the whole run. Clock matches live Working
+    // (first tool at :05), not the user-send origin and not the retry tail only.
     const rows = deriveMessagesTimelineRows({
       ...baseInput,
       timelineEntries: [
@@ -1091,7 +1099,11 @@ describe("deriveMessagesTimelineRows", () => {
     const terminal = messageRow(rows, "a2");
     expect(terminal).toBeDefined();
     expect(collapsedSignature(terminal!)).toEqual(["work:w1", "narration:a1", "work:w2"]);
-    expect(terminal!.collapsedWorkElapsed).toBe("23m");
+    expect(terminal!.collapsedWorkElapsed).toBe("22m 55s");
+    expect(rows.find((row) => row.kind === "turn-activity")).toMatchObject({
+      createdAt: "2026-01-01T00:00:05Z",
+      state: "settled",
+    });
   });
 
   it("keeps the live turn expanded (Working + process inline) while it streams", () => {
@@ -1355,6 +1367,82 @@ describe("deriveMessagesTimelineRows", () => {
     expect(rows.some((row) => row.kind === "reasoning-status")).toBe(false);
   });
 
+  it("keeps Worked sticky when activeTurnInProgress flaps true after a true idle settle", () => {
+    // After idle settle, session flaps must not re-open Working. Mid-run
+    // preamble completedAt alone must NOT sticky-settle (see next test).
+    const entries = [
+      userEntry("u1", "2026-01-01T00:00:00Z"),
+      workEntry("w1", "2026-01-01T00:00:12Z", "Balancing summary length"),
+      assistantEntry("a1", "2026-01-01T00:00:29Z", {
+        turnId: "t1",
+        text: "Veylen is a local-first desktop app…",
+        completedAt: "2026-01-01T00:00:29Z",
+      }),
+    ];
+
+    const settled = deriveMessagesTimelineRows({
+      ...baseInput,
+      isWorking: false,
+      activeTurnInProgress: false,
+      activeTurnId: TurnId.makeUnsafe("t1"),
+      timelineEntries: entries,
+    });
+    expect(settled.find((row) => row.kind === "turn-activity")).toMatchObject({
+      id: "turn-activity:u1",
+      state: "settled",
+      // Agent-work origin (:12), not user-send (:00) — matches live Working clock.
+      createdAt: "2026-01-01T00:00:12Z",
+    });
+    expect(settled.some((row) => row.kind === "work")).toBe(false);
+
+    const flap = deriveMessagesTimelineRows({
+      ...baseInput,
+      isWorking: true,
+      activeTurnInProgress: true,
+      activeTurnId: TurnId.makeUnsafe("t1"),
+      activeTurnStartedAt: "2026-01-01T00:00:00Z",
+      timelineEntries: entries,
+    });
+    expect(flap.filter((row) => row.kind === "turn-activity")).toEqual([
+      expect.objectContaining({
+        id: "turn-activity:u1",
+        state: "settled",
+        createdAt: "2026-01-01T00:00:12Z",
+      }),
+    ]);
+    expect(flap.some((row) => row.kind === "work")).toBe(false);
+  });
+
+  it("does not early-settle Worked while the turn is still live (preamble completedAt)", () => {
+    // Regression: sticky-on-completedAt collapsed mid-run → Worked 9.7s on
+    // preamble, then Working 10s, then Worked 20s.
+    const rows = deriveMessagesTimelineRows({
+      ...baseInput,
+      isWorking: true,
+      activeTurnInProgress: true,
+      activeTurnId: TurnId.makeUnsafe("t1"),
+      activeTurnStartedAt: "2026-01-01T00:00:00Z",
+      timelineEntries: [
+        userEntry("u1", "2026-01-01T00:00:00Z"),
+        workEntry("r1", "2026-01-01T00:00:02Z", "Reasoning summary", "thinking", {
+          toolTitle: "Reasoning summary",
+          detail: "Planning README and summary inspection",
+          turnId: "t1",
+        }),
+        assistantEntry("a1", "2026-01-01T00:00:03Z", {
+          turnId: "t1",
+          text: "I'll locate the repository README…",
+          completedAt: "2026-01-01T00:00:03Z",
+        }),
+      ],
+    });
+    expect(rows.find((row) => row.kind === "turn-activity")).toMatchObject({
+      state: "working",
+      createdAt: "2026-01-01T00:00:02Z",
+    });
+    expect(rows.some((row) => row.kind === "turn-activity" && row.state === "settled")).toBe(false);
+  });
+
   it("omits Worked for when a turn completes without tool details", () => {
     // ChatGPT: text-only replies have no Working/Worked divider (Image: cwd ask).
     const rows = deriveMessagesTimelineRows({
@@ -1412,7 +1500,8 @@ describe("deriveMessagesTimelineRows", () => {
     });
   });
 
-  it("keeps a just-settled tail assistant expanded when the active turn id is briefly unavailable", () => {
+  it("stays Working while live even if the tail assistant already has completedAt and no turn id", () => {
+    // Live turn + completed preamble/tail must not collapse until idle settle.
     const rows = deriveMessagesTimelineRows({
       ...baseInput,
       isWorking: true,
@@ -1429,15 +1518,12 @@ describe("deriveMessagesTimelineRows", () => {
       ],
     });
 
-    const terminal = messageRow(rows, "a1");
-    expect(terminal).toBeDefined();
-    expect(terminal!.leadingWorkEntries?.map((entry) => entry.id)).toEqual(["w1"]);
-    expect(terminal!.inlineWorkEntries).toBeUndefined();
-    expect(terminal!.collapsedTurnItems).toBeUndefined();
-    expect(rows.some((row) => row.kind === "work")).toBe(false);
     expect(rows.find((row) => row.kind === "turn-activity")).toMatchObject({
+      id: "turn-activity:u1",
       state: "working",
+      createdAt: "2026-01-01T00:00:01Z",
     });
+    expect(messageRow(rows, "a1")?.leadingWorkEntries?.map((e) => e.id)).toEqual(["w1"]);
   });
 
   it("keeps the settled header while a stale turn id waits for follow-up output", () => {

@@ -41,6 +41,26 @@ export type TurnWorkStatus = {
   readonly isWorking: boolean;
 };
 
+// Sticky settle: turnKeys that already went idle once. Survives hasLiveTurn /
+// orchestration flaps so Worked does not flip back to Working.
+const stickySettledTurnKeys = new Set<string>();
+
+function markStickySettledTurnKey(turnKey: string): void {
+  stickySettledTurnKeys.add(turnKey);
+}
+
+function clearStickySettledTurnKey(turnKey: string): void {
+  stickySettledTurnKeys.delete(turnKey);
+}
+
+function clearStickySettledTurnKeys(): void {
+  stickySettledTurnKeys.clear();
+}
+
+function isStickySettledTurnKey(turnKey: string): boolean {
+  return stickySettledTurnKeys.has(turnKey);
+}
+
 /**
  * True when the transcript ends on a user message that still has no settled
  * assistant answer. Used for remount survival — not a second Working path.
@@ -251,15 +271,41 @@ export function deriveTurnWorkStatus(input: {
   // briefly leaves "running" (provider status flaps can otherwise cause a blank flick).
   const streamingOpenTurn = input.hasStreamingAssistantText === true && lastRole === "assistant";
 
-  const activeTurnInProgress =
-    input.localDispatchActive ||
-    input.isConnecting ||
+  // Live signals this frame (before sticky). localDispatch / connecting always win
+  // so a new send is never blocked by a prior sticky settle.
+  const liveSignals =
     input.hasLiveTurn ||
     latestTurnInProgress ||
     awaitingAnswer ||
     streamingOpenTurn ||
     // Live tool/tail work without a running session flag still owns the header.
     (input.hasLiveTurnTail && lastRole === "user");
+
+  // Sticky settle by turnKey: once a turn goes idle with a completed assistant
+  // tail, ignore hasLiveTurn / orchestration flaps that would re-open Working
+  // after Worked. Do NOT sticky on intermediate message.completedAt — only when
+  // this frame's liveSignals are already false (true end), then hold through flaps.
+  if (input.localDispatchActive || lastRole === "user") {
+    clearStickySettledTurnKeys();
+  } else if (
+    turnKey &&
+    !liveSignals &&
+    !input.localDispatchActive &&
+    !input.isConnecting &&
+    lastRole === "assistant" &&
+    !streamingOpenTurn
+  ) {
+    markStickySettledTurnKey(turnKey);
+  } else if (turnKey && streamingOpenTurn) {
+    // True continuation after a false settle: unstick so Working can return.
+    clearStickySettledTurnKey(turnKey);
+  }
+  const stickySettled = turnKey != null && isStickySettledTurnKey(turnKey);
+
+  const activeTurnInProgress =
+    input.localDispatchActive ||
+    input.isConnecting ||
+    (!stickySettled && liveSignals);
 
   const workStatusInFlight = activeTurnInProgress;
   // Continuous origin for *this* open turn (morning deriveActiveWorkStartedAt order).
@@ -348,4 +394,5 @@ export function clearTurnWorkStartedAt(threadId: ThreadId): void {
 /** Test / HMR isolation only. */
 export function resetTurnWorkStatusForTests(): void {
   turnSeedByThreadId.clear();
+  stickySettledTurnKeys.clear();
 }

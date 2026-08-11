@@ -953,6 +953,15 @@ function turnActivityRowId(boundaryMessageId: MessageId | null, turnId: TurnId |
   return `turn-activity:${boundaryMessageId ?? turnId ?? "pending"}`;
 }
 
+// Sticky Worked-for after a true idle settle. Survives activeTurnInProgress flaps
+// without collapsing mid-run on intermediate message.completedAt.
+const stickySettledActivityIds = new Set<string>();
+
+/** Test isolation only. */
+export function resetMessagesTimelineStickySettleForTests(): void {
+  stickySettledActivityIds.clear();
+}
+
 // Returns the terminal assistant only when it is still the transcript tail.
 // A newer user message means the next turn has begun but has not produced text yet.
 function findTailTerminalAssistantMessageId(
@@ -1015,13 +1024,30 @@ function collapseSettledTurns(
     const message = row.message;
     // Only the terminal message of a turn owns the collapsed group.
     if (!terminalAssistantMessageIds.has(message.id)) continue;
-    // Never collapse the live turn: streaming text or the in-progress turn stays
-    // inline so the user sees output as it arrives.
+    // Never collapse while the terminal answer is still streaming.
+    // Do NOT force-settle on message.completedAt alone — intermediate preambles
+    // often complete mid-run and would flash Worked (9.7s) then re-open Working.
     if (message.streaming) continue;
     const turnId = message.turnId ?? null;
+
+    // Pre-scan user boundary so we can resolve the stable activity id for sticky.
+    let boundaryMessageId: MessageId | null = null;
+    for (let scan = pass - 1; scan >= 0; scan -= 1) {
+      const prev = rows[scan]!;
+      if (prev.kind === "work") continue;
+      if (prev.kind === "message" && prev.message.role === "assistant") continue;
+      if (prev.kind === "proposed-plan") continue;
+      if (prev.kind === "message" && prev.message.role === "user") {
+        boundaryMessageId = prev.message.id;
+      }
+      break;
+    }
+    const activityId = turnActivityRowId(boundaryMessageId, turnId);
+    const stickySettled = stickySettledActivityIds.has(activityId);
     const turnIsActive =
       activeTurnInProgress &&
       !newerUserBoundarySeen &&
+      !stickySettled &&
       (activeTurnId != null
         ? (turnId != null && turnId === activeTurnId) ||
           message.id === lastTerminalAssistantMessageId
@@ -1032,7 +1058,7 @@ function collapseSettledTurns(
     // mini-turns can have distinct turnIds inside one assistant answer, so the
     // user message boundary is the stable UI grouping point.
     const foldIndices: number[] = [];
-    let boundaryMessageId: MessageId | null = null;
+    boundaryMessageId = null;
     for (let scan = pass - 1; scan >= 0; scan -= 1) {
       const prev = rows[scan]!;
       if (prev.kind === "work") {
@@ -1086,7 +1112,6 @@ function collapseSettledTurns(
     if (row.leadingWorkEntries) collectWorkItems(row.leadingWorkEntries, collapsedItems);
     if (row.inlineWorkEntries) collectWorkItems(row.inlineWorkEntries, collapsedItems);
 
-    const elapsed = formatElapsed(collapsedStart, message.completedAt);
     // ChatGPT only emits Worked for between *agent activity* and the final
     // answer. Pure text turns (hi → reply) keep no header and no disclosure.
     const hasAgentActivityInCollapse = collapsedItems.some(
@@ -1097,6 +1122,18 @@ function collapseSettledTurns(
       // invent an empty Worked-for divider.
       continue;
     }
+
+    // Same origin as live Working (first agent-work item), not the user-send
+    // durationStart — otherwise Worked jumps 10s → 20s vs the Working clock.
+    let agentClockOrigin: string | null = null;
+    for (const item of collapsedItems) {
+      if (item.kind !== "work" || !isLiveStartedWorkEntry(item.entry)) continue;
+      agentClockOrigin = agentClockOrigin
+        ? earliestTimestamp(agentClockOrigin, item.entry.createdAt)
+        : item.entry.createdAt;
+    }
+    const clockOrigin = agentClockOrigin ?? collapsedStart;
+    const elapsed = formatElapsed(clockOrigin, message.completedAt);
 
     if (collapsedItems.length > 0) {
       row.collapsedTurnItems = collapsedItems;
@@ -1111,15 +1148,21 @@ function collapseSettledTurns(
       rows.splice(index, 1);
     }
     const terminalIndex = pass - foldIndices.length;
+    const settledId = turnActivityRowId(boundaryMessageId, turnId);
     rows.splice(terminalIndex, 0, {
       kind: "turn-activity",
-      id: turnActivityRowId(boundaryMessageId, turnId),
-      createdAt: collapsedStart,
+      id: settledId,
+      createdAt: clockOrigin,
       state: "settled",
       showReasoningStatus: false,
       ...(collapsedItems.length > 0 ? { collapsedTurnItems: collapsedItems } : {}),
       collapsedWorkElapsed: elapsed ?? null,
     });
+    // Mark sticky only after a true idle settle so mid-run flaps do not
+    // permanently lock Worked while the agent is still working.
+    if (!activeTurnInProgress || stickySettled) {
+      stickySettledActivityIds.add(settledId);
+    }
     pass = terminalIndex;
   }
 }
