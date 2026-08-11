@@ -1,36 +1,18 @@
 // FILE: SourceCommitRow.tsx
-// Purpose: GitHub-style history row — graph lane, message + branch chips, author, SHA, date.
+// Purpose: Responsive Source history row with graph, commit context, author, diff, and time.
 // Layer: Source UI
 
 import type { GitHistoryCommit } from "@veylen/contracts";
+import type { CSSProperties } from "react";
 
-import { PullRequestAvatar } from "~/components/pullRequest/PullRequestAvatar";
 import { PullRequestDiffStat } from "~/components/pullRequest/PullRequestDiffStat";
-import {
-  PR_BODY_TEXT_CLASS_NAME,
-  PR_FINE_TEXT_CLASS_NAME,
-  PR_QUIET_INK_CLASS_NAME,
-} from "~/components/pullRequest/pullRequestText";
 import { formatRelativeTime } from "~/lib/relativeTime";
 import { cn } from "~/lib/utils";
 
-/** GitHub Desktop-ish absolute time when recent, else short locale date. */
 export function formatSourceCommitDate(iso: string): string {
   if (!iso) return "";
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
-
-  const now = new Date();
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const startOfThatDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const dayDiff = Math.round((startOfToday.getTime() - startOfThatDay.getTime()) / 86_400_000);
-  const time = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-
-  if (dayDiff === 0) return `Today at ${time}`;
-  if (dayDiff === 1) return `Yesterday at ${time}`;
-  if (dayDiff > 1 && dayDiff < 7) {
-    return `${date.toLocaleDateString(undefined, { weekday: "short" })} at ${time}`;
-  }
   return date.toLocaleString(undefined, {
     day: "numeric",
     month: "short",
@@ -40,54 +22,32 @@ export function formatSourceCommitDate(iso: string): string {
   });
 }
 
-function chipTone(ref: string, index: number): "green" | "orange" | "red" | "purple" | "gray" {
+function chipTone(ref: string): "green" | "orange" | "purple" | "gray" {
   const lower = ref.toLowerCase();
   if (lower === "main" || lower === "master") return "green";
   if (lower.startsWith("origin/") || lower.startsWith("upstream/")) return "orange";
   if (lower.includes("stash")) return "gray";
-  if (index === 0) return "orange";
-  if (index === 1) return "purple";
-  return "red";
+  return "purple";
 }
 
-const CHIP_CLASS: Record<string, string> = {
-  green:
-    "border-emerald-500/45 bg-emerald-500/10 text-emerald-300",
-  orange: "border-amber-500/50 bg-amber-500/10 text-amber-300",
-  red: "border-red-500/45 bg-red-500/10 text-red-300",
-  purple: "border-violet-500/45 bg-violet-500/12 text-violet-300",
-  gray: "border-border/60 bg-muted/40 text-muted-foreground",
-};
+const CHIP_CLASS = {
+  green: "border-emerald-500/40 bg-emerald-500/8 text-emerald-300",
+  orange: "border-amber-500/45 bg-amber-500/8 text-amber-300",
+  purple: "border-violet-500/40 bg-violet-500/10 text-violet-300",
+  gray: "border-border/60 bg-muted/35 text-muted-foreground",
+} as const;
 
-function BranchChip({ label, tone }: { label: string; tone: keyof typeof CHIP_CLASS }) {
+function BranchChip({ label }: { readonly label: string }) {
   return (
     <span
       className={cn(
-        "inline-flex max-w-[11rem] shrink-0 items-center truncate rounded-full border px-1.5 py-px font-mono text-[10.5px] leading-4",
-        CHIP_CLASS[tone],
+        "inline-flex max-w-48 shrink-0 items-center truncate rounded-full border px-1.5 py-px font-mono text-[10px] leading-4",
+        CHIP_CLASS[chipTone(label)],
       )}
       title={label}
     >
       {label}
     </span>
-  );
-}
-
-function MergeGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      className={cn("size-3 shrink-0 opacity-70", className)}
-      viewBox="0 0 12 12"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.4"
-      aria-hidden
-    >
-      <circle cx="3" cy="3" r="1.5" />
-      <circle cx="3" cy="9" r="1.5" />
-      <circle cx="9" cy="3" r="1.5" />
-      <path d="M3 4.5v3M9 4.5v1.2A2.3 2.3 0 0 1 6.7 8H4.5" strokeLinecap="round" />
-    </svg>
   );
 }
 
@@ -104,8 +64,6 @@ export function SourceCommitRow({
   readonly selected: boolean;
   readonly onClick: () => void;
 }) {
-  const isMerge = commit.parents.length > 1;
-  const chips = commit.refs.slice(0, 3);
   const when = commit.authoredAt ? formatSourceCommitDate(commit.authoredAt) : "";
   const relative = commit.authoredAt
     ? formatRelativeTime(
@@ -114,12 +72,7 @@ export function SourceCommitRow({
           : new Date(commit.authoredAt).toISOString(),
       )
     : "";
-  const actor = {
-    login: commit.authorName.trim() || "unknown",
-    name: commit.authorName.trim() || null,
-    avatarUrl: null as string | null,
-    url: null as string | null,
-  };
+  const rowStyle = { "--source-graph-width": `${graphWidth}px` } as CSSProperties;
 
   return (
     <button
@@ -127,54 +80,36 @@ export function SourceCommitRow({
       onClick={onClick}
       aria-current={selected ? "true" : undefined}
       className={cn(
-        "grid w-full items-center gap-x-2.5 border-b border-border/20 px-2 py-0 text-left transition-colors",
-        "min-h-8 hover:bg-[var(--color-background-elevated-secondary)]/70",
-        selected && "bg-[var(--color-background-elevated-secondary)]",
+        "source-history-grid source-commit-row group relative min-h-14 w-full border-b border-border/25 px-3 text-left transition-colors",
+        "hover:bg-[var(--color-background-elevated-secondary)]/55",
+        selected && "bg-violet-500/10",
       )}
-      style={{
-        gridTemplateColumns: `${graphWidth}px minmax(0, 1fr) minmax(7.5rem, 9rem) 4.5rem minmax(6.5rem, 8rem)`,
-      }}
+      style={rowStyle}
     >
-      <div
-        className="flex h-8 shrink-0 items-center"
-        style={{ width: graphWidth }}
+      <span
+        className="flex h-14 shrink-0 items-center overflow-hidden"
         dangerouslySetInnerHTML={{ __html: graphSvg }}
       />
 
-      <span className="flex min-w-0 items-center gap-1.5">
-        {chips.map((ref, index) => (
-          <BranchChip key={ref} label={ref} tone={chipTone(ref, index)} />
-        ))}
-        {isMerge ? <MergeGlyph className="text-muted-foreground" /> : null}
-        <span
-          className={cn(
-            PR_BODY_TEXT_CLASS_NAME,
-            "min-w-0 truncate font-medium",
-            isMerge ? "text-muted-foreground" : "text-foreground",
-          )}
-        >
+      <span className="source-commit-main min-w-0 pr-2">
+        <span className="source-commit-title truncate text-[13px] font-medium text-foreground">
           {commit.subject || "(no subject)"}
         </span>
-      </span>
-
-      <span
-        className={cn(PR_FINE_TEXT_CLASS_NAME, PR_QUIET_INK_CLASS_NAME, "flex min-w-0 items-center gap-1.5")}
-      >
-        <PullRequestAvatar actor={actor} size="sm" className="shrink-0" />
-        <span className="truncate">{commit.authorName || "unknown"}</span>
-      </span>
-
-      <span className={cn(PR_FINE_TEXT_CLASS_NAME, "font-mono text-muted-foreground tabular-nums")}>
-        {commit.shortSha}
-      </span>
-
-      <span className="flex min-w-0 flex-col items-end gap-0.5">
-        <span
-          className={cn(PR_FINE_TEXT_CLASS_NAME, PR_QUIET_INK_CLASS_NAME, "truncate tabular-nums")}
-          title={when}
-        >
-          {when || relative}
+        <span className="source-commit-meta mt-1 flex min-w-0 items-center gap-1.5 overflow-hidden">
+          {commit.refs.slice(0, 2).map((ref) => (
+            <BranchChip key={ref} label={ref} />
+          ))}
+          <span className="shrink-0 font-mono text-[10px] text-muted-foreground/65">
+            {commit.shortSha}
+          </span>
         </span>
+      </span>
+
+      <span className="source-commit-author truncate text-xs text-muted-foreground">
+        {commit.authorName || "unknown"}
+      </span>
+
+      <span className="source-commit-changes">
         {commit.additions > 0 || commit.deletions > 0 ? (
           <PullRequestDiffStat
             additions={commit.additions}
@@ -182,7 +117,16 @@ export function SourceCommitRow({
             tone="diff"
             className="text-[10px]"
           />
-        ) : null}
+        ) : (
+          <span className="text-[10px] text-muted-foreground/55">—</span>
+        )}
+      </span>
+
+      <span
+        className="source-commit-time text-right text-[11px] tabular-nums text-muted-foreground/70"
+        title={when}
+      >
+        {relative}
       </span>
     </button>
   );

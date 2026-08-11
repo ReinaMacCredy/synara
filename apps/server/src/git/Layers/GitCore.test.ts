@@ -2779,4 +2779,28 @@ it.layer(TestLayer)("git integration", (it) => {
       }),
     );
   });
+
+  describe("history", () => {
+    it.effect("returns per-file stats for the commit inspector", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        yield* initRepoWithCommit(tmp);
+        yield* writeTextFile(path.join(tmp, "README.md"), "# test\nexpanded\n");
+        yield* writeTextFile(path.join(tmp, "feature.ts"), "export const enabled = true;\n");
+        yield* git(tmp, ["add", "README.md", "feature.ts"]);
+        yield* git(tmp, ["commit", "-m", "add feature"]);
+
+        const history = yield* (yield* GitCore).listHistory({ cwd: tmp, limit: 10 });
+        const commit = history.commits[0];
+
+        expect(commit?.subject).toBe("add feature");
+        expect(commit?.files).toEqual(
+          expect.arrayContaining([
+            { path: "README.md", insertions: 1, deletions: 0 },
+            { path: "feature.ts", insertions: 1, deletions: 0 },
+          ]),
+        );
+      }),
+    );
+  });
 });

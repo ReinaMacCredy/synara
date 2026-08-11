@@ -1,1 +1,69 @@
-/* Reserved for Source history tweaks. Graph + rows are native React (Option A GitHub-style). */
+.source-history-container {
+  container-name: source-history;
+  container-type: inline-size;
+}
+
+.source-history-grid {
+  display: grid;
+  grid-template-columns:
+    var(--source-graph-width)
+    minmax(16rem, 1fr)
+    minmax(6.5rem, 8rem)
+    5rem
+    5.5rem;
+  column-gap: 0.75rem;
+  align-items: center;
+}
+
+.source-commit-main,
+.source-commit-title,
+.source-commit-meta {
+  display: block;
+}
+
+.source-commit-meta {
+  display: flex;
+}
+
+.source-commit-row[aria-current="true"]::before {
+  position: absolute;
+  inset-block: 0.5rem;
+  left: 0;
+  width: 2px;
+  border-radius: 999px;
+  background: rgb(167 139 250);
+  content: "";
+}
+
+@container source-history (max-width: 760px) {
+  .source-history-grid {
+    grid-template-columns: var(--source-graph-width) minmax(14rem, 1fr) 5rem 5.5rem;
+  }
+
+  .source-history-grid > :nth-child(3),
+  .source-commit-author {
+    display: none;
+  }
+}
+
+@container source-history (max-width: 590px) {
+  .source-history-grid {
+    grid-template-columns: var(--source-graph-width) minmax(12rem, 1fr) 5.5rem;
+  }
+
+  .source-history-grid > :nth-child(4),
+  .source-commit-changes {
+    display: none;
+  }
+}
+
+@container source-history (max-width: 450px) {
+  .source-history-grid {
+    grid-template-columns: var(--source-graph-width) minmax(10rem, 1fr);
+  }
+
+  .source-history-grid > :nth-child(5),
+  .source-commit-time {
+    display: none;
+  }
+}

@@ -214,6 +214,16 @@ export const GitHistoryCommit = Schema.Struct({
   /** Aggregate diff size from `git log --numstat` (0 when unavailable). */
   additions: NonNegativeInt,
   deletions: NonNegativeInt,
+  /** Per-file diff size for the commit inspector. */
+  files: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        path: TrimmedNonEmptyStringSchema,
+        insertions: NonNegativeInt,
+        deletions: NonNegativeInt,
+      }),
+    ),
+  ),
 });
 export type GitHistoryCommit = typeof GitHistoryCommit.Type;
 
