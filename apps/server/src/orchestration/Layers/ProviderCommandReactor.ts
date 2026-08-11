@@ -2426,34 +2426,6 @@ const make = Effect.gen(function* () {
         operation: "thread.turn.start",
       });
 
-      if (message.role === "user") {
-        yield* maybeGenerateAndRenameWorktreeBranchForFirstTurn({
-          threadId: event.payload.threadId,
-          branch: thread.branch,
-          worktreePath: thread.worktreePath,
-          messageId: message.id,
-          messageText: message.text,
-          ...(message.attachments !== undefined ? { attachments: resolvedAttachments } : {}),
-          ...(event.payload.modelSelection !== undefined
-            ? { modelSelection: event.payload.modelSelection }
-            : {}),
-          ...(event.payload.providerOptions !== undefined
-            ? { providerOptions: event.payload.providerOptions }
-            : {}),
-        }).pipe(Effect.forkScoped);
-        yield* maybeGenerateAndRenameThreadTitleForFirstTurn({
-          threadId: event.payload.threadId,
-          messageId: message.id,
-          messageText: message.text,
-          ...(message.attachments !== undefined ? { attachments: resolvedAttachments } : {}),
-          ...(event.payload.modelSelection !== undefined
-            ? { modelSelection: event.payload.modelSelection }
-            : {}),
-          ...(event.payload.providerOptions !== undefined
-            ? { providerOptions: event.payload.providerOptions }
-            : {}),
-        }).pipe(Effect.forkScoped);
-      }
       // Only a native steer against a genuinely live turn keeps steer
       // semantics; anything else that reaches direct dispatch runs as a
       // normal queued turn (with its turn-start checkpoint).
@@ -2522,6 +2494,34 @@ const make = Effect.gen(function* () {
         ),
         Effect.ensuring(Effect.sync(() => editResendTurnStartKeys.delete(editResendKey))),
       );
+      if (message.role === "user") {
+        yield* maybeGenerateAndRenameWorktreeBranchForFirstTurn({
+          threadId: event.payload.threadId,
+          branch: thread.branch,
+          worktreePath: thread.worktreePath,
+          messageId: message.id,
+          messageText: message.text,
+          ...(message.attachments !== undefined ? { attachments: resolvedAttachments } : {}),
+          ...(event.payload.modelSelection !== undefined
+            ? { modelSelection: event.payload.modelSelection }
+            : {}),
+          ...(event.payload.providerOptions !== undefined
+            ? { providerOptions: event.payload.providerOptions }
+            : {}),
+        }).pipe(Effect.forkScoped);
+        yield* maybeGenerateAndRenameThreadTitleForFirstTurn({
+          threadId: event.payload.threadId,
+          messageId: message.id,
+          messageText: message.text,
+          ...(message.attachments !== undefined ? { attachments: resolvedAttachments } : {}),
+          ...(event.payload.modelSelection !== undefined
+            ? { modelSelection: event.payload.modelSelection }
+            : {}),
+          ...(event.payload.providerOptions !== undefined
+            ? { providerOptions: event.payload.providerOptions }
+            : {}),
+        }).pipe(Effect.forkScoped);
+      }
       if (startedTurn && isPendingQueuedDispatch) {
         yield* bindPendingQueuedDispatchToTurn(startedTurn.turnId);
       }

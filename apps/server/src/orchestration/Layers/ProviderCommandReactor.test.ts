@@ -4518,6 +4518,48 @@ describe("ProviderCommandReactor", () => {
     );
   });
 
+  it("starts the first provider turn before optional title generation", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    harness.generateThreadTitle.mockImplementation(() =>
+      Effect.succeed({
+        title: "Provider turn starts first",
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.makeUnsafe("cmd-thread-title-provider-priority"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        title: "New thread",
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-provider-priority"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-provider-priority-1"),
+          role: "user",
+          text: "Start the provider before generating this thread title",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    await waitFor(() => harness.generateThreadTitle.mock.calls.length === 1);
+    expect(harness.startSession.mock.invocationCallOrder[0]).toBeLessThan(
+      harness.generateThreadTitle.mock.invocationCallOrder[0]!,
+    );
+  });
+
   it("uses the configured text generation model for providers without native title generation", async () => {
     const harness = await createHarness({
       threadModelSelection: {

@@ -97,6 +97,10 @@ function makeFakeCodexBinary(dir: string) {
         '  printf "%s\\n" "missing CODEX_HOME" >&2',
         "  exit 5",
         "fi",
+        'if [ -n "$VEYLEN_FAKE_CODEX_SHARED_HOME" ] && [ "$CODEX_HOME" = "$VEYLEN_FAKE_CODEX_SHARED_HOME/codex-home-overlay" ]; then',
+        '  printf "%s\\n" "text generation reused the shared Veylen CODEX_HOME" >&2',
+        "  exit 11",
+        "fi",
         'if [ "$VEYLEN_FAKE_CODEX_REQUIRE_AUTH_JSON" = "1" ] && [ ! -f "$CODEX_HOME/auth.json" ]; then',
         '  printf "%s\\n" "missing auth.json in CODEX_HOME" >&2',
         "  exit 6",
@@ -137,6 +141,7 @@ function withFakeCodexEnv<A, E, R>(
     stdinMustContain?: string;
     stdinMustNotContain?: string;
     requireCodexHome?: boolean;
+    requireIsolatedCodexHome?: boolean;
     requireAuthJson?: boolean;
     requireSkipGitRepoCheck?: boolean;
     requireApprovalNever?: boolean;
@@ -160,6 +165,7 @@ function withFakeCodexEnv<A, E, R>(
       const previousStdinMustContain = process.env.VEYLEN_FAKE_CODEX_STDIN_MUST_CONTAIN;
       const previousStdinMustNotContain = process.env.VEYLEN_FAKE_CODEX_STDIN_MUST_NOT_CONTAIN;
       const previousRequireCodexHome = process.env.VEYLEN_FAKE_CODEX_REQUIRE_CODEX_HOME;
+      const previousSharedCodexHome = process.env.VEYLEN_FAKE_CODEX_SHARED_HOME;
       const previousRequireAuthJson = process.env.VEYLEN_FAKE_CODEX_REQUIRE_AUTH_JSON;
       const previousRequireSkipGitRepoCheck =
         process.env.VEYLEN_FAKE_CODEX_REQUIRE_SKIP_GIT_REPO_CHECK;
@@ -212,6 +218,12 @@ function withFakeCodexEnv<A, E, R>(
           delete process.env.VEYLEN_FAKE_CODEX_REQUIRE_CODEX_HOME;
         }
 
+        if (input.requireIsolatedCodexHome) {
+          process.env.VEYLEN_FAKE_CODEX_SHARED_HOME = tempDir;
+        } else {
+          delete process.env.VEYLEN_FAKE_CODEX_SHARED_HOME;
+        }
+
         if (input.requireAuthJson) {
           process.env.VEYLEN_FAKE_CODEX_REQUIRE_AUTH_JSON = "1";
         } else {
@@ -255,6 +267,7 @@ function withFakeCodexEnv<A, E, R>(
         previousStdinMustContain,
         previousStdinMustNotContain,
         previousRequireCodexHome,
+        previousSharedCodexHome,
         previousRequireAuthJson,
         previousRequireSkipGitRepoCheck,
         previousRequireApprovalNever,
@@ -314,6 +327,12 @@ function withFakeCodexEnv<A, E, R>(
           delete process.env.VEYLEN_FAKE_CODEX_REQUIRE_CODEX_HOME;
         } else {
           process.env.VEYLEN_FAKE_CODEX_REQUIRE_CODEX_HOME = previous.previousRequireCodexHome;
+        }
+
+        if (previous.previousSharedCodexHome === undefined) {
+          delete process.env.VEYLEN_FAKE_CODEX_SHARED_HOME;
+        } else {
+          process.env.VEYLEN_FAKE_CODEX_SHARED_HOME = previous.previousSharedCodexHome;
         }
 
         if (previous.previousRequireAuthJson === undefined) {
@@ -478,6 +497,25 @@ it.layer(CodexTextGenerationTestLayer)("CodexTextGenerationLive", (it) => {
         });
 
         expect(generated.title).toBe("Polish sidebar loading state");
+      }),
+    ),
+  );
+
+  it.effect("keeps title generation out of the shared Veylen Codex home", () =>
+    withFakeCodexEnv(
+      {
+        output: JSON.stringify({ title: "Isolated title generation" }),
+        requireIsolatedCodexHome: true,
+      },
+      Effect.gen(function* () {
+        const textGeneration = yield* TextGeneration;
+
+        const generated = yield* textGeneration.generateThreadTitle({
+          cwd: process.cwd(),
+          message: "Keep this helper process away from the live provider runtime.",
+        });
+
+        expect(generated.title).toBe("Isolated title generation");
       }),
     ),
   );

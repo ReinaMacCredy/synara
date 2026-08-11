@@ -319,7 +319,10 @@ const makeCodexTextGeneration = Effect.gen(function* () {
         }
 
         const env = yield* Effect.promise(() =>
-          buildCodexProcessEnv({ homePath: isolatedCodexHome.homePath }),
+          buildCodexProcessEnv({
+            env: { ...process.env, VEYLEN_HOME: isolatedCodexHome.homePath },
+            homePath: isolatedCodexHome.homePath,
+          }),
         );
         const args = [
           "exec",
