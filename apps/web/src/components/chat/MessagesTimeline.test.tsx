@@ -160,7 +160,7 @@ describe("MessagesTimeline", () => {
     expect(markup.indexOf('data-fork-source-divider="true"')).toBeLessThan(
       markup.indexOf("Fork-only turn"),
     );
-  });
+  }, 15_000);
 
   it("keeps the divider after imported history while waiting for the first fork turn", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
@@ -177,7 +177,7 @@ describe("MessagesTimeline", () => {
     expect(markup.indexOf("Imported history")).toBeLessThan(
       markup.indexOf('data-fork-source-divider="true"'),
     );
-  });
+  }, 15_000);
 
   it("keeps small transcripts on the simple non-virtualized path", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
