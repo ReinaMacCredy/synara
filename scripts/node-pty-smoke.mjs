@@ -54,8 +54,13 @@ const timeout = setTimeout(() => {
   fail("Timed out waiting for node-pty output.", output);
 }, 20_000);
 
+let windowsCommandSent = false;
 const dataSubscription = terminal.onData((chunk) => {
   output += chunk;
+  if (isWindows && !windowsCommandSent) {
+    windowsCommandSent = true;
+    terminal.write(`echo ${expectedOutput}\r\nexit\r\n`);
+  }
   settleIfComplete();
 });
 
@@ -65,10 +70,6 @@ exitSubscription = terminal.onExit((event) => {
   exitEvent = event;
   settleIfComplete();
 });
-
-if (isWindows) {
-  terminal.write(`echo ${expectedOutput}\r\nexit\r\n`);
-}
 
 function settleIfComplete() {
   if (!exitEvent) return;
