@@ -21,6 +21,7 @@ import { DisclosureChevron } from "../ui/DisclosureChevron";
 import { DisclosureRegion } from "../ui/DisclosureRegion";
 import { DISCLOSURE_CLEANUP_BUFFER_MS, DISCLOSURE_TRANSITION_MS } from "~/lib/disclosureMotion";
 import { Button } from "../ui/button";
+import { CadencedShimmer } from "./CadencedShimmer";
 
 function shortQuestionTail(question: string | null, max = 48): string | null {
   if (!question) return null;
@@ -97,7 +98,7 @@ export function AdvisorConsultationWorkRow(props: {
             <>
               <span className="text-muted-foreground/55">
                 {" "}
-                · <span className="shimmer motion-reduce:animate-none">consulting…</span>
+                · <CadencedShimmer>consulting…</CadencedShimmer>
               </span>
               {questionTail ? (
                 <span className="text-muted-foreground/50"> · {questionTail}</span>

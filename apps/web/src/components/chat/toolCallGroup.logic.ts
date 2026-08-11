@@ -7,13 +7,14 @@
 //          ToolCallGroupSummary, isSummarizableToolCallEntry,
 //          classifyToolCallSummaryCategory, summarizeToolCallGroup
 
-import { pluralize } from "@veylen/shared/text";
 import { isFileChangeWorkLogEntry, type WorkLogEntry } from "../../session-logic";
 import { deriveReadableCommandDisplay } from "../../lib/toolCallLabel";
 import { isReasoningUpdateWorkEntry } from "./agentActivity.logic";
 
 export const MIN_COLLAPSIBLE_TOOL_GROUP_SIZE = 2;
 
+// Singleton categories collapse even as one row (ChatGPT "Ran a command").
+// Generic "tool"/MCP stays open as an individual icon row unless grouped (2+).
 const SINGLETON_SUMMARY_CATEGORIES = new Set<ToolCallSummaryCategory>([
   "command",
   "edit",
@@ -168,6 +169,8 @@ function entryFileKeys(entry: WorkLogEntry): ReadonlyArray<string> {
   return [];
 }
 
+// Labels match ChatGPT agentActivity.summary.* (leading form; mid-sentence
+// casing is applied by sentenceJoin for non-first parts).
 function summaryPartLabel(
   category: ToolCallSummaryCategory,
   count: number,
@@ -175,11 +178,12 @@ function summaryPartLabel(
 ): string {
   switch (category) {
     case "command":
-      return count === 1 ? "Ran a command" : `Ran ${pluralize(count, "command")}`;
+      return count === 1 ? "Ran a command" : "Ran commands";
     case "edit":
-      return count === 1 ? "Edited a file" : `Edited ${count} files`;
+      return count === 1 ? "Edited a file" : "Edited files";
     case "read":
-      return count === 1 ? "Read a file" : `Read ${pluralize(count, "file")}`;
+      // ChatGPT uses "Read files" even for the singular leading segment.
+      return "Read files";
     case "search":
       return count === 1 ? "Searched once" : `${count} searches`;
     case "web":

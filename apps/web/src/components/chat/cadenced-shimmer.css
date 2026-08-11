@@ -1,0 +1,76 @@
+/* Cadenced highlight sweep for live status text. */
+
+.cadenced-shimmer {
+  position: relative;
+  display: inline-block;
+  color: var(--color-text-foreground-secondary, currentColor);
+  -webkit-text-fill-color: currentColor;
+  background: none;
+  -webkit-background-clip: border-box;
+  background-clip: border-box;
+  animation: none;
+}
+
+.cadenced-shimmer__sweep {
+  pointer-events: none;
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 100%;
+  overflow: hidden;
+  transform: translateX(-50%);
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    #0000 0%,
+    #000 20% 30%,
+    #0000 50% 100%
+  );
+  mask-image: linear-gradient(90deg, #0000 0%, #000 20% 30%, #0000 50% 100%);
+}
+
+.cadenced-shimmer__highlight {
+  display: block;
+  width: 100%;
+  color: var(--color-text-foreground, currentColor);
+  -webkit-text-fill-color: currentColor;
+  transform: translateX(50%);
+}
+
+.cadenced-shimmer--active .cadenced-shimmer__sweep,
+.cadenced-shimmer--active .cadenced-shimmer__highlight {
+  animation-duration: 1s;
+  animation-timing-function: steps(48, end);
+  animation-iteration-count: 1;
+}
+
+.cadenced-shimmer--active .cadenced-shimmer__sweep {
+  animation-name: cadenced-loading-shimmer-sweep;
+}
+
+.cadenced-shimmer--active .cadenced-shimmer__highlight {
+  animation-name: cadenced-loading-shimmer-highlight;
+}
+
+@keyframes cadenced-loading-shimmer-sweep {
+  0% {
+    transform: translateX(-50%);
+  }
+  to {
+    transform: translateX(125%);
+  }
+}
+
+@keyframes cadenced-loading-shimmer-highlight {
+  0% {
+    transform: translateX(50%);
+  }
+  to {
+    transform: translateX(-125%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cadenced-shimmer--active .cadenced-shimmer__sweep,
+  .cadenced-shimmer--active .cadenced-shimmer__highlight {
+    animation: none;
+  }
+}

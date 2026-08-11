@@ -1,6 +1,7 @@
 // FILE: ToolCallGroupSummaryRow.tsx
-// Purpose: Collapsed summary disclosure for a settled run of tool calls
-//          ("Ran 2 commands, Edited 2 files"); expands to the individual rows.
+// Purpose: One-line tool summary disclosure
+//          ("Loaded a tool, edited files, read files, ran commands").
+//          Default collapsed; hover shows chevron only; click expands rows.
 // Layer: Web chat presentation component
 // Exports: ToolCallGroupSummaryRow
 // Depends on: DisclosureRegion/DisclosureChevron (shared disclosure motion)
@@ -11,6 +12,7 @@ import { Wrench } from "lucide-react";
 import { DisclosureChevron } from "../ui/DisclosureChevron";
 import { DisclosureRegion } from "../ui/DisclosureRegion";
 import { DISCLOSURE_CLEANUP_BUFFER_MS, DISCLOSURE_TRANSITION_MS } from "~/lib/disclosureMotion";
+import { cn } from "~/lib/utils";
 import type { ToolCallGroupSummary } from "./toolCallGroup.logic";
 import { AnimatedTextSwap } from "./AnimatedTextSwap";
 
@@ -40,31 +42,51 @@ export function ToolCallGroupSummaryRow(props: {
   }, [keepChildrenMounted, open]);
 
   const shouldRenderChildren = open || keepChildrenMounted;
+  const phrase = headline ?? summary.label;
 
   return (
-    <div>
+    <div data-tool-activity-disclosure="true" data-expanded={open ? "true" : "false"}>
+      {/* Chevron: opacity-0 until hover/focus; always visible when expanded. */}
       <button
         type="button"
         aria-expanded={open}
-        className="group/tool-summary inline-flex items-center gap-1.5 py-0.5 text-left text-muted-foreground/70 transition-colors duration-200 hover:text-muted-foreground/90"
+        aria-label={open ? "Collapse tool activity" : "Expand tool activity"}
+        className={cn(
+          "group/activity-header group/tool-summary relative inline-flex max-w-full min-w-0 items-center gap-1.5 self-start py-0.5 text-left",
+          "text-muted-foreground/70 transition-colors duration-150",
+          "hover:text-muted-foreground/90 focus-visible:text-muted-foreground/90",
+          "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border/60",
+        )}
         style={{ fontSize: `${fontSizePx}px` }}
         onClick={() => onToggle(!open)}
       >
-        <span className="flex size-5 shrink-0 items-center justify-center" aria-hidden>
-          <Wrench className="size-[18px]" strokeWidth={2} />
+        <span className="flex size-4 shrink-0 items-center justify-center" aria-hidden>
+          <Wrench className="size-4" strokeWidth={2} />
         </span>
-        <AnimatedTextSwap
-          phrase={headline ?? summary.label}
-          shimmer={live}
-          rootData={{ "data-tool-summary-swap": "true" }}
-        />
+        <span className="min-w-0 flex-1 truncate">
+          <AnimatedTextSwap
+            phrase={phrase}
+            shimmer={live}
+            rootData={{ "data-tool-summary-swap": "true" }}
+          />
+        </span>
         <DisclosureChevron
           open={open}
-          className="text-muted-foreground/55 opacity-0 transition-opacity duration-150 group-hover/tool-summary:opacity-100 group-focus-visible/tool-summary:opacity-100"
+          className={cn(
+            "text-muted-foreground/55 transition-opacity duration-150",
+            // Expanded: always visible. Collapsed: only hover/focus (ChatGPT C).
+            open
+              ? "opacity-100"
+              : "opacity-0 group-hover/activity-header:opacity-100 group-focus-visible/activity-header:opacity-100",
+          )}
         />
       </button>
       <DisclosureRegion open={open}>
-        {shouldRenderChildren ? renderChildren() : null}
+        {shouldRenderChildren ? (
+          <div className="ps-5" data-tool-activity-body="true">
+            {renderChildren()}
+          </div>
+        ) : null}
       </DisclosureRegion>
     </div>
   );

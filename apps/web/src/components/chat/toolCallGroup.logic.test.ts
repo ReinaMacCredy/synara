@@ -139,7 +139,7 @@ describe("summarizeToolCallGroup", () => {
       command("c2", "bun run lint"),
       command("s3", "rg gamma docs"),
     ]);
-    expect(summary?.label).toBe("3 searches, edited 2 files, ran commands");
+    expect(summary?.label).toBe("3 searches, edited files, ran commands");
   });
 
   it("counts distinct files for edits across entries", () => {
@@ -148,7 +148,7 @@ describe("summarizeToolCallGroup", () => {
       edit("e2", ["Sidebar.tsx"]),
       edit("e3", ["Sidebar.tsx", "Sidebar.logic.ts"]),
     ]);
-    expect(summary?.label).toBe("Edited 2 files");
+    expect(summary?.label).toBe("Edited files");
   });
 
   it("counts edits without file info as one unit each", () => {
@@ -157,7 +157,7 @@ describe("summarizeToolCallGroup", () => {
       workEntry({ id: "e2", itemType: "file_change" }),
       edit("e3", ["a.ts"]),
     ]);
-    expect(summary?.label).toBe("Edited 3 files");
+    expect(summary?.label).toBe("Edited files");
   });
 
   it("dedupes reads of the same file across command and structured entries", () => {
@@ -208,7 +208,7 @@ describe("summarizeToolCallGroup", () => {
       workEntry({ id: "w1", itemType: "web_search" }),
       command("r1", "cat README.md"),
     ]);
-    expect(summary?.label).toBe("Loaded a tool, searched the web, read a file");
+    expect(summary?.label).toBe("Loaded a tool, searched the web, read files");
   });
 
   it("flags groups that still contain running work", () => {

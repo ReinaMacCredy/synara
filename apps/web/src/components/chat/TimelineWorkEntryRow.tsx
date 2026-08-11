@@ -4,7 +4,16 @@
 // Exports: TimelineWorkEntryRow, EditedFileRowContent, prefersCompactWorkEntryRow
 
 import type { ThreadId, TurnId } from "@veylen/contracts";
-import { BookOpen, Globe, Images, Pencil, Search, SquareTerminal, Wrench } from "lucide-react";
+import {
+  BookOpen,
+  FilePenLine,
+  Globe,
+  Images,
+  List,
+  Search,
+  SquareTerminal,
+  Wrench,
+} from "lucide-react";
 import {
   createElement,
   memo,
@@ -98,12 +107,14 @@ const AgentTaskIcon: LucideIcon = (props) => <BotIcon {...props} />;
 const VeylenToolIcon: LucideIcon = ({ className, ...props }) => (
   <VeylenLogo {...props} className={cn("text-current", className)} />
 );
+// Stroke 2 matches compact tool-row glyphs. Edit uses FilePenLine (document+pen).
 const ToolWrenchIcon: LucideIcon = (props) => <Wrench {...props} strokeWidth={2} />;
 const ToolReadIcon: LucideIcon = (props) => <BookOpen {...props} strokeWidth={2} />;
 const ToolSearchIcon: LucideIcon = (props) => <Search {...props} strokeWidth={2} />;
 const ToolCommandIcon: LucideIcon = (props) => <SquareTerminal {...props} strokeWidth={2} />;
 const ToolImagesIcon: LucideIcon = (props) => <Images {...props} strokeWidth={2} />;
-const ToolEditIcon: LucideIcon = (props) => <Pencil {...props} strokeWidth={2} />;
+const ToolEditIcon: LucideIcon = (props) => <FilePenLine {...props} strokeWidth={2} />;
+const ToolListIcon: LucideIcon = (props) => <List {...props} strokeWidth={2} />;
 const ToolWebIcon: LucideIcon = (props) => <Globe {...props} strokeWidth={2} />;
 
 function workToneIcon(tone: TimelineWorkEntry["tone"]): {
@@ -213,12 +224,45 @@ function workEntryPreview(workEntry: TimelineWorkEntry): string | null {
   return null;
 }
 
+// Normalize tool names for glyph mapping (Claude Read, list_dir, Load, …).
+function normalizeToolGlyphName(workEntry: TimelineWorkEntry): string {
+  return (workEntry.toolName ?? workEntry.toolTitle ?? workEntry.label ?? "")
+    .toLowerCase()
+    .replace(/[^a-z]/g, "");
+}
+
 // Provider read tools (e.g. Claude's `Read`) arrive as generic dynamic tool calls
-// without a `file-read` requestKind, so match their tool name to surface the search icon
-// instead of the generic tool/wrench fallback.
+// without a `file-read` requestKind — map by tool name to a read glyph.
 function isFileReadToolEntry(workEntry: TimelineWorkEntry): boolean {
-  const name = (workEntry.toolName ?? "").toLowerCase().replace(/[^a-z]/g, "");
-  return name === "read" || name === "readfile" || name === "viewfile";
+  const name = normalizeToolGlyphName(workEntry);
+  return (
+    name === "read" ||
+    name === "readfile" ||
+    name === "viewfile" ||
+    name === "readfiles" ||
+    name.endsWith("readfile") ||
+    name.includes("readskill")
+  );
+}
+
+function isListFilesToolEntry(workEntry: TimelineWorkEntry): boolean {
+  const name = normalizeToolGlyphName(workEntry);
+  return (
+    name === "list" ||
+    name === "listdir" ||
+    name === "listfiles" ||
+    name === "glob" ||
+    name === "ls" ||
+    name.includes("listfile") ||
+    name.includes("listdir")
+  );
+}
+
+// ChatGPT "Loaded a tool(s)" rows use the wrench glyph.
+function isLoadedToolsEntry(workEntry: TimelineWorkEntry): boolean {
+  const name = normalizeToolGlyphName(workEntry);
+  const label = (workEntry.label ?? "").toLowerCase();
+  return name.includes("loadtool") || name.includes("loadedtool") || /\bload(ed|ing)?\b/.test(label);
 }
 
 // Command rows reuse toolCallLabel's wrapper-aware classifier so wrapped git/gh
@@ -244,6 +288,7 @@ function workEntryIcon(workEntry: TimelineWorkEntry): LucideIcon {
   // "Moved to background" notices read as a tray drop, not a warning check.
   if (workEntry.nativeEventType === "background_tasks_changed") return BackgroundTrayIcon;
 
+  if (isLoadedToolsEntry(workEntry)) return ToolWrenchIcon;
   if (workEntry.requestKind === "command") return commandWorkEntryIcon(workEntry);
   if (workEntry.requestKind === "file-read") return ToolReadIcon;
   if (workEntry.requestKind === "file-change") return ToolEditIcon;
@@ -259,6 +304,7 @@ function workEntryIcon(workEntry: TimelineWorkEntry): LucideIcon {
     return ToolImagesIcon;
   }
   if (isFileReadToolEntry(workEntry)) return ToolReadIcon;
+  if (isListFilesToolEntry(workEntry)) return ToolListIcon;
 
   switch (workEntry.itemType) {
     case "mcp_tool_call":
@@ -345,10 +391,11 @@ export function prefersCompactWorkEntryRow(workEntry: TimelineWorkEntry): boolea
     EntryIcon === ToolWrenchIcon ||
     EntryIcon === AgentTaskIcon ||
     EntryIcon === ToolEditIcon ||
-    // File-read / inspect rows (e.g. `Read …`) surface the search icon and have no
+    // File-read / inspect / list rows surface their own glyph and have no
     // disclosure chevron; keep them at the same compact height as command rows.
     EntryIcon === ToolReadIcon ||
-    EntryIcon === ToolSearchIcon
+    EntryIcon === ToolSearchIcon ||
+    EntryIcon === ToolListIcon
   );
 }
 

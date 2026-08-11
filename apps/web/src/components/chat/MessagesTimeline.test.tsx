@@ -1560,6 +1560,8 @@ describe("MessagesTimeline", () => {
       />,
     );
 
+    // Live turn: Working header + inline tool rows (no premature Worked-for).
+    expect(markup).toContain("Working");
     expect(markup).toContain(
       '<span data-work-entry-display-text="true">Searched 2 files found</span>',
     );
@@ -1722,8 +1724,8 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    // The assistant's text block already follows the run, so it compacts
-    // behind the summary row even while the turn is still live.
+    // Live: tools compact to a one-line summary while the turn is still open.
+    expect(markup).toContain("Working");
     expect(markup).toContain("Ran 6 tools");
     expect(markup).not.toContain("Tool 1");
     expect(markup).not.toContain("Tool 6");
@@ -1904,11 +1906,16 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain("Working...");
-    expect(markup).toContain('data-turn-work-region="turn-activity:message-user-current"');
-    expect(markup).not.toContain("Reading package.json");
+    // ChatGPT: new send with no tools yet is Thinking only — no Working header.
+    // Previous turn's summary must not become the live phrase on this turn.
+    expect(markup).not.toContain('data-turn-work-region="turn-activity:message-user-current"');
+    expect(markup).toContain('data-turn-thinking="true"');
     expect(markup).toContain('data-reasoning-source="synthetic"');
     expect(markup).toContain("Thinking…");
+    // Live swap is synthetic Thinking, not the previous turn's provider phrase.
+    expect(markup).toMatch(
+      /data-reasoning-source="synthetic"[\s\S]*Thinking…|Thinking…[\s\S]*data-reasoning-source="synthetic"/,
+    );
   });
 
   it("attaches trailing tool rows to the last assistant reply after completion", async () => {
@@ -2076,6 +2083,8 @@ describe("MessagesTimeline", () => {
       />,
     );
 
+    // Live expanded tool group: individual rows stay visible under Working.
+    expect(markup).toContain("Working");
     expect(markup).toContain("tool 5");
     expect(markup).toContain('aria-expanded="true"');
     expect(markup).not.toContain("Show less");

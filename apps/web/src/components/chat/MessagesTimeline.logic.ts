@@ -542,27 +542,50 @@ export function deriveMessagesTimelineRows(input: {
       break;
     }
   }
+  const belongsToActiveTurn = (entry: WorkLogEntry): boolean => {
+    if (
+      input.activeTurnId != null &&
+      entry.turnId != null &&
+      entry.turnId !== input.activeTurnId
+    ) {
+      return false;
+    }
+    return true;
+  };
+  const hasLiveStartedWorkAfterUser = input.timelineEntries.some((entry, index) => {
+    if (index <= latestUserMessageEntryIndex) return false;
+    if (entry.kind !== "work") return false;
+    if (!belongsToActiveTurn(entry.entry)) return false;
+    // ChatGPT lHn: any item that is not user/worktree/transcript counts.
+    return isLiveStartedWorkEntry(entry.entry);
+  });
   const activeReasoningEntries: WorkLogEntry[] = [];
-  if (input.isWorking && input.activeTurnId) {
+  let earliestActiveReasoningIndex = -1;
+  if (input.isWorking && !hasLiveStartedWorkAfterUser) {
     for (
       let index = input.timelineEntries.length - 1;
       index > latestUserMessageEntryIndex;
       index -= 1
     ) {
       const entry = input.timelineEntries[index];
-      if (
-        entry?.kind !== "work" ||
-        entry.entry.turnId !== input.activeTurnId ||
-        !isReasoningUpdateWorkEntry(entry.entry)
-      ) {
+      if (!entry) continue;
+      if (entry.kind === "message") {
+        if (entry.message.role === "assistant") continue;
         break;
       }
-      activeReasoningEntries.unshift(entry.entry);
+      if (entry.kind !== "work") continue;
+      if (!belongsToActiveTurn(entry.entry)) continue;
+      if (isReasoningUpdateWorkEntry(entry.entry)) {
+        activeReasoningEntries.unshift(entry.entry);
+        earliestActiveReasoningIndex = index;
+        continue;
+      }
+      break;
     }
   }
   const entryBeforeActiveReasoning =
-    activeReasoningEntries.length > 0
-      ? input.timelineEntries[input.timelineEntries.length - activeReasoningEntries.length - 1]
+    earliestActiveReasoningIndex > latestUserMessageEntryIndex + 1
+      ? input.timelineEntries[earliestActiveReasoningIndex - 1]
       : undefined;
   const activeReasoningBelongsToToolGroup =
     entryBeforeActiveReasoning?.kind === "work" &&
@@ -571,12 +594,27 @@ export function deriveMessagesTimelineRows(input: {
     ? []
     : activeReasoningEntries;
   const activeReasoningEntryIds = new Set(detachedActiveReasoningEntries.map((entry) => entry.id));
-  const hasActiveTurnContentAfterUser = input.timelineEntries.some((entry, index) => {
+  const hasActiveAgentWorkAfterUser = input.timelineEntries.some((entry, index) => {
     if (index <= latestUserMessageEntryIndex) return false;
-    if (entry.kind === "message") {
-      return entry.message.role === "assistant" && entry.message.turnId === input.activeTurnId;
+    if (entry.kind !== "work") return false;
+    if (!belongsToActiveTurn(entry.entry)) return false;
+    return isAgentWorkActivityEntry(entry.entry);
+  });
+  // Pure-text answers (e.g. "hi") stream body while isWorking is still true.
+  // ChatGPT `Nzn`/`ja`: hide Thinking once final-answer content exists — not
+  // only after the turn settles. Tool preambles still get Working via
+  // hasStartedWork before/alongside body.
+  const hasAssistantBodyAfterUser = input.timelineEntries.some((entry, index) => {
+    if (index <= latestUserMessageEntryIndex) return false;
+    if (entry.kind !== "message" || entry.message.role !== "assistant") return false;
+    if (
+      input.activeTurnId != null &&
+      entry.message.turnId != null &&
+      entry.message.turnId !== input.activeTurnId
+    ) {
+      return false;
     }
-    return entry.kind === "work" && entry.entry.turnId === input.activeTurnId;
+    return (entry.message.text?.trim().length ?? 0) > 0;
   });
   const timelineEntries =
     activeReasoningEntryIds.size === 0
@@ -736,9 +774,11 @@ export function deriveMessagesTimelineRows(input: {
     activeTurnId: input.activeTurnId ?? null,
   });
 
-  // Live lifecycle: one row is present from optimistic Send onward.
-  // The provider start timestamp only updates its label; it never changes row
-  // topology or inserts a competing synthetic Thinking row.
+  // Live lifecycle (ChatGPT parity — `ja` / `JBn` / `wo` + Fr/uO):
+  // - Thinking while live and agent work has NOT started yet (preamble text OK)
+  // - Working for… only once hasStartedWork (tools/info) — exclusive with Thinking
+  // - Clock starts at first agent-activity item (not user send / thinking wait)
+  // - Pure text turns never grow a Working header (no agent work → no Worked for)
   if (input.isWorking && !(input.worktreeSetup && input.worktreeSetupOpen)) {
     const insertIndex = findLiveTurnActivityInsertIndex(nextRows);
     const boundaryRow = nextRows[insertIndex - 1];
@@ -750,26 +790,64 @@ export function deriveMessagesTimelineRows(input: {
     const settledActivityAlreadyOwnsTurn = nextRows.some(
       (row) => row.kind === "turn-activity" && row.id === activityId && row.state === "settled",
     );
-    if (!settledActivityAlreadyOwnsTurn) {
+    // Also treat work already attached to live messages as started work so a
+    // turnId / timeline-index race cannot paint process without a Working header.
+    const hasStartedWorkOnLiveRows = nextRows.some((row, index) => {
+      if (index < insertIndex) return false;
+      if (row.kind === "work") {
+        return row.groupedEntries.some(isLiveStartedWorkEntry);
+      }
+      if (row.kind !== "message" || row.message.role !== "assistant") return false;
+      const attached = [
+        ...(row.leadingWorkEntries ?? []),
+        ...(row.inlineWorkEntries ?? []),
+      ];
+      return attached.some(isLiveStartedWorkEntry);
+    });
+    // ChatGPT `JBn`/`lHn`: Working as soon as hasStartedWork (reasoning OR tools).
+    const showWorkingPhase =
+      !settledActivityAlreadyOwnsTurn &&
+      (hasLiveStartedWorkAfterUser ||
+        hasActiveAgentWorkAfterUser ||
+        hasStartedWorkOnLiveRows);
+    // Live: keep Working (never early Worked-for). ChatGPT only collapses under
+    // Worked for after the turn finishes (`wo` needs final assistant + settled
+    // turn). Premature collapse made preambles look like the final answer and
+    // hid live tools mid-run.
+    if (showWorkingPhase) {
+      // ChatGPT `worked-for.startedAtMs` is the agent-activity origin (first
+      // tool/info), not the user-send time. Using turn start made "Working for
+      // 16s" appear the moment tools landed after a long Thinking phase.
+      const agentWorkStartedAt = findEarliestActiveAgentWorkStartedAt(
+        input.timelineEntries,
+        latestUserMessageEntryIndex,
+        input.activeTurnId,
+        nextRows,
+        insertIndex,
+      );
       nextRows.splice(insertIndex, 0, {
         kind: "turn-activity",
         id: activityId,
-        createdAt: input.activeTurnStartedAt,
+        createdAt: agentWorkStartedAt ?? input.activeTurnStartedAt,
         state: "working",
         showReasoningStatus: false,
       });
     }
-    if (
-      !settledActivityAlreadyOwnsTurn &&
-      (detachedActiveReasoningEntries.length > 0 || !hasActiveTurnContentAfterUser)
-    ) {
+    // Thinking stays until Working starts (ChatGPT `ja`: hide on final_answer or
+    // agent-in-progress). Pure-text body also clears Thinking while isWorking
+    // is still true so "hi" does not flash Thinking above the answer.
+    // Insert at the same index as Working so order is:
+    //   user → Thinking|Working → text/tools  (never text → Thinking at tail)
+    const showThinkingPhase =
+      !settledActivityAlreadyOwnsTurn && !showWorkingPhase && !hasAssistantBodyAfterUser;
+    if (showThinkingPhase) {
       const phaseBoundaryId = findActiveReasoningPhaseBoundaryId(
         timelineEntries,
         latestUserMessageEntryIndex,
         input.activeTurnId,
       );
       const scopeKey = `${activityId}:reasoning:${phaseBoundaryId}`;
-      nextRows.push({
+      nextRows.splice(insertIndex, 0, {
         kind: "reasoning-status",
         id: scopeKey,
         scopeKey,
@@ -779,6 +857,62 @@ export function deriveMessagesTimelineRows(input: {
   }
 
   return nextRows;
+}
+
+// ChatGPT Working clock: first hasStartedWork timestamp after the user boundary
+// (reasoning or tools — same as lHn origin, not user-send / Thinking wait).
+function findEarliestActiveAgentWorkStartedAt(
+  timelineEntries: ReadonlyArray<TimelineEntry>,
+  latestUserMessageEntryIndex: number,
+  activeTurnId: TurnId | null | undefined,
+  rows: ReadonlyArray<MessagesTimelineRow>,
+  liveInsertIndex: number,
+): string | null {
+  let earliest: string | null = null;
+  let earliestMs = Number.POSITIVE_INFINITY;
+
+  const consider = (iso: string | null | undefined) => {
+    if (!iso) return;
+    const ms = Date.parse(iso);
+    if (!Number.isFinite(ms) || ms >= earliestMs) return;
+    earliestMs = ms;
+    earliest = iso;
+  };
+
+  for (let index = latestUserMessageEntryIndex + 1; index < timelineEntries.length; index += 1) {
+    const entry = timelineEntries[index];
+    if (!entry || entry.kind !== "work") continue;
+    if (
+      activeTurnId != null &&
+      entry.entry.turnId != null &&
+      entry.entry.turnId !== activeTurnId
+    ) {
+      continue;
+    }
+    if (!isLiveStartedWorkEntry(entry.entry)) continue;
+    consider(entry.entry.createdAt ?? entry.createdAt);
+  }
+
+  if (earliest != null) return earliest;
+
+  for (let index = liveInsertIndex; index < rows.length; index += 1) {
+    const row = rows[index]!;
+    if (row.kind === "work") {
+      for (const workEntry of row.groupedEntries) {
+        if (isLiveStartedWorkEntry(workEntry)) consider(workEntry.createdAt);
+      }
+      continue;
+    }
+    if (row.kind !== "message" || row.message.role !== "assistant") continue;
+    for (const workEntry of [
+      ...(row.leadingWorkEntries ?? []),
+      ...(row.inlineWorkEntries ?? []),
+    ]) {
+      if (isLiveStartedWorkEntry(workEntry)) consider(workEntry.createdAt);
+    }
+  }
+
+  return earliest;
 }
 
 // The live turn starts at the most recent user message, so its header slots in
@@ -953,6 +1087,17 @@ function collapseSettledTurns(
     if (row.inlineWorkEntries) collectWorkItems(row.inlineWorkEntries, collapsedItems);
 
     const elapsed = formatElapsed(collapsedStart, message.completedAt);
+    // ChatGPT only emits Worked for between *agent activity* and the final
+    // answer. Pure text turns (hi → reply) keep no header and no disclosure.
+    const hasAgentActivityInCollapse = collapsedItems.some(
+      (item) => item.kind === "work" && isAgentWorkActivityEntry(item.entry),
+    );
+    if (!hasAgentActivityInCollapse) {
+      // Leave intermediate assistant rows + terminal message inline; do not
+      // invent an empty Worked-for divider.
+      continue;
+    }
+
     if (collapsedItems.length > 0) {
       row.collapsedTurnItems = collapsedItems;
       row.collapsedWorkElapsed = elapsed ?? null;
@@ -977,6 +1122,34 @@ function collapseSettledTurns(
     });
     pass = terminalIndex;
   }
+}
+
+/**
+ * ChatGPT `lHn` hasStartedWork for the *live* Working header: any non-user
+ * work item after the user message (reasoning updates, thinking-tone status,
+ * tools, info…). Pure wait with zero items stays Thinking.
+ */
+export function isLiveStartedWorkEntry(entry: WorkLogEntry): boolean {
+  if (entry.veylenThreadCreation) return false;
+  if (isReasoningUpdateWorkEntry(entry)) return true;
+  // Thinking-tone status rows ("Planning…", progress phrases) also leave pure
+  // wait — even when not labeled exactly "Reasoning summary".
+  if (entry.tone === "thinking") return true;
+  return isAgentWorkActivityEntry(entry);
+}
+
+/** Settled Worked-for / tool collapse: tools/info only — not pure reasoning. */
+export function isAgentWorkActivityEntry(entry: WorkLogEntry): boolean {
+  if (isReasoningUpdateWorkEntry(entry)) return false;
+  if (entry.veylenThreadCreation) return false;
+  if (entry.tone === "tool") return true;
+  if (isSummarizableToolCallEntry(entry)) return true;
+  // Info/error status rows (compaction, tasks updated, approvals) also leave
+  // the pure-thinking phase and own a Working/Worked header.
+  if (entry.tone === "info" || entry.tone === "error") return true;
+  if (entry.subagentAction || (entry.subagents?.length ?? 0) > 0) return true;
+  if (entry.automation) return true;
+  return false;
 }
 
 // Reuses stable row references so streaming updates only invalidate rows whose

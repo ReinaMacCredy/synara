@@ -162,28 +162,29 @@ describe("MessagesTimeline worktree setup card", () => {
     document.body.innerHTML = "";
   });
 
-  it("shows step progress, then animates out and hands off to the working shimmer", async () => {
+  it("shows step progress, then animates out and hands off to Thinking", async () => {
+    // ChatGPT: after setup, no tools yet → Thinking only (no Working header).
     const screen = await render(<WorktreeSetupTimeline />);
 
     try {
       await expect.poll(() => setupRow() !== null).toBe(true);
       expect(setupRow()?.textContent).toContain("Preparing worktree...");
       expect(setupRow()?.textContent).toContain("Creating branch and worktree");
-      // The generic working shimmer stays suppressed while the card is open.
+      // Working/Thinking stay suppressed while the card is open.
       expect(workingRow()).toBeNull();
+      expect(thinkingRow()).toBeNull();
 
       document.querySelector<HTMLButtonElement>('[data-testid="advance-step"]')?.click();
       await expect.poll(() => setupRow()?.textContent).toContain("Linking thread workspace");
       expect(workingRow()).toBeNull();
 
       document.querySelector<HTMLButtonElement>('[data-testid="clear-setup"]')?.click();
-      // The card stays mounted through the disclosure close animation while the
-      // working shimmer takes over immediately.
+      // The card stays mounted through the disclosure close animation while
+      // Thinking takes over immediately (no tools → no Working header).
       expect(setupRow()).not.toBeNull();
-      await expect.poll(() => workingRow() !== null).toBe(true);
+      await expect.poll(() => thinkingRow() !== null).toBe(true);
       await expect.poll(() => setupRow() === null, { timeout: 2000 }).toBe(true);
-      expect(workingRow()).not.toBeNull();
-      expect(workingRow()?.textContent).toContain("Working...");
+      expect(workingRow()).toBeNull();
       expect(thinkingRow()?.textContent).toContain("Thinking");
     } finally {
       await screen.unmount();

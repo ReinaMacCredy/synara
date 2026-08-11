@@ -73,6 +73,7 @@ import { MessageCopyButton } from "./MessageCopyButton";
 import { MessageForkButton, type MessageForkTarget } from "./MessageForkButton";
 import { ForkContinuationDivider } from "./ForkContinuationDivider";
 import { ReasoningTextSwap } from "./ReasoningTextSwap";
+import { CadencedShimmer } from "./CadencedShimmer";
 import { formatAgentActivityEntryPreview } from "./agentActivity.logic";
 import { AssistantSelectionsSummaryChip } from "./AssistantSelectionsSummaryChip";
 import { FileAttachmentChip } from "./FileAttachmentChip";
@@ -321,9 +322,9 @@ function WorktreeSetupCard({ steps }: { steps: ReadonlyArray<WorktreeSetupStep> 
     <div className="w-fit max-w-full rounded-xl border border-[color:var(--color-border-light)] bg-[var(--color-background-elevated-primary)] px-3.5 py-3 font-system-ui shadow-xs">
       <div className="flex items-center gap-2">
         <WorktreeIcon className="size-3.5 shrink-0 text-[var(--color-text-foreground-tertiary)]" />
-        <span className="shimmer text-[13px] font-medium text-[var(--color-text-foreground-secondary)]">
+        <CadencedShimmer className="text-[13px] font-medium text-[var(--color-text-foreground-secondary)]">
           Preparing worktree...
-        </span>
+        </CadencedShimmer>
       </div>
       <ol className="mt-2 flex flex-col">
         {steps.map((step, index) => {
@@ -1888,10 +1889,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                             key={`inline-tool-summary:${summaryOverrideKey}`}
                             summary={summary}
                             headline={chunk.headline}
-                            open={
-                              display.toolExpanded ||
-                              (toolGroupSummaryOverrides[summaryOverrideKey] ?? false)
-                            }
+                            // ChatGPT: collapsed until user expands (defaults false).
+                        // Summary click sets override; "show more" can expand too.
+                        open={
+                          display.toolExpanded ||
+                          (toolGroupSummaryOverrides[summaryOverrideKey] ?? false)
+                        }
                             onToggle={(open) => setToolGroupSummaryOpen(summaryOverrideKey, open)}
                             fontSizePx={normalizedChatFontSizePx}
                             live={chunk.live}
@@ -2767,7 +2770,10 @@ function TurnActivityRegion(props: {
     return () => window.cancelAnimationFrame(frame);
   }, [live, props.hasDetails]);
 
-  const showDetails = detailsOpen || keepChildrenMounted;
+  // Keep process content mounted whenever details exist so expand is instant
+  // and closed markup still carries the tool/narration tree (ChatGPT keeps the
+  // folded process in the disclosure, collapsed by default).
+  const showDetails = props.hasDetails && (detailsOpen || keepChildrenMounted || !live);
   // Shared disclosure shell (not CollapsiblePanel): settle enter must paint at
   // full height without data-starting-style h-0, otherwise process flashes open
   // from zero before the close animation runs.
@@ -2874,6 +2880,11 @@ function TurnWorkRegionLabel(props: {
   // Freeze the last live tick across settle. On settle the row's `startedAt` can
   // rewrite to the folded-segment start, so recalculating from props would jump.
   const frozenLiveElapsedRef = useRef<WorkingElapsedSnapshot | null>(null);
+  const lastLiveStartedAtRef = useRef<string | null>(null);
+  if (live && props.startedAt !== lastLiveStartedAtRef.current) {
+    lastLiveStartedAtRef.current = props.startedAt;
+    frozenLiveElapsedRef.current = null;
+  }
   const fixedLiveElapsed =
     live && props.startedAt && props.nowIso
       ? readWorkingElapsedSnapshot(props.startedAt, props.nowIso)
@@ -2889,6 +2900,8 @@ function TurnWorkRegionLabel(props: {
       setLiveElapsedSnapshot(next);
       frozenLiveElapsedRef.current = next;
     };
+    // Reset snapshot immediately when origin changes so the first paint is 0s / bare Working.
+    setLiveElapsedSnapshot({ seconds: 0, label: "0s" });
     updateElapsed();
     if (props.nowIso !== undefined) return;
     const intervalId = window.setInterval(updateElapsed, 1_000);
@@ -2900,16 +2913,30 @@ function TurnWorkRegionLabel(props: {
     fixedLiveElapsed?.label ?? liveElapsedSnapshot.label ?? frozenLive?.label ?? "0s";
   const continuousLiveSeconds =
     fixedLiveElapsed?.seconds ?? liveElapsedSnapshot.seconds ?? frozenLive?.seconds ?? 0;
-  const providerSettledElapsed = props.settledElapsed ?? "0s";
-  const providerSettledSeconds = parseClockDurationSeconds(providerSettledElapsed);
-  // Prefer the continuous live clock when provider elapsed is missing or behind the
-  // last tick; otherwise take the larger value so the number never steps backward.
+  const providerSettledElapsed = props.settledElapsed;
+  const providerSettledSeconds =
+    providerSettledElapsed != null ? parseClockDurationSeconds(providerSettledElapsed) : null;
+  // Prefer continuous clock when provider elapsed is missing or behind the last
+  // tick (early Worked-for while the turn is still open has no fixed end).
   const settledElapsed =
     providerSettledSeconds !== null && providerSettledSeconds >= continuousLiveSeconds
-      ? providerSettledElapsed
+      ? providerSettledElapsed!
       : continuousLiveLabel;
   // Exiting Working layer keeps the same duration as the entering Worked layer.
   const workingElapsed = props.startedAt ? (live ? continuousLiveLabel : settledElapsed) : null;
+
+  // Early Worked-for (tools done, answer streaming) still has startedAt and
+  // needs a live tick even though state is "settled".
+  const needsSettledClock = !live && props.startedAt != null && providerSettledElapsed == null;
+  useEffect(() => {
+    if (!needsSettledClock) return;
+    const intervalId = window.setInterval(() => {
+      setLiveElapsedSnapshot(
+        readWorkingElapsedSnapshot(props.startedAt!, new Date().toISOString()),
+      );
+    }, 1_000);
+    return () => window.clearInterval(intervalId);
+  }, [needsSettledClock, props.startedAt]);
 
   return (
     <span className="inline-grid overflow-hidden" aria-live="polite">
@@ -2921,7 +2948,14 @@ function TurnWorkRegionLabel(props: {
         )}
         aria-hidden={!live}
       >
-        {props.startedAt ? <>Working for {workingElapsed}</> : "Working..."}
+        <CadencedShimmer active={live}>
+          {/* ChatGPT: bare "Working" until 1s, then "Working for {time}". */}
+          {props.startedAt && continuousLiveSeconds >= 1 ? (
+            <>Working for {workingElapsed}</>
+          ) : (
+            "Working"
+          )}
+        </CadencedShimmer>
       </span>
       <span
         data-work-status-text="settled"
@@ -2942,10 +2976,8 @@ interface TurnActivitySettleTimer {
   cleanupTimeout: number | null;
 }
 
-// When a watched live turn-activity row settles with folded details, open the
-// disclosure on that same settle paint (no closed flash), then close with the
-// shared 220ms motion. History, already-settled rows, and details that hydrate
-// after the settle paint never qualify.
+// ChatGPT defaultExpanded=false: settled Worked-for stays collapsed. We only
+// track settle transitions for cleanup of stale open flags — never auto-open.
 function useTurnActivitySettleTransitions(
   rows: readonly MessagesTimelineRow[],
 ): Readonly<Record<string, boolean>> {
@@ -3004,7 +3036,6 @@ function useTurnActivitySettleTransitions(
     [clearTransitionTimer],
   );
 
-  // Render-phase detection so the first settled paint is already open.
   const detection = detectTurnActivitySettleTransitions({
     rows,
     previousActivityIds: previousActivityIdsRef.current,
@@ -3012,17 +3043,12 @@ function useTurnActivitySettleTransitions(
     watchedLiveActivityIds: watchedLiveActivityIdsRef.current,
     alreadyTransitioning: openByActivityId,
   });
-  startedThisRenderRef.current = detection.startedActivityIds;
+  // Do not auto-open on settle (ChatGPT stays collapsed until click).
+  startedThisRenderRef.current = [];
   const detectionRef = useRef(detection);
   detectionRef.current = detection;
 
-  const mergedOpenByActivityId =
-    detection.startedActivityIds.length === 0
-      ? openByActivityId
-      : {
-          ...openByActivityId,
-          ...Object.fromEntries(detection.startedActivityIds.map((id) => [id, true] as const)),
-        };
+  const mergedOpenByActivityId = openByActivityId;
 
   useLayoutEffect(() => {
     const currentDetection = detectionRef.current;

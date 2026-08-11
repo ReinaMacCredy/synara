@@ -926,11 +926,26 @@ describe("deriveMessagesTimelineRows", () => {
     createdAt: string,
     label: string,
     tone: "thinking" | "tool" | "info" | "error" = "tool",
+    extra: Partial<{
+      toolTitle: string;
+      detail: string;
+      preview: string;
+      turnId: string;
+    }> = {},
   ): TimelineEntry => ({
     id: `entry-${id}`,
     kind: "work",
     createdAt,
-    entry: { id, createdAt, label, tone },
+    entry: {
+      id,
+      createdAt,
+      label,
+      tone,
+      ...(extra.toolTitle ? { toolTitle: extra.toolTitle } : {}),
+      ...(extra.detail ? { detail: extra.detail } : {}),
+      ...(extra.preview ? { preview: extra.preview } : {}),
+      ...(extra.turnId ? { turnId: TurnId.makeUnsafe(extra.turnId) } : {}),
+    },
   });
 
   const proposedPlanEntry = (id: string, createdAt: string, turnId: string): TimelineEntry => ({
@@ -1018,13 +1033,16 @@ describe("deriveMessagesTimelineRows", () => {
     expect(rows.some((row) => row.kind === "work")).toBe(false);
   });
 
-  it("folds settled reasoning traces into the terminal turn disclosure", () => {
+  it("does not invent Worked for when only reasoning preceded a text answer", () => {
+    // ChatGPT: pure thinking → text has no Working/Worked divider. Reasoning
+    // rides with the answer as leading work, not a collapsed turn header.
     const reasoning = workEntry("reasoning-1", "2026-01-01T00:00:02Z", "Reasoning trace");
     if (reasoning.kind === "work") {
       reasoning.entry = {
         ...reasoning.entry,
         detail: "Inspecting apps/web/src/store.ts",
         toolTitle: "Reasoning trace",
+        tone: "thinking",
       };
     }
 
@@ -1041,9 +1059,10 @@ describe("deriveMessagesTimelineRows", () => {
       ],
     });
 
+    expect(rows.some((row) => row.kind === "turn-activity")).toBe(false);
     const terminal = messageRow(rows, "a1");
-    expect(collapsedSignature(terminal!)).toEqual(["work:reasoning-1"]);
-    expect(rows.some((row) => row.kind === "work")).toBe(false);
+    expect(terminal?.leadingWorkEntries?.map((entry) => entry.id)).toEqual(["reasoning-1"]);
+    expect(terminal?.collapsedTurnItems).toBeUndefined();
   });
 
   it("times the collapsed disclosure from the turn start, not the last intermediate assistant message", () => {
@@ -1075,7 +1094,9 @@ describe("deriveMessagesTimelineRows", () => {
     expect(terminal!.collapsedWorkElapsed).toBe("23m");
   });
 
-  it("keeps the live turn expanded instead of collapsing while it streams", () => {
+  it("keeps the live turn expanded (Working + process inline) while it streams", () => {
+    // ChatGPT: no Worked-for collapse until the turn settles. Live stays Working
+    // with preambles/tools visible.
     const rows = deriveMessagesTimelineRows({
       ...baseInput,
       isWorking: true,
@@ -1106,11 +1127,14 @@ describe("deriveMessagesTimelineRows", () => {
     expect(rows.find((row) => row.kind === "turn-activity")).toMatchObject({
       id: "turn-activity:u1",
       state: "working",
-      createdAt: "2026-01-01T00:00:00Z",
+      // First tool at :02, not user send / activeTurnStartedAt at :00.
+      createdAt: "2026-01-01T00:00:02Z",
     });
   });
 
   it("keeps one activity-row identity from optimistic send through provider start and settle", () => {
+    // ChatGPT phases: Thinking (no turn-activity) → Working once tools land →
+    // Worked for on settle. The activity-row id stays stable across tool phases.
     const pending = deriveMessagesTimelineRows({
       ...baseInput,
       isWorking: true,
@@ -1144,21 +1168,164 @@ describe("deriveMessagesTimelineRows", () => {
       ],
     });
 
-    expect(pending.find((row) => row.kind === "turn-activity")).toMatchObject({
-      id: "turn-activity:u1",
-      state: "working",
-      createdAt: null,
-    });
+    expect(pending.some((row) => row.kind === "turn-activity")).toBe(false);
+    expect(pending.some((row) => row.kind === "reasoning-status")).toBe(true);
+    // ChatGPT Working clock starts at first agent activity (tool at :02), not
+    // activeTurnStartedAt (:01) / user send — otherwise a long Thinking wait
+    // paints "Working for 16s" the moment tools land.
     expect(started.find((row) => row.kind === "turn-activity")).toMatchObject({
       id: "turn-activity:u1",
       state: "working",
-      createdAt: "2026-01-01T00:00:01Z",
+      createdAt: "2026-01-01T00:00:02Z",
     });
+    expect(started.map((row) => row.kind)).toEqual(["message", "turn-activity", "work"]);
     expect(settled.find((row) => row.kind === "turn-activity")).toMatchObject({
       id: "turn-activity:u1",
       state: "settled",
     });
     expect(settled.at(-1)).toMatchObject({ kind: "message", message: { id: "a1", text: "Done" } });
+  });
+
+  it("starts Working after Thinking with the tool clock, never painting tools above Working", () => {
+    // Rec regression: tool summary leaked for ~1s before Working; counter jumped
+    // to the full Thinking wait (e.g. Working for 16s on first tool paint).
+    const thinking = deriveMessagesTimelineRows({
+      ...baseInput,
+      isWorking: true,
+      activeTurnInProgress: true,
+      activeTurnId: TurnId.makeUnsafe("t1"),
+      activeTurnStartedAt: "2026-01-01T00:00:00Z",
+      timelineEntries: [userEntry("u1", "2026-01-01T00:00:00Z")],
+    });
+    expect(thinking.map((row) => row.kind)).toEqual(["message", "reasoning-status"]);
+
+    const toolsLand = deriveMessagesTimelineRows({
+      ...baseInput,
+      isWorking: true,
+      activeTurnInProgress: true,
+      activeTurnId: TurnId.makeUnsafe("t1"),
+      activeTurnStartedAt: "2026-01-01T00:00:00Z",
+      timelineEntries: [
+        userEntry("u1", "2026-01-01T00:00:00Z"),
+        workEntry("w1", "2026-01-01T00:00:16Z", "Reading README for overview"),
+        assistantEntry("a1", "2026-01-01T00:00:16.100Z", {
+          turnId: "t1",
+          text: "Mình sẽ đọc README",
+          streaming: true,
+        }),
+      ],
+    });
+
+    expect(toolsLand.map((row) => row.kind)).toEqual(["message", "turn-activity", "message"]);
+    expect(toolsLand.find((row) => row.kind === "turn-activity")).toMatchObject({
+      state: "working",
+      // First tool at 16s after send — clock origin is the tool, not the send.
+      createdAt: "2026-01-01T00:00:16Z",
+    });
+    expect(toolsLand.some((row) => row.kind === "reasoning-status")).toBe(false);
+    const assistant = messageRow(toolsLand, "a1");
+    expect(assistant?.leadingWorkEntries?.map((entry) => entry.id)).toEqual(["w1"]);
+  });
+
+  it("hides Thinking once pure-text answer body streams (no flash after hi)", () => {
+    // Regression: isWorking still true after answer → Thinking sat above
+    // "Hi! What would you like to work on?" then vanished again.
+    const streaming = deriveMessagesTimelineRows({
+      ...baseInput,
+      isWorking: true,
+      activeTurnInProgress: true,
+      activeTurnId: TurnId.makeUnsafe("t1"),
+      activeTurnStartedAt: "2026-01-01T00:00:00Z",
+      timelineEntries: [
+        userEntry("u1", "2026-01-01T00:00:00Z"),
+        assistantEntry("a1", "2026-01-01T00:00:01Z", {
+          turnId: "t1",
+          text: "Hi! What would you like to work on?",
+          streaming: true,
+        }),
+      ],
+    });
+    expect(streaming.map((row) => row.kind)).toEqual(["message", "message"]);
+    expect(streaming.some((row) => row.kind === "reasoning-status")).toBe(false);
+    expect(streaming.some((row) => row.kind === "turn-activity")).toBe(false);
+
+    const settled = deriveMessagesTimelineRows({
+      ...baseInput,
+      isWorking: false,
+      activeTurnInProgress: false,
+      activeTurnId: TurnId.makeUnsafe("t1"),
+      timelineEntries: [
+        userEntry("u1", "2026-01-01T00:00:00Z"),
+        assistantEntry("a1", "2026-01-01T00:00:01Z", {
+          turnId: "t1",
+          text: "Hi! What would you like to work on?",
+          completedAt: "2026-01-01T00:00:02Z",
+        }),
+      ],
+    });
+    expect(settled.map((row) => row.kind)).toEqual(["message", "message"]);
+    expect(settled.some((row) => row.kind === "reasoning-status")).toBe(false);
+  });
+
+  it("flips to Working when tools land after answer preamble", () => {
+    const toolsArrive = deriveMessagesTimelineRows({
+      ...baseInput,
+      isWorking: true,
+      activeTurnInProgress: true,
+      activeTurnId: TurnId.makeUnsafe("t1"),
+      activeTurnStartedAt: "2026-01-01T00:00:00Z",
+      timelineEntries: [
+        userEntry("u1", "2026-01-01T00:00:00Z"),
+        assistantEntry("a1", "2026-01-01T00:00:03Z", {
+          turnId: "t1",
+          text: "Mình sẽ đọc README trong repository hiện tại…",
+          streaming: true,
+        }),
+        workEntry("w1", "2026-01-01T00:00:04Z", "Ran a command"),
+      ],
+    });
+    expect(toolsArrive.map((row) => row.kind)).toEqual(["message", "turn-activity", "message"]);
+    expect(toolsArrive.find((row) => row.kind === "turn-activity")).toMatchObject({
+      state: "working",
+      createdAt: "2026-01-01T00:00:04Z",
+    });
+    expect(toolsArrive.some((row) => row.kind === "reasoning-status")).toBe(false);
+    expect(messageRow(toolsArrive, "a1")?.inlineWorkEntries?.map((e) => e.id)).toEqual(["w1"]);
+  });
+
+  it("flips to Working when reasoning starts (ChatGPT hasStartedWork / lHn)", () => {
+    // ChatGPT `lHn`: any non-user item (including reasoning) = hasStartedWork →
+    // Working header. Bug Image: phrase + answer text with NO Working because
+    // Synara treated reasoning as Thinking-only.
+    const rows = deriveMessagesTimelineRows({
+      ...baseInput,
+      isWorking: true,
+      activeTurnInProgress: true,
+      activeTurnId: TurnId.makeUnsafe("t1"),
+      activeTurnStartedAt: "2026-01-01T00:00:00Z",
+      timelineEntries: [
+        userEntry("u1", "2026-01-01T00:00:00Z"),
+        workEntry("r1", "2026-01-01T00:00:02Z", "Reasoning summary", "thinking", {
+          toolTitle: "Reasoning summary",
+          detail: "Planning README analysis",
+          turnId: "t1",
+        }),
+        assistantEntry("a1", "2026-01-01T00:00:03Z", {
+          turnId: "t1",
+          text: "Mình sẽ đọc README hiện tại trong re",
+          streaming: true,
+        }),
+      ],
+    });
+
+    expect(rows.map((row) => row.kind)).toEqual(["message", "turn-activity", "message"]);
+    expect(rows.find((row) => row.kind === "turn-activity")).toMatchObject({
+      state: "working",
+      createdAt: "2026-01-01T00:00:02Z",
+    });
+    expect(rows.some((row) => row.kind === "reasoning-status")).toBe(false);
+    // Process under Working keeps the reasoning row (not a second bare status).
+    expect(messageRow(rows, "a1")?.leadingWorkEntries?.map((e) => e.id)).toEqual(["r1"]);
   });
 
   it("does not insert a duplicate working row after the settled row already owns the turn", () => {
@@ -1188,7 +1355,8 @@ describe("deriveMessagesTimelineRows", () => {
     expect(rows.some((row) => row.kind === "reasoning-status")).toBe(false);
   });
 
-  it("keeps the settled activity row when a turn completes without tool details", () => {
+  it("omits Worked for when a turn completes without tool details", () => {
+    // ChatGPT: text-only replies have no Working/Worked divider (Image: cwd ask).
     const rows = deriveMessagesTimelineRows({
       ...baseInput,
       activeTurnId: TurnId.makeUnsafe("t1"),
@@ -1202,15 +1370,8 @@ describe("deriveMessagesTimelineRows", () => {
       ],
     });
 
-    expect(rows.map((row) => row.kind)).toEqual(["message", "turn-activity", "message"]);
-    expect(rows.find((row) => row.kind === "turn-activity")).toMatchObject({
-      id: "turn-activity:u1",
-      state: "settled",
-      collapsedWorkElapsed: "3.0s",
-    });
-    expect(rows.find((row) => row.kind === "turn-activity")).not.toHaveProperty(
-      "collapsedTurnItems",
-    );
+    expect(rows.map((row) => row.kind)).toEqual(["message", "message"]);
+    expect(rows.some((row) => row.kind === "turn-activity")).toBe(false);
   });
 
   it("keeps pre-existing tool work owned by the preceding assistant when live narration resumes", () => {
@@ -1219,6 +1380,7 @@ describe("deriveMessagesTimelineRows", () => {
       isWorking: true,
       activeTurnInProgress: true,
       activeTurnId: TurnId.makeUnsafe("t1"),
+      activeTurnStartedAt: "2026-01-01T00:00:00Z",
       timelineEntries: [
         userEntry("u1", "2026-01-01T00:00:00Z"),
         assistantEntry("a1", "2026-01-01T00:00:01Z", {
@@ -1245,6 +1407,9 @@ describe("deriveMessagesTimelineRows", () => {
     expect(streamingNarration).not.toHaveProperty("leadingWorkGroupId");
     expect(streamingNarration?.inlineWorkEntries?.map((entry) => entry.id)).toEqual(["w2"]);
     expect(streamingNarration?.inlineWorkGroupId).toBe("entry-w2");
+    expect(rows.find((row) => row.kind === "turn-activity")).toMatchObject({
+      state: "working",
+    });
   });
 
   it("keeps a just-settled tail assistant expanded when the active turn id is briefly unavailable", () => {
@@ -1252,6 +1417,7 @@ describe("deriveMessagesTimelineRows", () => {
       ...baseInput,
       isWorking: true,
       activeTurnInProgress: true,
+      activeTurnStartedAt: "2026-01-01T00:00:00Z",
       timelineEntries: [
         userEntry("u1", "2026-01-01T00:00:00Z"),
         workEntry("w1", "2026-01-01T00:00:01Z", "tool 1"),
@@ -1269,6 +1435,9 @@ describe("deriveMessagesTimelineRows", () => {
     expect(terminal!.inlineWorkEntries).toBeUndefined();
     expect(terminal!.collapsedTurnItems).toBeUndefined();
     expect(rows.some((row) => row.kind === "work")).toBe(false);
+    expect(rows.find((row) => row.kind === "turn-activity")).toMatchObject({
+      state: "working",
+    });
   });
 
   it("keeps the settled header while a stale turn id waits for follow-up output", () => {
@@ -1299,17 +1468,15 @@ describe("deriveMessagesTimelineRows", () => {
     expect(previousAssistant!.inlineWorkEntries).toBeUndefined();
     expect(messageRow(rows, "u2")).toBeDefined();
     expect(rows.some((row) => row.kind === "work")).toBe(false);
+    // Prior turn with tools keeps Worked for; the new open turn has no tools yet
+    // so it is Thinking only (no Working header).
     expect(rows.filter((row) => row.kind === "turn-activity")).toMatchObject([
       {
         id: "turn-activity:u1",
         state: "settled",
       },
-      {
-        id: "turn-activity:u2",
-        state: "working",
-        createdAt: "2026-01-01T00:00:05Z",
-      },
     ]);
+    expect(rows.some((row) => row.kind === "reasoning-status")).toBe(true);
   });
 
   it("collapses adjacent provider mini-turns into the same user-visible response", () => {
@@ -1467,7 +1634,8 @@ describe("deriveMessagesTimelineRows", () => {
     });
   });
 
-  it("restores the working shimmer while the worktree-setup row animates closed", () => {
+  it("restores Thinking while the worktree-setup row animates closed", () => {
+    // No tools yet → ChatGPT Thinking phase (no Working header).
     const rows = deriveMessagesTimelineRows({
       ...baseInput,
       isWorking: true,
@@ -1476,12 +1644,8 @@ describe("deriveMessagesTimelineRows", () => {
       timelineEntries: [userEntry("u1", "2026-01-01T00:00:00Z")],
     });
 
-    expect(rows.map((row) => row.kind)).toEqual([
-      "message",
-      "turn-activity",
-      "worktree-setup",
-      "reasoning-status",
-    ]);
+    // Thinking shares Working's insert slot (after user), above worktree setup.
+    expect(rows.map((row) => row.kind)).toEqual(["message", "reasoning-status", "worktree-setup"]);
     expect(rows.find((row) => row.kind === "worktree-setup")).toMatchObject({ open: false });
   });
 
@@ -1492,10 +1656,9 @@ describe("deriveMessagesTimelineRows", () => {
       timelineEntries: [userEntry("u1", "2026-01-01T00:00:00Z")],
     });
 
-    expect(rows.map((row) => row.kind)).toEqual(["message", "turn-activity", "reasoning-status"]);
-    expect(rows.find((row) => row.kind === "turn-activity")).toMatchObject({
-      state: "working",
-    });
+    // Pure send with no tools: Thinking only.
+    expect(rows.map((row) => row.kind)).toEqual(["message", "reasoning-status"]);
+    expect(rows.some((row) => row.kind === "turn-activity")).toBe(false);
   });
 
   it("keeps the stable activity row while canonical tool activity is visible", () => {

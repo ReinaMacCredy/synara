@@ -1,6 +1,11 @@
+// FILE: AnimatedTextSwap.tsx
+// Purpose: Cross-fade status phrase swaps with optional cadenced shimmer.
+
 import { useEffect, useId, useState } from "react";
 
 import { cn } from "~/lib/utils";
+
+import { CadencedShimmer } from "./CadencedShimmer";
 
 const TEXT_SWAP_MS = 200;
 
@@ -44,7 +49,15 @@ export function AnimatedTextSwap(props: {
   const longestPhrase = [phraseState.phrase, phraseState.previousPhrase ?? ""].reduce(
     (longest, current) => (current.length > longest.length ? current : longest),
   );
-  const phraseClassName = cn(props.shimmer && "shimmer motion-reduce:animate-none");
+
+  const wrapPhrase = (text: string, key?: string) =>
+    props.shimmer ? (
+      <CadencedShimmer key={key} active>
+        {text}
+      </CadencedShimmer>
+    ) : (
+      <span key={key}>{text}</span>
+    );
 
   return (
     <span
@@ -59,14 +72,14 @@ export function AnimatedTextSwap(props: {
         <span className="invisible col-start-1 row-start-1 whitespace-nowrap">{longestPhrase}</span>
         {phraseState.previousPhrase === null ? null : (
           <span className="reasoning-text-swap__phrase reasoning-text-swap__phrase--exit col-start-1 row-start-1 inline-block justify-self-start whitespace-nowrap">
-            <span className={phraseClassName}>{phraseState.previousPhrase}</span>
+            {wrapPhrase(phraseState.previousPhrase)}
           </span>
         )}
         <span
           key={phraseState.phrase}
           className="reasoning-text-swap__phrase reasoning-text-swap__phrase--enter col-start-1 row-start-1 inline-block justify-self-start whitespace-nowrap"
         >
-          <span className={phraseClassName}>{phraseState.phrase}</span>
+          {wrapPhrase(phraseState.phrase)}
         </span>
       </span>
       <span id={statusId} className="sr-only">
