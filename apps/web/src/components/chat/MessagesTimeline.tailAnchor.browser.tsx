@@ -8,7 +8,7 @@
 
 import "../../index.css";
 
-import { MessageId } from "@veylen/contracts";
+import { MessageId, TurnId } from "@veylen/contracts";
 import { type LegendListRef } from "@legendapp/list/react";
 import { useRef, useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -28,6 +28,7 @@ const FIRST_SENT_MESSAGE_ID = "sent-user-message";
 const SECOND_SENT_MESSAGE_ID = "sent-user-message-2";
 const FIRST_STREAMING_MESSAGE_ID = "streaming-assistant-message";
 const SECOND_STREAMING_MESSAGE_ID = "streaming-assistant-message-2";
+const INTERLEAVED_TURN_ID = TurnId.makeUnsafe("turn-interleaved-tool-stream");
 
 function messageEntry(
   id: string,
@@ -64,6 +65,35 @@ function seedEntries(): TimelineEntries {
   return entries;
 }
 
+function interleavedAssistantEntry(id: string, text: string, streaming: boolean) {
+  const entry = messageEntry(id, "assistant", text, streaming);
+  return {
+    ...entry,
+    message: {
+      ...entry.message,
+      turnId: INTERLEAVED_TURN_ID,
+    },
+  } satisfies TimelineEntries[number];
+}
+
+function interleavedToolEntry(id: string, label: string): TimelineEntries[number] {
+  return {
+    id: `entry-${id}`,
+    kind: "work",
+    createdAt: "2026-03-17T19:12:29.000Z",
+    entry: {
+      id,
+      createdAt: "2026-03-17T19:12:29.000Z",
+      label,
+      tone: "tool",
+      itemType: "command_execution",
+      toolStatus: "completed",
+      command: "find . -name package.json",
+      turnId: INTERLEAVED_TURN_ID,
+    },
+  };
+}
+
 interface HarnessHandle {
   send: (messageId: string) => void;
   growStream: (streamMessageId: string, lines: number) => void;
@@ -72,6 +102,116 @@ interface HarnessHandle {
   finishTurn: () => void;
   clearAnchor: () => void;
   listRef: React.RefObject<LegendListRef | null>;
+}
+
+interface InterleavedToolHarnessHandle {
+  send: () => void;
+  showNarrationAndTool: () => void;
+  growNarrationAboveTool: () => void;
+  settleNarration: () => void;
+  appendNarrationAfterTool: () => void;
+  listRef: React.RefObject<LegendListRef | null>;
+}
+
+function InterleavedToolTailTimeline({
+  handleRef,
+}: {
+  handleRef: { current: InterleavedToolHarnessHandle | null };
+}) {
+  const listRef = useRef<LegendListRef | null>(null);
+  const [entries, setEntries] = useState<TimelineEntries>(seedEntries);
+  const [tailAnchorMessageId, setTailAnchorMessageId] = useState<MessageId | null>(null);
+  const [followLiveOutput, setFollowLiveOutput] = useState(false);
+
+  handleRef.current = {
+    listRef,
+    send: () => {
+      setEntries((current) => [
+        ...current,
+        messageEntry(FIRST_SENT_MESSAGE_ID, "user", "Inspect the repository."),
+      ]);
+      setTailAnchorMessageId(MessageId.makeUnsafe(FIRST_SENT_MESSAGE_ID));
+    },
+    showNarrationAndTool: () => {
+      setFollowLiveOutput(true);
+      setEntries((current) => [
+        ...current,
+        interleavedAssistantEntry(
+          FIRST_STREAMING_MESSAGE_ID,
+          "I will inspect the README first.",
+          true,
+        ),
+        interleavedToolEntry("interleaved-tool", "Planning README inspection"),
+      ]);
+    },
+    growNarrationAboveTool: () => {
+      setEntries((current) =>
+        current.map((entry) =>
+          entry.kind === "message" && entry.message.id === FIRST_STREAMING_MESSAGE_ID
+            ? interleavedAssistantEntry(
+                FIRST_STREAMING_MESSAGE_ID,
+                `I will inspect the README first.\n\n${"Additional streamed narration. ".repeat(8)}`,
+                true,
+              )
+            : entry,
+        ),
+      );
+    },
+    settleNarration: () => {
+      setFollowLiveOutput(false);
+      setEntries((current) =>
+        current.map((entry) =>
+          entry.kind === "message" && entry.message.id === FIRST_STREAMING_MESSAGE_ID
+            ? interleavedAssistantEntry(
+                FIRST_STREAMING_MESSAGE_ID,
+                entry.message.text,
+                false,
+              )
+            : entry,
+        ),
+      );
+    },
+    appendNarrationAfterTool: () => {
+      setFollowLiveOutput(true);
+      setEntries((current) => [
+        ...current,
+        interleavedAssistantEntry(
+          SECOND_STREAMING_MESSAGE_ID,
+          "Now I will inspect the package manifests.",
+          true,
+        ),
+      ]);
+    },
+  };
+
+  return (
+    <div style={{ height: VIEWPORT_HEIGHT_PX }}>
+      <MessagesTimeline
+        hasMessages={entries.length > 0}
+        isWorking
+        activeTurnInProgress
+        activeTurnId={INTERLEAVED_TURN_ID}
+        activeTurnStartedAt="2026-03-17T19:12:29.000Z"
+        listRef={listRef}
+        tailAnchorMessageId={tailAnchorMessageId}
+        followLiveOutput={followLiveOutput}
+        timelineEntries={entries}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        nowIso="2026-03-17T19:12:30.000Z"
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="dark"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />
+    </div>
+  );
 }
 
 function TailAnchorTimeline({ handleRef }: { handleRef: { current: HarnessHandle | null } }) {
@@ -191,6 +331,29 @@ function anchorTopOffsetPx(handle: HarnessHandle, messageId: string): number | n
 function distanceFromBottomPx(handle: HarnessHandle): number {
   const container = getScrollContainer(handle);
   return container.scrollHeight - container.clientHeight - container.scrollTop;
+}
+
+function interleavedToolTopPx(): number | null {
+  const tool = document.querySelector<HTMLElement>("[data-tool-summary-swap='true']");
+  return tool ? tool.getBoundingClientRect().top : null;
+}
+
+function interleavedToolSpacingPx(): { before: number; after: number } | null {
+  const tool = document.querySelector<HTMLElement>("[data-live-work-group-id]");
+  const owner = tool?.closest<HTMLElement>("[data-message-id]");
+  const messageRows = [...document.querySelectorAll<HTMLElement>("[data-message-id]")];
+  const ownerIndex = owner ? messageRows.indexOf(owner) : -1;
+  const nextRow = messageRows
+    .slice(ownerIndex + 1)
+    .find((row) => row.querySelector("[data-assistant-message-id]"));
+  const precedingText = owner?.querySelector<HTMLElement>("[data-assistant-message-id]");
+  const followingText = nextRow?.querySelector<HTMLElement>("[data-assistant-message-id]");
+  if (!tool || !precedingText || !followingText) return null;
+  const toolRect = tool.getBoundingClientRect();
+  return {
+    before: toolRect.top - precedingText.getBoundingClientRect().bottom,
+    after: followingText.getBoundingClientRect().top - toolRect.bottom,
+  };
 }
 
 async function settleFrames(count: number): Promise<void> {
@@ -333,6 +496,60 @@ describe("MessagesTimeline tail anchor", () => {
       // The anchored message has scrolled up and out of the way of the live tail.
       const overflowOffset = anchorTopOffsetPx(handle(), SECOND_SENT_MESSAGE_ID);
       expect(overflowOffset === null || overflowOffset < 0).toBe(true);
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("keeps an interleaved tool row fixed while narration above it streams, settles, and resumes", async () => {
+    const handleRef: { current: InterleavedToolHarnessHandle | null } = { current: null };
+    const screen = await render(<InterleavedToolTailTimeline handleRef={handleRef} />);
+
+    try {
+      const handle = () => {
+        if (!handleRef.current) throw new Error("harness not mounted");
+        return handleRef.current;
+      };
+      const listHandle = (): HarnessHandle =>
+        ({ listRef: handle().listRef }) as unknown as HarnessHandle;
+
+      await expect.poll(() => handle().listRef.current?.getScrollableNode?.() != null).toBe(true);
+      await settleFrames(3);
+      void handle().listRef.current?.scrollToEnd?.({ animated: false });
+      await expect
+        .poll(() => distanceFromBottomPx(listHandle()), { timeout: 5_000 })
+        .toBeLessThanOrEqual(AUTO_FOLLOW_TOLERANCE_PX);
+
+      handle().send();
+      await settleFrames(36);
+      handle().showNarrationAndTool();
+      await expect.poll(() => interleavedToolTopPx(), { timeout: 5_000 }).not.toBeNull();
+      await settleFrames(6);
+      const stableToolTop = interleavedToolTopPx();
+      expect(stableToolTop).not.toBeNull();
+
+      const maximumDriftFrom = async (mutate: () => void) => {
+        mutate();
+        let maximumDrift = 0;
+        for (let frame = 0; frame < 30; frame += 1) {
+          await settleFrames(1);
+          const top = interleavedToolTopPx();
+          if (top !== null && stableToolTop !== null) {
+            maximumDrift = Math.max(maximumDrift, Math.abs(top - stableToolTop));
+          }
+        }
+        return maximumDrift;
+      };
+
+      expect(await maximumDriftFrom(handle().growNarrationAboveTool)).toBeLessThanOrEqual(2);
+      expect(await maximumDriftFrom(handle().settleNarration)).toBeLessThanOrEqual(2);
+      expect(await maximumDriftFrom(handle().appendNarrationAfterTool)).toBeLessThanOrEqual(2);
+      const spacing = interleavedToolSpacingPx();
+      expect(spacing).not.toBeNull();
+      expect(
+        Math.abs(spacing!.before - spacing!.after),
+        JSON.stringify(spacing),
+      ).toBeLessThanOrEqual(1);
     } finally {
       await screen.unmount();
     }

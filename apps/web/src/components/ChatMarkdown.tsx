@@ -15,6 +15,7 @@ import React, {
   use,
   useDeferredValue,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -121,6 +122,8 @@ interface ChatMarkdownProps {
    * length- and newline-preserving). Without it checkboxes render read-only.
    */
   onTaskToggle?: ((input: { sourceLine: number; checked: boolean }) => void) | undefined;
+  /** Runs after rendered markdown text commits, before the browser paints the new layout. */
+  onRenderedTextLayout?: (() => void) | undefined;
 }
 
 // Source line of the enclosing task-list item, provided by the `li` override.
@@ -1023,6 +1026,7 @@ function ChatMarkdown({
   variant: variantProp,
   mentionReferences,
   terminalContexts,
+  onRenderedTextLayout,
 }: ChatMarkdownProps) {
   // Defaults applied with ?? in the body, not in the destructuring: default
   // values in parameter destructuring make React Compiler 1.0.0 bail on the
@@ -1055,6 +1059,9 @@ function ChatMarkdown({
   // completed messages render the exact current text immediately (no visual change).
   const deferredNormalizedText = useDeferredValue(normalizedText);
   const renderedText = isStreaming ? deferredNormalizedText : normalizedText;
+  useLayoutEffect(() => {
+    onRenderedTextLayout?.();
+  }, [onRenderedTextLayout, renderedText]);
   // Marker offsets are applied against mdast positions, which come from the
   // repaired text — validate them against the same string. A marker recorded
   // after a repaired delimiter row fails its `selectedText` check and is

@@ -674,10 +674,16 @@ export function deriveMessagesTimelineRows(input: {
     }
 
     const message = timelineEntry.message;
-    const leadingWorkEntries =
-      message.role === "assistant" ? pendingWorkGroup?.groupedEntries : undefined;
-    const leadingWorkGroupId = message.role === "assistant" ? pendingWorkGroup?.id : undefined;
+    let leadingWorkEntries: WorkLogEntry[] | undefined;
+    let leadingWorkGroupId: string | undefined;
     if (message.role === "assistant") {
+      if (
+        pendingWorkGroup &&
+        !appendWorkEntriesToPreviousAssistant(pendingWorkGroup.groupedEntries, pendingWorkGroup.id)
+      ) {
+        leadingWorkEntries = pendingWorkGroup.groupedEntries;
+        leadingWorkGroupId = pendingWorkGroup.id;
+      }
       pendingWorkGroup = null;
     } else {
       flushPendingWorkGroup();

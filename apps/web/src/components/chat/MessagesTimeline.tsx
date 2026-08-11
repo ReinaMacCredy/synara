@@ -555,8 +555,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const [settledTailAnchorMessageId, setSettledTailAnchorMessageId] = useState<MessageId | null>(
     () => inheritedTailAnchorMessageId,
   );
-  const tailAnchorSlideInFlight =
-    tailAnchorMessageId !== null && tailAnchorMessageId !== settledTailAnchorMessageId;
+  const [releasedTailAnchorMessageId, setReleasedTailAnchorMessageId] =
+    useState<MessageId | null>(null);
   const handleTailAnchorSlideFinished = useCallback((messageId: MessageId) => {
     setSettledTailAnchorMessageId((current) => (current === messageId ? current : messageId));
   }, []);
@@ -657,6 +657,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const fallbackListRef = useRef<LegendListRef | null>(null);
   const resolvedListRef = listRef ?? fallbackListRef;
   const timelineRootRef = useRef<HTMLDivElement | null>(null);
+  const liveWorkViewportAnchorRef = useRef<{
+    sessionId: MessageId;
+    workGroupId: string;
+    top: number;
+    visualOffset: number;
+  } | null>(null);
+  const liveWorkViewportTargetRef = useRef<HTMLElement | null>(null);
+  const liveWorkViewportCorrectionRef = useRef<(() => void) | null>(null);
+  const liveWorkViewportAnchorSuspendedRef = useRef(false);
   // Fixed bottom content inset. The variable space that lets a just-sent
   // message anchor at the viewport top is reserved natively by LegendList's
   // `anchoredEndSpace` below, not by resizing this footer — resizing the footer
@@ -675,18 +684,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     ),
     [footerContent],
   );
-  useTailAnchorScroll({
-    listRef: resolvedListRef,
-    timelineRootRef,
-    // An inherited anchor already reached its resting position before this
-    // mount; the list bootstraps there via `initialScrollAtEnd` instead.
-    anchorMessageId: hasInheritedTailAnchor ? null : tailAnchorMessageId,
-    anchorScrollInFlightRef: tailAnchorScrollInFlightRef,
-    onAnchorSlideFinished: handleTailAnchorSlideFinished,
-    contentChangeSignal: timelineEntries,
-    animateAnchorSlide: !followLiveOutput,
-  });
-
   const presentedWorktreeSetup = useWorktreeSetupPresentation(worktreeSetup);
   const rawRows = useMemo(
     () =>
@@ -713,6 +710,156 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     ],
   );
   const rows = useStableRows(rawRows);
+  const shouldReleaseTailAnchorToLiveOutput = useMemo(
+    () =>
+      followLiveOutput &&
+      rows.some(
+        (row) =>
+          row.kind === "message" &&
+          row.message.role === "assistant" &&
+          row.message.streaming &&
+          row.message.text.length > 0 &&
+          ((row.leadingWorkEntries?.length ?? 0) > 0 ||
+            (row.inlineWorkEntries?.length ?? 0) > 0),
+      ),
+    [followLiveOutput, rows],
+  );
+  const tailAnchorReleased =
+    tailAnchorMessageId !== null &&
+    (releasedTailAnchorMessageId === tailAnchorMessageId || shouldReleaseTailAnchorToLiveOutput);
+  useLayoutEffect(() => {
+    if (!tailAnchorMessageId || !shouldReleaseTailAnchorToLiveOutput) return;
+    setReleasedTailAnchorMessageId((current) =>
+      current === tailAnchorMessageId ? current : tailAnchorMessageId,
+    );
+  }, [shouldReleaseTailAnchorToLiveOutput, tailAnchorMessageId]);
+  const activeTailAnchorMessageId = tailAnchorReleased ? null : tailAnchorMessageId;
+  const tailAnchorSlideInFlight =
+    activeTailAnchorMessageId !== null &&
+    activeTailAnchorMessageId !== settledTailAnchorMessageId;
+  useLayoutEffect(() => {
+    if (!tailAnchorReleased || tailAnchorMessageId === null) {
+      if (liveWorkViewportTargetRef.current) {
+        liveWorkViewportTargetRef.current.style.translate = "";
+      }
+      liveWorkViewportAnchorRef.current = null;
+      liveWorkViewportTargetRef.current = null;
+      liveWorkViewportCorrectionRef.current = null;
+      liveWorkViewportAnchorSuspendedRef.current = false;
+      return;
+    }
+    if (liveWorkViewportAnchorSuspendedRef.current) return;
+
+    const container = resolvedListRef.current?.getScrollableNode?.();
+    const root = timelineRootRef.current;
+    if (!(container instanceof HTMLElement) || !root) return;
+
+    const workGroups = [
+      ...root.querySelectorAll<HTMLElement>("[data-live-work-group-id]"),
+    ].filter((element) => element.getClientRects().length > 0);
+    const target = workGroups.at(-1);
+    const workGroupId = target?.dataset.liveWorkGroupId;
+    if (!target || !workGroupId) {
+      if (liveWorkViewportTargetRef.current) {
+        liveWorkViewportTargetRef.current.style.translate = "";
+      }
+      liveWorkViewportAnchorRef.current = null;
+      liveWorkViewportTargetRef.current = null;
+      liveWorkViewportCorrectionRef.current = null;
+      return;
+    }
+
+    const preserveTargetCoordinate = () => {
+      if (liveWorkViewportAnchorSuspendedRef.current || !target.isConnected) return;
+      const previous = liveWorkViewportAnchorRef.current;
+      const sameAnchor =
+        previous?.sessionId === tailAnchorMessageId &&
+        previous.workGroupId === workGroupId;
+      const sameTarget = sameAnchor && liveWorkViewportTargetRef.current === target;
+      const currentVisualOffset = sameTarget ? previous.visualOffset : 0;
+      const currentLayoutTop = target.getBoundingClientRect().top - currentVisualOffset;
+      const desiredTop = sameAnchor ? previous.top : currentLayoutTop;
+      const delta = currentLayoutTop - desiredTop;
+      let visualOffset = 0;
+      if (Math.abs(delta) >= 0.5) {
+        const previousScrollTop = container.scrollTop;
+        container.scrollTop += delta;
+        const appliedScrollDelta = container.scrollTop - previousScrollTop;
+        visualOffset = -(delta - appliedScrollDelta);
+        target.style.translate =
+          Math.abs(visualOffset) >= 0.5 ? `0 ${String(visualOffset)}px` : "";
+      } else if (Math.abs(currentVisualOffset) >= 0.5) {
+        target.style.translate = "";
+      }
+      if (!sameTarget && liveWorkViewportTargetRef.current) {
+        liveWorkViewportTargetRef.current.style.translate = "";
+      }
+      liveWorkViewportTargetRef.current = target;
+      liveWorkViewportAnchorRef.current = {
+        sessionId: tailAnchorMessageId,
+        workGroupId,
+        top: desiredTop,
+        visualOffset,
+      };
+    };
+
+    preserveTargetCoordinate();
+    liveWorkViewportCorrectionRef.current = preserveTargetCoordinate;
+    const messageRow = target.closest<HTMLElement>("[data-message-id]");
+    if (!messageRow || typeof ResizeObserver === "undefined") {
+      return () => {
+        if (liveWorkViewportCorrectionRef.current === preserveTargetCoordinate) {
+          liveWorkViewportCorrectionRef.current = null;
+        }
+      };
+    }
+
+    const observer = new ResizeObserver(preserveTargetCoordinate);
+    observer.observe(messageRow);
+    return () => {
+      observer.disconnect();
+      if (liveWorkViewportCorrectionRef.current === preserveTargetCoordinate) {
+        liveWorkViewportCorrectionRef.current = null;
+      }
+    };
+  }, [resolvedListRef, rows, tailAnchorMessageId, tailAnchorReleased, timelineEntries]);
+  const handleLiveMarkdownLayout = useCallback(() => {
+    liveWorkViewportCorrectionRef.current?.();
+  }, []);
+  useEffect(() => {
+    const container = resolvedListRef.current?.getScrollableNode?.();
+    if (!(container instanceof HTMLElement) || !tailAnchorReleased) return;
+    const suspend = () => {
+      if (liveWorkViewportTargetRef.current) {
+        liveWorkViewportTargetRef.current.style.translate = "";
+      }
+      liveWorkViewportAnchorSuspendedRef.current = true;
+      liveWorkViewportAnchorRef.current = null;
+      liveWorkViewportTargetRef.current = null;
+    };
+    container.addEventListener("pointerdown", suspend, { passive: true });
+    container.addEventListener("touchstart", suspend, { passive: true });
+    container.addEventListener("wheel", suspend, { passive: true });
+    return () => {
+      container.removeEventListener("pointerdown", suspend);
+      container.removeEventListener("touchstart", suspend);
+      container.removeEventListener("wheel", suspend);
+    };
+  }, [resolvedListRef, tailAnchorReleased]);
+  useTailAnchorScroll({
+    listRef: resolvedListRef,
+    timelineRootRef,
+    // An inherited anchor already reached its resting position before this
+    // mount; the list bootstraps there via `initialScrollAtEnd` instead. Once
+    // real narration and work interleave, the live tail becomes the permanent
+    // scroll owner for this send so later tool-only gaps cannot recreate the
+    // reserved sent-message anchor.
+    anchorMessageId: hasInheritedTailAnchor ? null : activeTailAnchorMessageId,
+    anchorScrollInFlightRef: tailAnchorScrollInFlightRef,
+    onAnchorSlideFinished: handleTailAnchorSlideFinished,
+    contentChangeSignal: timelineEntries,
+    animateAnchorSlide: !followLiveOutput,
+  });
   // Live → settled handoff: open folded process details for one frame, then close
   // with the shared disclosure motion so settlement is not a hard height delete.
   const settleOpenByActivityId = useTurnActivitySettleTransitions(rows);
@@ -732,16 +879,16 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   // padding, which the list cannot see (it only reads style props), so that
   // "at end" lands the anchor exactly one top-inset below the viewport top.
   const tailAnchorRowIndex = useMemo(() => {
-    if (tailAnchorMessageId === null) {
+    if (activeTailAnchorMessageId === null) {
       return -1;
     }
     return rows.findIndex(
-      (row) => row.kind === "message" && row.message.id === tailAnchorMessageId,
+      (row) => row.kind === "message" && row.message.id === activeTailAnchorMessageId,
     );
-  }, [rows, tailAnchorMessageId]);
+  }, [activeTailAnchorMessageId, rows]);
   const [anchorVerticalInsetPx, setAnchorVerticalInsetPx] = useState(0);
   useLayoutEffect(() => {
-    if (tailAnchorMessageId === null) {
+    if (activeTailAnchorMessageId === null) {
       return;
     }
     const node: unknown = resolvedListRef.current?.getScrollableNode?.();
@@ -752,7 +899,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     const inset =
       (Number.parseFloat(style.paddingTop) || 0) + (Number.parseFloat(style.paddingBottom) || 0);
     setAnchorVerticalInsetPx((current) => (Math.abs(current - inset) > 0.5 ? inset : current));
-  }, [resolvedListRef, tailAnchorMessageId]);
+  }, [activeTailAnchorMessageId, resolvedListRef]);
   const anchoredEndSpace = useMemo(
     () =>
       tailAnchorRowIndex < 0
@@ -1045,6 +1192,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   );
   const handleListScroll = useCallback<NonNullable<MessagesTimelineProps["onMessagesScroll"]>>(
     (event) => {
+      liveWorkViewportCorrectionRef.current?.();
       onMessagesScroll?.(event);
       const state = readLegendListState(resolvedListRef);
       if (state) {
@@ -1717,7 +1865,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             return (
               <>
                 {collapseAsSummary && display.renderableToolEntries.length > 0 && (
-                  <div className={placement === "leading" ? "mb-1.5" : "mt-1.5"}>
+                  <div
+                    className={placement === "leading" ? "mb-3" : "mt-3"}
+                    data-live-work-group-id={
+                      isLiveGroup ? (display.toolGroupId ?? undefined) : undefined
+                    }
+                  >
                     <div className="space-y-px">
                       {renderChunks.map((chunk) => {
                         if (!chunk.summary) {
@@ -1770,7 +1923,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   </div>
                 )}
                 {!collapseAsSummary && display.visibleRenderableToolEntries.length > 0 && (
-                  <div className={placement === "leading" ? "mb-1.5" : "mt-1.5"}>
+                  <div
+                    className={placement === "leading" ? "mb-3" : "mt-3"}
+                    data-live-work-group-id={
+                      isLiveGroup ? (display.toolGroupId ?? undefined) : undefined
+                    }
+                  >
                     <div className="space-y-px">
                       {display.visibleRenderableToolEntries.map(renderInlineToolRow)}
                     </div>
@@ -1835,6 +1993,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                       style={chatTypographyStyle}
                       onImageExpand={onImageExpand}
                       markers={messageMarkers}
+                      onRenderedTextLayout={handleLiveMarkdownLayout}
                     />
                   </div>
                 ) : null}
@@ -2322,11 +2481,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         // change while this is true, which would yank a live post-send anchor
         // out of its hold. A remount that inherits an already-settled anchor has
         // no slide to preserve, so bootstrapping at the end is what we want.
-        initialScrollAtEnd={tailAnchorMessageId === null || hasInheritedTailAnchor}
+        initialScrollAtEnd={activeTailAnchorMessageId === null || hasInheritedTailAnchor}
         {...(anchoredEndSpace ? { anchoredEndSpace } : {})}
         maintainScrollAtEnd={followLiveOutput && !tailAnchorSlideInFlight}
         maintainScrollAtEndThreshold={0.1}
-        {...(tailAnchorMessageId !== null
+        {...(activeTailAnchorMessageId !== null
           ? { maintainVisibleContentPosition: false }
           : !followLiveOutput
             ? { maintainVisibleContentPosition: true }

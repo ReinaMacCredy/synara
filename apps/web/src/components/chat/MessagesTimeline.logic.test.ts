@@ -1213,7 +1213,7 @@ describe("deriveMessagesTimelineRows", () => {
     );
   });
 
-  it("keeps pre-existing tool work above the new live narration text", () => {
+  it("keeps pre-existing tool work owned by the preceding assistant when live narration resumes", () => {
     const rows = deriveMessagesTimelineRows({
       ...baseInput,
       isWorking: true,
@@ -1236,10 +1236,13 @@ describe("deriveMessagesTimelineRows", () => {
       ],
     });
 
+    const precedingNarration = messageRow(rows, "a1");
     const streamingNarration = messageRow(rows, "a2");
 
-    expect(streamingNarration?.leadingWorkEntries?.map((entry) => entry.id)).toEqual(["w1"]);
-    expect(streamingNarration?.leadingWorkGroupId).toBe("entry-w1");
+    expect(precedingNarration?.inlineWorkEntries?.map((entry) => entry.id)).toEqual(["w1"]);
+    expect(precedingNarration?.inlineWorkGroupId).toBe("entry-w1");
+    expect(streamingNarration).not.toHaveProperty("leadingWorkEntries");
+    expect(streamingNarration).not.toHaveProperty("leadingWorkGroupId");
     expect(streamingNarration?.inlineWorkEntries?.map((entry) => entry.id)).toEqual(["w2"]);
     expect(streamingNarration?.inlineWorkGroupId).toBe("entry-w2");
   });
