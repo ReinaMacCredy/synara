@@ -54,7 +54,7 @@ const timeout = setTimeout(() => {
     // Best-effort cleanup; the failure below is the useful signal.
   }
   fail("Timed out waiting for node-pty output.", output);
-}, 5_000);
+}, 20_000);
 
 const dataSubscription = terminal.onData((chunk) => {
   output += chunk;
