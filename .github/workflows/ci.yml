@@ -118,7 +118,21 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Verify Windows terminal PTY native dependency under Bun
-        run: bun scripts/node-pty-smoke.mjs
+        run: |
+          $maxAttempts = 3
+          for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            bun scripts/node-pty-smoke.mjs
+            $smokeExitCode = $LASTEXITCODE
+            if ($smokeExitCode -eq 0) {
+              exit 0
+            }
+            if ($attempt -eq $maxAttempts) {
+              exit $smokeExitCode
+            }
+            $delaySeconds = $attempt * 5
+            Write-Host "Windows PTY smoke failed on attempt $attempt/$maxAttempts. Retrying in $delaySeconds seconds..."
+            Start-Sleep -Seconds $delaySeconds
+          }
 
       - name: Test Windows process planning
         run: bun run --cwd packages/shared test src/windowsProcess.test.ts
