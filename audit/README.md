@@ -1,8 +1,9 @@
 # Veylen Focused Codebase Roadmap
 
-> **Superseded:** this is the historical implementation roadmap. The current, evidence-backed audit
-> and integrated TODO list live in [`PR357_MERGE_READINESS_AUDIT.md`](./PR357_MERGE_READINESS_AUDIT.md).
-> Keep this file only for the detailed history of work already performed.
+> **Historical record:** this implementation roadmap is frozen at terminal source revision
+> `96673ccd2ec4769f4719f8f8fc40d11e0f4a1d8d`. The current evidence-backed inventory and statuses live
+> in [`TECHNICAL_DEBT_AUDIT_2026-08-12.md`](./TECHNICAL_DEBT_AUDIT_2026-08-12.md). Checkboxes below
+> record terminal status only; this file is retained for implementation history, not current planning.
 
 ## Audit scope and constraints
 
@@ -76,11 +77,11 @@ Short remaining TODO:
 
 - [x] Replace every discovered ServiceMap-tag-as-Effect path and add one focused regression gate.
 - [x] Verify the 49-channel desktop IPC contract after preload consolidation.
-- [ ] Replace the existing ACP `ReadableStream.start` + unscoped `Effect.runFork` bridge with one
+- [x] Replace the existing ACP `ReadableStream.start` + unscoped `Effect.runFork` bridge with one
       scope-bound, backpressured raw-byte admission path. It may count bytes/newlines but must not parse
       JSON-RPC, recreate SDK schemas, or fall back to `effect-acp`; the old bridge is deleted in the same
       change.
-- [ ] Prove the actual production ACP adapter (not a synthetic pull stream) stays within a declared
+- [x] Prove the actual production ACP adapter (not a synthetic pull stream) stays within a declared
       frame/queue budget under a slow consumer and fails closed on oversize/unterminated input. Keep this
       as one focused integration fixture, not a new test framework.
 
@@ -1172,7 +1173,7 @@ Keep these as regression baselines, not open work: `SEC-01`, `SEC-AUTH-01`, `SEC
   - **Future verification:** `bun run --cwd apps/server test -- src/attachmentUpload.test.ts src/managedAttachmentCleanup.test.ts src/persistence/Layers/ManagedAttachments.test.ts src/orchestration/Layers/ThreadDeletionReactor.test.ts`.
   - **STOP/rollback:** do not add scratch or generic file abstractions until the existing attachment ledger passes its file-backed closeout matrix.
 
-- [ ] **P1-DESKTOP-SEC-01 — Generation-scoped desktop browser and native-control boundary**
+- [x] **P1-DESKTOP-SEC-01 — Generation-scoped desktop browser and native-control boundary**
   - **Implementation status (2026-07-14):** CODE COMPLETE. The private random Unix lease socket, lease-owned
     tab/CDP routing, bounded admission/output, exact browser partition permission denial, custom
     scheme denial, and isolated SVG response policy landed. Windows now fails closed: it publishes no
@@ -1191,7 +1192,7 @@ Keep these as regression baselines, not open work: `SEC-01`, `SEC-AUTH-01`, `SEC
   - **Future verification:** add `apps/desktop/src/browserManager.test.ts`, then run `bun run --cwd apps/desktop test -- src/browserUsePipeServer.test.ts src/mediaPermissions.test.ts src/browserManager.test.ts`; `bun run --cwd apps/server test -- src/localImageRoute.test.ts`.
   - **STOP/rollback:** keep browser-use disabled for a platform if private socket/ACL and generation-scoped routing cannot be proved.
 
-- [ ] **P1-SETTINGS-01 — Revisioned server settings and provider configuration authority**
+- [x] **P1-SETTINGS-01 — Revisioned server settings and provider configuration authority**
   - **Implementation status (2026-07-14):** CODE COMPLETE. The revisioned/migration-versioned disk
     envelope, invalid-file quarantine, atomic write, locked disk re-read, and server-side provider
     enablement/launch-option resolution landed. Client contracts carry intent patches, not a second
@@ -1263,7 +1264,7 @@ Keep these as regression baselines, not open work: `SEC-01`, `SEC-AUTH-01`, `SEC
 
 ## P2 TODO
 
-- [ ] **P2-ACP-01 — Official ACP SDK production wire authority**
+- [x] **P2-ACP-01 — Official ACP SDK production wire authority**
   - **Implementation status (2026-07-20):** WIRE AND COMPATIBILITY CUTOVER COMPLETE; RESOURCE
     CLOSEOUT REOPENED. The official SDK owns NDJSON, validation, JSON-RPC correlation/dispatch, both
     cancellation layers, and standard ACP types for Grok, Droid, and Cursor. The deprecated

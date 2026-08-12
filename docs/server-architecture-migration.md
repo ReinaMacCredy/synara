@@ -1,29 +1,34 @@
-# Server Architecture Migration Inventory
+# Server Architecture Inventory
 
-This document tracks compatibility constraints for the controlled migration from the current legacy Veylen-style server toward the newer upstream modular server architecture.
+Status: migration complete; current architecture reference
+Last reconciled: 2026-08-12 at baseline `96673ccd2ec4769f4719f8f8fc40d11e0f4a1d8d`
+
+The earlier HTTP/WebSocket modularization plan is complete. This file now records the resulting
+ownership boundaries; it is not an open migration checklist.
 
 ## Current Entry Points
 
-| Area                      | Files                                                                                                                                          |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| CLI/runtime entry         | `apps/server/src/index.ts`, `apps/server/src/main.ts`                                                                                          |
-| Runtime layer composition | `apps/server/src/serverLayers.ts`                                                                                                              |
-| HTTP and WebSocket server | `apps/server/src/wsServer.ts`                                                                                                                  |
-| Current contracts         | `packages/contracts/src/ws.ts`, `packages/contracts/src/ipc.ts`, `packages/contracts/src/server.ts`, `packages/contracts/src/orchestration.ts` |
-| Current web transport     | `apps/web/src/wsTransport.ts`, `apps/web/src/wsNativeApi.ts`, `apps/web/src/nativeApi.ts`                                                      |
+| Area                      | Files                                                                                                                                         |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| CLI/runtime entry         | `apps/server/src/index.ts`, `apps/server/src/main.ts`                                                                                         |
+| Runtime layer composition | `apps/server/src/serverLayers.ts`                                                                                                             |
+| HTTP routes               | `apps/server/src/http.ts`, `apps/server/src/nodeHttpServer.ts`                                                                                |
+| WebSocket RPC routes      | `apps/server/src/wsRpc.ts`, `apps/server/src/wsServer.ts`                                                                                     |
+| Current contracts         | `packages/contracts/src/ws.ts`, `packages/contracts/src/ipc.ts`, `packages/contracts/src/server.ts`, `packages/contracts/src/orchestration/*` |
+| Current web transport     | `apps/web/src/wsTransport.ts`, `apps/web/src/wsNativeApi.ts`, `apps/web/src/nativeApi.ts`                                                     |
 
-## Protocol Compatibility Checklist
+## Protocol ownership
 
-The first migration phases must keep the custom JSON WebSocket protocol unchanged.
+The feature transport uses schema-decoded Effect RPC over WebSocket. Bootstrap and negotiation remain
+separate compatibility gates so incompatible clients fail before feature RPC decoding.
 
-| Category          | Compatibility requirement                                      |
-| ----------------- | -------------------------------------------------------------- |
-| Request envelope  | Keep `{ id, body: { _tag, ...payload } }` messages.            |
-| Response envelope | Keep the current `WsResponse` success/error shape.             |
-| Push envelope     | Keep the current push shape and channels.                      |
-| WebSocket path    | Keep the current upgrade behavior and URL resolution.          |
-| Web client        | Do not require Effect RPC or web transport migration.          |
-| Contracts         | Avoid renaming or removing existing `WS_METHODS` and channels. |
+| Category          | Compatibility requirement                                                                              |
+| ----------------- | ------------------------------------------------------------------------------------------------------ |
+| Feature RPC       | `WsFeatureRpcGroup`, served by `wsRpc.ts` and consumed by `wsTransport.ts` through Effect RPC schemas. |
+| Device RPC        | `WsDeviceRpcGroup`, merged into the authenticated feature socket with the same admission boundary.     |
+| Bootstrap         | `WsBootstrapRpcGroup` and HTTP negotiation establish protocol compatibility and short-lived auth.      |
+| Push/stream state | Typed orchestration shell/detail streams and server/device streams; snapshot cursors own resync.       |
+| Legacy names      | Existing public method/channel constants remain compatibility inputs, not an independent transport.    |
 
 ## Local Methods To Preserve
 
@@ -35,9 +40,10 @@ The first migration phases must keep the custom JSON WebSocket protocol unchange
 | Project search     | `projects.listDirectories`, `projects.searchLocalEntries`                                                                                                                                                 |
 | Push channels      | `server.welcome`, `server.configUpdated`, `server.providerStatusesUpdated`, `terminal.event`, `git.actionProgress`, orchestration channels                                                                |
 
-## Phase 1 Scope
+## Completed HTTP extraction
 
-Phase 1 extracts HTTP-only behavior from `wsServer.ts` into `apps/server/src/http.ts` while keeping the existing Node HTTP server and `ws` WebSocket server.
+HTTP-only behavior lives in `apps/server/src/http.ts`; WebSocket upgrade/RPC behavior stays outside
+that module. The extraction preserved these externally visible routes:
 
 | Behavior               | Compatibility target                                                                |
 | ---------------------- | ----------------------------------------------------------------------------------- |
@@ -48,6 +54,8 @@ Phase 1 extracts HTTP-only behavior from `wsServer.ts` into `apps/server/src/htt
 | Static build           | Preserve SPA fallback to `index.html`, MIME lookup, and path traversal checks.      |
 | Missing static build   | Preserve `503` response text.                                                       |
 
-## Verification Targets
+## Verification
 
-Focused tests for this phase should cover HTTP helper behavior and existing `wsServer` integration. Full workspace formatting, linting, and typechecking are not run unless explicitly requested.
+The current gates are `apps/server/src/http.test.ts`, `wsCompatibility.test.ts`, `wsRpc.auth.test.ts`,
+`wsRpc.connectionLifecycle.test.ts`, workspace typecheck, and the stable browser/desktop suites. The
+repository technical-debt audit is the current ledger for any remaining transport work.

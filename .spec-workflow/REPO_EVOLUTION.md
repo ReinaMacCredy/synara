@@ -1,6 +1,6 @@
 # Repository Evolution
 
-Last reconciled: 2026-08-07
+Last reconciled: 2026-08-12
 
 This map separates current repository evidence, owner statements, and unresolved
 product decisions. It is a direction map, not proof that any product behavior is
@@ -28,9 +28,9 @@ These current-purpose statements align with the target vision locked below.
 
 ## Current Full Picture
 
-Evidence freshness: inspected 2026-08-06 at `HEAD e8b5b81e` (`main`, 19 commits
-ahead of `origin/main`). The 0.6.6 changelog and its verification claims are
-repository records, not checks rerun by this evolution pass (`CHANGELOG.md:3-36`).
+Evidence freshness: source and durable documentation inspected at baseline
+`96673ccd2ec4769f4719f8f8fc40d11e0f4a1d8d`. Historical changelog and audit claims are
+repository records unless the current technical-debt audit records a rerun.
 
 ### Product and runtime ownership
 
@@ -76,28 +76,13 @@ The current source and release record show a broad local agent workspace with:
 
 ### Evidence and lifecycle state
 
-- The workflow home and durable `REPO_EVOLUTION.md` scaffold were added in
-  `e8b5b81e`; that commit also removed the two root simulation HTML files. This
-  evolve pass did not modify or reinterpret that external commit.
-- Seven root asset-only legacy groups are preserved in
-  `.spec-workflow/paused/`: `advisor-notes-response-panel`, `orchestrator-mode`,
-  `orchestrator-thread-containment-sidebar`, `supervised-orchestration`,
-  `supervised-orchestration-settings-redesign`, `task-navigation`, and
-  `thread-context-handoff`.
-- Each adopted manifest remains `status: paused`, each generated `VERIFY.md`
-  remains `PENDING`, and each manifest retains the original `UNALIGNED` reference
-  (`.spec-workflow/paused/*/manifest.json`, `.spec-workflow/paused/*/VERIFY.md`).
-  The exact root source asset directories remain preserved by the approved copy
-  imports.
-- `design-qa.md` contains strong visual and focused automated evidence for the
-  supervised-orchestration settings redesign and the advisor option-note follow-up
-  (`design-qa.md:1-66`, `design-qa.md:129-156`). Its D8 section still identifies a
-  standalone design prototype and says production recapture follows implementation
-  approval (`design-qa.md:68-127`). This is evidence, not a substitute for each
-  bundle's normal VERIFY and ship/handoff proof.
-- Owner statement received 2026-08-06: all seven adopted concepts are done and
-  shipped. The repository state does not independently encode that completion yet;
-  the discrepancy is kept explicit in `GAP-EV-004`.
+- Historical workflow imports and design records explain prior decisions but are not current product
+  status authorities and must not be referenced through untracked bundle paths.
+- Current source, tests, migrations, release records, and
+  `audit/TECHNICAL_DEBT_AUDIT_2026-08-12.md` are the durable implementation/debt evidence set.
+- The canonical Supervised implementation is present across contracts, server runtime/projections,
+  web state/UI, migration 108, and its focused fixtures. Legacy vocabulary remains read-only under
+  `docs/supervised-compatibility.md` until its evidence-gated removal window.
 
 ## Target Vision
 
@@ -111,9 +96,9 @@ without requiring a Veylen-hosted workspace (`README.md:3-23`, `README.md:39-43`
 
 **Supervised Mode** is the durable multi-agent operating capability within that
 workspace and harness. It replaces the conceptual Orchestrator Mode with a
-deterministic Supervised Runtime, Room-owning Leads, bounded Specialists, Task and
+deterministic Supervised Runtime, Room-owning Leads, bounded Peers, Task and
 TaskNode execution, Durable Context Workspace, RLM, reversible Harness Patches,
-retained Specialists, bounded RunPolicy, a background daemon, and governed
+retained peer specialties, bounded RunPolicy, a background daemon, and governed
 JavaScript/Python kernels.
 It makes long-running work observable, bounded, recoverable, attributable, and
 human-interruptible without adding a second root coordination role or turning the
@@ -129,19 +114,18 @@ bypassing the typed command bus and RunPolicy.
 This capability supports rather than replaces the local-first workspace and MCP
 value proposition. Its clean Supervised shell, deep Room view, and separate
 runtime Settings surface progressively disclose operational depth while preserving
-the product's restrained interaction model. The canonical target is specified in
-`.spec-workflow/active/supervised-orchestration/SPEC.md`; implementation and ship
-proof are represented by the active implementation candidate and VERIFY record.
+the product's restrained interaction model. Current contracts/runtime/UI and the repository audit
+are the tracked implementation and shipment evidence; no untracked workflow bundle is canonical.
 
 ## Gaps
 
-| ID         | Current gap                                                                                                                                                                                                                                                                    | Desired outcome                                                                                                                                                          | Evidence                                                                                                                                                                                                       | Status                                                           |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| GAP-EV-001 | Target vision was previously unresolved between workspace-first and orchestration-first framings.                                                                                                                                                                              | One concise target vision names the primary value, its users, and the supporting role of the other surface.                                                              | Owner locked “Local-first workspace + MCP” on 2026-08-06; `README.md:1-23`; current contracts and release history.                                                                                             | CLOSED / owner decision recorded                                 |
-| GAP-EV-002 | Supervised Mode is implemented as a local candidate and its controllable UI/runtime paths are verified; the actual GPT-5.6 Luna response is externally blocked by the provider account usage limit, and dated migration adapters remain until the compatibility window closes. | Re-run the bounded Luna response after quota reset, obtain owner acceptance, and retire compatibility adapters when migration evidence permits.                          | `.spec-workflow/active/supervised-orchestration/SPEC.md`; `.spec-workflow/active/supervised-orchestration/NOTES.md`; `.spec-workflow/active/supervised-orchestration/VERIFY.md`; current contracts/runtime/UI. | OPEN / implementation candidate; external response proof pending |
-| GAP-EV-003 | “Missing features from the ChatGPT/Codex app” is an owner-selected Now direction and the baseline is now fixed to ChatGPT Codex app UX, but the feature inventory is not yet named.                                                                                            | A parity matrix names the ChatGPT Codex app UX baseline, missing capabilities, selected outcomes, dependencies, and per-feature acceptance evidence.                     | Owner selected “ChatGPT Codex app UX” on 2026-08-06; no checked-in parity matrix or owner-approved feature list found during this pass.                                                                        | OPEN / feature inventory required                                |
-| GAP-EV-004 | Owner says all seven adopted legacy concepts are shipped, while each repository bundle remains paused with `VERIFY.md` pending and an unaligned Evolution reference.                                                                                                           | Each claimed-shipped group has independent ship or handoff proof, a completed normal VERIFY, a reconciled Evolution reference, and only then normal archive eligibility. | `.spec-workflow/paused/*/manifest.json`; `.spec-workflow/paused/*/VERIFY.md`; `design-qa.md:1-156`; preserved root assets.                                                                                     | OPEN / proof reconciliation required                             |
-| GAP-EV-005 | Now is selected, but Next and Later product priorities cannot be assigned without expanding the parity feature inventory or orchestration scope.                                                                                                                               | Owner locks the parity feature set and orchestration scope, after which every active initiative maps to one gap and one outcome horizon.                                 | `REPO_EVOLUTION.md` target and roadmap status; owner decisions on 2026-08-06.                                                                                                                                  | OPEN / sequencing decision required                              |
+| ID         | Current gap                                                                                                                                                                         | Desired outcome                                                                                                                                      | Evidence                                                                                                                                | Status                                      |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| GAP-EV-001 | Target vision was previously unresolved between workspace-first and orchestration-first framings.                                                                                   | One concise target vision names the primary value, its users, and the supporting role of the other surface.                                          | Owner locked “Local-first workspace + MCP” on 2026-08-06; `README.md:1-23`; current contracts and release history.                      | CLOSED / owner decision recorded            |
+| GAP-EV-002 | Supervised Mode is implemented in tracked source; an earlier live Luna response remained externally blocked, and dated read adapters remain until the compatibility window closes.  | Re-run provider acceptance when capacity exists and retire adapters only after the compatibility ledger gates pass.                                  | Current contracts/runtime/UI, migration 108, focused fixtures, and `docs/supervised-compatibility.md`.                                  | OPEN / external proof and dated cleanup     |
+| GAP-EV-003 | “Missing features from the ChatGPT/Codex app” is an owner-selected Now direction and the baseline is now fixed to ChatGPT Codex app UX, but the feature inventory is not yet named. | A parity matrix names the ChatGPT Codex app UX baseline, missing capabilities, selected outcomes, dependencies, and per-feature acceptance evidence. | Owner selected “ChatGPT Codex app UX” on 2026-08-06; no checked-in parity matrix or owner-approved feature list found during this pass. | OPEN / feature inventory required           |
+| GAP-EV-004 | Historical workflow imports were previously treated as current product status despite not being tracked.                                                                            | Use tracked source/audit evidence for product status and retain old artifacts only as history.                                                       | Baseline `96673ccd`; current source; technical-debt audit.                                                                              | CLOSED / documentation authority reconciled |
+| GAP-EV-005 | Now is selected, but Next and Later product priorities cannot be assigned without expanding the parity feature inventory or orchestration scope.                                    | Owner locks the parity feature set and orchestration scope, after which every active initiative maps to one gap and one outcome horizon.             | `REPO_EVOLUTION.md` target and roadmap status; owner decisions on 2026-08-06.                                                           | OPEN / sequencing decision required         |
 
 ## Roadmap
 
@@ -150,16 +134,14 @@ fabricated.
 
 ### Now
 
-#### OUT-NOW-001: Productize orchestration
+#### OUT-NOW-001: Verify and operate Supervised orchestration
 
-- Desired outcome: deliver Supervised Mode as the governed Runtime, Lead and
-  Specialist system defined by
-  `.spec-workflow/active/supervised-orchestration/SPEC.md`, including the clean
+- Desired outcome: ship and operate the implemented governed Runtime, Lead and
+  Peer system, including the clean
   shell, Room view, runtime Settings, daemon-owned recovery, bounded autonomy,
   governed RLM/kernels, reversible learning, programmable Signal & Subscription
   Plane, governed plugins, migration, and legacy cleanup.
-- Evidence of completion: owner-approved SPEC; complete bundle VERIFY; real
-  Computer Use evidence from product entry points; contract, concurrency,
+- Evidence of completion: built-in in-app Browser evidence from product entry points; contract, concurrency,
   recovery, migration, cleanup, load, security, and rollback proof; and no
   unresolved contradiction with the locked target vision.
 - Dependencies: `GAP-EV-002`.
@@ -178,24 +160,18 @@ fabricated.
 
 ### Next
 
-#### OUT-NEXT-001: Reconcile the seven owner-claimed shipped outcomes
+#### OUT-NEXT-001: Retire Supervised compatibility after the support window
 
-- Desired outcome: the seven paused bundles have evidence-complete VERIFY and
-  ship/handoff proof, each Evolution reference is reconciled, and the normal
-  lifecycle can determine archive eligibility without guessing.
-- Evidence of completion: per-group proof attached to the bundle, preserved-source
-  and receipt checks still pass, VERIFY is `PASS`, and the lifecycle engine accepts
-  the normal finalization dry-run. This is a workflow-evidence outcome, not a
-  product reprioritization.
-- Dependencies: `GAP-EV-004`, and the owner-provided ship/handoff evidence for
-  each group.
+- Desired outcome: remove legacy contracts, upcasters, projectors, reducer paths, and fixtures in one
+  staged cutover after the promised date and persisted-data inventory.
+- Evidence of completion: every gate in `docs/supervised-compatibility.md` passes and rollback/replay
+  evidence proves the canonical projection is unchanged.
+- Dependencies: `GAP-EV-002` and the 2027-08-09 earliest removal date.
 
 ### Later
 
 No additional product outcomes are assigned yet. Further horizon choices remain
-blocked intentionally by `GAP-EV-003` and `GAP-EV-005`. The seven
-legacy sources and paused bundles remain preserved; no unselected concept is
-silently promoted or discarded.
+blocked intentionally by `GAP-EV-003` and `GAP-EV-005`; no unselected concept is silently promoted.
 
 ## Invariants and Non-goals
 
@@ -217,9 +193,8 @@ silently promoted or discarded.
 - Transcript auto-follow counts real transcript messages, not tool rows or generic
   activity, and shared disclosure motion remains the single toggle-motion source
   (`AGENTS.md:66-88`).
-- Legacy evidence is lossless: preserve all seven paused bundles and all seven root
-  source asset directories. A user statement of shipment does not replace a normal
-  VERIFY and ship/handoff proof.
+- Historical evidence remains historical; tracked source, migrations, tests, audits, and acceptance
+  records decide current implementation status.
 - Supervised runtime authority and long-running lifecycle live in the background
   daemon and durable journal, never in desktop UI connection state.
 - Autonomous execution is bounded by immutable per-Run policy snapshots; learned
@@ -228,29 +203,34 @@ silently promoted or discarded.
   remain separate. Subscriptions wake the scoped Lead path with evidence but do
   not confer authority; plugins are capability-bounded and cannot block or bypass
   the durable control plane.
-- Final Supervised UI acceptance includes real Computer Use against the visible
-  running product, and target cutover removes obsolete code and tests rather than
+- Final Supervised UI acceptance uses the built-in in-app Browser against the visible running
+  product, and target cutover removes obsolete code and tests rather than
   preserving parallel legacy behavior indefinitely.
-- The current implementation candidate includes product code, migrations, focused
-  tests, production builds and Computer Use evidence. It is not owner-accepted or
-  archived while the external Luna response assertion remains blocked.
+- The current implementation includes product code, migrations, and focused tests. Shipment requires
+  the repository verification suite and built-in in-app Browser acceptance; external provider proof
+  is reported independently when unavailable.
 
 ### Non-goals
 
 - Do not infer the target vision, Codex-app parity feature list, deadlines, or
   product priority from filenames, current implementation breadth, screenshots,
   changelog age, or the existence of a shipped-looking surface.
-- Do not treat the seven paused bundles as verified or archived in this pass.
+- Do not treat historical workflow artifacts as a live product-status authority.
 - Do not turn the Now outcomes into an implementation plan until their scope and
   acceptance decisions are locked.
 
 ## Evolution Log
 
+- **2026-08-12 — durable evidence authorities reconciled:** Current source and the technical-debt
+  audit replace untracked workflow-bundle paths as implementation/status evidence. Supervised uses
+  canonical Supervisor/Lead/Peer vocabulary for writes; historical Supervision/Specialist data stays
+  read-compatible under one dated ledger and a CI guard forbids new legacy writers.
+
 - **2026-08-07 — one Supervised product implemented and exercised:** Owner retired
   the duplicate root coordination abstraction. The canonical product now has a
   deterministic Supervised Runtime, Lead and Specialist actors, optional bounded
   recursive Leads, shared Editor Workspace motion, Signal Plane, governed plugins
-  and two Settings surfaces. Computer Use verified the controllable product flow,
+  and two Settings surfaces. A prior visible-app pass exercised the controllable product flow,
   GPT-5.6 Luna + Low propagation, Room Workspace, synthetic subscription preview
   and runtime diagnostics. The provider usage limit blocks only the generated
   response assertion; `GAP-EV-002` remains open for that external proof, owner
@@ -271,7 +251,7 @@ silently promoted or discarded.
   Agent/RLM sources, owner-provided analyses, and preserved legacy assets were
   consolidated into one draft canonical SPEC and verification contract. The
   vision now names the governed Runtime/Lead/Specialist target, Room view, separate runtime Settings,
-  legacy code/test cleanup, and required real Computer Use UI acceptance. This is
+  legacy code/test cleanup, and required visible-product UI acceptance. This is
   design evidence only; `GAP-EV-002` remains open pending owner approval,
   implementation, and proof.
 
@@ -288,9 +268,6 @@ silently promoted or discarded.
 
 ## Next Reconciliation Trigger
 
-Reconcile this map when the owner accepts or materially revises the Supervised
-Mode candidate, when the blocked Luna response evidence advances, when the
-owner names the ChatGPT Codex app parity features, or when independent ship/handoff
-evidence is attached for one or more of the seven paused bundles. Until then, keep
-`GAP-EV-002`, `GAP-EV-003`, `GAP-EV-004`, and `GAP-EV-005` visible and do not claim
-roadmap completion.
+Reconcile this map when the blocked provider response evidence advances, the owner names the ChatGPT
+Codex app parity features, compatibility retirement begins, or source materially changes the locked
+vision. Keep `GAP-EV-002`, `GAP-EV-003`, and `GAP-EV-005` visible until their own evidence closes them.
