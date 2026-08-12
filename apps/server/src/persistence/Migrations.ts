@@ -103,12 +103,12 @@ import Migration0084 from "./Migrations/084_AutomationNotificationPolicy.ts";
 import Migration0085 from "./Migrations/085_AutomationSettings.ts";
 import Migration0086 from "./Migrations/086_NormalizeStudioThreadWorkspaces.ts";
 import Migration0087 from "./Migrations/087_DropUnusedOrchestrationEventIndexes.ts";
-import Migration0088 from "./Migrations/088_OrchestratorMode.ts";
-import Migration0089 from "./Migrations/089_ProjectionThreadsSettledAt.ts";
-import Migration0090 from "./Migrations/090_OrchestratorChildResults.ts";
-import Migration0091 from "./Migrations/091_SupervisedOrchestration.ts";
-import Migration0092 from "./Migrations/092_SupervisionPeerBindings.ts";
-import Migration0093 from "./Migrations/093_RecoverRetentionHiddenThreads.ts";
+import Migration0088 from "./Migrations/088_ProjectionThreadsSettledAt.ts";
+import Migration0089 from "./Migrations/089_RecoverRetentionHiddenThreads.ts";
+import Migration0090 from "./Migrations/090_OrchestratorMode.ts";
+import Migration0091 from "./Migrations/091_OrchestratorChildResults.ts";
+import Migration0092 from "./Migrations/092_SupervisedOrchestration.ts";
+import Migration0093 from "./Migrations/093_SupervisionPeerBindings.ts";
 import Migration0094 from "./Migrations/094_SupervisedRuntime.ts";
 import Migration0095 from "./Migrations/095_SupervisedPluginHealthCircuit.ts";
 import Migration0096 from "./Migrations/096_SupervisedExecutionGovernance.ts";
@@ -227,12 +227,12 @@ export const migrationEntries = [
   [85, "AutomationSettings", Migration0085],
   [86, "NormalizeStudioThreadWorkspaces", Migration0086],
   [87, "DropUnusedOrchestrationEventIndexes", Migration0087],
-  [88, "OrchestratorMode", Migration0088],
-  [89, "ProjectionThreadsSettledAt", Migration0089],
-  [90, "OrchestratorChildResults", Migration0090],
-  [91, "SupervisedOrchestration", Migration0091],
-  [92, "SupervisionPeerBindings", Migration0092],
-  [93, "RecoverRetentionHiddenThreads", Migration0093],
+  [88, "ProjectionThreadsSettledAt", Migration0088],
+  [89, "RecoverRetentionHiddenThreads", Migration0089],
+  [90, "OrchestratorMode", Migration0090],
+  [91, "OrchestratorChildResults", Migration0091],
+  [92, "SupervisedOrchestration", Migration0092],
+  [93, "SupervisionPeerBindings", Migration0093],
   [94, "SupervisedRuntime", Migration0094],
   [95, "SupervisedPluginHealthCircuit", Migration0095],
   [96, "SupervisedExecutionGovernance", Migration0096],

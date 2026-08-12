@@ -7,11 +7,11 @@ import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
 
-layer("093_RecoverRetentionHiddenThreads", (it) => {
+layer("089_RecoverRetentionHiddenThreads", (it) => {
   it.effect("moves only retention-deleted threads into the restorable archive", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations({ toMigrationInclusive: 92 });
+      yield* runMigrations({ toMigrationInclusive: 88 });
 
       yield* sql`
         INSERT INTO projection_projects (
@@ -54,8 +54,8 @@ layer("093_RecoverRetentionHiddenThreads", (it) => {
           )
       `;
 
-      assert.deepStrictEqual(yield* runMigrations({ toMigrationInclusive: 93 }), [
-        [93, "RecoverRetentionHiddenThreads"],
+      assert.deepStrictEqual(yield* runMigrations({ toMigrationInclusive: 89 }), [
+        [89, "RecoverRetentionHiddenThreads"],
       ]);
 
       const threads = yield* sql<{

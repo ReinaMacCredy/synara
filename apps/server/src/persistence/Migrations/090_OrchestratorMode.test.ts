@@ -4,7 +4,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { runMigrations } from "../Migrations.ts";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";
-import Migration0088 from "./088_OrchestratorMode.ts";
+import Migration0090 from "./090_OrchestratorMode.ts";
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
 
@@ -35,11 +35,11 @@ const seedProjectAndThread = (
     `;
   });
 
-layer("088_OrchestratorMode", (it) => {
+layer("090_OrchestratorMode", (it) => {
   it.effect("purges exact Studio ownership and preserves unrelated state", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations({ toMigrationInclusive: 87 });
+      yield* runMigrations({ toMigrationInclusive: 89 });
       yield* seedProjectAndThread(sql, "studio-project", "studio-thread", "studio");
       yield* seedProjectAndThread(sql, "normal-project", "normal-thread", "project");
 
@@ -80,8 +80,8 @@ layer("088_OrchestratorMode", (it) => {
         `;
       }
 
-      const executed = yield* runMigrations({ toMigrationInclusive: 88 });
-      assert.deepStrictEqual(executed, [[88, "OrchestratorMode"]]);
+      const executed = yield* runMigrations({ toMigrationInclusive: 90 });
+      assert.deepStrictEqual(executed, [[90, "OrchestratorMode"]]);
 
       const projects = yield* sql<{ readonly projectId: string }>`
         SELECT project_id AS "projectId" FROM projection_projects ORDER BY project_id
@@ -125,13 +125,13 @@ layer("088_OrchestratorMode", (it) => {
       const purgeLog = yield* sql<{ readonly tableName: string; readonly count: number }>`
         SELECT table_name AS "tableName", removed_count AS count
         FROM orchestrator_migration_purge_log
-        WHERE migration_id = 88 AND removed_count > 0
+        WHERE migration_id = 90 AND removed_count > 0
         ORDER BY table_name
       `;
       assert.ok(purgeLog.some((row) => row.tableName === "projection_projects" && row.count === 1));
       assert.ok(purgeLog.some((row) => row.tableName === "projection_threads" && row.count === 1));
 
-      yield* Migration0088;
+      yield* Migration0090;
       const projectsAfterReplay = yield* sql<{ readonly projectId: string }>`
         SELECT project_id AS "projectId" FROM projection_projects ORDER BY project_id
       `;
@@ -144,11 +144,11 @@ layer("088_OrchestratorMode", (it) => {
 
 const rollbackLayer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
 
-rollbackLayer("088_OrchestratorMode rollback", (it) => {
+rollbackLayer("090_OrchestratorMode rollback", (it) => {
   it.effect("rolls the purge and schema creation back on failure", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations({ toMigrationInclusive: 87 });
+      yield* runMigrations({ toMigrationInclusive: 89 });
       yield* seedProjectAndThread(sql, "studio-project", "studio-thread", "studio");
       yield* sql`
         CREATE TRIGGER fail_studio_project_delete
@@ -159,7 +159,7 @@ rollbackLayer("088_OrchestratorMode rollback", (it) => {
         END
       `;
 
-      const result = yield* Migration0088.pipe(Effect.exit);
+      const result = yield* Migration0090.pipe(Effect.exit);
       assert.ok(Exit.isFailure(result));
 
       const projects = yield* sql<{ readonly count: number }>`

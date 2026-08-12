@@ -6,16 +6,16 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { runMigrations } from "../Migrations.ts";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";
-import SupervisedOrchestration from "./091_SupervisedOrchestration.ts";
+import SupervisedOrchestration from "./092_SupervisedOrchestration.ts";
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
 const now = "2026-08-03T10:00:00.000Z";
 
-layer("migration 091", (it) => {
+layer("migration 092", (it) => {
   it.effect("creates normalized targets, grants, queue, and one-active-Lead storage", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations({ toMigrationInclusive: 91 });
+      yield* runMigrations({ toMigrationInclusive: 92 });
 
       yield* sql`
         INSERT INTO projection_projects (
