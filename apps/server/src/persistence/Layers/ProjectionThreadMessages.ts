@@ -105,28 +105,37 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
     execute: ({ threadId }) =>
       sql`
         SELECT
-          message_id AS "messageId",
-          thread_id AS "threadId",
-          turn_id AS "turnId",
-          role,
-          text,
-          attachments_json AS "attachments",
-          skills_json AS "skills",
-          mentions_json AS "mentions",
-          dispatch_mode AS "dispatchMode",
-          dispatch_origin AS "dispatchOrigin",
-          is_streaming AS "isStreaming",
-          source,
-          sequence,
-          created_at AS "createdAt",
-          updated_at AS "updatedAt"
-        FROM projection_thread_messages
-        WHERE thread_id = ${threadId}
+          message.message_id AS "messageId",
+          message.thread_id AS "threadId",
+          message.turn_id AS "turnId",
+          message.role,
+          message.text || COALESCE((
+            SELECT GROUP_CONCAT(ordered.delta, '')
+            FROM (
+              SELECT delta.delta
+              FROM projection_thread_message_deltas AS delta
+              WHERE delta.thread_id = message.thread_id
+                AND delta.message_id = message.message_id
+              ORDER BY delta.event_sequence ASC
+            ) AS ordered
+          ), '') AS text,
+          message.attachments_json AS "attachments",
+          message.skills_json AS "skills",
+          message.mentions_json AS "mentions",
+          message.dispatch_mode AS "dispatchMode",
+          message.dispatch_origin AS "dispatchOrigin",
+          message.is_streaming AS "isStreaming",
+          message.source,
+          message.sequence,
+          message.created_at AS "createdAt",
+          message.updated_at AS "updatedAt"
+        FROM projection_thread_messages AS message
+        WHERE message.thread_id = ${threadId}
         ORDER BY
-          CASE WHEN sequence IS NULL THEN 0 ELSE 1 END ASC,
-          sequence ASC,
-          created_at ASC,
-          message_id ASC
+          CASE WHEN message.sequence IS NULL THEN 0 ELSE 1 END ASC,
+          message.sequence ASC,
+          message.created_at ASC,
+          message.message_id ASC
       `,
   });
 
@@ -155,24 +164,33 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
     execute: ({ threadId, messageId }) =>
       sql`
         SELECT
-          message_id AS "messageId",
-          thread_id AS "threadId",
-          turn_id AS "turnId",
-          role,
-          text,
-          attachments_json AS "attachments",
-          skills_json AS "skills",
-          mentions_json AS "mentions",
-          dispatch_mode AS "dispatchMode",
-          dispatch_origin AS "dispatchOrigin",
-          is_streaming AS "isStreaming",
-          source,
-          sequence,
-          created_at AS "createdAt",
-          updated_at AS "updatedAt"
-        FROM projection_thread_messages
-        WHERE thread_id = ${threadId}
-          AND message_id = ${messageId}
+          message.message_id AS "messageId",
+          message.thread_id AS "threadId",
+          message.turn_id AS "turnId",
+          message.role,
+          message.text || COALESCE((
+            SELECT GROUP_CONCAT(ordered.delta, '')
+            FROM (
+              SELECT delta.delta
+              FROM projection_thread_message_deltas AS delta
+              WHERE delta.thread_id = message.thread_id
+                AND delta.message_id = message.message_id
+              ORDER BY delta.event_sequence ASC
+            ) AS ordered
+          ), '') AS text,
+          message.attachments_json AS "attachments",
+          message.skills_json AS "skills",
+          message.mentions_json AS "mentions",
+          message.dispatch_mode AS "dispatchMode",
+          message.dispatch_origin AS "dispatchOrigin",
+          message.is_streaming AS "isStreaming",
+          message.source,
+          message.sequence,
+          message.created_at AS "createdAt",
+          message.updated_at AS "updatedAt"
+        FROM projection_thread_messages AS message
+        WHERE message.thread_id = ${threadId}
+          AND message.message_id = ${messageId}
         LIMIT 1
       `,
   });
@@ -180,10 +198,18 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
   const deleteProjectionThreadMessageRows = SqlSchema.void({
     Request: DeleteProjectionThreadMessagesInput,
     execute: ({ threadId }) =>
-      sql`
-        DELETE FROM projection_thread_messages
-        WHERE thread_id = ${threadId}
-      `,
+      sql.withTransaction(
+        Effect.gen(function* () {
+          yield* sql`
+            DELETE FROM projection_thread_message_deltas
+            WHERE thread_id = ${threadId}
+          `;
+          yield* sql`
+            DELETE FROM projection_thread_messages
+            WHERE thread_id = ${threadId}
+          `;
+        }),
+      ),
   });
 
   const upsert: ProjectionThreadMessageRepositoryShape["upsert"] = (row) =>

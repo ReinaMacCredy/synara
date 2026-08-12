@@ -964,7 +964,16 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           thread_id AS "threadId",
           turn_id AS "turnId",
           role,
-          text,
+          ranked.text || COALESCE((
+            SELECT GROUP_CONCAT(ordered.delta, '')
+            FROM (
+              SELECT delta.delta
+              FROM projection_thread_message_deltas AS delta
+              WHERE delta.thread_id = ranked.thread_id
+                AND delta.message_id = ranked.message_id
+              ORDER BY delta.event_sequence ASC
+            ) AS ordered
+          ), '') AS text,
           attachments_json AS "attachments",
           skills_json AS "skills",
           mentions_json AS "mentions",
@@ -988,7 +997,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             ) AS message_rank
           FROM projection_thread_messages
           WHERE ${liveThreadScope}
-        )
+        ) AS ranked
         WHERE message_rank <= ${MAX_THREAD_MESSAGES}
         ORDER BY
           thread_id ASC,
@@ -1486,7 +1495,16 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           thread_id AS "threadId",
           turn_id AS "turnId",
           role,
-          text,
+          ranked.text || COALESCE((
+            SELECT GROUP_CONCAT(ordered.delta, '')
+            FROM (
+              SELECT delta.delta
+              FROM projection_thread_message_deltas AS delta
+              WHERE delta.thread_id = ranked.thread_id
+                AND delta.message_id = ranked.message_id
+              ORDER BY delta.event_sequence ASC
+            ) AS ordered
+          ), '') AS text,
           attachments_json AS "attachments",
           skills_json AS "skills",
           mentions_json AS "mentions",
@@ -1510,7 +1528,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             ) AS message_rank
           FROM projection_thread_messages
           WHERE thread_id = ${threadId}
-        )
+        ) AS ranked
         WHERE thread_id = ${threadId}
           AND (${maxMessages} IS NULL OR message_rank <= ${maxMessages})
         ORDER BY
