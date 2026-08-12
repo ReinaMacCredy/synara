@@ -449,6 +449,11 @@ describe("AcpSessionRuntime", () => {
 
       expect(started.initializeResult).toMatchObject({ protocolVersion: 1 });
       expect(started.sessionId).toBe("mock-session-1");
+      const diagnostics = yield* runtime.diagnostics;
+      expect(diagnostics.processId).toBeGreaterThan(0);
+      expect(diagnostics.eventQueueDepth).toBe(0);
+      expect(diagnostics.incomingChunkQueueDepth).toBe(0);
+      expect(diagnostics.outgoingChunkQueueDepth).toBe(0);
 
       const promptResult = yield* runtime.prompt({
         prompt: [{ type: "text", text: "hi" }],

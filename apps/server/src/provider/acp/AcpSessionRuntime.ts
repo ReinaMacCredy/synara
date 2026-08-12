@@ -257,6 +257,14 @@ export interface AcpSessionRuntimeStartResult {
   readonly sessionSetupMethod: "new" | "load" | "resume";
 }
 
+export interface AcpSessionRuntimeDiagnostics {
+  readonly processId: number;
+  readonly eventQueueDepth: number;
+  readonly incomingChunkQueueDepth: number;
+  readonly outgoingChunkQueueDepth: number;
+  readonly sessionUpdatesEnqueuedCount: number;
+}
+
 export interface AcpSessionRuntimeShape {
   readonly handleRequestPermission: AcpHandlerRegistration<
     AcpHandler<Acp.RequestPermissionRequest, Acp.RequestPermissionResponse>
@@ -309,6 +317,8 @@ export interface AcpSessionRuntimeShape {
   // event received during the turn has actually been handled — immune to
   // stream chunk buffering and in-flight handlers, unlike a queue-size probe.
   readonly sessionUpdatesEnqueuedCount: Effect.Effect<number>;
+  /** Low-cost process/queue snapshot for packaged health probes and soak validation. */
+  readonly diagnostics: Effect.Effect<AcpSessionRuntimeDiagnostics>;
   readonly supportsSessionFork: Effect.Effect<boolean, AcpErrors.AcpError>;
   /** Whether a persisted session id can be reopened through resume or load. */
   readonly supportsSessionRecovery: Effect.Effect<boolean, AcpErrors.AcpError>;
@@ -616,6 +626,10 @@ const makeOfficialSdkClient = Effect.fnUntraced(function* (
     );
   const register = (set: () => void) => Effect.sync(set);
   const client = {
+    transportQueueDepths: Effect.all({
+      incomingChunkQueueDepth: Queue.size(incoming),
+      outgoingChunkQueueDepth: Queue.size(outgoing),
+    }),
     raw: {
       notifications: Stream.empty,
       request: requestCustom,
@@ -1267,6 +1281,17 @@ const makeAcpSessionRuntime = (
         return Stream.fromQueue(eventQueue);
       },
       sessionUpdatesEnqueuedCount: Effect.sync(() => sessionUpdatesEnqueued),
+      diagnostics: Effect.all({
+        processId: Effect.succeed(child.pid),
+        eventQueueDepth: Queue.size(eventQueue),
+        incomingChunkQueueDepth: acp.transportQueueDepths.pipe(
+          Effect.map((depths) => depths.incomingChunkQueueDepth),
+        ),
+        outgoingChunkQueueDepth: acp.transportQueueDepths.pipe(
+          Effect.map((depths) => depths.outgoingChunkQueueDepth),
+        ),
+        sessionUpdatesEnqueuedCount: Effect.sync(() => sessionUpdatesEnqueued),
+      }),
       getModeState: Ref.get(modeStateRef),
       getConfigOptions: Ref.get(configOptionsRef),
       getAvailableCommands: Ref.get(availableCommandsRef),

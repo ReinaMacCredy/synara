@@ -21,7 +21,8 @@
     "start": "node dist/index.mjs",
     "prepare": "effect-language-service patch",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --maxWorkers=1 --no-file-parallelism"
+    "test": "vitest run --maxWorkers=1 --no-file-parallelism",
+    "soak:acp": "bun scripts/acp-session-soak.ts"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.2.1",
