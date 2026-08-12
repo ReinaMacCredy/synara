@@ -7,6 +7,14 @@ import type { PersistenceDecodeError, PersistenceSqlError } from "../Errors.ts";
 export const PROVIDER_RUNTIME_INGESTION_CONSUMER = "provider-runtime-ingestion.v1";
 export const PROVIDER_RUNTIME_EVENT_MAX_BYTES = 2 * 1024 * 1024;
 export const PROVIDER_RUNTIME_EVENT_RETAIN_ACCEPTED = 512;
+export const PROVIDER_RUNTIME_EVENT_FAILURE_ATTEMPT_LIMIT = 240;
+export const PROVIDER_RUNTIME_EVENT_FAILURE_MIN_AGE_MS = 60_000;
+
+export interface ProviderRuntimeEventDeliveryFailure {
+  readonly status: "accepted" | "retry" | "dead_letter";
+  readonly attemptCount: number;
+  readonly firstFailedAt: string;
+}
 
 export interface PersistedProviderRuntimeEvent {
   readonly sequence: number;
@@ -22,6 +30,14 @@ export interface ProviderRuntimeEventRepositoryShape {
   readonly getHighWaterSequence: Effect.Effect<number, PersistenceSqlError>;
   readonly readAfter: (input: {
     readonly sequenceExclusive: number;
+    readonly throughSequenceInclusive: number;
+    readonly limit: number;
+  }) => Effect.Effect<
+    ReadonlyArray<PersistedProviderRuntimeEvent>,
+    ProviderRuntimeEventRepositoryError
+  >;
+  readonly readPending: (input: {
+    readonly consumerName: string;
     readonly throughSequenceInclusive: number;
     readonly limit: number;
   }) => Effect.Effect<
@@ -67,6 +83,18 @@ export interface ProviderRuntimeEventRepositoryShape {
     readonly consumerName: string;
     readonly eventSequence: number;
     readonly updatedAt: string;
+  }) => Effect.Effect<boolean, PersistenceSqlError>;
+  readonly recordConsumerFailure: (input: {
+    readonly consumerName: string;
+    readonly eventSequence: number;
+    readonly failedAt: string;
+    readonly error: string;
+  }) => Effect.Effect<ProviderRuntimeEventDeliveryFailure, PersistenceSqlError>;
+  readonly deadLetterConsumerEvent: (input: {
+    readonly consumerName: string;
+    readonly eventSequence: number;
+    readonly failedAt: string;
+    readonly error: string;
   }) => Effect.Effect<boolean, PersistenceSqlError>;
 }
 
