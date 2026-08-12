@@ -453,6 +453,54 @@ describe("DesktopBrowserManager automation runtime boundary", () => {
     expect(takeover).toHaveBeenCalledTimes(2);
   });
 
+  it("lets the shell filter ambient pointer input without masking expected automation", () => {
+    let filterAmbientPointer = true;
+    const beforeMouseEvent = vi.fn(() => filterAmbientPointer);
+    const manager = new DesktopBrowserManager({ beforeMouseEvent });
+    const prepared = manager.prepareAutomationTab({ threadId: THREAD_ID, reuse: true });
+    const tabId = prepared.activeTabId!;
+    const webContents = new FakeWebContents();
+    const runtime = {
+      key: `${THREAD_ID}:${tabId}`,
+      threadId: THREAD_ID,
+      tabId,
+      webContents: webContents as unknown as WebContents,
+      view: null,
+      ownsWebContents: false as const,
+      listenerDisposers: [] as Array<() => void>,
+    };
+    const access = manager as unknown as {
+      runtimes: Map<string, typeof runtime>;
+      configureRuntimeWebContents(value: typeof runtime): void;
+    };
+    access.runtimes.set(runtime.key, runtime);
+    access.configureRuntimeWebContents(runtime);
+    const visible = manager.getVisibleAutomationRuntime({ threadId: THREAD_ID, tabId });
+    const takeover = vi.fn();
+    manager.subscribeAutomationHumanControl(THREAD_ID, takeover);
+
+    webContents.emit("before-mouse-event", {}, { type: "mouseDown", button: "left", x: 10, y: 20 });
+    expect(beforeMouseEvent).toHaveBeenCalledTimes(1);
+    expect(takeover).not.toHaveBeenCalled();
+
+    const releaseExpected = visible.expectAgentInput!({
+      kind: "mouse",
+      type: "mouseDown",
+      button: "left",
+      x: 30,
+      y: 40,
+    });
+    webContents.emit("before-mouse-event", {}, { type: "mouseDown", button: "left", x: 30, y: 40 });
+    releaseExpected();
+    expect(beforeMouseEvent).toHaveBeenCalledTimes(1);
+    expect(takeover).not.toHaveBeenCalled();
+
+    filterAmbientPointer = false;
+    webContents.emit("before-mouse-event", {}, { type: "mouseDown", button: "left", x: 50, y: 60 });
+    expect(beforeMouseEvent).toHaveBeenCalledTimes(2);
+    expect(takeover).toHaveBeenCalledTimes(1);
+  });
+
   it("consumes only the exact short-lived native inputs registered by browser automation", () => {
     const manager = new DesktopBrowserManager();
     const prepared = manager.prepareAutomationTab({ threadId: THREAD_ID, reuse: true });

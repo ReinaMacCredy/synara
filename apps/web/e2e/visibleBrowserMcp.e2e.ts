@@ -707,21 +707,42 @@ test("production MCP controls one persistent Electron page across visibility cha
     await new Promise((resolve) => setTimeout(resolve, 75));
     const manualX = Math.round(rect.x + rect.width / 2);
     const manualY = Math.round(rect.y + rect.height / 2);
-    await sendNativeInput(String(tabId), { type: "mouseMove", x: manualX, y: manualY });
-    await sendNativeInput(String(tabId), {
-      type: "mouseDown",
-      x: manualX,
-      y: manualY,
-      button: "left",
-      clickCount: 1,
+    await electronApp.evaluate(() => {
+      (
+        globalThis as typeof globalThis & {
+          __veylenVisibleBrowserE2E: {
+            setPhysicalMouseTakeoverEnabled(enabled: boolean): void;
+          };
+        }
+      ).__veylenVisibleBrowserE2E.setPhysicalMouseTakeoverEnabled(true);
     });
-    await sendNativeInput(String(tabId), {
-      type: "mouseUp",
-      x: manualX,
-      y: manualY,
-      button: "left",
-      clickCount: 1,
-    });
+    try {
+      await sendNativeInput(String(tabId), { type: "mouseMove", x: manualX, y: manualY });
+      await sendNativeInput(String(tabId), {
+        type: "mouseDown",
+        x: manualX,
+        y: manualY,
+        button: "left",
+        clickCount: 1,
+      });
+      await sendNativeInput(String(tabId), {
+        type: "mouseUp",
+        x: manualX,
+        y: manualY,
+        button: "left",
+        clickCount: 1,
+      });
+    } finally {
+      await electronApp.evaluate(() => {
+        (
+          globalThis as typeof globalThis & {
+            __veylenVisibleBrowserE2E: {
+              setPhysicalMouseTakeoverEnabled(enabled: boolean): void;
+            };
+          }
+        ).__veylenVisibleBrowserE2E.setPhysicalMouseTakeoverEnabled(false);
+      });
+    }
     const interruptionError = await interruptedByManualClick;
     expect(interruptionError).toBeInstanceOf(Error);
     expect((interruptionError as Error).message).toMatch(/BrowserInterruptedByHuman/);

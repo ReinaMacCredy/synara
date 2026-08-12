@@ -25,7 +25,12 @@ if (!pipePath || !capability || !shellPath || !threadId || !veylenHome || !annot
 
 app.setPath("userData", path.join(veylenHome, "electron-userdata"));
 
-const browserManager = new DesktopBrowserManager({ annotationPreloadPath });
+let physicalMouseTakeoverEnabled = false;
+const browserManager = new DesktopBrowserManager({
+  annotationPreloadPath,
+  beforeInputEvent: () => true,
+  beforeMouseEvent: () => !physicalMouseTakeoverEnabled,
+});
 let mainWindow: BrowserWindow | null = null;
 let latestState: ThreadBrowserState | null = null;
 let shellReady = false;
@@ -97,6 +102,9 @@ Object.assign(globalThis, {
     setPanelRevealEnabled(enabled: boolean) {
       panelRevealEnabled = enabled;
       setPanelVisible(enabled);
+    },
+    setPhysicalMouseTakeoverEnabled(enabled: boolean) {
+      physicalMouseTakeoverEnabled = enabled;
     },
   },
 });

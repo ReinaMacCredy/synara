@@ -540,6 +540,37 @@ describe("DesktopBrowserManager repeated workflow characterization", () => {
     expect(manager.getAutomationHumanControlEpoch(THREAD_ID)).toBe(initialEpoch + 3);
   });
 
+  it("lets the shell filter ambient input inside an OAuth popup", () => {
+    const beforeInputEvent = vi.fn(() => true);
+    const beforeMouseEvent = vi.fn(() => true);
+    const manager = new DesktopBrowserManager({ beforeInputEvent, beforeMouseEvent });
+    const initial = manager.open({ threadId: THREAD_ID });
+    const tabId = initial.activeTabId!;
+    const popup = new FakePopupWindow();
+    asCharacterizationAccess(manager).configureOAuthPopupRuntime({
+      threadId: THREAD_ID,
+      tabId,
+      window: popup as unknown as BrowserWindow,
+      listenerDisposers: [],
+    });
+    const initialEpoch = manager.getAutomationHumanControlEpoch(THREAD_ID);
+
+    popup.webContents.emit(
+      "before-input-event",
+      { preventDefault: vi.fn() },
+      { type: "keyDown", key: "a" },
+    );
+    popup.webContents.emit(
+      "before-mouse-event",
+      {},
+      { type: "mouseDown", button: "left", x: 10, y: 20 },
+    );
+
+    expect(beforeInputEvent).toHaveBeenCalledTimes(1);
+    expect(beforeMouseEvent).toHaveBeenCalledTimes(1);
+    expect(manager.getAutomationHumanControlEpoch(THREAD_ID)).toBe(initialEpoch);
+  });
+
   it("gives the shell first refusal on browser guest keyboard input", () => {
     const beforeInputEvent = vi.fn((event: Electron.Event) => {
       event.preventDefault();
