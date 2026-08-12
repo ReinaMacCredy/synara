@@ -1,10 +1,12 @@
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const desktopDir = resolve(__dirname, "..");
-const electronBin = resolve(desktopDir, "node_modules/.bin/electron");
+const require = createRequire(import.meta.url);
+const electronBin = require("electron");
 const mainJs = resolve(desktopDir, "dist-electron/main.js");
 
 console.log("\nLaunching Electron smoke test...");
@@ -26,12 +28,15 @@ child.stderr.on("data", (chunk) => {
   output += chunk.toString();
 });
 
+let forceKillTimeout;
 const timeout = setTimeout(() => {
-  child.kill();
+  child.kill("SIGTERM");
+  forceKillTimeout = setTimeout(() => child.kill("SIGKILL"), 2_000);
 }, 8_000);
 
 child.on("exit", () => {
   clearTimeout(timeout);
+  clearTimeout(forceKillTimeout);
 
   const fatalPatterns = [
     "Cannot find module",
