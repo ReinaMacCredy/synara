@@ -53,6 +53,9 @@ jobs:
       - name: Verify Veylen identity
         run: bun run brand:check
 
+      - name: Verify canonical Supervised writes
+        run: bun run compatibility:check
+
       - name: Format
         run: bun run fmt:check
 
