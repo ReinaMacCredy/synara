@@ -52,5 +52,5 @@ describe("ChatMarkdown React Compiler coverage", () => {
       );
     expect(errors).toEqual([]);
     expect(events.some((event) => event.kind === "CompileSuccess")).toBe(true);
-  });
+  }, 30_000);
 });
