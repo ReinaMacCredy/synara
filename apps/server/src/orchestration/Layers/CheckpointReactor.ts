@@ -29,6 +29,11 @@ import {
 } from "../../checkpointing/Utils.ts";
 import { clearWorkspaceIndexCache } from "../../workspaceEntries.ts";
 import { CheckpointStore } from "../../checkpointing/Services/CheckpointStore.ts";
+import {
+  CHECKPOINT_RETAINED_TURN_LIMIT,
+  CheckpointRefRetention,
+  CheckpointRefRetentionLive,
+} from "../../checkpointing/CheckpointRefRetention.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
@@ -137,11 +142,63 @@ const make = Effect.gen(function* () {
   const projectionTurnRepository = yield* ProjectionTurnRepository;
   const receiptBus = yield* RuntimeReceiptBus;
   const turnCheckpointCoordinator = yield* TurnCheckpointCoordinator;
+  const checkpointRefRetention = yield* CheckpointRefRetention;
   const pendingMessageStartByThread = new Map<ThreadId, MessageId>();
   // Coalesces live turn-diff recomputes: at most one queued + one in-flight per
   // thread. The flag is cleared when the worker starts processing the job so an
   // edit arriving during the git work re-schedules and captures the newest tree.
   const liveDiffScheduledThreads = new Set<ThreadId>();
+
+  const enforceCheckpointRefRetention = Effect.fnUntraced(function* (threadId: ThreadId) {
+    const thread = yield* getThreadDetail(threadId);
+    if (!thread) return;
+    const project = yield* getProjectShell(thread.projectId);
+    if (!project) return;
+    const cwd = yield* resolveCheckpointCwd({ threadId, thread, project });
+    if (!cwd) return;
+
+    const managedCheckpoints = thread.checkpoints
+      .filter(
+        (checkpoint) =>
+          checkpoint.status === "ready" &&
+          isManagedCheckpointRefForThread(checkpoint.checkpointRef, threadId),
+      )
+      .toSorted((left, right) => right.checkpointTurnCount - left.checkpointTurnCount);
+    const retainedTurnCounts = new Set([
+      0,
+      ...managedCheckpoints
+        .slice(0, CHECKPOINT_RETAINED_TURN_LIMIT)
+        .map((checkpoint) => checkpoint.checkpointTurnCount),
+    ]);
+    const now = new Date().toISOString();
+    for (const checkpoint of managedCheckpoints) {
+      if (retainedTurnCounts.has(checkpoint.checkpointTurnCount)) continue;
+      yield* checkpointRefRetention.queue({
+        cwd,
+        checkpointRef: checkpoint.checkpointRef,
+        threadId,
+        turnId: checkpoint.turnId,
+        refKind: "turn",
+        now,
+      });
+      const turnStartRef = checkpointRefForThreadTurnStartInManagedFamily(
+        checkpoint.checkpointRef,
+        threadId,
+        checkpoint.turnId,
+      );
+      if (turnStartRef !== null) {
+        yield* checkpointRefRetention.queue({
+          cwd,
+          checkpointRef: turnStartRef,
+          threadId,
+          turnId: checkpoint.turnId,
+          refKind: "turn_start",
+          now,
+        });
+      }
+    }
+    yield* checkpointRefRetention.drain();
+  });
 
   // Providers that stream their own unified diff (e.g. Codex) update the live
   // turn diff through ProviderRuntimeIngestion. For providers without that
@@ -764,6 +821,10 @@ const make = Effect.gen(function* () {
         turnId: event.payload.turnId,
         checkpointTurnCount: event.payload.checkpointTurnCount,
       });
+      return;
+    }
+    if (event.payload.status === "ready") {
+      yield* enforceCheckpointRefRetention(event.payload.threadId);
     }
   });
 
@@ -824,6 +885,17 @@ const make = Effect.gen(function* () {
         copied = yield* copyMessageStartBaseline;
       }
       hasTurnStartBaseline = copied;
+      if (copied) {
+        yield* checkpointRefRetention.queue({
+          cwd: checkpointCwd,
+          checkpointRef: messageStartCheckpointRef,
+          threadId: thread.id,
+          turnId,
+          refKind: "message_start",
+          now: event.createdAt,
+        });
+        yield* checkpointRefRetention.drain();
+      }
       pendingMessageStartByThread.delete(thread.id);
       if (!copied) {
         yield* Effect.logWarning("checkpoint turn start baseline alias missing message baseline", {
@@ -1541,6 +1613,7 @@ const make = Effect.gen(function* () {
   const start: CheckpointReactorShape["start"] = startDrainableWorkerProducers(
     worker,
     Effect.gen(function* () {
+      yield* checkpointRefRetention.drain();
       yield* Effect.forkScoped(
         Stream.runForEach(orchestrationEngine.streamDomainEvents, (event) => {
           if (
@@ -1588,4 +1661,5 @@ const make = Effect.gen(function* () {
 
 export const CheckpointReactorLive = Layer.effect(CheckpointReactor, make).pipe(
   Layer.provide(ProjectionTurnRepositoryLive),
+  Layer.provide(CheckpointRefRetentionLive),
 );

@@ -314,10 +314,11 @@ managedAttachmentsLegacyLayer("managed attachment migration after private migrat
         [110, "ProviderRuntimeDeliveryIsolation"],
         [111, "ProjectionMessageDeltas"],
         [112, "ProviderModelCatalogCache"],
+        [113, "CheckpointRefRetention"],
       ]);
 
       const tracker = yield* trackerRows(sql);
-      assert.deepStrictEqual(tracker.slice(-59), [
+      assert.deepStrictEqual(tracker.slice(-60), [
         { migration_id: 54, name: "DurableProviderCommandDelivery" },
         { migration_id: 55, name: "ManagedAttachments" },
         { migration_id: 56, name: "CommandReceiptFingerprints" },
@@ -377,6 +378,7 @@ managedAttachmentsLegacyLayer("managed attachment migration after private migrat
         { migration_id: 110, name: "ProviderRuntimeDeliveryIsolation" },
         { migration_id: 111, name: "ProjectionMessageDeltas" },
         { migration_id: 112, name: "ProviderModelCatalogCache" },
+        { migration_id: 113, name: "CheckpointRefRetention" },
       ]);
       const preserved = yield* sql<{ readonly count: number }>`
         SELECT COUNT(*) AS count FROM orchestration_consumer_state
@@ -481,6 +483,7 @@ agentGatewayRetentionLegacyLayer(
           [110, "ProviderRuntimeDeliveryIsolation"],
           [111, "ProjectionMessageDeltas"],
           [112, "ProviderModelCatalogCache"],
+          [113, "CheckpointRefRetention"],
         ]);
 
         const columns = yield* sql<{ readonly name: string }>`
@@ -588,11 +591,12 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [110, "ProviderRuntimeDeliveryIsolation"],
         [111, "ProjectionMessageDeltas"],
         [112, "ProviderModelCatalogCache"],
+        [113, "CheckpointRefRetention"],
       ]);
 
       const tracker = yield* trackerRows(sql);
       assert.deepStrictEqual(
-        tracker.slice(-43).map((row) => [row.migration_id, row.name]),
+        tracker.slice(-44).map((row) => [row.migration_id, row.name]),
         [
           [70, "AgentGatewayOperations"],
           [71, "ProjectionThreadsGatewayProvenance"],
@@ -637,6 +641,7 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
           [110, "ProviderRuntimeDeliveryIsolation"],
           [111, "ProjectionMessageDeltas"],
           [112, "ProviderModelCatalogCache"],
+          [113, "CheckpointRefRetention"],
         ],
       );
 
@@ -739,11 +744,12 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [110, "ProviderRuntimeDeliveryIsolation"],
         [111, "ProjectionMessageDeltas"],
         [112, "ProviderModelCatalogCache"],
+        [113, "CheckpointRefRetention"],
       ]);
 
       const tracker = yield* trackerRows(sql);
       assert.deepStrictEqual(
-        tracker.slice(-39).map((row) => [row.migration_id, row.name]),
+        tracker.slice(-40).map((row) => [row.migration_id, row.name]),
         [
           [74, "ExternalMcpIntegrations"],
           [75, "ExternalMcpActiveCapacity"],
@@ -784,6 +790,7 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
           [110, "ProviderRuntimeDeliveryIsolation"],
           [111, "ProjectionMessageDeltas"],
           [112, "ProviderModelCatalogCache"],
+          [113, "CheckpointRefRetention"],
         ],
       );
       const preservedSpaces = yield* sql<{ readonly spaceId: string }>`

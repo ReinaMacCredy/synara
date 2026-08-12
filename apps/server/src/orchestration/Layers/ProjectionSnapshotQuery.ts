@@ -1215,11 +1215,17 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           turn_id AS "turnId",
           checkpoint_turn_count AS "checkpointTurnCount",
           checkpoint_ref AS "checkpointRef",
-          checkpoint_status AS "status",
+          CASE WHEN EXISTS (
+            SELECT 1
+            FROM checkpoint_ref_cleanup_queue AS cleanup
+            WHERE cleanup.thread_id = turns.thread_id
+              AND cleanup.checkpoint_ref = turns.checkpoint_ref
+              AND cleanup.state IN ('pending', 'deleted')
+          ) THEN 'missing' ELSE checkpoint_status END AS "status",
           checkpoint_files_json AS "files",
           assistant_message_id AS "assistantMessageId",
           COALESCE(completed_at, started_at, requested_at) AS "completedAt"
-        FROM projection_turns
+        FROM projection_turns AS turns
         -- Provider-diff placeholders can reserve checkpoint metadata before the
         -- turn is complete; snapshot checkpoint summaries require completedAt.
         WHERE checkpoint_turn_count IS NOT NULL
@@ -1794,11 +1800,17 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           turn_id AS "turnId",
           checkpoint_turn_count AS "checkpointTurnCount",
           checkpoint_ref AS "checkpointRef",
-          checkpoint_status AS "status",
+          CASE WHEN EXISTS (
+            SELECT 1
+            FROM checkpoint_ref_cleanup_queue AS cleanup
+            WHERE cleanup.thread_id = turns.thread_id
+              AND cleanup.checkpoint_ref = turns.checkpoint_ref
+              AND cleanup.state IN ('pending', 'deleted')
+          ) THEN 'missing' ELSE checkpoint_status END AS "status",
           checkpoint_files_json AS "files",
           assistant_message_id AS "assistantMessageId",
           COALESCE(completed_at, started_at, requested_at) AS "completedAt"
-        FROM projection_turns
+        FROM projection_turns AS turns
         -- Keep incomplete provider-diff placeholders out of the public
         -- checkpoint summary contract, which requires completedAt.
         WHERE thread_id = ${threadId}

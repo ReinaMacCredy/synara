@@ -32,6 +32,7 @@ import type { CheckpointStoreError } from "../../checkpointing/Errors.ts";
 import { GitCommandError } from "../../git/Errors.ts";
 import { GitCoreLive } from "../../git/Layers/GitCore.ts";
 import { CheckpointReactorLive } from "./CheckpointReactor.ts";
+import { CHECKPOINT_RETAINED_TURN_LIMIT } from "../../checkpointing/CheckpointRefRetention.ts";
 import { TurnCheckpointCoordinatorLive } from "./TurnCheckpointCoordinator.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
@@ -45,6 +46,7 @@ import {
   type OrchestrationEngineShape,
 } from "../Services/OrchestrationEngine.ts";
 import { CheckpointReactor } from "../Services/CheckpointReactor.ts";
+import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import {
   ProviderService,
   type ProviderServiceShape,
@@ -280,7 +282,7 @@ async function waitForGitRefMissing(cwd: string, ref: string, timeoutMs = 30_000
 
 describe("CheckpointReactor", () => {
   let runtime: ManagedRuntime.ManagedRuntime<
-    OrchestrationEngineService | CheckpointReactor | CheckpointStore,
+    OrchestrationEngineService | CheckpointReactor | CheckpointStore | ProjectionSnapshotQuery,
     unknown
   > | null = null;
   let scope: Scope.Closeable | null = null;
@@ -382,6 +384,7 @@ describe("CheckpointReactor", () => {
     const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
     const reactor = await runtime.runPromise(Effect.service(CheckpointReactor));
     const checkpointStore = await runtime.runPromise(Effect.service(CheckpointStore));
+    const snapshotQuery = await runtime.runPromise(Effect.service(ProjectionSnapshotQuery));
     scope = await Effect.runPromise(Scope.make("sequential"));
     await Effect.runPromise(reactor.start.pipe(Scope.provide(scope)));
     const drain = () => Effect.runPromise(reactor.drain);
@@ -447,6 +450,7 @@ describe("CheckpointReactor", () => {
       engine,
       provider,
       checkpointStore,
+      snapshotQuery,
       cwd,
       drain,
       failures,
@@ -534,6 +538,96 @@ describe("CheckpointReactor", () => {
         "README.md",
       ),
     ).toBe("v2\n");
+  });
+
+  it("retains the baseline and recent turns while retrying durable ref cleanup", async () => {
+    const harness = await createHarness({ seedFilesystemCheckpoints: false });
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const createdAt = new Date().toISOString();
+    await runtime!.runPromise(
+      harness.checkpointStore.captureCheckpoint({
+        cwd: harness.cwd,
+        checkpointRef: checkpointRefForThreadTurn(threadId, 0),
+      }),
+    );
+
+    const recordCheckpoint = async (turnCount: number) => {
+      const turnId = asTurnId(`retention-turn-${turnCount}`);
+      const checkpointRef = checkpointRefForThreadTurn(threadId, turnCount);
+      await runtime!.runPromise(
+        harness.checkpointStore.captureCheckpoint({ cwd: harness.cwd, checkpointRef }),
+      );
+      await runtime!.runPromise(
+        harness.checkpointStore.copyCheckpointRef({
+          cwd: harness.cwd,
+          fromCheckpointRef: checkpointRef,
+          toCheckpointRef: checkpointRefForThreadTurnStart(threadId, turnId),
+        }),
+      );
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.turn.diff.complete",
+          commandId: CommandId.makeUnsafe(`cmd-retention-${turnCount}`),
+          threadId,
+          turnId,
+          completedAt: createdAt,
+          checkpointRef,
+          status: "ready",
+          files: [],
+          checkpointTurnCount: turnCount,
+          createdAt,
+        }),
+      );
+    };
+
+    for (let turnCount = 1; turnCount <= CHECKPOINT_RETAINED_TURN_LIMIT; turnCount += 1) {
+      await recordCheckpoint(turnCount);
+    }
+    const firstExpiredRef = checkpointRefForThreadTurn(threadId, 1);
+    harness.failures.deleteCheckpointRefs = (input) =>
+      input.checkpointRefs.includes(firstExpiredRef)
+        ? new GitCommandError({
+            operation: "CheckpointStore.deleteCheckpointRefs",
+            command: "git update-ref -d",
+            cwd: harness.cwd,
+            detail: "simulated cleanup interruption",
+          })
+        : null;
+    await recordCheckpoint(CHECKPOINT_RETAINED_TURN_LIMIT + 1);
+    await waitForThread(
+      harness.engine,
+      (thread) => thread.checkpoints.length === CHECKPOINT_RETAINED_TURN_LIMIT + 1,
+    );
+    await harness.drain();
+    expect(gitRefExists(harness.cwd, firstExpiredRef)).toBe(true);
+
+    delete harness.failures.deleteCheckpointRefs;
+    await recordCheckpoint(CHECKPOINT_RETAINED_TURN_LIMIT + 2);
+    await waitForGitRefMissing(harness.cwd, firstExpiredRef);
+    await waitForGitRefMissing(harness.cwd, checkpointRefForThreadTurn(threadId, 2));
+    await waitForGitRefMissing(
+      harness.cwd,
+      checkpointRefForThreadTurnStart(threadId, asTurnId("retention-turn-1")),
+    );
+
+    const snapshot = await runtime!.runPromise(harness.snapshotQuery.getSnapshot());
+    const thread = snapshot.threads.find((candidate) => candidate.id === threadId);
+    expect(
+      thread?.checkpoints.find((checkpoint) => checkpoint.checkpointTurnCount === 1)?.status,
+    ).toBe("missing");
+    expect(
+      thread?.checkpoints.find((checkpoint) => checkpoint.checkpointTurnCount === 2)?.status,
+    ).toBe("missing");
+    expect(
+      thread?.checkpoints.find((checkpoint) => checkpoint.checkpointTurnCount === 3)?.status,
+    ).toBe("ready");
+    expect(gitRefExists(harness.cwd, checkpointRefForThreadTurn(threadId, 0))).toBe(true);
+    expect(
+      gitRefExists(
+        harness.cwd,
+        checkpointRefForThreadTurn(threadId, CHECKPOINT_RETAINED_TURN_LIMIT + 2),
+      ),
+    ).toBe(true);
   });
 
   it("summarizes only files changed after each turn's start checkpoint", async () => {
