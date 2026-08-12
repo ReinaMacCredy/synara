@@ -704,9 +704,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const [visibleRowCount, setVisibleRowCount] = useState(INITIAL_TRANSCRIPT_WINDOW_ROWS);
   const rows = useMemo(
     () =>
-      allRows.length <= visibleRowCount
-        ? allRows
-        : allRows.slice(allRows.length - visibleRowCount),
+      allRows.length <= visibleRowCount ? allRows : allRows.slice(allRows.length - visibleRowCount),
     [allRows, visibleRowCount],
   );
   const hiddenRowCount = allRows.length - rows.length;
@@ -1201,9 +1199,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   useLayoutEffect(() => {
     const messageId = pendingScrollMessageIdRef.current;
     if (messageId === null) return;
-    const index = rows.findIndex(
-      (row) => row.kind === "message" && row.message.id === messageId,
-    );
+    const index = rows.findIndex((row) => row.kind === "message" && row.message.id === messageId);
     if (index < 0) return;
     pendingScrollMessageIdRef.current = null;
     scrollLegendListToIndex(resolvedListRef, {

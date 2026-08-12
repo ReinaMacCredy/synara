@@ -4,8 +4,12 @@ import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { DatabaseSync } from "node:sqlite";
 
-const THREAD_COUNT = Number(process.argv.find((value) => value.startsWith("--threads="))?.split("=")[1] ?? 100_000);
-const SAMPLE_COUNT = Number(process.argv.find((value) => value.startsWith("--samples="))?.split("=")[1] ?? 25);
+const THREAD_COUNT = Number(
+  process.argv.find((value) => value.startsWith("--threads="))?.split("=")[1] ?? 100_000,
+);
+const SAMPLE_COUNT = Number(
+  process.argv.find((value) => value.startsWith("--samples="))?.split("=")[1] ?? 25,
+);
 const tempDirectory = mkdtempSync(join(tmpdir(), "veylen-reconciliation-query-"));
 const databasePath = join(tempDirectory, "state.sqlite");
 const database = new DatabaseSync(databasePath);
@@ -86,7 +90,9 @@ try {
     );
   `);
   const insertThread = database.prepare("INSERT INTO projection_threads VALUES (?, ?, ?, NULL)");
-  const insertSession = database.prepare("INSERT INTO projection_thread_sessions VALUES (?, ?, ?, ?)");
+  const insertSession = database.prepare(
+    "INSERT INTO projection_thread_sessions VALUES (?, ?, ?, ?)",
+  );
   const insertTurn = database.prepare("INSERT INTO projection_turns VALUES (?, ?, ?)");
   const insertRuntime = database.prepare("INSERT INTO provider_session_runtime VALUES (?, ?)");
   database.exec("BEGIN IMMEDIATE");
@@ -95,9 +101,15 @@ try {
     const turnId = `turn-${String(index).padStart(8, "0")}`;
     const active = index % 1000 === 0;
     insertThread.run(threadId, active ? turnId : null, "2026-08-01T00:00:00.000Z");
-    insertSession.run(threadId, active && index % 3 === 0 ? "running" : "ready", active && index % 3 === 0 ? turnId : null, "2026-08-01T00:00:00.000Z");
+    insertSession.run(
+      threadId,
+      active && index % 3 === 0 ? "running" : "ready",
+      active && index % 3 === 0 ? turnId : null,
+      "2026-08-01T00:00:00.000Z",
+    );
     if (active && index % 3 === 1) insertTurn.run(threadId, turnId, "running");
-    if (active && index % 3 === 2) insertRuntime.run(threadId, JSON.stringify({ activeTurnId: turnId }));
+    if (active && index % 3 === 2)
+      insertRuntime.run(threadId, JSON.stringify({ activeTurnId: turnId }));
   }
   database.exec("COMMIT");
   const before = { legacy: measure(legacyQuery), candidate: measure(candidateQuery) };
@@ -112,13 +124,26 @@ try {
       WHERE json_extract(runtime_payload_json, '$.activeTurnId') IS NOT NULL;
   `);
   const after = measure(candidateQuery);
-  console.log(JSON.stringify({
-    createdAt: new Date().toISOString(),
-    database: { threadCount: THREAD_COUNT, activeCount: Math.ceil(THREAD_COUNT / 1000), journalMode: "WAL", synchronous: "NORMAL" },
-    before,
-    after,
-    queryPlan: database.prepare(`EXPLAIN QUERY PLAN ${candidateQuery}`).all("2026-08-12T00:00:00.000Z", 1000),
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        createdAt: new Date().toISOString(),
+        database: {
+          threadCount: THREAD_COUNT,
+          activeCount: Math.ceil(THREAD_COUNT / 1000),
+          journalMode: "WAL",
+          synchronous: "NORMAL",
+        },
+        before,
+        after,
+        queryPlan: database
+          .prepare(`EXPLAIN QUERY PLAN ${candidateQuery}`)
+          .all("2026-08-12T00:00:00.000Z", 1000),
+      },
+      null,
+      2,
+    ),
+  );
 } finally {
   database.close();
   rmSync(tempDirectory, { recursive: true, force: true });

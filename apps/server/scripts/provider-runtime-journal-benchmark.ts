@@ -93,7 +93,9 @@ async function runSample(input: {
   const databasePath = join(tempDirectory, "state.sqlite");
   const runtime = ManagedRuntime.make(
     ProviderRuntimeEventRepositoryLive.pipe(
-      Layer.provide(makeSqlitePersistenceLive(databasePath).pipe(Layer.provide(NodeServices.layer))),
+      Layer.provide(
+        makeSqlitePersistenceLive(databasePath).pipe(Layer.provide(NodeServices.layer)),
+      ),
     ),
   );
   try {

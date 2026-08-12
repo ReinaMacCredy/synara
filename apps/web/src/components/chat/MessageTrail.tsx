@@ -699,27 +699,27 @@ export function MessageTrail({
             const index = virtualItem.index;
             const item = items[index]!;
             return (
-            <span
-              key={item.id}
-              ref={(el) => {
-                tickRefs.current[index] = el;
-              }}
-              aria-hidden="true"
-              className="absolute origin-left rounded-full transition-[transform,opacity] duration-[90ms] ease-out motion-reduce:transition-none"
-              style={{
-                left: TICK_LEFT_PAD_PX,
-                height: TICK_HEIGHT_PX,
-                width: TICK_BASE_W,
-                opacity:
-                  index === anchorIndex
-                    ? TICK_ANCHOR_OPACITY
-                    : visibleIndexSet.has(index)
-                      ? TICK_VISIBLE_OPACITY
-                      : TICK_REST_OPACITY,
-                backgroundColor: "var(--color-text-foreground)",
-                willChange: "transform, opacity",
-              }}
-            />
+              <span
+                key={item.id}
+                ref={(el) => {
+                  tickRefs.current[index] = el;
+                }}
+                aria-hidden="true"
+                className="absolute origin-left rounded-full transition-[transform,opacity] duration-[90ms] ease-out motion-reduce:transition-none"
+                style={{
+                  left: TICK_LEFT_PAD_PX,
+                  height: TICK_HEIGHT_PX,
+                  width: TICK_BASE_W,
+                  opacity:
+                    index === anchorIndex
+                      ? TICK_ANCHOR_OPACITY
+                      : visibleIndexSet.has(index)
+                        ? TICK_VISIBLE_OPACITY
+                        : TICK_REST_OPACITY,
+                  backgroundColor: "var(--color-text-foreground)",
+                  willChange: "transform, opacity",
+                }}
+              />
             );
           })}
         </div>
@@ -752,43 +752,40 @@ export function MessageTrail({
             onKeyDown={handleListboxKeyDown}
             className="scroll-fade-y max-h-[min(72dvh,36rem)] overflow-y-auto overscroll-contain outline-none [scrollbar-width:thin]"
           >
-            <div
-              className="relative w-full"
-              style={{ height: optionVirtualizer.getTotalSize() }}
-            >
+            <div className="relative w-full" style={{ height: optionVirtualizer.getTotalSize() }}>
               {navigatorOpen
                 ? optionVirtualizer.getVirtualItems().map((virtualItem) => {
                     const index = virtualItem.index;
                     const item = items[index]!;
                     return (
-              <button
-                key={item.id}
-                ref={(element) => {
-                  optionRefs.current[index] = element;
-                  if (element) {
-                    const active = navigatorIndexRef.current === index;
-                    element.dataset.active = String(active);
-                    element.setAttribute("aria-selected", String(active));
-                  }
-                }}
-                id={optionId(index)}
-                type="button"
-                role="option"
-                tabIndex={-1}
-                aria-selected={navigatorIndexRef.current === index}
-                aria-current={index === anchorIndex ? "location" : undefined}
-                data-active={navigatorIndexRef.current === index}
-                onPointerEnter={() => handleOptionPointer(index)}
-                onPointerMove={() => handleOptionPointer(index)}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => selectNavigatorIndex(index)}
-                className="absolute left-0 top-0 flex w-full min-w-0 items-center rounded-xl px-4 py-2.5 text-left text-[15px] leading-5 text-foreground/84 outline-none hover:bg-[var(--color-background-button-secondary-hover)] data-[active=true]:bg-[var(--color-background-button-secondary-hover)]"
-                style={{ transform: `translateY(${virtualItem.start}px)` }}
-                title={item.preview}
-              >
-                <span className="min-w-0 flex-1 truncate">{item.preview}</span>
-                <span className="sr-only">Jump to message {item.ordinal}</span>
-              </button>
+                      <button
+                        key={item.id}
+                        ref={(element) => {
+                          optionRefs.current[index] = element;
+                          if (element) {
+                            const active = navigatorIndexRef.current === index;
+                            element.dataset.active = String(active);
+                            element.setAttribute("aria-selected", String(active));
+                          }
+                        }}
+                        id={optionId(index)}
+                        type="button"
+                        role="option"
+                        tabIndex={-1}
+                        aria-selected={navigatorIndexRef.current === index}
+                        aria-current={index === anchorIndex ? "location" : undefined}
+                        data-active={navigatorIndexRef.current === index}
+                        onPointerEnter={() => handleOptionPointer(index)}
+                        onPointerMove={() => handleOptionPointer(index)}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => selectNavigatorIndex(index)}
+                        className="absolute left-0 top-0 flex w-full min-w-0 items-center rounded-xl px-4 py-2.5 text-left text-[15px] leading-5 text-foreground/84 outline-none hover:bg-[var(--color-background-button-secondary-hover)] data-[active=true]:bg-[var(--color-background-button-secondary-hover)]"
+                        style={{ transform: `translateY(${virtualItem.start}px)` }}
+                        title={item.preview}
+                      >
+                        <span className="min-w-0 flex-1 truncate">{item.preview}</span>
+                        <span className="sr-only">Jump to message {item.ordinal}</span>
+                      </button>
                     );
                   })
                 : null}

@@ -16,7 +16,8 @@ function parseArguments(argv) {
         .split(",")
         .map(Number)
         .filter((value) => Number.isSafeInteger(value) && value > 0);
-      if (counts.length === 0) throw new Error("--messages requires positive comma-separated integers");
+      if (counts.length === 0)
+        throw new Error("--messages requires positive comma-separated integers");
       options.messageCounts = counts;
       index += 1;
       continue;
@@ -68,13 +69,19 @@ try {
 const failures = measurements.flatMap((measurement) => {
   const errors = [];
   if (measurement.final.domNodeCount > 2_000) {
-    errors.push(`${measurement.messageCount}: DOM node count ${measurement.final.domNodeCount} exceeds 2000`);
+    errors.push(
+      `${measurement.messageCount}: DOM node count ${measurement.final.domNodeCount} exceeds 2000`,
+    );
   }
   if (measurement.scroll.p95Ms > 34) {
-    errors.push(`${measurement.messageCount}: scroll p95 ${measurement.scroll.p95Ms.toFixed(2)}ms exceeds 34ms`);
+    errors.push(
+      `${measurement.messageCount}: scroll p95 ${measurement.scroll.p95Ms.toFixed(2)}ms exceeds 34ms`,
+    );
   }
   if (measurement.streaming.p95Ms > 34) {
-    errors.push(`${measurement.messageCount}: stream p95 ${measurement.streaming.p95Ms.toFixed(2)}ms exceeds 34ms`);
+    errors.push(
+      `${measurement.messageCount}: stream p95 ${measurement.streaming.p95Ms.toFixed(2)}ms exceeds 34ms`,
+    );
   }
   return errors;
 });

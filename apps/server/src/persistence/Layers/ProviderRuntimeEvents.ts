@@ -104,8 +104,7 @@ const make = Effect.gen(function* () {
             )
             ON CONFLICT(event_id) DO UPDATE SET event_id = excluded.event_id
             RETURNING sequence, event_json AS "eventJson"
-          `
-        .pipe(Effect.mapError(toPersistenceSqlError("ProviderRuntimeEvent.append")));
+          `.pipe(Effect.mapError(toPersistenceSqlError("ProviderRuntimeEvent.append")));
       const row = yield* decodeStoredRow(rows[0]).pipe(
         Effect.mapError(toPersistenceDecodeError("ProviderRuntimeEvent.append.row")),
       );
@@ -182,9 +181,7 @@ const make = Effect.gen(function* () {
         (unknownRow) =>
           Effect.gen(function* () {
             const row = yield* decodeStoredRow(unknownRow).pipe(
-              Effect.mapError(
-                toPersistenceDecodeError("ProviderRuntimeEvent.readPending.row"),
-              ),
+              Effect.mapError(toPersistenceDecodeError("ProviderRuntimeEvent.readPending.row")),
             );
             const event = yield* decodeEvent(row.eventJson).pipe(
               Effect.mapError(
@@ -511,15 +508,11 @@ const make = Effect.gen(function* () {
             threadId: event.threadId,
             turnId: event.turnId,
           });
-          const cursor = yield* compactSettledConsumerCursor(
-            input.consumerName,
-            input.updatedAt,
-          );
+          const cursor = yield* compactSettledConsumerCursor(input.consumerName, input.updatedAt);
           if (cursor === null) return false;
           if (
             !settlesOpenTurns &&
-            cursor - lastRetentionScanSequence <
-              PROVIDER_RUNTIME_EVENT_RETENTION_SCAN_INTERVAL
+            cursor - lastRetentionScanSequence < PROVIDER_RUNTIME_EVENT_RETENTION_SCAN_INTERVAL
           ) {
             return true;
           }

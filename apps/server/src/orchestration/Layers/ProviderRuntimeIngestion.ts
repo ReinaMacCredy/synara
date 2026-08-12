@@ -2724,77 +2724,74 @@ const make = Effect.gen(function* () {
 
   const processInputSafely = (input: RuntimeIngestionInput) =>
     processInput(input).pipe(
-          Effect.catchCause((cause) => {
-            if (Cause.hasInterruptsOnly(cause)) {
-              return Effect.failCause(cause);
-            }
-            const error = Option.getOrUndefined(Cause.findErrorOption(cause));
-            if (
-              input.source === "runtime" &&
-              (error instanceof OrchestrationCommandIdentityCollisionError ||
-                error instanceof OrchestrationCommandPreviouslyRejectedError)
-            ) {
-              return quarantineUnreplayableCommand(input, error);
-            }
-            if (input.source !== "runtime") {
-              return Effect.logWarning("provider runtime ingestion failed to process event", {
-                source: input.source,
-                eventId: input.event.eventId,
-                eventType: input.event.type,
-                cause: Cause.pretty(cause),
-              });
-            }
-            const detail = Cause.pretty(cause);
-            return runtimeEvents
-              .recordConsumerFailure({
-                consumerName: PROVIDER_RUNTIME_INGESTION_CONSUMER,
-                eventSequence: input.sequence,
-                failedAt: new Date().toISOString(),
-                error: detail,
-              })
-              .pipe(
-                Effect.tap((failure) =>
-                  Effect.sync(() => {
-                    runtimeJournalPageNeedsRetry ||= failure.status === "retry";
-                  }),
-                ),
-                Effect.flatMap((failure) =>
-                  failure.status === "accepted"
-                    ? Effect.void
-                    : failure.status === "dead_letter"
-                    ? Effect.logError("provider runtime journal dead-lettered a poison event", {
-                        sequence: input.sequence,
-                        eventId: input.event.eventId,
-                        eventType: input.event.type,
-                        threadId: input.event.threadId,
-                        provider: input.event.provider,
-                        attemptCount: failure.attemptCount,
-                      })
-                    : Effect.logWarning("provider runtime ingestion will retry failed event", {
-                        sequence: input.sequence,
-                        eventId: input.event.eventId,
-                        eventType: input.event.type,
-                        threadId: input.event.threadId,
-                        provider: input.event.provider,
-                        attemptCount: failure.attemptCount,
-                        cause: detail,
-                      }),
-                ),
-                Effect.catchCause((recordCause) => {
-                  runtimeJournalPageNeedsRetry = true;
-                  return Effect.logWarning(
-                    "provider runtime ingestion failed to persist retry state",
-                    {
+      Effect.catchCause((cause) => {
+        if (Cause.hasInterruptsOnly(cause)) {
+          return Effect.failCause(cause);
+        }
+        const error = Option.getOrUndefined(Cause.findErrorOption(cause));
+        if (
+          input.source === "runtime" &&
+          (error instanceof OrchestrationCommandIdentityCollisionError ||
+            error instanceof OrchestrationCommandPreviouslyRejectedError)
+        ) {
+          return quarantineUnreplayableCommand(input, error);
+        }
+        if (input.source !== "runtime") {
+          return Effect.logWarning("provider runtime ingestion failed to process event", {
+            source: input.source,
+            eventId: input.event.eventId,
+            eventType: input.event.type,
+            cause: Cause.pretty(cause),
+          });
+        }
+        const detail = Cause.pretty(cause);
+        return runtimeEvents
+          .recordConsumerFailure({
+            consumerName: PROVIDER_RUNTIME_INGESTION_CONSUMER,
+            eventSequence: input.sequence,
+            failedAt: new Date().toISOString(),
+            error: detail,
+          })
+          .pipe(
+            Effect.tap((failure) =>
+              Effect.sync(() => {
+                runtimeJournalPageNeedsRetry ||= failure.status === "retry";
+              }),
+            ),
+            Effect.flatMap((failure) =>
+              failure.status === "accepted"
+                ? Effect.void
+                : failure.status === "dead_letter"
+                  ? Effect.logError("provider runtime journal dead-lettered a poison event", {
                       sequence: input.sequence,
                       eventId: input.event.eventId,
                       eventType: input.event.type,
-                      cause: Cause.pretty(recordCause),
-                    },
-                  );
-                }),
-              );
-          }),
-        );
+                      threadId: input.event.threadId,
+                      provider: input.event.provider,
+                      attemptCount: failure.attemptCount,
+                    })
+                  : Effect.logWarning("provider runtime ingestion will retry failed event", {
+                      sequence: input.sequence,
+                      eventId: input.event.eventId,
+                      eventType: input.event.type,
+                      threadId: input.event.threadId,
+                      provider: input.event.provider,
+                      attemptCount: failure.attemptCount,
+                      cause: detail,
+                    }),
+            ),
+            Effect.catchCause((recordCause) => {
+              runtimeJournalPageNeedsRetry = true;
+              return Effect.logWarning("provider runtime ingestion failed to persist retry state", {
+                sequence: input.sequence,
+                eventId: input.event.eventId,
+                eventType: input.event.type,
+                cause: Cause.pretty(recordCause),
+              });
+            }),
+          );
+      }),
+    );
 
   const worker = yield* makeDrainableWorker(processInputSafely, {
     capacity: PROVIDER_RUNTIME_INGESTION_CAPACITY,
