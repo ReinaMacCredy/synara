@@ -105,10 +105,8 @@ function normalizeDynamicModelSlug(provider: ProviderKind, slug: string): string
 }
 
 /**
- * Folds runtime-discovered models into the static option list for a provider:
- * discovered models lead (with display names recovered from the static list when
- * possible), static built-ins fill gaps unless discovery fully owns the catalog
- * (antigravity/kilo/opencode/cursor), and user-defined custom models always survive.
+ * Uses runtime-discovered models as the live catalog. Static built-ins are an
+ * offline bootstrap only, while user-defined custom models always survive.
  */
 export function mergeDynamicModelOptions(input: {
   provider: ProviderKind;
@@ -149,12 +147,11 @@ export function mergeDynamicModelOptions(input: {
     normalizedDynamicOptions.push({
       slug: normalizedSlug,
       name:
-        staticNameBySlug.get(normalizedSlug) ??
-        (rawName.length > 0 &&
+        rawName.length > 0 &&
         rawName.toLowerCase() !== rawSlug &&
         rawName.toLowerCase() !== normalizedSlug.toLowerCase()
           ? rawName
-          : displayNameFallback),
+          : (staticNameBySlug.get(normalizedSlug) ?? displayNameFallback),
       ...(dynamicModel.description?.trim() ? { description: dynamicModel.description.trim() } : {}),
       ...(dynamicModel.upstreamProviderId?.trim()
         ? { upstreamProviderId: dynamicModel.upstreamProviderId.trim() }
@@ -180,11 +177,6 @@ export function mergeDynamicModelOptions(input: {
     (model) => !("isCustom" in model) || model.isCustom !== true,
   );
   const missingStaticBuiltIns =
-    (input.provider === "antigravity" ||
-      input.provider === "kilo" ||
-      input.provider === "opencode" ||
-      input.provider === "cursor" ||
-      input.provider === "droid") &&
     normalizedDynamicOptions.length > 0
       ? []
       : staticBuiltInModels.filter((model) => !dynamicNormalizedSlugs.has(model.slug));

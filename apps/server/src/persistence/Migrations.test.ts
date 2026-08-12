@@ -311,10 +311,13 @@ managedAttachmentsLegacyLayer("managed attachment migration after private migrat
         [107, "SupervisedToolPolicies"],
         [108, "SupervisedCanonicalCutover"],
         [109, "SupervisedCanonicalRepair"],
+        [110, "ProviderRuntimeDeliveryIsolation"],
+        [111, "ProjectionMessageDeltas"],
+        [112, "ProviderModelCatalogCache"],
       ]);
 
       const tracker = yield* trackerRows(sql);
-      assert.deepStrictEqual(tracker.slice(-56), [
+      assert.deepStrictEqual(tracker.slice(-59), [
         { migration_id: 54, name: "DurableProviderCommandDelivery" },
         { migration_id: 55, name: "ManagedAttachments" },
         { migration_id: 56, name: "CommandReceiptFingerprints" },
@@ -371,6 +374,9 @@ managedAttachmentsLegacyLayer("managed attachment migration after private migrat
         { migration_id: 107, name: "SupervisedToolPolicies" },
         { migration_id: 108, name: "SupervisedCanonicalCutover" },
         { migration_id: 109, name: "SupervisedCanonicalRepair" },
+        { migration_id: 110, name: "ProviderRuntimeDeliveryIsolation" },
+        { migration_id: 111, name: "ProjectionMessageDeltas" },
+        { migration_id: 112, name: "ProviderModelCatalogCache" },
       ]);
       const preserved = yield* sql<{ readonly count: number }>`
         SELECT COUNT(*) AS count FROM orchestration_consumer_state
@@ -472,6 +478,9 @@ agentGatewayRetentionLegacyLayer(
           [107, "SupervisedToolPolicies"],
           [108, "SupervisedCanonicalCutover"],
           [109, "SupervisedCanonicalRepair"],
+          [110, "ProviderRuntimeDeliveryIsolation"],
+          [111, "ProjectionMessageDeltas"],
+          [112, "ProviderModelCatalogCache"],
         ]);
 
         const columns = yield* sql<{ readonly name: string }>`
@@ -576,11 +585,14 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [107, "SupervisedToolPolicies"],
         [108, "SupervisedCanonicalCutover"],
         [109, "SupervisedCanonicalRepair"],
+        [110, "ProviderRuntimeDeliveryIsolation"],
+        [111, "ProjectionMessageDeltas"],
+        [112, "ProviderModelCatalogCache"],
       ]);
 
       const tracker = yield* trackerRows(sql);
       assert.deepStrictEqual(
-        tracker.slice(-40).map((row) => [row.migration_id, row.name]),
+        tracker.slice(-43).map((row) => [row.migration_id, row.name]),
         [
           [70, "AgentGatewayOperations"],
           [71, "ProjectionThreadsGatewayProvenance"],
@@ -622,6 +634,9 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
           [107, "SupervisedToolPolicies"],
           [108, "SupervisedCanonicalCutover"],
           [109, "SupervisedCanonicalRepair"],
+          [110, "ProviderRuntimeDeliveryIsolation"],
+          [111, "ProjectionMessageDeltas"],
+          [112, "ProviderModelCatalogCache"],
         ],
       );
 
@@ -721,11 +736,14 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [107, "SupervisedToolPolicies"],
         [108, "SupervisedCanonicalCutover"],
         [109, "SupervisedCanonicalRepair"],
+        [110, "ProviderRuntimeDeliveryIsolation"],
+        [111, "ProjectionMessageDeltas"],
+        [112, "ProviderModelCatalogCache"],
       ]);
 
       const tracker = yield* trackerRows(sql);
       assert.deepStrictEqual(
-        tracker.slice(-36).map((row) => [row.migration_id, row.name]),
+        tracker.slice(-39).map((row) => [row.migration_id, row.name]),
         [
           [74, "ExternalMcpIntegrations"],
           [75, "ExternalMcpActiveCapacity"],
@@ -763,6 +781,9 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
           [107, "SupervisedToolPolicies"],
           [108, "SupervisedCanonicalCutover"],
           [109, "SupervisedCanonicalRepair"],
+          [110, "ProviderRuntimeDeliveryIsolation"],
+          [111, "ProjectionMessageDeltas"],
+          [112, "ProviderModelCatalogCache"],
         ],
       );
       const preservedSpaces = yield* sql<{ readonly spaceId: string }>`

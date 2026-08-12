@@ -33,6 +33,7 @@ import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts"
 import { ProviderDiscoveryService } from "../Services/ProviderDiscoveryService.ts";
 import { clearSkillsCatalogCacheForTests } from "../skillsCatalog.ts";
 import { ProviderDiscoveryServiceLive } from "./ProviderDiscoveryService.ts";
+import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 
 let root: string;
 let homeDir: string;
@@ -86,6 +87,7 @@ const runListSkills = (input: {
   provider: ProviderKind;
 }) => {
   const baseLayer = Layer.mergeAll(
+    SqlitePersistenceMemory,
     makeConfigLayer(),
     ServerSettingsService.layerTest({ skills: { disabled: input.disabled ?? [] } }),
     makeRegistryLayer(input.adapter),
@@ -105,6 +107,7 @@ const runListModels = (input: {
   enabled: boolean;
 }) => {
   const baseLayer = Layer.mergeAll(
+    SqlitePersistenceMemory,
     makeConfigLayer(),
     ServerSettingsService.layerTest({
       providers: {
@@ -122,6 +125,31 @@ const runListModels = (input: {
   }).pipe(Effect.provide(testLayer));
   return Effect.runPromise(
     program as unknown as Effect.Effect<ProviderListModelsResult, never, never>,
+  );
+};
+
+const runListModelsSequence = (adapter: Partial<ProviderAdapterShape<ProviderAdapterError>>) => {
+  const baseLayer = Layer.mergeAll(
+    SqlitePersistenceMemory,
+    makeConfigLayer(),
+    ServerSettingsService.layerTest({
+      providers: { cursor: { enabled: true } },
+    }),
+    makeRegistryLayer(adapter),
+  ).pipe(Layer.provideMerge(NodeServices.layer));
+  const testLayer = ProviderDiscoveryServiceLive.pipe(Layer.provideMerge(baseLayer));
+  const program = Effect.gen(function* () {
+    const discovery = yield* ProviderDiscoveryService;
+    const first = yield* discovery.listModels({ provider: "cursor", cwd });
+    const second = yield* discovery.listModels({ provider: "cursor", cwd });
+    return [first, second] as const;
+  }).pipe(Effect.provide(testLayer));
+  return Effect.runPromise(
+    program as unknown as Effect.Effect<
+      readonly [ProviderListModelsResult, ProviderListModelsResult],
+      never,
+      never
+    >,
   );
 };
 
@@ -207,6 +235,7 @@ describe("ProviderDiscoveryService.listSkills", () => {
 describe("ProviderDiscoveryService.getComposerCapabilities", () => {
   it("reports skill discovery as supported even when the adapter declines it", async () => {
     const baseLayer = Layer.mergeAll(
+      SqlitePersistenceMemory,
       makeConfigLayer(),
       ServerSettingsService.layerTest(),
       makeRegistryLayer({}),
@@ -291,6 +320,39 @@ describe("ProviderDiscoveryService.listModels", () => {
       models: [{ slug: "valid-model", name: "Valid Model" }],
       source: "cursor.cli",
       cached: false,
+    });
+  });
+
+  it("serves the versioned last-known-good catalog when runtime discovery later fails", async () => {
+    let calls = 0;
+    const [first, second] = await runListModelsSequence({
+      listModels: () => {
+        calls += 1;
+        return calls === 1
+          ? Effect.succeed({
+              models: [{ slug: "cursor-live", name: "Cursor Live" }],
+              source: "cursor.cli",
+              cached: false,
+            })
+          : Effect.fail(
+              new ProviderAdapterRequestError({
+                provider: "cursor",
+                method: "models/list",
+                detail: "provider unavailable",
+              }),
+            );
+      },
+    });
+
+    expect(first).toEqual({
+      models: [{ slug: "cursor-live", name: "Cursor Live" }],
+      source: "cursor.cli",
+      cached: false,
+    });
+    expect(second).toEqual({
+      models: [{ slug: "cursor-live", name: "Cursor Live" }],
+      source: "last-known-good:cursor.cli",
+      cached: true,
     });
   });
 });

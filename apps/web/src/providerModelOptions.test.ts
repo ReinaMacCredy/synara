@@ -126,6 +126,22 @@ describe("mergeDynamicModelOptions", () => {
     ]);
   });
 
+  it("uses every non-empty runtime catalog as authoritative", () => {
+    expect(
+      mergeDynamicModelOptions({
+        provider: "codex",
+        staticOptions: [
+          { slug: "gpt-retired", name: "GPT Retired" },
+          { slug: "custom/private", name: "Private", isCustom: true },
+        ],
+        dynamicModels: [{ slug: "gpt-current", name: "GPT Current Runtime" }],
+      }),
+    ).toEqual([
+      { slug: "gpt-current", name: "GPT Current Runtime" },
+      { slug: "custom/private", name: "Private", isCustom: true },
+    ]);
+  });
+
   it("preserves runtime descriptions without inventing them for custom models", () => {
     const options = mergeDynamicModelOptions({
       provider: "droid",
