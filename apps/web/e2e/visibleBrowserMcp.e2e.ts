@@ -8,6 +8,7 @@ import { BROWSER_TOOL_NAMES } from "@veylen/contracts";
 import { _electron as electron, expect, test, type ElectronApplication } from "playwright/test";
 
 import { createBrowserMcpHarness } from "./fixtures/mcpBrowserHarness";
+import { electronE2eLaunchArgs } from "./fixtures/electronLaunchArgs";
 import { startVisibleBrowserFixtureSite } from "./fixtures/siteServer";
 
 const WEB_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -77,7 +78,7 @@ test("production MCP controls one persistent Electron page across visibility cha
   const executablePath = requireFromDesktop("electron") as string;
   const electronApp = await electron.launch({
     executablePath,
-    args: [mainPath],
+    args: electronE2eLaunchArgs(mainPath),
     cwd: DESKTOP_DIR,
     env: {
       ...process.env,
