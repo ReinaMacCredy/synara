@@ -642,17 +642,22 @@ const makeOfficialSdkClient = Effect.fnUntraced(function* (
         request(acpSdk.methods.agent.authenticate, payload),
       logout: (payload: Acp.LogoutRequest) => request(acpSdk.methods.agent.logout, payload),
       createSession: (payload: Acp.NewSessionRequest) =>
-        request(acpSdk.methods.agent.session.new, payload),
+        request(acpSdk.methods.agent.session.new, payload).pipe(
+          Effect.tap(() => fromPromise(awaitSessionUpdateDrain)),
+        ),
       loadSession: (payload: Acp.LoadSessionRequest) =>
         request(acpSdk.methods.agent.session.load, payload).pipe(
           Effect.map((response) => response ?? {}),
+          Effect.tap(() => fromPromise(awaitSessionUpdateDrain)),
         ),
       listSessions: (payload: Acp.ListSessionsRequest) =>
         request(acpSdk.methods.agent.session.list, payload),
       forkSession: (payload: Acp.ForkSessionRequest) =>
         request(acpSdk.methods.agent.session.fork, payload),
       resumeSession: (payload: Acp.ResumeSessionRequest) =>
-        request(acpSdk.methods.agent.session.resume, payload),
+        request(acpSdk.methods.agent.session.resume, payload).pipe(
+          Effect.tap(() => fromPromise(awaitSessionUpdateDrain)),
+        ),
       closeSession: (payload: Acp.CloseSessionRequest) =>
         request(acpSdk.methods.agent.session.close, payload).pipe(
           Effect.map((response) => response ?? {}),
