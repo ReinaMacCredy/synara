@@ -6,7 +6,73 @@
 
 **Scope:** current Veylen monorepo (`apps/server`, `apps/web`, `apps/desktop`, `packages/contracts`, `packages/shared`, build/release tooling, tests, migrations, and durable documentation)
 
-**Mode:** audit only; no production remediation
+**Mode:** evidence-first audit followed by owner-authorized remediation on
+`codex/ship-technical-debt-audit`
+
+## Remediation update — 2026-08-12
+
+The original audit below remains the evidence snapshot for revision `96673ccd`. After the report was
+committed as `a1962b547`, the owner explicitly expanded this branch and PR #1 to remediate the full
+backlog and every shipment failure found by verification. This section is the current status
+authority; historical wording later in the document describes the audited baseline, not the branch's
+post-audit state.
+
+### Confirmed-finding status
+
+| ID    | Current status                           | Implemented evidence                                                                                                                                                                                                                                                                                        |
+| ----- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| TD-01 | **Remediated**                           | Production callers now use narrow `ProjectionSnapshotQuery` reads. `getReadModel` remains only as an explicit test/compatibility surface; exhaustive non-test server search finds no production consumer.                                                                                                   |
+| TD-02 | **Remediated**                           | Migration 110 and `ProviderRuntimeEvents` partition delivery cursors and poison handling by runtime lane, so one malformed provider/thread event no longer freezes unrelated projection.                                                                                                                    |
+| TD-03 | **Remediated**                           | Migration 111 adds idempotent message-delta rows; projection appends streaming chunks and snapshot reads compact them into canonical text instead of rewriting accumulated content per chunk.                                                                                                               |
+| TD-04 | **Remediated**                           | Supervised governance/runtime repositories expose entity-scoped reconciliation state and persist computed deltas. Full replacement remains a repair path, not the routine event path.                                                                                                                       |
+| TD-05 | **Remediated**                           | Independent owners now contain attachment-preview handoff, provider-interaction settlement, Claude native discovery, and process diagnostics; the former central owners delegate to these tested lifecycles.                                                                                                |
+| TD-06 | **Remediated**                           | Migration 112 persists last-known-good provider catalogs. Runtime descriptors are the live authority; static metadata is limited to offline bootstrap and legacy compatibility.                                                                                                                             |
+| TD-07 | **Remediated**                           | Claude agent discovery is an awaited, single-flight, timeout-bounded Effect with typed failure; only settled results are cached, with cold/failure regression coverage.                                                                                                                                     |
+| TD-08 | **Remediated**                           | Every auth HTTP endpoint decodes unknown JSON with its Effect Schema and maps malformed payloads to a typed client protocol error; malformed-response fixtures cover the boundary.                                                                                                                          |
+| TD-09 | **Remediated**                           | Listener isolation is retained, while bounded/deduplicated delivery diagnostics preserve channel, listener, phase, and error information for emit and replay failures.                                                                                                                                      |
+| TD-10 | **Operationally remediated**             | A canonical compatibility ledger, replay/removal gates, CI check, and source scanner prohibit new production writes of legacy vocabulary. Physical decoder/upcaster removal is correctly blocked until 2027-08-09.                                                                                          |
+| TD-11 | **Remediated**                           | Migration 113 and `CheckpointRefRetention` enforce bounded active-thread retention with a recoverable cleanup ledger that reconciles database metadata and Git refs after interruption.                                                                                                                     |
+| TD-12 | **Remediated**                           | CI now gates compatibility, stable and geometry browser suites, hermetic Electron E2E, and desktop smoke; the prior nonblocking geometry and absent Electron/desktop gates were removed.                                                                                                                    |
+| TD-13 | **Remediated**                           | Geometry fixtures use deterministic row discovery/measurement and now block CI. The quarantine document records the resolved invariant-based contract rather than a `continue-on-error` exception.                                                                                                          |
+| TD-14 | **Mitigated; upstream-blocked residual** | All core Effect packages moved from ephemeral `pkg.pr.new` commit artifacts to published, lockfile-integrity-checked `4.0.0-beta.25` packages. No stable Effect 4 exists; current beta.107 still omits the required Windows verbatim-argument forwarding, so the narrow tested patch cannot yet be removed. |
+| TD-15 | **Remediated**                           | `TODO.md`, `docs/server-architecture-migration.md`, `.spec-workflow/REPO_EVOLUTION.md`, and `audit/README.md` now identify current authorities and distinguish historical records from live status.                                                                                                         |
+| TD-16 | **Remediated**                           | The 2,712-line aggregate became a compatibility re-export over six explicit schema-only domain subpaths; package exports and consumers use project/space, transcript, provider, command, event, and protocol seams.                                                                                         |
+
+TD-10 is not an unfinished implementation: removing compatibility before the documented support
+date would break an explicit persistence/replay promise. TD-14's remaining beta/patch constraint is
+external and evidence-backed: the npm registry reports Effect 3.22.1 as stable and Effect 4 only as
+beta, while inspection of `@effect/platform-node-shared@4.0.0-beta.107` confirms its spawn options
+still omit `windowsVerbatimArguments`. The branch removes the transient artifact-host dependency but
+does not pretend an unavailable upstream stable line or missing upstream behavior exists.
+
+### Suspected-finding validation
+
+| ID   | Validation result            | Evidence and disposition                                                                                                                                                                                                                                                                                 |
+| ---- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S-01 | **Confirmed and remediated** | A WAL/NORMAL file-backed 5,000-event benchmark measured unique-event p50 at 916.3 ms for select/update versus 713.2 ms for one atomic upsert, with comparable duplicate behavior and lower CPU. Production now uses `INSERT ... ON CONFLICT ... RETURNING` while preserving payload-mismatch detection.  |
+| S-02 | **Confirmed and remediated** | At 10,000 transcript messages the baseline rendered about 20,300 DOM nodes with 575.8 ms scroll and 308.3 ms streaming p95. A 96-row initial history window, virtualized trail internals, deferred projection, and a corrected harness hold the DOM at 404 nodes with 16.8/25.1 ms scroll/streaming p95. |
+| S-03 | **Confirmed and remediated** | On 100,000 threads the legacy stale-reconciliation query measured 51.67 ms p50. Migration 114 adds three partial candidate indexes and a candidate-first union; p50 is 0.186 ms and `EXPLAIN QUERY PLAN` selects all three indexes.                                                                      |
+| S-04 | **Disproven**                | The 7,200,349.827 ms packaged official-SDK mock-boundary soak completed 28,081 prompts, 24 cycles, and 240 samples. Every subprocess exited; host and child RSS growth were 10,813,440 and 14,729,216 bytes, below the 33,554,432-byte threshold; queue maxima were 1/0/0.                               |
+
+The S-01, S-02, and S-03 benchmark harnesses and S-04 packaged soak are durable repository scripts
+so future changes can rerun the same workloads instead of relying on this report's one-time numbers.
+
+### Shipment failures repaired
+
+The first release pass also exposed failures that were not themselves audit inventory items. This
+branch restores released migration IDs 88/89 and shifts later migrations without reusing lineage;
+removes retired product identity; fixes the timeline tail-anchor type; stabilizes Working/Worked,
+tool-group, geometry, annotation, and stale-browser Electron tests; preloads lazy route chunks without
+creating speculative TanStack matches; and supplies canonical GitHub updater metadata plus the
+`latest` channel for desktop packaging. The same macOS artifact command that formerly crashed after
+creating its DMG now produces DMG, ZIP, `latest-mac.yml`, and builder diagnostics in the requested
+output directory. Final-suite iteration additionally fenced checkpoint reactions behind projection
+catch-up, aligned sessionless provider-diff placeholders with the in-memory projector's interrupted
+semantics, gave the desktop smoke harness ownership of the actual Electron process lifecycle, and
+made its deliberately large pipe-response proof tolerant of expected full-suite load.
+The final Electron E2E fixture also ignores ambient OS pointer input while still accepting explicit
+test-injected takeover events, eliminating workstation activity as a source of stale-reference and
+human-interruption flakes without weakening the takeover contract.
 
 ## Audit method and terminology
 
@@ -818,42 +884,41 @@ remains.
 
 ## 12. Unknowns and required validation
 
-- **Current full-suite status:** `bun run test` could not produce a valid full-suite result in the
-  isolated audit worktree because it has no installed dependency tree. The bare run stopped at
-  `turbo: command not found`; attempts to reuse the clean main checkout's identical dependency tree
-  then stopped during Vitest/Vite configuration resolution (first on missing modules, then on the
-  worktree sandbox preventing Vite's `.vite-temp` write, and finally on package-level dependency
-  links such as `@tailwindcss/vite`). No test assertion failure was observed, but no complete suite
-  passed, so this report does not promote the historical August 9 green suite to current
-  verification.
-- **Static heavyweight checks:** repository policy forbids running `bun fmt`, `bun lint`, and
-  `bun typecheck` unless explicitly requested in the conversation. They were not run for this
-  audit-only report.
-- **Live provider behavior:** no account-backed provider smoke was run. `TD-07` is established from
-  control flow and client cache semantics; provider availability and current SDK responses remain
-  environment-dependent.
-- **Packaged desktop behavior:** the Electron E2E suites exist but were not run here; that is part of
-  `TD-12`, not proof of a current release defect.
-- **Scale thresholds:** `TD-03` complexity is confirmed, but the user-visible response length at
-  which it breaches latency targets is not measured. `TD-04` likewise needs entity-count and
-  transaction-time thresholds.
-- **Checkpoint storage:** 159 refs prove current accumulation in the shared repository, but object
-  size attributable solely to those refs was not isolated. Retention must be chosen from product
-  revert promises and measured storage, not that count alone.
-- **Dependency vulnerability status:** no network-backed vulnerability or upstream-release check was
-  performed. `TD-14` is about source/patch authority, not a claim that commit `8881a9b` is vulnerable.
-- **Performance candidates:** `S-01` through `S-04` remain suspected until their listed benchmarks or
-  soaks produce a threshold-crossing result.
+- **Full verification:** the owner authorized the heavyweight and real-consumer gates after the
+  audit. Final command-by-command results now live in
+  `audit/TECHNICAL_DEBT_AUDIT_2026-08-12_VERIFICATION.md`; this section no longer treats the original
+  dependency-less audit attempt as current branch health.
+- **TD-10 removal:** the implementation prevents new legacy writes and makes removal criteria
+  executable, but the decoders/upcasters must remain until the explicit 2027-08-09 support date and
+  persisted-data/replay proof. Early physical removal is outside the compatibility contract.
+- **TD-14 upstream authority:** published packages replace the commit-hosted artifacts. A stable
+  Effect 4 release and upstream Windows verbatim-argument forwarding remain unavailable, so the
+  repository retains one narrow patch with Windows process regression coverage.
+- **S-04 external provider matrix:** the deterministic official-SDK packaged soak disproves retained
+  lifecycle growth at Veylen's ACP transport/process boundary. Cursor Agent 2026.08.11, Droid 0.186.0,
+  and Grok 1.0.0 are installed; provider-branded multi-hour turns additionally require account
+  authority and billable remote execution. Exact non-billable probes and packaged-soak metrics are
+  recorded in the shipment verification.
+- **Historical environment count:** the 159 checkpoint refs were evidence of the old unbounded
+  policy, not a universal retention target. The implemented policy is contract-driven and has
+  recoverable database/ref cleanup coverage.
 
 ## Final counts
 
-**Confirmed issues: 16**
+**Original confirmed issues: 16**
 
-**Suspected issues: 4**
+**Remediated or operationally remediated: 15**
 
-**P0/P1 issues: 0 / 6**
+**Mitigated with evidence-backed upstream residual: 1 (`TD-14`)**
 
-## Top five highest-leverage items
+**Original suspected issues: 4; confirmed and remediated: 3; disproven by packaged soak: 1**
+
+**Unaddressed P0/P1 issues: 0 / 0**
+
+## Original top five highest-leverage items
+
+These priorities explain the implementation order used by the remediation branch; their current
+status is authoritative in the remediation update above.
 
 1. **TD-01 — one production projection read authority:** removes a correctness and maintenance tax
    from every orchestration feature and creates stable query seams for later module splits.
