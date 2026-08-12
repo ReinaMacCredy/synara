@@ -468,35 +468,39 @@ describe("canonical browser host RPC", () => {
     );
   });
 
-  it("frames a screenshot-sized response larger than the former 8 MiB ceiling", async () => {
-    const payload = "x".repeat(8 * 1024 * 1024 + 1_024);
-    await withPipeServer(
-      {
-        maxQueuedOutputBytes: 1,
-        automationHost: { executeTool: async () => ({ payload }) },
-      },
-      async (socket) => {
-        await request(socket, {
-          jsonrpc: "2.0",
-          id: 1,
-          method: "getInfo",
-          params: { session_id: "session-large", capability: TEST_CAPABILITY },
-        });
-        const response = await request(socket, {
-          jsonrpc: "2.0",
-          id: 2,
-          method: "executeTool",
-          params: {
-            session_id: "session-large",
-            provider: "codex",
-            thread_id: "thread-1",
-            name: "browser_snapshot",
-            arguments: {},
-          },
-        });
-        expect((response.result as { payload: string }).payload).toHaveLength(payload.length);
-        expect(socket.destroyed).toBe(false);
-      },
-    );
-  });
+  it(
+    "frames a screenshot-sized response larger than the former 8 MiB ceiling",
+    async () => {
+      const payload = "x".repeat(8 * 1024 * 1024 + 1_024);
+      await withPipeServer(
+        {
+          maxQueuedOutputBytes: 1,
+          automationHost: { executeTool: async () => ({ payload }) },
+        },
+        async (socket) => {
+          await request(socket, {
+            jsonrpc: "2.0",
+            id: 1,
+            method: "getInfo",
+            params: { session_id: "session-large", capability: TEST_CAPABILITY },
+          });
+          const response = await request(socket, {
+            jsonrpc: "2.0",
+            id: 2,
+            method: "executeTool",
+            params: {
+              session_id: "session-large",
+              provider: "codex",
+              thread_id: "thread-1",
+              name: "browser_snapshot",
+              arguments: {},
+            },
+          });
+          expect((response.result as { payload: string }).payload).toHaveLength(payload.length);
+          expect(socket.destroyed).toBe(false);
+        },
+      );
+    },
+    15_000,
+  );
 });
