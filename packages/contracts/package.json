@@ -14,11 +14,41 @@
       "types": "./src/index.ts",
       "import": "./src/index.ts",
       "require": "./dist/index.cjs"
+    },
+    "./orchestration/provider": {
+      "types": "./src/orchestration/provider.ts",
+      "import": "./src/orchestration/provider.ts",
+      "require": "./dist/orchestration/provider.cjs"
+    },
+    "./orchestration/project-space": {
+      "types": "./src/orchestration/projectSpace.ts",
+      "import": "./src/orchestration/projectSpace.ts",
+      "require": "./dist/orchestration/projectSpace.cjs"
+    },
+    "./orchestration/thread-transcript": {
+      "types": "./src/orchestration/threadTranscript.ts",
+      "import": "./src/orchestration/threadTranscript.ts",
+      "require": "./dist/orchestration/threadTranscript.cjs"
+    },
+    "./orchestration/commands": {
+      "types": "./src/orchestration/commands.ts",
+      "import": "./src/orchestration/commands.ts",
+      "require": "./dist/orchestration/commands.cjs"
+    },
+    "./orchestration/events": {
+      "types": "./src/orchestration/events.ts",
+      "import": "./src/orchestration/events.ts",
+      "require": "./dist/orchestration/events.cjs"
+    },
+    "./orchestration/protocol": {
+      "types": "./src/orchestration/protocol.ts",
+      "import": "./src/orchestration/protocol.ts",
+      "require": "./dist/orchestration/protocol.cjs"
     }
   },
   "scripts": {
-    "dev": "tsdown src/index.ts --format cjs --watch --clean",
-    "build": "tsdown src/index.ts --format esm,cjs --dts --clean",
+    "dev": "tsdown src/index.ts src/orchestration/*.ts --format cjs --watch --clean",
+    "build": "tsdown src/index.ts src/orchestration/*.ts --format esm,cjs --dts --clean",
     "prepare": "effect-language-service patch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
