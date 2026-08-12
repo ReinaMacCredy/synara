@@ -1,4 +1,11 @@
-import { Option, Schema, SchemaIssue, Struct } from "effect";
+import { Option, Schema, SchemaIssue } from "effect";
+import {
+  CommandId,
+  MessageId,
+  NonNegativeInt,
+  ThreadId,
+  TrimmedNonEmptyString,
+} from "../baseSchemas";
 import {
   AntigravityModelOptions,
   ClaudeModelOptions,
@@ -9,54 +16,6 @@ import {
   OpenCodeModelOptions,
   PiModelOptions,
 } from "../model";
-import { ProviderMentionReference, ProviderSkillReference } from "../providerDiscovery";
-import { AcceptedCrossModeHandoffV1, HandoffAttemptId, HandoffConversationMode } from "../handoff";
-import { ProjectKind } from "../project";
-import {
-  TaskProcessCommand,
-  TaskProcessDomainEvent,
-  TaskProcessEventType,
-  TaskProcessId,
-} from "../taskProcess";
-import {
-  SupervisionAggregateId,
-  SupervisionDomainEvent,
-  SupervisionEventType,
-} from "../supervision";
-import {
-  SupervisedAggregateKind,
-  SupervisedCommand,
-  SupervisedDomainEvent,
-  SupervisedEventType,
-  SupervisedRuntimeSnapshot,
-  emptySupervisedRuntimeSnapshot,
-} from "../supervised";
-import {
-  SupervisedFirstSendBootstrap,
-  SupervisedGovernanceAggregateId,
-  SupervisedGovernanceCommand,
-  SupervisedGovernanceDomainEvent,
-  SupervisedGovernanceEventType,
-  SupervisedOrchestrationSnapshot,
-  emptySupervisedOrchestrationSnapshot,
-} from "../supervisedGovernance";
-import {
-  ApprovalRequestId,
-  CheckpointRef,
-  CommandId,
-  EventId,
-  IsoDateTime,
-  MessageId,
-  NonNegativeInt,
-  PositiveInt,
-  ProjectId,
-  SpaceId,
-  ProviderItemId,
-  ThreadId,
-  ThreadMarkerId,
-  TrimmedNonEmptyString,
-  TurnId,
-} from "../baseSchemas";
 
 export const ORCHESTRATION_WS_METHODS = {
   getSnapshot: "orchestration.getSnapshot",
