@@ -923,28 +923,32 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     Result: ProjectionThreadIdLookupRowSchema,
     execute: ({ updatedBefore, limit }) =>
       sql`
+        WITH candidate_threads AS (
+          SELECT thread_id
+          FROM projection_thread_sessions
+          WHERE active_turn_id IS NOT NULL
+            AND status <> 'error'
+          UNION
+          SELECT turns.thread_id
+          FROM projection_turns AS turns
+          JOIN projection_threads AS projected_thread
+            ON projected_thread.thread_id = turns.thread_id
+           AND projected_thread.latest_turn_id = turns.turn_id
+          WHERE turns.state = 'running'
+          UNION
+          SELECT thread_id
+          FROM provider_session_runtime
+          WHERE json_extract(runtime_payload_json, '$.activeTurnId') IS NOT NULL
+        )
         SELECT threads.thread_id AS "threadId"
-        FROM projection_threads AS threads
-        -- LEFT, not INNER: a thread whose runtime binding row was already
-        -- removed is exactly the thread most likely to be stuck running with
-        -- nothing left to settle it. Archived threads are included for the same
-        -- reason - archiving does not stop a turn.
-        LEFT JOIN provider_session_runtime AS runtime
-          ON runtime.thread_id = threads.thread_id
+        FROM candidate_threads AS candidates
+        JOIN projection_threads AS threads
+          ON threads.thread_id = candidates.thread_id
         LEFT JOIN projection_thread_sessions AS sessions
           ON sessions.thread_id = threads.thread_id
-        LEFT JOIN projection_turns AS latest_turn
-          ON latest_turn.thread_id = threads.thread_id
-         AND latest_turn.turn_id = threads.latest_turn_id
+        -- Archived threads remain eligible because archiving does not stop a
+        -- turn. Deleted threads do not participate in runtime reconciliation.
         WHERE threads.deleted_at IS NULL
-          AND (
-            (
-              sessions.active_turn_id IS NOT NULL
-              AND sessions.status <> 'error'
-            )
-            OR latest_turn.state = 'running'
-            OR json_extract(runtime.runtime_payload_json, '$.activeTurnId') IS NOT NULL
-          )
           -- Later of the session lifecycle timestamp and the thread timestamp:
           -- threads.updated_at advances on every appended message, so a turn
           -- that is actively streaming output is not a stale candidate.
@@ -964,7 +968,16 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           thread_id AS "threadId",
           turn_id AS "turnId",
           role,
-          text,
+          ranked.text || COALESCE((
+            SELECT GROUP_CONCAT(ordered.delta, '')
+            FROM (
+              SELECT delta.delta
+              FROM projection_thread_message_deltas AS delta
+              WHERE delta.thread_id = ranked.thread_id
+                AND delta.message_id = ranked.message_id
+              ORDER BY delta.event_sequence ASC
+            ) AS ordered
+          ), '') AS text,
           attachments_json AS "attachments",
           skills_json AS "skills",
           mentions_json AS "mentions",
@@ -988,7 +1001,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             ) AS message_rank
           FROM projection_thread_messages
           WHERE ${liveThreadScope}
-        )
+        ) AS ranked
         WHERE message_rank <= ${MAX_THREAD_MESSAGES}
         ORDER BY
           thread_id ASC,
@@ -1206,11 +1219,17 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           turn_id AS "turnId",
           checkpoint_turn_count AS "checkpointTurnCount",
           checkpoint_ref AS "checkpointRef",
-          checkpoint_status AS "status",
+          CASE WHEN EXISTS (
+            SELECT 1
+            FROM checkpoint_ref_cleanup_queue AS cleanup
+            WHERE cleanup.thread_id = turns.thread_id
+              AND cleanup.checkpoint_ref = turns.checkpoint_ref
+              AND cleanup.state IN ('pending', 'deleted')
+          ) THEN 'missing' ELSE checkpoint_status END AS "status",
           checkpoint_files_json AS "files",
           assistant_message_id AS "assistantMessageId",
           COALESCE(completed_at, started_at, requested_at) AS "completedAt"
-        FROM projection_turns
+        FROM projection_turns AS turns
         -- Provider-diff placeholders can reserve checkpoint metadata before the
         -- turn is complete; snapshot checkpoint summaries require completedAt.
         WHERE checkpoint_turn_count IS NOT NULL
@@ -1486,7 +1505,16 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           thread_id AS "threadId",
           turn_id AS "turnId",
           role,
-          text,
+          ranked.text || COALESCE((
+            SELECT GROUP_CONCAT(ordered.delta, '')
+            FROM (
+              SELECT delta.delta
+              FROM projection_thread_message_deltas AS delta
+              WHERE delta.thread_id = ranked.thread_id
+                AND delta.message_id = ranked.message_id
+              ORDER BY delta.event_sequence ASC
+            ) AS ordered
+          ), '') AS text,
           attachments_json AS "attachments",
           skills_json AS "skills",
           mentions_json AS "mentions",
@@ -1510,7 +1538,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             ) AS message_rank
           FROM projection_thread_messages
           WHERE thread_id = ${threadId}
-        )
+        ) AS ranked
         WHERE thread_id = ${threadId}
           AND (${maxMessages} IS NULL OR message_rank <= ${maxMessages})
         ORDER BY
@@ -1776,11 +1804,17 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           turn_id AS "turnId",
           checkpoint_turn_count AS "checkpointTurnCount",
           checkpoint_ref AS "checkpointRef",
-          checkpoint_status AS "status",
+          CASE WHEN EXISTS (
+            SELECT 1
+            FROM checkpoint_ref_cleanup_queue AS cleanup
+            WHERE cleanup.thread_id = turns.thread_id
+              AND cleanup.checkpoint_ref = turns.checkpoint_ref
+              AND cleanup.state IN ('pending', 'deleted')
+          ) THEN 'missing' ELSE checkpoint_status END AS "status",
           checkpoint_files_json AS "files",
           assistant_message_id AS "assistantMessageId",
           COALESCE(completed_at, started_at, requested_at) AS "completedAt"
-        FROM projection_turns
+        FROM projection_turns AS turns
         -- Keep incomplete provider-diff placeholders out of the public
         -- checkpoint summary contract, which requires completedAt.
         WHERE thread_id = ${threadId}

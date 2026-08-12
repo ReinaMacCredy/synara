@@ -9,6 +9,7 @@ import {
   SupervisedEventType,
   SupervisedGovernanceDomainEvent,
   SupervisedGovernanceEventType,
+  emptySupervisedRuntimeSnapshot,
   type OrchestrationEvent,
   type SupervisedGovernanceSnapshot,
 } from "@veylen/contracts";
@@ -637,8 +638,9 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
 
   const reconcileGovernance = (at: string) =>
     Effect.gen(function* () {
-      const runtime = yield* supervisedRuntimeRepository.getSnapshot({ includeDisabled: true });
-      const governance = yield* supervisedGovernanceRepository.getSnapshot();
+      const rooms = yield* supervisedRuntimeRepository.getGovernanceRooms();
+      const runtime = { ...emptySupervisedRuntimeSnapshot(at), rooms };
+      const governance = yield* supervisedGovernanceRepository.getProjectionSnapshot();
       const state = governanceDecisionStateFromSnapshot({ governance, runtime });
       const reconciled = reconcileGovernanceProjection({
         governance,
@@ -648,7 +650,11 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
         source: "canonical",
       });
       if (reconciled !== governance) {
-        yield* supervisedGovernanceRepository.replaceSnapshot(reconciled);
+        yield* supervisedGovernanceRepository.applyProjectionDelta({
+          previous: governance,
+          next: reconciled,
+          updatedAt: at,
+        });
       }
     });
 
@@ -665,8 +671,9 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
         Schema.is(SupervisionDomainEvent)(event) ||
         Schema.is(SupervisedGovernanceDomainEvent)(event)
       ) {
-        const runtime = yield* supervisedRuntimeRepository.getSnapshot({ includeDisabled: true });
-        const governance = yield* supervisedGovernanceRepository.getSnapshot();
+        const rooms = yield* supervisedRuntimeRepository.getGovernanceRooms();
+        const runtime = { ...emptySupervisedRuntimeSnapshot(event.occurredAt), rooms };
+        const governance = yield* supervisedGovernanceRepository.getProjectionSnapshot();
         const current = governanceDecisionStateFromSnapshot({ governance, runtime });
         const canonicalEvent = yield* Effect.try({
           try: () => canonicalizeSupervisedGovernanceEvent(event),
@@ -693,7 +700,11 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             updatedAt: canonicalEvent.occurredAt,
           });
         } else {
-          yield* supervisedGovernanceRepository.replaceSnapshot(reconciled);
+          yield* supervisedGovernanceRepository.applyProjectionDelta({
+            previous: governance,
+            next: reconciled,
+            updatedAt: canonicalEvent.occurredAt,
+          });
         }
         return;
       }
@@ -1107,68 +1118,49 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
       }
     });
 
-  /**
-   * Streaming assistant deltas arrive one command per token chunk. Reading the
-   * whole accumulated text back and concatenating it in JS made each delta pay
-   * O(message length) in driver round-trips, schema decoding and JS string
-   * building on top of the write.
-   *
-   * Appending in SQLite (`text = text || ?`) removes that read half only. SQLite
-   * still rewrites the accumulated row and its overflow chain on every UPDATE,
-   * so the storage work stays O(message length) per delta either way — this is
-   * a constant-factor win (measured ~14%: 0.549 -> 0.473 ms/delta at 400 KB),
-   * not a change in complexity. Removing the quadratic needs offset-addressed,
-   * idempotent delta rows, which is a schema change.
-   *
-   * The append keeps the exact
-   * column semantics of the read-modify-write upsert below:
-   *  - `turn_id`   : `resolveStableMessageTurnId` (existing wins, else incoming)
-   *  - optional JSON/enum columns: payload value when present, else untouched
-   *  - `sequence`  : first writer wins
-   *  - `created_at`: untouched (an existing row always carries one)
-   *  - `role`/`source`/`is_streaming`/`updated_at`: replaced from the payload
-   *
-   * Returns false when the message row does not exist yet, so the caller falls
-   * back to the insert path. Callers must already hold a transaction (every
-   * projector pass runs inside one), which is what makes the miss-then-insert
-   * sequence safe.
-   *
-   * TODO(persistence): this belongs on ProjectionThreadMessageRepository as an
-   * `appendStreamingText` operation; it is inlined here only because this pass
-   * may not edit the repository module.
-   */
+  /** Persist one streaming chunk without rewriting the accumulated message row. */
   const appendStreamingThreadMessageText = (
     event: Extract<OrchestrationEvent, { readonly type: "thread.message-sent" }>,
   ) =>
-    sql<{ readonly messageId: string }>`
-      UPDATE projection_thread_messages
-      SET
-        turn_id = COALESCE(turn_id, ${event.payload.turnId ?? null}),
-        role = ${event.payload.role},
-        text = text || ${event.payload.text},
-        attachments_json = COALESCE(
+    Effect.gen(function* () {
+      yield* sql`
+        INSERT INTO projection_thread_messages (
+          message_id, thread_id, turn_id, role, text, attachments_json,
+          skills_json, mentions_json, dispatch_mode, dispatch_origin,
+          is_streaming, source, sequence, created_at, updated_at
+        ) VALUES (
+          ${event.payload.messageId}, ${event.payload.threadId}, ${event.payload.turnId ?? null},
+          ${event.payload.role}, '',
           ${event.payload.attachments !== undefined ? JSON.stringify([...event.payload.attachments]) : null},
-          attachments_json
-        ),
-        skills_json = COALESCE(
           ${event.payload.skills !== undefined ? JSON.stringify([...event.payload.skills]) : null},
-          skills_json
-        ),
-        mentions_json = COALESCE(
           ${event.payload.mentions !== undefined ? JSON.stringify([...event.payload.mentions]) : null},
-          mentions_json
-        ),
-        dispatch_mode = COALESCE(${event.payload.dispatchMode ?? null}, dispatch_mode),
-        dispatch_origin = COALESCE(${event.payload.dispatchOrigin ?? null}, dispatch_origin),
-        is_streaming = 1,
-        source = ${event.payload.source},
-        sequence = COALESCE(sequence, ${event.sequence}),
-        updated_at = ${event.payload.updatedAt}
-      WHERE thread_id = ${event.payload.threadId}
-        AND message_id = ${event.payload.messageId}
-      RETURNING message_id AS "messageId"
-    `.pipe(
-      Effect.map((rows) => rows.length > 0),
+          ${event.payload.dispatchMode ?? null}, ${event.payload.dispatchOrigin ?? null},
+          1, ${event.payload.source}, ${event.sequence},
+          ${event.payload.createdAt}, ${event.payload.updatedAt}
+        )
+        ON CONFLICT (thread_id, message_id) DO UPDATE SET
+          turn_id = COALESCE(projection_thread_messages.turn_id, excluded.turn_id),
+          role = excluded.role,
+          attachments_json = COALESCE(excluded.attachments_json, projection_thread_messages.attachments_json),
+          skills_json = COALESCE(excluded.skills_json, projection_thread_messages.skills_json),
+          mentions_json = COALESCE(excluded.mentions_json, projection_thread_messages.mentions_json),
+          dispatch_mode = COALESCE(excluded.dispatch_mode, projection_thread_messages.dispatch_mode),
+          dispatch_origin = COALESCE(excluded.dispatch_origin, projection_thread_messages.dispatch_origin),
+          is_streaming = 1,
+          source = excluded.source,
+          sequence = COALESCE(projection_thread_messages.sequence, excluded.sequence),
+          updated_at = excluded.updated_at
+      `;
+      yield* sql`
+        INSERT INTO projection_thread_message_deltas (
+          thread_id, message_id, event_sequence, delta, created_at
+        ) VALUES (
+          ${event.payload.threadId}, ${event.payload.messageId}, ${event.sequence},
+          ${event.payload.text}, ${event.payload.updatedAt}
+        )
+        ON CONFLICT (thread_id, message_id, event_sequence) DO NOTHING
+      `;
+    }).pipe(
       Effect.mapError(
         toPersistenceSqlError("ProjectionPipeline.appendStreamingThreadMessageText:query"),
       ),
@@ -1181,9 +1173,8 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
     Effect.gen(function* () {
       switch (event.type) {
         case "thread.message-sent": {
-          // Hot path: append onto an existing streaming message without reading
-          // the accumulated text back out of SQLite.
-          if (event.payload.streaming && (yield* appendStreamingThreadMessageText(event))) {
+          if (event.payload.streaming) {
+            yield* appendStreamingThreadMessageText(event);
             return;
           }
           const existingMessage = yield* projectionThreadMessageRepository.getByThreadAndMessageId({
@@ -1229,6 +1220,15 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
           });
+          yield* sql`
+              DELETE FROM projection_thread_message_deltas
+              WHERE thread_id = ${event.payload.threadId}
+                AND message_id = ${event.payload.messageId}
+            `.pipe(
+            Effect.mapError(
+              toPersistenceSqlError("ProjectionPipeline.compactStreamingThreadMessage:query"),
+            ),
+          );
           return;
         }
 
@@ -1654,7 +1654,9 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             event.payload.checkpointRef.startsWith("provider-diff:");
           const nextState = isProviderDiffPlaceholder
             ? Option.match(existingTurn, {
-                onNone: () => "running" as const,
+                // A sessionless placeholder has no live lifecycle row to preserve.
+                // Match the command projector's terminal missing-checkpoint semantics.
+                onNone: () => "interrupted" as const,
                 onSome: (turn) => turn.state,
               })
             : event.payload.status === "error"

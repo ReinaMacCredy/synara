@@ -34,6 +34,7 @@ import {
 import { loadVerifiedSupervisedPluginPackage } from "../../supervised/runtime/PluginPackage.ts";
 import { evaluateRunPolicy, type RunResourceUsage } from "../../supervised/runtime/RunPolicy.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { activeMissionsCoveringLead } from "../supervised/missionScope.ts";
 import {
   SupervisedSignalDelivery,
@@ -385,6 +386,7 @@ export const makeSupervisedSignalDelivery = Effect.gen(function* () {
   const repository = yield* SupervisedRuntimeRepository;
   const governanceRepository = yield* SupervisedGovernanceRepository;
   const engine = yield* OrchestrationEngineService;
+  const snapshotQuery = yield* ProjectionSnapshotQuery;
 
   const appendAudit = (input: {
     readonly subscription: SubscriptionDefinition;
@@ -723,7 +725,7 @@ export const makeSupervisedSignalDelivery = Effect.gen(function* () {
       return;
     }
     const [readModel, governance] = yield* Effect.all([
-      engine.getReadModel(),
+      snapshotQuery.getCommandReadModel(),
       governanceRepository.getSnapshot(),
     ]);
     const resolution = resolveSupervisorRecipient({
@@ -788,7 +790,7 @@ export const makeSupervisedSignalDelivery = Effect.gen(function* () {
       });
       return;
     }
-    const readModel = yield* engine.getReadModel();
+    const readModel = yield* snapshotQuery.getCommandReadModel();
     const governance = yield* governanceRepository.getSnapshot();
     const contextLeadSeatId = input.signal.context.leadSeatId;
     const explicitSeatId =

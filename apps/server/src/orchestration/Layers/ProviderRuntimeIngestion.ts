@@ -64,7 +64,6 @@ import {
   OrchestrationCommandIdentityCollisionError,
   OrchestrationCommandPreviouslyRejectedError,
 } from "../Errors.ts";
-import { makeRuntimeJournalPoisonGate } from "../runtimeJournalPoisonGate.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import {
   ProjectionSnapshotQuery,
@@ -2651,9 +2650,9 @@ const make = Effect.gen(function* () {
         )
       : processDomainEvent(input.event);
 
-  // A failed journal row blocks later runtime rows in the same page. Domain
-  // inputs still drain, and the durable poll retries from the exact cursor.
-  let runtimeJournalPageBlocked = false;
+  // Retry state is durable per row. A failed row may be retried without
+  // preventing unrelated rows in the same journal page from being accepted.
+  let runtimeJournalPageNeedsRetry = false;
 
   const quarantineUnreplayableCommand = Effect.fnUntraced(function* (
     input: Extract<RuntimeIngestionInput, { source: "runtime" }>,
@@ -2673,14 +2672,15 @@ const make = Effect.gen(function* () {
     // unreplayable row immediately, exactly as the poison gate eventually would,
     // and keep the accepted event available in the retained diagnostic tail.
     const advanced = yield* runtimeEvents
-      .advanceConsumerCursor({
+      .deadLetterConsumerEvent({
         consumerName: PROVIDER_RUNTIME_INGESTION_CONSUMER,
         eventSequence: input.sequence,
-        updatedAt: new Date().toISOString(),
+        failedAt: new Date().toISOString(),
+        error: error.detail,
       })
       .pipe(
         Effect.catchCause((cause) => {
-          runtimeJournalPageBlocked = true;
+          runtimeJournalPageNeedsRetry = true;
           return Effect.logWarning("provider runtime unreplayable command quarantine failed", {
             sequence: input.sequence,
             eventId: input.event.eventId,
@@ -2696,7 +2696,7 @@ const make = Effect.gen(function* () {
       return;
     }
     if (!advanced) {
-      runtimeJournalPageBlocked = true;
+      runtimeJournalPageNeedsRetry = true;
       yield* Effect.logWarning("provider runtime unreplayable command could not be quarantined", {
         sequence: input.sequence,
         eventId: input.event.eventId,
@@ -2723,72 +2723,80 @@ const make = Effect.gen(function* () {
   });
 
   const processInputSafely = (input: RuntimeIngestionInput) =>
-    input.source === "runtime" && runtimeJournalPageBlocked
-      ? Effect.void
-      : processInput(input).pipe(
-          Effect.catchCause((cause) => {
-            if (Cause.hasInterruptsOnly(cause)) {
-              return Effect.failCause(cause);
-            }
-            const error = Option.getOrUndefined(Cause.findErrorOption(cause));
-            if (
-              input.source === "runtime" &&
-              (error instanceof OrchestrationCommandIdentityCollisionError ||
-                error instanceof OrchestrationCommandPreviouslyRejectedError)
-            ) {
-              return quarantineUnreplayableCommand(input, error);
-            }
-            if (input.source === "runtime") {
-              runtimeJournalPageBlocked = true;
-            }
-            return Effect.logWarning("provider runtime ingestion failed to process event", {
-              source: input.source,
-              eventId: input.event.eventId,
-              eventType: input.event.type,
-              cause: Cause.pretty(cause),
-            });
-          }),
-        );
+    processInput(input).pipe(
+      Effect.catchCause((cause) => {
+        if (Cause.hasInterruptsOnly(cause)) {
+          return Effect.failCause(cause);
+        }
+        const error = Option.getOrUndefined(Cause.findErrorOption(cause));
+        if (
+          input.source === "runtime" &&
+          (error instanceof OrchestrationCommandIdentityCollisionError ||
+            error instanceof OrchestrationCommandPreviouslyRejectedError)
+        ) {
+          return quarantineUnreplayableCommand(input, error);
+        }
+        if (input.source !== "runtime") {
+          return Effect.logWarning("provider runtime ingestion failed to process event", {
+            source: input.source,
+            eventId: input.event.eventId,
+            eventType: input.event.type,
+            cause: Cause.pretty(cause),
+          });
+        }
+        const detail = Cause.pretty(cause);
+        return runtimeEvents
+          .recordConsumerFailure({
+            consumerName: PROVIDER_RUNTIME_INGESTION_CONSUMER,
+            eventSequence: input.sequence,
+            failedAt: new Date().toISOString(),
+            error: detail,
+          })
+          .pipe(
+            Effect.tap((failure) =>
+              Effect.sync(() => {
+                runtimeJournalPageNeedsRetry ||= failure.status === "retry";
+              }),
+            ),
+            Effect.flatMap((failure) =>
+              failure.status === "accepted"
+                ? Effect.void
+                : failure.status === "dead_letter"
+                  ? Effect.logError("provider runtime journal dead-lettered a poison event", {
+                      sequence: input.sequence,
+                      eventId: input.event.eventId,
+                      eventType: input.event.type,
+                      threadId: input.event.threadId,
+                      provider: input.event.provider,
+                      attemptCount: failure.attemptCount,
+                    })
+                  : Effect.logWarning("provider runtime ingestion will retry failed event", {
+                      sequence: input.sequence,
+                      eventId: input.event.eventId,
+                      eventType: input.event.type,
+                      threadId: input.event.threadId,
+                      provider: input.event.provider,
+                      attemptCount: failure.attemptCount,
+                      cause: detail,
+                    }),
+            ),
+            Effect.catchCause((recordCause) => {
+              runtimeJournalPageNeedsRetry = true;
+              return Effect.logWarning("provider runtime ingestion failed to persist retry state", {
+                sequence: input.sequence,
+                eventId: input.event.eventId,
+                eventType: input.event.type,
+                cause: Cause.pretty(recordCause),
+              });
+            }),
+          );
+      }),
+    );
 
   const worker = yield* makeDrainableWorker(processInputSafely, {
     capacity: PROVIDER_RUNTIME_INGESTION_CAPACITY,
   });
   const runtimeJournalDrainLock = yield* Semaphore.make(1);
-
-  // A deterministically failing row would otherwise pin the single global
-  // cursor forever: the drain never advances, the durable poller re-reads the
-  // same head row, and projection freezes for every thread and every provider
-  // — durably, across restarts. Once the poison gate trips (see the module for
-  // why it needs both an attempt and a wall-clock gate), the head row is
-  // dead-lettered: skipped with an error log so the journal flows again.
-  const poisonGate = makeRuntimeJournalPoisonGate();
-
-  const deadLetterPoisonHeadRow = Effect.gen(function* () {
-    const cursor = yield* runtimeEvents.getConsumerCursor(PROVIDER_RUNTIME_INGESTION_CONSUMER);
-    if (!poisonGate.noteBlockedDrain(cursor, Date.now())) return false;
-    const highWater = yield* runtimeEvents.getHighWaterSequence;
-    const page = yield* runtimeEvents.readAfter({
-      sequenceExclusive: cursor,
-      throughSequenceInclusive: highWater,
-      limit: 1,
-    });
-    const poison = page[0];
-    if (poison === undefined) return false;
-    yield* Effect.logError("provider runtime journal dead-lettered a poison event", {
-      sequence: poison.sequence,
-      eventId: poison.event.eventId,
-      eventType: poison.event.type,
-      threadId: poison.event.threadId,
-      provider: poison.event.provider,
-    });
-    const advanced = yield* runtimeEvents.advanceConsumerCursor({
-      consumerName: PROVIDER_RUNTIME_INGESTION_CONSUMER,
-      eventSequence: poison.sequence,
-      updatedAt: new Date().toISOString(),
-    });
-    poisonGate.reset();
-    return advanced;
-  });
 
   const drainRuntimeJournalThrough = (throughSequenceInclusive?: number) =>
     runtimeJournalDrainLock.withPermits(1)(
@@ -2802,18 +2810,16 @@ const make = Effect.gen(function* () {
           if (cursor >= replayFence) return hadBacklog;
           hadBacklog = true;
 
-          const page = yield* runtimeEvents.readAfter({
-            sequenceExclusive: cursor,
+          const page = yield* runtimeEvents.readPending({
+            consumerName: PROVIDER_RUNTIME_INGESTION_CONSUMER,
             throughSequenceInclusive: replayFence,
             limit: PROVIDER_RUNTIME_REPLAY_PAGE_SIZE,
           });
           if (page.length === 0) {
-            return yield* Effect.die(
-              new Error(`Provider runtime journal is missing rows after cursor ${cursor}`),
-            );
+            return hadBacklog;
           }
 
-          runtimeJournalPageBlocked = false;
+          runtimeJournalPageNeedsRetry = false;
           yield* Effect.forEach(page, (entry) =>
             worker.enqueue({
               source: "runtime",
@@ -2822,11 +2828,9 @@ const make = Effect.gen(function* () {
             }),
           );
           yield* worker.drain;
-          if (runtimeJournalPageBlocked) {
-            // Either the poison threshold was reached and the head row was
-            // skipped (loop again from the fresh cursor), or the drain yields
-            // to the durable poller, which retries from the exact cursor.
-            if (yield* deadLetterPoisonHeadRow) continue;
+          if (runtimeJournalPageNeedsRetry) {
+            // The row-level retry is durable. Yield to the safety poll so this
+            // drain does not spin on it; other rows in this page already made progress.
             return hadBacklog;
           }
 

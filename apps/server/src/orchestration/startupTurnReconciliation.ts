@@ -259,16 +259,13 @@ export function planRestartTurnReconciliation(input: {
 /**
  * Reconcile restart-orphaned turns once at boot.
  *
- * Reads the engine's in-memory command read model (post-bootstrap projection
- * state, kept current as commands commit), hydrates only stuck thread details to
+ * Reads the canonical projected command model, hydrates only stuck thread details to
  * discover stale human requests, and dispatches the resulting cleanup commands.
  * Every failure mode is contained and logged: a failed thread-detail read or a
  * failed individual dispatch must never block the server from coming up.
  *
- * Deliberately not a second `getCommandReadModel()` load. That query costs ~150ms
- * on a large database and this runs on the blocking startup path, after several
- * reactors have already started — so re-reading it would be both slower and
- * staler than the model the engine is already maintaining.
+ * This runs once on the blocking startup path, so it pays the broad command query
+ * cost once rather than retaining a second in-memory production authority.
  */
 export const reconcileRestartStuckTurns: Effect.Effect<
   void,
@@ -278,7 +275,16 @@ export const reconcileRestartStuckTurns: Effect.Effect<
   const engine = yield* OrchestrationEngineService;
   const snapshotQuery = yield* ProjectionSnapshotQuery;
 
-  const readModel = yield* engine.getReadModel();
+  const readModel = yield* snapshotQuery.getCommandReadModel().pipe(
+    Effect.catchCause((cause) =>
+      Effect.logWarning("restart turn reconciliation skipped after command snapshot failure", {
+        cause,
+      }).pipe(Effect.as(null)),
+    ),
+  );
+  if (readModel === null) {
+    return;
+  }
 
   const now = new Date().toISOString();
   const threadsNeedingRestartCleanup = readModel.threads.filter(

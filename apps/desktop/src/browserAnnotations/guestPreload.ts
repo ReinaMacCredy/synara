@@ -80,6 +80,7 @@ let notice: HTMLElement | null = null;
 let activeSession: { sessionId: string } | null = null;
 let hoveredElement: Element | null = null;
 let selectedElement: Element | null = null;
+let pickerFocus: "comment" | "submit" | null = null;
 /** Pointer offset inside the selected element, so the composer follows it. */
 let selectionAnchor: { x: number; y: number } | null = null;
 let inspectedElement: Element | null = null;
@@ -815,6 +816,7 @@ function autoSizeComment(): void {
 
 function clearSelection(options: { readonly keepComment?: boolean } = {}): void {
   selectedElement = null;
+  pickerFocus = null;
   selectionAnchor = null;
   hoveredElement = null;
   // Re-acquire whatever sits under the resting pointer instead of waiting for
@@ -864,6 +866,7 @@ function selectTarget(target: Element, point: { x: number; y: number } | null): 
   autoSizeComment();
   renderOverlay();
   textarea?.focus({ preventScroll: true });
+  pickerFocus = "comment";
 }
 
 function endInteractiveSession(notifyHost: boolean): void {
@@ -1015,18 +1018,31 @@ function installInteractionListeners(): void {
       // During IME composition Enter confirms the candidate and Escape abandons
       // it; neither is a picker command.
       if (event.isComposing) return;
+      const activeControl = shadow?.activeElement;
+      if (activeControl === textarea) pickerFocus = "comment";
+      if (activeControl === submitButton) pickerFocus = "submit";
+      const isTab = event.key === "Tab" || event.code === "Tab";
+      const isEnter = event.key === "Enter" || event.code === "Enter";
+      if (overlayTarget && isTab) {
+        event.preventDefault();
+        if (pickerFocus === "comment") {
+          submitButton?.focus({ preventScroll: true });
+          pickerFocus = "submit";
+        } else {
+          textarea?.focus({ preventScroll: true });
+          pickerFocus = "comment";
+        }
+        return;
+      }
       if (event.key === "Escape") {
         if (overlayTarget) event.preventDefault();
         endInteractiveSession(true);
         return;
       }
       if (!overlayTarget) return;
-      const submitsFromComment =
-        shadow?.activeElement === textarea && event.key === "Enter" && !event.shiftKey;
+      const submitsFromComment = pickerFocus === "comment" && isEnter && !event.shiftKey;
       const submitsFromButton =
-        submitButton !== null &&
-        shadow?.activeElement === submitButton &&
-        (event.key === "Enter" || event.key === " ");
+        submitButton !== null && pickerFocus === "submit" && (isEnter || event.key === " ");
       if (submitsFromComment || submitsFromButton) {
         event.preventDefault();
         submitAnnotation();
@@ -1126,6 +1142,10 @@ function installInteractionListeners(): void {
           event,
           eventType !== "wheel" && !isOverlayTarget(event.target),
         );
+        if (overlayTarget && eventType === "focusin") {
+          if (shadow?.activeElement === textarea) pickerFocus = "comment";
+          if (shadow?.activeElement === submitButton) pickerFocus = "submit";
+        }
         // Composed events are retargeted to the host by the closed shadow root,
         // so the focused control identifies the comment field.
         if (overlayTarget && eventType === "input" && shadow?.activeElement === textarea) {

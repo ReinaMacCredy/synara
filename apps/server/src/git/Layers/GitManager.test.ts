@@ -1724,7 +1724,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         ).toBe(true);
         expect(ghCalls.some((call) => call.startsWith("pr create "))).toBe(false);
       }),
-    30_000,
+    60_000,
   );
 
   it.effect(

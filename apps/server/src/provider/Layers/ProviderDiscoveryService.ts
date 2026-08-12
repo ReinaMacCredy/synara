@@ -5,7 +5,7 @@ import {
   ProviderListAgentsInput,
   ProviderListCommandsInput,
   ProviderListModelsInput,
-  type ProviderListModelsResult,
+  ProviderListModelsResult,
   ProviderListPluginsInput,
   ProviderModelDescriptor,
   ProviderListSkillsInput,
@@ -14,6 +14,7 @@ import {
   type ProviderSkillDescriptor,
 } from "@veylen/contracts";
 import { Effect, Layer, Option, Schema, SchemaIssue } from "effect";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -89,6 +90,69 @@ const make = Effect.gen(function* () {
   const registry = yield* ProviderAdapterRegistry;
   const serverConfig = yield* ServerConfig;
   const serverSettings = yield* ServerSettingsService;
+  const sql = yield* SqlClient.SqlClient;
+
+  const modelCatalogCacheKey = (input: ProviderListModelsInput) =>
+    JSON.stringify([
+      input.provider,
+      input.binaryPath ?? null,
+      input.apiEndpoint ?? null,
+      input.agentDir ?? null,
+      input.cwd ?? null,
+    ]);
+
+  const readModelCatalogCache = (input: ProviderListModelsInput) =>
+    Effect.gen(function* () {
+      const rows = yield* sql<{ readonly resultJson: string }>`
+        SELECT result_json AS "resultJson"
+        FROM provider_model_catalog_cache
+        WHERE cache_key = ${modelCatalogCacheKey(input)} AND schema_version = 1
+      `;
+      const resultJson = rows[0]?.resultJson;
+      if (resultJson === undefined) return null;
+      const cached = yield* Schema.decodeUnknownEffect(ProviderListModelsResult)(
+        JSON.parse(resultJson),
+      );
+      return {
+        ...cached,
+        source: `last-known-good:${cached.source ?? input.provider}`,
+        cached: true,
+      } satisfies ProviderListModelsResult;
+    }).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("provider model catalog cache read failed", {
+          provider: input.provider,
+          cause,
+        }).pipe(Effect.as(null)),
+      ),
+    );
+
+  const writeModelCatalogCache = (
+    input: ProviderListModelsInput,
+    result: ProviderListModelsResult,
+  ) =>
+    sql`
+      INSERT INTO provider_model_catalog_cache (
+        cache_key, provider_kind, schema_version, revision, result_json, updated_at
+      ) VALUES (
+        ${modelCatalogCacheKey(input)}, ${input.provider}, 1, 1, ${JSON.stringify(result)},
+        ${new Date().toISOString()}
+      )
+      ON CONFLICT (cache_key) DO UPDATE SET
+        provider_kind = excluded.provider_kind,
+        schema_version = excluded.schema_version,
+        revision = provider_model_catalog_cache.revision + 1,
+        result_json = excluded.result_json,
+        updated_at = excluded.updated_at
+    `.pipe(
+      Effect.asVoid,
+      Effect.catchCause((cause) =>
+        Effect.logWarning("provider model catalog cache write failed", {
+          provider: input.provider,
+          cause,
+        }),
+      ),
+    );
 
   const getComposerCapabilities: ProviderDiscoveryServiceShape["getComposerCapabilities"] = (
     input,
@@ -247,11 +311,29 @@ const make = Effect.gen(function* () {
           cached: false,
         };
       }
-      const result = yield* adapter.listModels(parsed);
-      return yield* isolateMalformedModelDescriptors({
+      const discovered = yield* adapter
+        .listModels(parsed)
+        .pipe(
+          Effect.catch((error) =>
+            readModelCatalogCache(parsed).pipe(
+              Effect.flatMap((cached) =>
+                cached === null ? Effect.fail(error) : Effect.succeed(cached),
+              ),
+            ),
+          ),
+        );
+      const result = yield* isolateMalformedModelDescriptors({
         provider: parsed.provider,
-        result,
+        result: discovered,
       });
+      if (result.models.length > 0 && result.cached !== true) {
+        yield* writeModelCatalogCache(parsed, result);
+        return result;
+      }
+      if (result.models.length === 0) {
+        return (yield* readModelCatalogCache(parsed)) ?? result;
+      }
+      return result;
     });
 
   const listAgents: ProviderDiscoveryServiceShape["listAgents"] = (input) =>

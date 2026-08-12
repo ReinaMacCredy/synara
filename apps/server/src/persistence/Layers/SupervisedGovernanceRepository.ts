@@ -2,6 +2,7 @@ import {
   AgentSeat,
   DirectIntervention,
   EffectiveAuthorityReceipt,
+  emptySupervisedGovernanceSnapshot,
   GovernedProviderSession,
   GovernanceHandoff,
   HumanDirective,
@@ -40,6 +41,16 @@ type StateRow = {
   readonly updatedAt: string;
 };
 type RevisionRow = { readonly revision: number };
+
+const changedEntities = <T extends { readonly id: string }>(
+  previous: ReadonlyArray<T>,
+  next: ReadonlyArray<T>,
+) => {
+  const previousById = new Map(previous.map((entity) => [entity.id, entity]));
+  return next.filter(
+    (entity) => JSON.stringify(previousById.get(entity.id)) !== JSON.stringify(entity),
+  );
+};
 
 const decodeRows = <A>(
   schema: Schema.Schema<A>,
@@ -315,6 +326,71 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
         updatedAt: stateRows[0]?.updatedAt ?? "1970-01-01T00:00:00.000Z",
       };
     }).pipe(Effect.mapError(persistenceError("SupervisedGovernance.getSnapshot")));
+
+  const getProjectionSnapshot: SupervisedGovernanceRepositoryShape["getProjectionSnapshot"] = () =>
+    Effect.gen(function* () {
+      const stateRows = yield* sql<StateRow>`
+        SELECT revision, orchestration_json AS "orchestrationJson", updated_at AS "updatedAt"
+        FROM supervised_governance_state
+        WHERE singleton_id = 1
+      `;
+      const updatedAt = stateRows[0]?.updatedAt ?? "1970-01-01T00:00:00.000Z";
+      const orchestration = yield* decodeOrchestration(
+        stateRows[0]?.orchestrationJson ??
+          '{"revision":0,"profiles":[],"profileSnapshots":[],"missions":[],"workflowDirectives":[],"workflowConflicts":[],"advice":[],"observationCursors":[],"wakeQueue":[],"rotations":[],"updatedAt":"1970-01-01T00:00:00.000Z"}',
+      );
+      const [
+        workspaceRows,
+        seatRows,
+        authorityReceiptRows,
+        rootLeaseRows,
+        handoffRows,
+        roleAssumptionRows,
+      ] = yield* Effect.all([
+        sql<EntityRow>`SELECT entity_json AS "entityJson" FROM projection_supervised_workspaces ORDER BY updated_at DESC, workspace_id`,
+        sql<EntityRow>`SELECT entity_json AS "entityJson" FROM projection_supervised_agent_seats ORDER BY updated_at DESC, seat_id`,
+        sql<EntityRow>`SELECT entity_json AS "entityJson" FROM projection_supervised_authority_receipts ORDER BY issued_at DESC, receipt_id`,
+        sql<EntityRow>`SELECT entity_json AS "entityJson" FROM projection_supervised_root_authority_leases ORDER BY updated_at DESC, lease_id`,
+        sql<EntityRow>`SELECT entity_json AS "entityJson" FROM projection_supervised_handoffs ORDER BY updated_at DESC, handoff_id`,
+        sql<EntityRow>`SELECT entity_json AS "entityJson" FROM projection_supervised_role_assumptions ORDER BY updated_at DESC, role_assumption_id`,
+      ]);
+      const agentSeats = yield* decodeRows(
+        AgentSeat,
+        "SupervisedGovernance.getProjectionSnapshot.agentSeats",
+        seatRows,
+      );
+      return {
+        ...emptySupervisedGovernanceSnapshot(updatedAt),
+        revision: stateRows[0]?.revision ?? 0,
+        workspaces: yield* decodeRows(
+          SupervisedWorkspace,
+          "SupervisedGovernance.getProjectionSnapshot.workspaces",
+          workspaceRows,
+        ),
+        agentSeats,
+        authorityReceipts: yield* decodeRows(
+          EffectiveAuthorityReceipt,
+          "SupervisedGovernance.getProjectionSnapshot.authorityReceipts",
+          authorityReceiptRows,
+        ),
+        rootLeases: yield* decodeRows(
+          RootAuthorityLease,
+          "SupervisedGovernance.getProjectionSnapshot.rootLeases",
+          rootLeaseRows,
+        ),
+        handoffs: yield* decodeRows(
+          GovernanceHandoff,
+          "SupervisedGovernance.getProjectionSnapshot.handoffs",
+          handoffRows,
+        ),
+        roleAssumptions: yield* decodeRows(
+          RoleAssumption,
+          "SupervisedGovernance.getProjectionSnapshot.roleAssumptions",
+          roleAssumptionRows,
+        ),
+        orchestration: { ...orchestration, agentSeats },
+      };
+    }).pipe(Effect.mapError(persistenceError("SupervisedGovernance.getProjectionSnapshot")));
 
   const getModelRoutingState: SupervisedGovernanceRepositoryShape["getModelRoutingState"] = () =>
     Effect.gen(function* () {
@@ -944,6 +1020,156 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
       )
       .pipe(Effect.mapError(persistenceError("SupervisedGovernance.replaceOrchestration")));
 
+  const applyProjectionDelta: SupervisedGovernanceRepositoryShape["applyProjectionDelta"] = (
+    input,
+  ) =>
+    sql
+      .withTransaction(
+        Effect.gen(function* () {
+          yield* advanceRevision(input.previous.revision, input.updatedAt);
+          yield* sql`
+            UPDATE supervised_governance_state
+            SET orchestration_json = ${JSON.stringify({
+              ...input.next.orchestration,
+              agentSeats: [],
+            })}
+            WHERE singleton_id = 1
+          `;
+          yield* Effect.forEach(
+            changedEntities(input.previous.workspaces, input.next.workspaces),
+            (workspace) => sql`
+              INSERT INTO projection_supervised_workspaces (
+                workspace_id, owner_namespace, lifecycle_state, revision, updated_at, entity_json
+              ) VALUES (
+                ${workspace.id}, ${workspace.ownerNamespace}, ${workspace.lifecycleState},
+                ${workspace.revision}, ${workspace.updatedAt}, ${JSON.stringify(workspace)}
+              )
+              ON CONFLICT (workspace_id) DO UPDATE SET
+                owner_namespace = excluded.owner_namespace,
+                lifecycle_state = excluded.lifecycle_state,
+                revision = excluded.revision,
+                updated_at = excluded.updated_at,
+                entity_json = excluded.entity_json
+            `,
+            { concurrency: 1, discard: true },
+          );
+          yield* Effect.forEach(
+            changedEntities(input.previous.authorityReceipts, input.next.authorityReceipts),
+            (receipt) => sql`
+              INSERT INTO projection_supervised_authority_receipts (
+                receipt_id, actor_seat_id, identity_role, effective_role,
+                issued_at, expires_at, revoked_at, entity_json
+              ) VALUES (
+                ${receipt.id}, ${receipt.actorSeatId}, ${receipt.identityRole}, ${receipt.effectiveRole},
+                ${receipt.issuedAt}, ${receipt.expiresAt}, ${receipt.revokedAt}, ${JSON.stringify(receipt)}
+              )
+              ON CONFLICT (receipt_id) DO UPDATE SET
+                actor_seat_id = excluded.actor_seat_id,
+                identity_role = excluded.identity_role,
+                effective_role = excluded.effective_role,
+                issued_at = excluded.issued_at,
+                expires_at = excluded.expires_at,
+                revoked_at = excluded.revoked_at,
+                entity_json = excluded.entity_json
+            `,
+            { concurrency: 1, discard: true },
+          );
+          yield* Effect.forEach(
+            changedEntities(input.previous.agentSeats, input.next.agentSeats),
+            (seat) => sql`
+              INSERT INTO projection_supervised_agent_seats (
+                seat_id, workspace_id, identity_role, effective_role, profile_id,
+                lifecycle_state, work_state, authority_receipt_id, revision, updated_at, entity_json
+              ) VALUES (
+                ${seat.id}, ${seat.workspaceId}, ${seat.identityRole}, ${seat.effectiveRole},
+                ${seat.profileId}, ${seat.lifecycleState}, ${seat.workState}, ${seat.authorityReceiptId},
+                ${seat.revision}, ${seat.updatedAt}, ${JSON.stringify(seat)}
+              )
+              ON CONFLICT (seat_id) DO UPDATE SET
+                workspace_id = excluded.workspace_id,
+                identity_role = excluded.identity_role,
+                effective_role = excluded.effective_role,
+                profile_id = excluded.profile_id,
+                lifecycle_state = excluded.lifecycle_state,
+                work_state = excluded.work_state,
+                authority_receipt_id = excluded.authority_receipt_id,
+                revision = excluded.revision,
+                updated_at = excluded.updated_at,
+                entity_json = excluded.entity_json
+            `,
+            { concurrency: 1, discard: true },
+          );
+          yield* Effect.forEach(
+            changedEntities(input.previous.rootLeases, input.next.rootLeases),
+            (lease) => sql`
+              INSERT INTO projection_supervised_root_authority_leases (
+                lease_id, workspace_id, room_id, holder_seat_id, status,
+                authority_receipt_id, revision, updated_at, entity_json
+              ) VALUES (
+                ${lease.id}, ${lease.workspaceId}, ${lease.roomId}, ${lease.holderSeatId}, ${lease.status},
+                ${lease.acquiredUnderReceiptId}, ${lease.revision}, ${lease.updatedAt}, ${JSON.stringify(lease)}
+              )
+              ON CONFLICT (lease_id) DO UPDATE SET
+                workspace_id = excluded.workspace_id,
+                room_id = excluded.room_id,
+                holder_seat_id = excluded.holder_seat_id,
+                status = excluded.status,
+                authority_receipt_id = excluded.authority_receipt_id,
+                revision = excluded.revision,
+                updated_at = excluded.updated_at,
+                entity_json = excluded.entity_json
+            `,
+            { concurrency: 1, discard: true },
+          );
+          yield* Effect.forEach(
+            changedEntities(input.previous.handoffs, input.next.handoffs),
+            (handoff) => sql`
+              INSERT INTO projection_supervised_handoffs (
+                handoff_id, workspace_id, room_id, from_seat_id, to_seat_id,
+                lifecycle_state, revision, updated_at, entity_json
+              ) VALUES (
+                ${handoff.id}, ${handoff.workspaceId}, ${handoff.roomId}, ${handoff.fromSeatId},
+                ${handoff.toSeatId}, ${handoff.lifecycleState}, ${handoff.revision},
+                ${handoff.updatedAt}, ${JSON.stringify(handoff)}
+              )
+              ON CONFLICT (handoff_id) DO UPDATE SET
+                workspace_id = excluded.workspace_id,
+                room_id = excluded.room_id,
+                from_seat_id = excluded.from_seat_id,
+                to_seat_id = excluded.to_seat_id,
+                lifecycle_state = excluded.lifecycle_state,
+                revision = excluded.revision,
+                updated_at = excluded.updated_at,
+                entity_json = excluded.entity_json
+            `,
+            { concurrency: 1, discard: true },
+          );
+          yield* Effect.forEach(
+            changedEntities(input.previous.roleAssumptions, input.next.roleAssumptions),
+            (assumption) => sql`
+              INSERT INTO projection_supervised_role_assumptions (
+                role_assumption_id, workspace_id, room_id, actor_seat_id,
+                lifecycle_state, revision, updated_at, entity_json
+              ) VALUES (
+                ${assumption.id}, ${assumption.workspaceId}, ${assumption.roomId},
+                ${assumption.actorSeatId}, ${assumption.lifecycleState}, ${assumption.revision},
+                ${assumption.updatedAt}, ${JSON.stringify(assumption)}
+              )
+              ON CONFLICT (role_assumption_id) DO UPDATE SET
+                workspace_id = excluded.workspace_id,
+                room_id = excluded.room_id,
+                actor_seat_id = excluded.actor_seat_id,
+                lifecycle_state = excluded.lifecycle_state,
+                revision = excluded.revision,
+                updated_at = excluded.updated_at,
+                entity_json = excluded.entity_json
+            `,
+            { concurrency: 1, discard: true },
+          );
+        }),
+      )
+      .pipe(Effect.mapError(persistenceError("SupervisedGovernance.applyProjectionDelta")));
+
   const putModelCapabilityProfile: SupervisedGovernanceRepositoryShape["putModelCapabilityProfile"] =
     (input) =>
       sql
@@ -1050,10 +1276,12 @@ const makeSupervisedGovernanceRepository = Effect.gen(function* () {
 
   return SupervisedGovernanceRepository.of({
     getSnapshot,
+    getProjectionSnapshot,
     getModelRoutingState,
     getNotebookState,
     replaceSnapshot,
     replaceOrchestration,
+    applyProjectionDelta,
     appendNotebookEntry,
     appendNotebookCompaction,
     putNotebookCursor,

@@ -6,7 +6,9 @@
 import { type MessageId, type ThreadId, type ThreadMarker, type TurnId } from "@veylen/contracts";
 import { type LegendListRef } from "@legendapp/list/react";
 import {
+  useDeferredValue,
   useEffect,
+  useMemo,
   useState,
   type ComponentProps,
   type CSSProperties,
@@ -177,7 +179,11 @@ export function ChatTranscriptPane({
   // flow through a stable store (not pane state) so scroll updates re-render only
   // the trail, not the memoized timeline; reset on thread switch so stale
   // highlights can't linger.
-  const trailItems = deriveMessageTrailItems(timelineEntries);
+  const deferredTrailEntries = useDeferredValue(timelineEntries);
+  const trailItems = useMemo(
+    () => deriveMessageTrailItems(deferredTrailEntries),
+    [deferredTrailEntries],
+  );
   const [activeTrailStore] = useState(() => createActiveTrailStore());
   useEffect(() => {
     activeTrailStore.set(null);

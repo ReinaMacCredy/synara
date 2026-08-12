@@ -8,6 +8,7 @@ import type { BrowserAnnotationEvent, BrowserAnnotationTheme } from "@veylen/con
 import { _electron as electron, expect, test, type ElectronApplication } from "playwright/test";
 
 import { createBrowserMcpHarness } from "./fixtures/mcpBrowserHarness";
+import { electronE2eLaunchArgs } from "./fixtures/electronLaunchArgs";
 import { startVisibleBrowserFixtureSite } from "./fixtures/siteServer";
 
 const WEB_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -66,7 +67,7 @@ test("a real Electron guest commits and reprojects a continuous annotation sessi
   const executablePath = requireFromDesktop("electron") as string;
   const electronApp = await electron.launch({
     executablePath,
-    args: [mainPath],
+    args: electronE2eLaunchArgs(mainPath),
     cwd: DESKTOP_DIR,
     env: {
       ...process.env,

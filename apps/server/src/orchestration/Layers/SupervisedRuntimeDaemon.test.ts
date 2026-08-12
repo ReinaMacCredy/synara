@@ -1712,6 +1712,7 @@ const scenarioJEngineLayer = Layer.succeed(OrchestrationEngineService, {
   streamDomainEvents: Stream.never,
 } as never);
 const scenarioJSnapshotQueryLayer = Layer.succeed(ProjectionSnapshotQuery, {
+  getCommandReadModel: () => Effect.sync(() => scenarioJReadModel),
   getSnapshot: () => Effect.sync(() => scenarioJReadModel),
   getThreadDetailById: () => Effect.succeed(Option.none()),
 } as never);
@@ -1725,6 +1726,7 @@ const scenarioJDeliveryLayer = SupervisedSignalDeliveryLive.pipe(
   Layer.provideMerge(scenarioJRepositoryLayer),
   Layer.provideMerge(scenarioJGovernanceRepositoryLayer),
   Layer.provideMerge(scenarioJEngineLayer),
+  Layer.provideMerge(scenarioJSnapshotQueryLayer),
 );
 const scenarioJDaemonLayer = SupervisedRuntimeDaemonLive.pipe(
   Layer.provideMerge(scenarioJRepositoryLayer),

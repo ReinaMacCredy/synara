@@ -64,6 +64,9 @@ import { getThreadFromState } from "../threadDerivation";
 import { resetThreadDetailResumeCursorsForTests } from "../threadDetailResumeCursors";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
 import { resetWsNativeApiForTest } from "../wsNativeApi";
+// Pre-transform the compiler-heavy chat route outside the first case's timeout.
+// Stable-suite file order is not guaranteed, so another test cannot own this warmup.
+import "./ChatView";
 
 const THREAD_ID = ThreadId.makeUnsafe("thread-root-browser-test");
 const OTHER_THREAD_ID = ThreadId.makeUnsafe("thread-other-browser-test");

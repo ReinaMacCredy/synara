@@ -129,6 +129,7 @@ import {
   type ProviderIntentEvent,
 } from "../providerIntentClassification.ts";
 import { deriveTurnStartSession } from "../turnStartSession.ts";
+import { classifyProviderInteractionFailure } from "../providerInteractionSettlement.ts";
 import { TurnCheckpointCoordinator } from "../Services/TurnCheckpointCoordinator.ts";
 import { resolveProviderSessionThread as resolveProviderSessionThreadFromProjection } from "../providerSessionThread.ts";
 import {
@@ -355,72 +356,6 @@ function availableThreadMentionContextChars(messageText: string): number {
   );
 }
 
-function isUnknownPendingApprovalRequestError(cause: Cause.Cause<ProviderServiceError>): boolean {
-  const error = Cause.squash(cause);
-  if (Schema.is(ProviderAdapterRequestError)(error)) {
-    const detail = error.detail.toLowerCase();
-    return (
-      detail.includes("unknown pending approval request") ||
-      detail.includes("unknown pending permission request")
-    );
-  }
-  const message = Cause.pretty(cause);
-  return (
-    message.includes("unknown pending approval request") ||
-    message.includes("unknown pending permission request")
-  );
-}
-
-function isUnknownPendingUserInputRequestError(cause: Cause.Cause<ProviderServiceError>): boolean {
-  const error = Cause.squash(cause);
-  if (Schema.is(ProviderAdapterRequestError)(error)) {
-    return error.detail.toLowerCase().includes("unknown pending user-input request");
-  }
-  return Cause.pretty(cause).toLowerCase().includes("unknown pending user-input request");
-}
-
-function isClaudeContextWindowUserInputRejection(error: ProviderServiceError): boolean {
-  if (
-    error._tag !== "ProviderAdapterRequestError" ||
-    error.provider !== "claudeAgent" ||
-    error.method !== "item/tool/respondToUserInput"
-  ) {
-    return false;
-  }
-  const detail = error.detail.toLowerCase();
-  return (
-    detail.includes("context window") ||
-    detail.includes("context limit") ||
-    detail.includes("context length") ||
-    detail.includes("context_length_exceeded") ||
-    detail.includes("prompt is too long") ||
-    detail.includes("input_length and max_tokens")
-  );
-}
-
-function interactionFailureSettlementStatus(
-  cause: Cause.Cause<ProviderServiceError>,
-  isUnknownPendingRequest: boolean,
-): "retryable" | "uncertain" {
-  return Option.match(Cause.findErrorOption(cause), {
-    onNone: () => "uncertain" as const,
-    onSome: (error) => {
-      if (
-        (error._tag === "ProviderAdapterRequestError" &&
-          error.method === "permission.reply.acknowledge") ||
-        isClaudeContextWindowUserInputRejection(error)
-      ) {
-        return "retryable" as const;
-      }
-      return isUnknownPendingRequest ||
-        error._tag === "ProviderAdapterRequestError" ||
-        error._tag === "ProviderAdapterProcessError"
-        ? ("uncertain" as const)
-        : ("retryable" as const);
-    },
-  });
-}
-
 function isStaleCodexResumeError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   const normalized = message.toLowerCase();
@@ -561,12 +496,9 @@ const make = Effect.gen(function* () {
   // against the old subprocess configuration before the next turn starts.
   const threadSessionModelSelections = new Map<string, ModelSelection>();
   const threadSessionSupervisedContexts = new Map<string, ProviderSupervisedSessionContext>();
-  // Seeded from the engine's in-memory command read model, not a second snapshot query.
-  // The engine loads that model once after the projection bootstrap and keeps it current
-  // as commands commit, so reading it here is both free and strictly fresher than
-  // re-running the eight-query snapshot load on the blocking startup path (~150ms on a
-  // large database). It cannot fail, so there is no failure mode left to log.
-  const seedThreadModelSelections = orchestrationEngine.getReadModel().pipe(
+  // Seeded once from the canonical projected command model. Runtime updates keep the
+  // local per-session cache current without preserving a second global read authority.
+  const seedThreadModelSelections = projectionSnapshotQuery.getCommandReadModel().pipe(
     Effect.map((snapshot) => {
       for (const thread of snapshot.threads) {
         threadSessionModelSelections.set(thread.id, thread.modelSelection);
@@ -3021,13 +2953,16 @@ const make = Effect.gen(function* () {
       .pipe(
         Effect.asVoid,
         Effect.catchCause((cause) => {
-          const unknownPendingRequest = isUnknownPendingApprovalRequestError(cause);
+          const { unknownPendingRequest, settlementStatus } = classifyProviderInteractionFailure(
+            "approval",
+            cause,
+          );
           return appendInteractionResponseFailure(event, {
             interactionKind: "approval",
             detail: unknownPendingRequest
               ? buildStalePendingRequestFailureDetail("approval", event.payload.requestId)
               : Cause.pretty(cause),
-            settlementStatus: interactionFailureSettlementStatus(cause, unknownPendingRequest),
+            settlementStatus,
           });
         }),
       );
@@ -3055,13 +2990,16 @@ const make = Effect.gen(function* () {
       .pipe(
         Effect.asVoid,
         Effect.catchCause((cause) => {
-          const unknownPendingRequest = isUnknownPendingUserInputRequestError(cause);
+          const { unknownPendingRequest, settlementStatus } = classifyProviderInteractionFailure(
+            "userInput",
+            cause,
+          );
           return appendInteractionResponseFailure(event, {
             interactionKind: "userInput",
             detail: unknownPendingRequest
               ? buildStalePendingRequestFailureDetail("user-input", event.payload.requestId)
               : Cause.pretty(cause),
-            settlementStatus: interactionFailureSettlementStatus(cause, unknownPendingRequest),
+            settlementStatus,
           });
         }),
       );

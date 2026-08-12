@@ -9,6 +9,8 @@ import {
 } from "../Errors.ts";
 import {
   PROVIDER_RUNTIME_EVENT_MAX_BYTES,
+  PROVIDER_RUNTIME_EVENT_FAILURE_ATTEMPT_LIMIT,
+  PROVIDER_RUNTIME_EVENT_FAILURE_MIN_AGE_MS,
   PROVIDER_RUNTIME_EVENT_RETAIN_ACCEPTED,
   ProviderRuntimeEventRepository,
   type PersistedProviderRuntimeEvent,
@@ -91,16 +93,7 @@ const make = Effect.gen(function* () {
       const persistable = yield* encodePersistableEvent(event);
       const persistedEvent = persistable.event;
       const eventJson = persistable.eventJson;
-      const rows = yield* sql
-        .withTransaction(
-          Effect.gen(function* () {
-            const existing = yield* sql<Record<string, unknown>>`
-            SELECT sequence, event_json AS "eventJson"
-            FROM provider_runtime_events
-            WHERE event_id = ${event.eventId}
-          `;
-            if (existing.length > 0) return existing;
-            return yield* sql<Record<string, unknown>>`
+      const rows = yield* sql<Record<string, unknown>>`
             INSERT INTO provider_runtime_events (
               event_id, thread_id, turn_id, lifecycle_generation, event_type,
               event_json, persisted_at
@@ -109,11 +102,9 @@ const make = Effect.gen(function* () {
               ${event.lifecycleGeneration ?? null},
               ${event.type}, ${eventJson}, ${new Date().toISOString()}
             )
+            ON CONFLICT(event_id) DO UPDATE SET event_id = excluded.event_id
             RETURNING sequence, event_json AS "eventJson"
-          `;
-          }),
-        )
-        .pipe(Effect.mapError(toPersistenceSqlError("ProviderRuntimeEvent.append")));
+          `.pipe(Effect.mapError(toPersistenceSqlError("ProviderRuntimeEvent.append")));
       const row = yield* decodeStoredRow(rows[0]).pipe(
         Effect.mapError(toPersistenceDecodeError("ProviderRuntimeEvent.append.row")),
       );
@@ -159,6 +150,43 @@ const make = Effect.gen(function* () {
               Effect.mapError(
                 toPersistenceDecodeError(
                   `ProviderRuntimeEvent.readAfter(sequence=${row.sequence})`,
+                ),
+              ),
+            );
+            return { sequence: row.sequence, event } satisfies PersistedProviderRuntimeEvent;
+          }),
+        { concurrency: 1 },
+      );
+    });
+  };
+
+  const readPending: ProviderRuntimeEventRepositoryShape["readPending"] = (input) => {
+    const limit = Math.max(1, Math.min(1_000, Math.floor(input.limit)));
+    return Effect.gen(function* () {
+      const cursor = yield* getConsumerCursor(input.consumerName);
+      const rows = yield* sql<Record<string, unknown>>`
+        SELECT event.sequence, event.event_json AS "eventJson"
+        FROM provider_runtime_events AS event
+        LEFT JOIN provider_runtime_event_deliveries AS delivery
+          ON delivery.consumer_name = ${input.consumerName}
+         AND delivery.event_sequence = event.sequence
+        WHERE event.sequence > ${cursor}
+          AND event.sequence <= ${input.throughSequenceInclusive}
+          AND (delivery.status IS NULL OR delivery.status = 'retry')
+        ORDER BY event.sequence ASC
+        LIMIT ${limit}
+      `.pipe(Effect.mapError(toPersistenceSqlError("ProviderRuntimeEvent.readPending")));
+      return yield* Effect.forEach(
+        rows,
+        (unknownRow) =>
+          Effect.gen(function* () {
+            const row = yield* decodeStoredRow(unknownRow).pipe(
+              Effect.mapError(toPersistenceDecodeError("ProviderRuntimeEvent.readPending.row")),
+            );
+            const event = yield* decodeEvent(row.eventJson).pipe(
+              Effect.mapError(
+                toPersistenceDecodeError(
+                  `ProviderRuntimeEvent.readPending(sequence=${row.sequence})`,
                 ),
               ),
             );
@@ -241,9 +269,10 @@ const make = Effect.gen(function* () {
             ON open_turn.thread_id = event.thread_id
            AND open_turn.turn_id = event.turn_id
            AND event.sequence >= open_turn.first_sequence
-          INNER JOIN provider_runtime_event_consumers AS consumer
-            ON consumer.consumer_name = ${input.consumerName}
-           AND event.sequence <= consumer.last_acked_sequence
+          INNER JOIN provider_runtime_event_deliveries AS delivery
+            ON delivery.consumer_name = ${input.consumerName}
+           AND delivery.event_sequence = event.sequence
+           AND delivery.status = 'accepted'
           WHERE event.sequence > ${input.sequenceExclusive}
           ORDER BY event.sequence ASC
           LIMIT ${limit}
@@ -316,12 +345,14 @@ const make = Effect.gen(function* () {
     (input) => {
       if (input.threadIds.length === 0) return Effect.succeed(false);
       return Effect.gen(function* () {
-        const cursor = yield* getConsumerCursor(input.consumerName);
         const rows = yield* sql<{ readonly present: number }>`
           SELECT 1 AS present
-          FROM provider_runtime_events
-          WHERE sequence > ${cursor}
-            AND thread_id IN ${sql.in(input.threadIds)}
+          FROM provider_runtime_events AS event
+          LEFT JOIN provider_runtime_event_deliveries AS delivery
+            ON delivery.consumer_name = ${input.consumerName}
+           AND delivery.event_sequence = event.sequence
+          WHERE event.thread_id IN ${sql.in(input.threadIds)}
+            AND (delivery.status IS NULL OR delivery.status = 'retry')
           LIMIT 1
         `.pipe(
           Effect.mapError(toPersistenceSqlError("ProviderRuntimeEvent.hasPendingEventsForThreads")),
@@ -336,6 +367,113 @@ const make = Effect.gen(function* () {
   // direction, since the only effect of losing it is pruning sooner.
   let lastRetentionScanSequence = 0;
 
+  const compactSettledConsumerCursor = (consumerName: string, updatedAt: string) =>
+    Effect.gen(function* () {
+      const consumerRows = yield* sql<{ readonly lastAckedSequence: number }>`
+        SELECT last_acked_sequence AS "lastAckedSequence"
+        FROM provider_runtime_event_consumers
+        WHERE consumer_name = ${consumerName}
+      `;
+      const cursor = consumerRows[0]?.lastAckedSequence;
+      if (cursor === undefined) return null;
+
+      const unsettledRows = yield* sql<{ readonly sequence: number | null }>`
+        SELECT MIN(event.sequence) AS sequence
+        FROM provider_runtime_events AS event
+        LEFT JOIN provider_runtime_event_deliveries AS delivery
+          ON delivery.consumer_name = ${consumerName}
+         AND delivery.event_sequence = event.sequence
+        WHERE event.sequence > ${cursor}
+          AND (delivery.status IS NULL OR delivery.status = 'retry')
+      `;
+      const firstUnsettled = unsettledRows[0]?.sequence ?? null;
+      const targetRows = yield* sql<{ readonly sequence: number | null }>`
+        SELECT MAX(event.sequence) AS sequence
+        FROM provider_runtime_events AS event
+        INNER JOIN provider_runtime_event_deliveries AS delivery
+          ON delivery.consumer_name = ${consumerName}
+         AND delivery.event_sequence = event.sequence
+         AND delivery.status IN ('accepted', 'dead_letter')
+        WHERE event.sequence > ${cursor}
+          AND (${firstUnsettled} IS NULL OR event.sequence < ${firstUnsettled})
+      `;
+      const target = targetRows[0]?.sequence ?? cursor;
+      if (target > cursor) {
+        yield* sql`
+          UPDATE provider_runtime_event_consumers
+          SET last_acked_sequence = ${target}, updated_at = ${updatedAt}
+          WHERE consumer_name = ${consumerName}
+        `;
+      }
+      return target;
+    });
+
+  const trackAcceptedTurn = (input: {
+    readonly eventSequence: number;
+    readonly eventType: string;
+    readonly threadId: string;
+    readonly turnId: string | null;
+    readonly updatedAt: string;
+  }) =>
+    Effect.gen(function* () {
+      const isTerminalTurnEvent =
+        input.eventType === "turn.completed" || input.eventType === "turn.aborted";
+      const isThreadTerminalEvent =
+        input.eventType === "session.exited" || input.eventType === "runtime.error";
+      if (input.turnId !== null && !isTerminalTurnEvent && !isThreadTerminalEvent) {
+        yield* sql`
+          INSERT INTO provider_runtime_open_turns (
+            thread_id, turn_id, first_sequence, updated_at
+          ) VALUES (
+            ${input.threadId}, ${input.turnId}, ${input.eventSequence}, ${input.updatedAt}
+          )
+          ON CONFLICT (thread_id, turn_id) DO UPDATE SET
+            first_sequence = MIN(provider_runtime_open_turns.first_sequence, excluded.first_sequence),
+            updated_at = excluded.updated_at
+        `;
+      } else if (input.turnId !== null) {
+        yield* sql`
+          DELETE FROM provider_runtime_open_turns
+          WHERE thread_id = ${input.threadId} AND turn_id = ${input.turnId}
+        `;
+      } else if (isThreadTerminalEvent) {
+        yield* sql`
+          DELETE FROM provider_runtime_open_turns
+          WHERE thread_id = ${input.threadId}
+        `;
+      } else if (isTerminalTurnEvent) {
+        yield* sql`
+          DELETE FROM provider_runtime_open_turns
+          WHERE thread_id = ${input.threadId}
+            AND 1 = (
+              SELECT COUNT(*) FROM provider_runtime_open_turns
+              WHERE thread_id = ${input.threadId}
+            )
+        `;
+      }
+      return isTerminalTurnEvent || isThreadTerminalEvent;
+    });
+
+  const pruneAcceptedHistory = (cursor: number) =>
+    sql`
+      DELETE FROM provider_runtime_events AS event
+      WHERE event.sequence <= ${cursor}
+        AND NOT EXISTS (
+          SELECT 1
+          FROM provider_runtime_open_turns AS open_turn
+          WHERE open_turn.thread_id = event.thread_id
+            AND open_turn.turn_id = event.turn_id
+            AND event.sequence >= open_turn.first_sequence
+        )
+        AND event.sequence NOT IN (
+          SELECT sequence
+          FROM provider_runtime_events
+          WHERE sequence <= ${cursor}
+          ORDER BY sequence DESC
+          LIMIT ${PROVIDER_RUNTIME_EVENT_RETAIN_ACCEPTED}
+        )
+    `;
+
   const advanceConsumerCursor: ProviderRuntimeEventRepositoryShape["advanceConsumerCursor"] = (
     input,
   ) => {
@@ -343,25 +481,6 @@ const make = Effect.gen(function* () {
     return sql
       .withTransaction(
         Effect.gen(function* () {
-          const consumerRows = yield* sql<{ readonly lastAckedSequence: number }>`
-            SELECT last_acked_sequence AS "lastAckedSequence"
-            FROM provider_runtime_event_consumers
-            WHERE consumer_name = ${input.consumerName}
-          `;
-          const cursor = consumerRows[0]?.lastAckedSequence;
-          if (cursor === undefined) return false;
-          if (cursor >= input.eventSequence) return true;
-
-          // Event ids are idempotent and SQLite may leave sequence gaps after a
-          // conflicting insert. Contiguity therefore means the exact next
-          // stored row, not arithmetic sequence + 1.
-          const nextRows = yield* sql<{ readonly sequence: number | null }>`
-            SELECT MIN(sequence) AS sequence
-            FROM provider_runtime_events
-            WHERE sequence > ${cursor}
-          `;
-          if (nextRows[0]?.sequence !== input.eventSequence) return false;
-
           const eventRows = yield* sql<{
             readonly eventType: string;
             readonly threadId: string;
@@ -374,89 +493,31 @@ const make = Effect.gen(function* () {
           const event = eventRows[0];
           if (!event) return false;
 
-          const advanced = yield* sql<{ readonly sequence: number }>`
-            UPDATE provider_runtime_event_consumers
-            SET last_acked_sequence = ${input.eventSequence}, updated_at = ${input.updatedAt}
-            WHERE consumer_name = ${input.consumerName}
-              AND last_acked_sequence = ${cursor}
-            RETURNING last_acked_sequence AS sequence
+          yield* sql`
+            INSERT INTO provider_runtime_event_deliveries (
+              consumer_name, event_sequence, status, attempt_count, updated_at
+            ) VALUES (
+              ${input.consumerName}, ${input.eventSequence}, 'accepted', 0, ${input.updatedAt}
+            )
+            ON CONFLICT (consumer_name, event_sequence) DO UPDATE SET
+              status = 'accepted', updated_at = excluded.updated_at
           `;
-          if (advanced.length !== 1) return false;
-
-          const isTerminalTurnEvent =
-            event.eventType === "turn.completed" || event.eventType === "turn.aborted";
-          const isThreadTerminalEvent =
-            event.eventType === "session.exited" || event.eventType === "runtime.error";
-          if (event.turnId !== null && !isTerminalTurnEvent && !isThreadTerminalEvent) {
-            yield* sql`
-              INSERT INTO provider_runtime_open_turns (
-                thread_id, turn_id, first_sequence, updated_at
-              ) VALUES (
-                ${event.threadId}, ${event.turnId}, ${input.eventSequence}, ${input.updatedAt}
-              )
-              ON CONFLICT (thread_id, turn_id) DO UPDATE SET
-                first_sequence = MIN(
-                  provider_runtime_open_turns.first_sequence,
-                  excluded.first_sequence
-                ),
-                updated_at = excluded.updated_at
-            `;
-          } else if (event.turnId !== null) {
-            yield* sql`
-              DELETE FROM provider_runtime_open_turns
-              WHERE thread_id = ${event.threadId} AND turn_id = ${event.turnId}
-            `;
-          } else if (isThreadTerminalEvent) {
-            yield* sql`
-              DELETE FROM provider_runtime_open_turns
-              WHERE thread_id = ${event.threadId}
-            `;
-          } else if (isTerminalTurnEvent) {
-            yield* sql`
-              DELETE FROM provider_runtime_open_turns
-              WHERE thread_id = ${event.threadId}
-                AND 1 = (
-                  SELECT COUNT(*) FROM provider_runtime_open_turns
-                  WHERE thread_id = ${event.threadId}
-                )
-            `;
-          }
-
-          // Nothing below the cursor can become deletable while a turn only
-          // grows, so the scan is worth running when a turn just settled (its
-          // whole backlog is releasable now) or when enough events have piled up
-          // since the last scan. See the interval constant for why this is safe.
-          const settlesOpenTurns = isTerminalTurnEvent || isThreadTerminalEvent;
+          const settlesOpenTurns = yield* trackAcceptedTurn({
+            ...input,
+            eventType: event.eventType,
+            threadId: event.threadId,
+            turnId: event.turnId,
+          });
+          const cursor = yield* compactSettledConsumerCursor(input.consumerName, input.updatedAt);
+          if (cursor === null) return false;
           if (
             !settlesOpenTurns &&
-            input.eventSequence - lastRetentionScanSequence <
-              PROVIDER_RUNTIME_EVENT_RETENTION_SCAN_INTERVAL
+            cursor - lastRetentionScanSequence < PROVIDER_RUNTIME_EVENT_RETENTION_SCAN_INTERVAL
           ) {
             return true;
           }
-          retentionScanSequence = input.eventSequence;
-
-          // Pending rows are above the cursor. Accepted rows for an open turn
-          // remain replayable until its terminal output is accepted; all other
-          // accepted history is bounded to a diagnostic tail.
-          yield* sql`
-            DELETE FROM provider_runtime_events AS event
-            WHERE event.sequence <= ${input.eventSequence}
-              AND NOT EXISTS (
-                SELECT 1
-                FROM provider_runtime_open_turns AS open_turn
-                WHERE open_turn.thread_id = event.thread_id
-                  AND open_turn.turn_id = event.turn_id
-                  AND event.sequence >= open_turn.first_sequence
-              )
-              AND event.sequence NOT IN (
-                SELECT sequence
-                FROM provider_runtime_events
-                WHERE sequence <= ${input.eventSequence}
-                ORDER BY sequence DESC
-                LIMIT ${PROVIDER_RUNTIME_EVENT_RETAIN_ACCEPTED}
-              )
-          `;
+          retentionScanSequence = cursor;
+          yield* pruneAcceptedHistory(cursor);
           return true;
         }),
       )
@@ -477,10 +538,116 @@ const make = Effect.gen(function* () {
       );
   };
 
+  const recordConsumerFailure: ProviderRuntimeEventRepositoryShape["recordConsumerFailure"] = (
+    input,
+  ) =>
+    sql
+      .withTransaction(
+        Effect.gen(function* () {
+          const rows = yield* sql<{
+            readonly status: "accepted" | "retry" | "dead_letter";
+            readonly attemptCount: number;
+            readonly firstFailedAt: string | null;
+          }>`
+            INSERT INTO provider_runtime_event_deliveries (
+              consumer_name, event_sequence, status, attempt_count,
+              first_failed_at, last_failed_at, last_error, updated_at
+            ) VALUES (
+              ${input.consumerName}, ${input.eventSequence}, 'retry', 1,
+              ${input.failedAt}, ${input.failedAt}, ${input.error}, ${input.failedAt}
+            )
+            ON CONFLICT (consumer_name, event_sequence) DO UPDATE SET
+              status = CASE
+                WHEN provider_runtime_event_deliveries.status IN ('accepted', 'dead_letter')
+                  THEN provider_runtime_event_deliveries.status
+                ELSE 'retry'
+              END,
+              attempt_count = provider_runtime_event_deliveries.attempt_count + 1,
+              first_failed_at = COALESCE(
+                provider_runtime_event_deliveries.first_failed_at,
+                excluded.first_failed_at
+              ),
+              last_failed_at = excluded.last_failed_at,
+              last_error = excluded.last_error,
+              updated_at = excluded.updated_at
+            RETURNING status, attempt_count AS "attemptCount", first_failed_at AS "firstFailedAt"
+          `;
+          const row = rows[0];
+          if (!row || row.firstFailedAt === null) {
+            return {
+              status: "retry" as const,
+              attemptCount: row?.attemptCount ?? 1,
+              firstFailedAt: input.failedAt,
+            };
+          }
+          if (row.status === "accepted") {
+            return {
+              status: "accepted" as const,
+              attemptCount: row.attemptCount,
+              firstFailedAt: row.firstFailedAt,
+            };
+          }
+          const shouldDeadLetter =
+            row.status === "dead_letter" ||
+            (row.attemptCount >= PROVIDER_RUNTIME_EVENT_FAILURE_ATTEMPT_LIMIT &&
+              Date.parse(input.failedAt) - Date.parse(row.firstFailedAt) >=
+                PROVIDER_RUNTIME_EVENT_FAILURE_MIN_AGE_MS);
+          if (shouldDeadLetter) {
+            yield* sql`
+              UPDATE provider_runtime_event_deliveries
+              SET status = 'dead_letter', updated_at = ${input.failedAt}
+              WHERE consumer_name = ${input.consumerName}
+                AND event_sequence = ${input.eventSequence}
+            `;
+            yield* compactSettledConsumerCursor(input.consumerName, input.failedAt);
+          }
+          return {
+            status: shouldDeadLetter ? ("dead_letter" as const) : ("retry" as const),
+            attemptCount: row.attemptCount,
+            firstFailedAt: row.firstFailedAt,
+          };
+        }),
+      )
+      .pipe(Effect.mapError(toPersistenceSqlError("ProviderRuntimeEvent.recordConsumerFailure")));
+
+  const deadLetterConsumerEvent: ProviderRuntimeEventRepositoryShape["deadLetterConsumerEvent"] = (
+    input,
+  ) =>
+    sql
+      .withTransaction(
+        Effect.gen(function* () {
+          const eventRows = yield* sql<{ readonly sequence: number }>`
+            SELECT sequence FROM provider_runtime_events WHERE sequence = ${input.eventSequence}
+          `;
+          if (eventRows.length === 0) return false;
+          yield* sql`
+            INSERT INTO provider_runtime_event_deliveries (
+              consumer_name, event_sequence, status, attempt_count,
+              first_failed_at, last_failed_at, last_error, updated_at
+            ) VALUES (
+              ${input.consumerName}, ${input.eventSequence}, 'dead_letter', 1,
+              ${input.failedAt}, ${input.failedAt}, ${input.error}, ${input.failedAt}
+            )
+            ON CONFLICT (consumer_name, event_sequence) DO UPDATE SET
+              status = CASE
+                WHEN provider_runtime_event_deliveries.status = 'accepted' THEN 'accepted'
+                ELSE 'dead_letter'
+              END,
+              last_failed_at = excluded.last_failed_at,
+              last_error = excluded.last_error,
+              updated_at = excluded.updated_at
+          `;
+          yield* compactSettledConsumerCursor(input.consumerName, input.failedAt);
+          return true;
+        }),
+      )
+      .pipe(Effect.mapError(toPersistenceSqlError("ProviderRuntimeEvent.deadLetterConsumerEvent")));
+
   return {
     append,
     getHighWaterSequence,
     readAfter,
+    readPending,
     getThreadCoverage,
     readThreadEvents,
     readAcceptedOpenTurnEvents,
@@ -488,6 +655,8 @@ const make = Effect.gen(function* () {
     getConsumerCursor,
     hasPendingEventsForThreads,
     advanceConsumerCursor,
+    recordConsumerFailure,
+    deadLetterConsumerEvent,
   } satisfies ProviderRuntimeEventRepositoryShape;
 });
 

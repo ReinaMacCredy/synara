@@ -223,6 +223,7 @@ export interface BrowserAutomationDownloadEvent {
 
 export interface DesktopBrowserManagerOptions {
   beforeInputEvent?: (event: Electron.Event, input: Electron.Input) => boolean;
+  beforeMouseEvent?: (event: Electron.Event, input: Electron.MouseInputEvent) => boolean;
   annotationPreloadPath?: string;
 }
 
@@ -1012,6 +1013,9 @@ export class DesktopBrowserManager {
     const { webContents } = popup;
     this.sessionPolicy.applyUserAgent(webContents);
     const closeOnInput = (event: Electron.Event, input: Electron.Input) => {
+      if (this.options.beforeInputEvent?.(event, input)) {
+        return;
+      }
       if (input.type !== "keyDown") {
         return;
       }
@@ -1031,12 +1035,15 @@ export class DesktopBrowserManager {
       webContents.removeListener("before-input-event", closeOnInput);
     });
 
-    const markPopupPointerControl = (_event: Electron.Event, input: Electron.MouseInputEvent) => {
+    const markPopupPointerControl = (event: Electron.Event, input: Electron.MouseInputEvent) => {
       if (
         input.type === "mouseDown" ||
         input.type === "mouseWheel" ||
         input.type === "contextMenu"
       ) {
+        if (this.options.beforeMouseEvent?.(event, input)) {
+          return;
+        }
         this.markHumanControl(runtime.threadId);
       }
     };
@@ -2554,7 +2561,7 @@ export class DesktopBrowserManager {
       webContents.removeListener("before-input-event", beforeInputEvent);
     });
 
-    const beforeMouseEvent = (_event: Electron.Event, input: Electron.MouseInputEvent) => {
+    const beforeMouseEvent = (event: Electron.Event, input: Electron.MouseInputEvent) => {
       if (
         input.type === "mouseDown" ||
         input.type === "mouseWheel" ||
@@ -2569,6 +2576,9 @@ export class DesktopBrowserManager {
             ...(input.button === undefined ? {} : { button: input.button }),
           })
         ) {
+          return;
+        }
+        if (this.options.beforeMouseEvent?.(event, input)) {
           return;
         }
         this.markHumanControl(threadId);

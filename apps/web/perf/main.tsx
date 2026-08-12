@@ -34,6 +34,7 @@ type PerfSnapshot = {
   heapUsedBytes: number | null;
   longTaskCount: number;
   longTaskDurationMs: number;
+  clientHeight: number;
   scrollHeight: number;
   scrollTop: number;
 };
@@ -92,7 +93,7 @@ function assistantText(index: number): string {
   return `Measured assistant response ${index}. The completed row should remain stable during unrelated updates.`;
 }
 
-function createTimelineEntries(messageCount: number, streamingText: string): TimelineEntries {
+function createSettledTimelineEntries(messageCount: number): TimelineEntries {
   const entries: TimelineEntries = [];
   const settledMessageCount = Math.max(1, messageCount - 1);
   for (let index = 0; index < settledMessageCount; index += 1) {
@@ -130,20 +131,6 @@ function createTimelineEntries(messageCount: number, streamingText: string): Tim
     }
   }
 
-  const streamingId = MessageId.makeUnsafe("perf-message-streaming");
-  entries.push({
-    id: streamingId,
-    kind: "message",
-    createdAt: isoAt(messageCount * 2),
-    message: {
-      id: streamingId,
-      role: "assistant",
-      turnId: TurnId.makeUnsafe("perf-turn-streaming"),
-      text: streamingText,
-      createdAt: isoAt(messageCount * 2),
-      streaming: true,
-    },
-  });
   return entries;
 }
 
@@ -213,10 +200,29 @@ function PerformanceHarness() {
   const longTaskCountRef = useRef(0);
   const longTaskDurationMsRef = useRef(0);
 
-  const timelineEntries = useMemo(
-    () => createTimelineEntries(messageCount, streamingText),
-    [messageCount, streamingText],
+  const settledTimelineEntries = useMemo(
+    () => createSettledTimelineEntries(messageCount),
+    [messageCount],
   );
+  const timelineEntries = useMemo<TimelineEntries>(() => {
+    const streamingId = MessageId.makeUnsafe("perf-message-streaming");
+    return [
+      ...settledTimelineEntries,
+      {
+        id: streamingId,
+        kind: "message",
+        createdAt: isoAt(messageCount * 2),
+        message: {
+          id: streamingId,
+          role: "assistant",
+          turnId: TurnId.makeUnsafe("perf-turn-streaming"),
+          text: streamingText,
+          createdAt: isoAt(messageCount * 2),
+          streaming: true,
+        },
+      },
+    ];
+  }, [messageCount, settledTimelineEntries, streamingText]);
 
   const handleRender: ProfilerOnRenderCallback = useCallback((_id, _phase, actualDuration) => {
     commitCountRef.current += 1;
@@ -257,6 +263,7 @@ function PerformanceHarness() {
       heapUsedBytes: performance.memory?.usedJSHeapSize ?? null,
       longTaskCount: longTaskCountRef.current,
       longTaskDurationMs: longTaskDurationMsRef.current,
+      clientHeight: scrollContainer?.clientHeight ?? 0,
       scrollHeight: scrollContainer?.scrollHeight ?? 0,
       scrollTop: scrollContainer?.scrollTop ?? 0,
     };

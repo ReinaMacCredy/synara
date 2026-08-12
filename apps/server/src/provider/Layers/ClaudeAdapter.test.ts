@@ -4,6 +4,7 @@ import path from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import type {
+  AgentInfo,
   Options as ClaudeQueryOptions,
   HookInput,
   ModelInfo,
@@ -5194,6 +5195,65 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
       assert.equal(createQueryCalls, 1);
 
       const cached = yield* listModels({
+        provider: "claudeAgent",
+        cwd: "/tmp/project",
+      });
+      assert.equal(cached.cached, true);
+      assert.equal(createQueryCalls, 1);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("awaits and caches Claude agent discovery before a session starts", () => {
+    const query = new FakeClaudeQuery();
+    let createQueryCalls = 0;
+    (query as unknown as { supportedAgents: () => Promise<Array<AgentInfo>> }).supportedAgents =
+      async () => {
+        assert.ok(query.iteratorNextCalls > 0, "agent discovery must drive the SDK handshake");
+        return [
+          {
+            name: "reviewer",
+            description: "Reviews a proposed change",
+            model: "claude-sonnet-5",
+          },
+        ];
+      };
+    const layer = makeClaudeAdapterLive({
+      createQuery: () => {
+        createQueryCalls += 1;
+        return query;
+      },
+    }).pipe(
+      Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-adapter-test", "/tmp")),
+      Layer.provideMerge(NodeServices.layer),
+    );
+
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const listAgents = adapter.listAgents;
+      if (!listAgents) {
+        assert.fail("Expected Claude adapter to support agent discovery.");
+      }
+
+      const discovered = yield* listAgents({
+        provider: "claudeAgent",
+        cwd: "/tmp/project",
+      });
+      assert.deepEqual(discovered, {
+        agents: [
+          {
+            name: "reviewer",
+            displayName: "reviewer",
+            description: "Reviews a proposed change",
+            model: "claude-sonnet-5",
+          },
+        ],
+        source: "sdk",
+        cached: false,
+      });
+      assert.equal(query.closeCalls, 1);
+      assert.equal(createQueryCalls, 1);
+
+      const cached = yield* listAgents({
         provider: "claudeAgent",
         cwd: "/tmp/project",
       });

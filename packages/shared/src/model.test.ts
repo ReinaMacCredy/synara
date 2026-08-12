@@ -112,8 +112,8 @@ describe("resolveModelSlug", () => {
   });
 
   it("preserves unknown custom models", () => {
-    expect(resolveModelSlug("gpt-4.1")).toBe(DEFAULT_MODEL);
-    expect(resolveModelSlug("custom/internal-model")).toBe(DEFAULT_MODEL);
+    expect(resolveModelSlug("gpt-4.1")).toBe("gpt-4.1");
+    expect(resolveModelSlug("custom/internal-model")).toBe("custom/internal-model");
   });
 
   it("resolves only supported model options", () => {
@@ -127,9 +127,7 @@ describe("resolveModelSlug", () => {
       DEFAULT_MODEL_BY_PROVIDER.claudeAgent,
     );
     expect(resolveModelSlugForProvider("claudeAgent", "sonnet")).toBe("claude-sonnet-5");
-    expect(resolveModelSlugForProvider("claudeAgent", "gpt-5.3-codex")).toBe(
-      DEFAULT_MODEL_BY_PROVIDER.claudeAgent,
-    );
+    expect(resolveModelSlugForProvider("claudeAgent", "gpt-5.3-codex")).toBe("gpt-5.3-codex");
   });
 
   it("keeps codex defaults for backward compatibility", () => {

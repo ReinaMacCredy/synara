@@ -217,6 +217,36 @@ describe("wsNativeApi", () => {
     );
   });
 
+  it("isolates, deduplicates, and exposes push subscriber failures", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { createWsNativeApi, onServerWelcome, readWsListenerDeliveryFaults } =
+      await import("./wsNativeApi");
+
+    createWsNativeApi();
+    const failingListener = () => {
+      throw new Error("broken welcome consumer");
+    };
+    const healthyListener = vi.fn();
+    onServerWelcome(failingListener);
+    onServerWelcome(healthyListener);
+
+    const payload = { cwd: "/tmp/workspace", homeDir: "/Users/tester", projectName: "veylen-code" };
+    emitPush(WS_CHANNELS.serverWelcome, payload);
+    emitPush(WS_CHANNELS.serverWelcome, payload);
+
+    expect(healthyListener).toHaveBeenCalledTimes(2);
+    expect(readWsListenerDeliveryFaults()).toMatchObject([
+      {
+        channel: WS_CHANNELS.serverWelcome,
+        listener: "failingListener",
+        phase: "live",
+        message: "broken welcome consumer",
+        count: 2,
+      },
+    ]);
+    expect(consoleError).toHaveBeenCalledTimes(1);
+  });
+
   it("delivers and caches valid server.configUpdated payloads", async () => {
     const { createWsNativeApi, onServerConfigUpdated } = await import("./wsNativeApi");
 
@@ -745,6 +775,25 @@ describe("wsNativeApi", () => {
       }),
     );
     expect(result).toMatchObject({ authenticated: true, sessionMethod: "browser-session-cookie" });
+  });
+
+  it("rejects malformed successful auth responses at the HTTP trust boundary", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          authenticated: "yes",
+          auth: { policy: "not-a-policy" },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    await expect(api.server.getAuthSession()).rejects.toThrow(
+      "Auth response from /api/auth/session did not match the client protocol.",
+    );
   });
 
   it("logs out over HTTP and disposes the authenticated websocket transport", async () => {

@@ -303,9 +303,7 @@ export function deriveTurnWorkStatus(input: {
   const stickySettled = turnKey != null && isStickySettledTurnKey(turnKey);
 
   const activeTurnInProgress =
-    input.localDispatchActive ||
-    input.isConnecting ||
-    (!stickySettled && liveSignals);
+    input.localDispatchActive || input.isConnecting || (!stickySettled && liveSignals);
 
   const workStatusInFlight = activeTurnInProgress;
   // Continuous origin for *this* open turn (morning deriveActiveWorkStartedAt order).

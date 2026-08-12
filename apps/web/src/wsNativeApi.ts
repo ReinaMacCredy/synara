@@ -4,18 +4,19 @@
 // Exports: createWsNativeApi and event subscription helpers for server push channels.
 
 import {
-  type AuthBearerBootstrapResult,
+  AuthBearerBootstrapResult,
   type AuthBootstrapInput,
-  type AuthBootstrapResult,
-  type AuthClientSession,
+  AuthBootstrapResult,
+  AuthClientSession,
   type AuthCreatePairingCredentialInput,
-  type AuthLogoutResult,
-  type AuthPairingCredentialResult,
-  type AuthPairingLink,
+  AuthLogoutResult,
+  AuthPairingCredentialResult,
+  AuthPairingLink,
+  AuthRevokeOtherClientsResult,
   type AuthRevokeClientSessionInput,
   type AuthRevokePairingLinkInput,
-  type AuthSessionState,
-  type AuthWebSocketTokenResult,
+  AuthSessionState,
+  AuthWebSocketTokenResult,
   type ExternalMcpCreateIntegrationInput,
   type ExternalMcpCreateIntegrationResult,
   type ExternalMcpIntegration,
@@ -50,6 +51,7 @@ import {
   type DeviceEvent,
 } from "@veylen/contracts";
 import { VOICE_TRANSCRIPTION_UPLOAD_ROUTE_PATH } from "@veylen/shared/binaryTransfer";
+import { Schema } from "effect";
 
 import { showConfirmDialogFallback } from "./confirmDialogFallback";
 import { showContextMenuFallback } from "./contextMenuFallback";
@@ -83,8 +85,92 @@ export function onWsServerCapabilitiesChange(
   );
 }
 
-function createListenerRegistry<T>() {
+export interface WsListenerDeliveryFault {
+  readonly channel: string;
+  readonly listener: string;
+  readonly phase: "live" | "replay";
+  readonly message: string;
+  readonly count: number;
+  readonly firstOccurredAt: string;
+  readonly lastOccurredAt: string;
+}
+
+const MAX_WS_LISTENER_DELIVERY_FAULTS = 32;
+const wsListenerDeliveryFaults: WsListenerDeliveryFault[] = [];
+let wsListenerIdentitySequence = 0;
+
+function recordWsListenerDeliveryFault(input: {
+  readonly channel: string;
+  readonly listener: string;
+  readonly phase: "live" | "replay";
+  readonly cause: unknown;
+}): void {
+  const message = input.cause instanceof Error ? input.cause.message : String(input.cause);
+  const occurredAt = new Date().toISOString();
+  const existingIndex = wsListenerDeliveryFaults.findIndex(
+    (fault) =>
+      fault.channel === input.channel &&
+      fault.listener === input.listener &&
+      fault.phase === input.phase &&
+      fault.message === message,
+  );
+  if (existingIndex >= 0) {
+    const existing = wsListenerDeliveryFaults[existingIndex]!;
+    wsListenerDeliveryFaults[existingIndex] = {
+      ...existing,
+      count: existing.count + 1,
+      lastOccurredAt: occurredAt,
+    };
+    return;
+  }
+
+  wsListenerDeliveryFaults.push({
+    channel: input.channel,
+    listener: input.listener,
+    phase: input.phase,
+    message,
+    count: 1,
+    firstOccurredAt: occurredAt,
+    lastOccurredAt: occurredAt,
+  });
+  if (wsListenerDeliveryFaults.length > MAX_WS_LISTENER_DELIVERY_FAULTS) {
+    wsListenerDeliveryFaults.shift();
+  }
+  console.error("WebSocket push subscriber failed", {
+    channel: input.channel,
+    listener: input.listener,
+    phase: input.phase,
+    message,
+  });
+}
+
+export function readWsListenerDeliveryFaults(): ReadonlyArray<WsListenerDeliveryFault> {
+  return wsListenerDeliveryFaults.map((fault) => ({ ...fault }));
+}
+
+function createListenerRegistry<T>(channel: string) {
   const listeners = new Set<(payload: T) => void>();
+  const listenerIdentities = new WeakMap<(payload: T) => void, string>();
+  const listenerIdentity = (listener: (payload: T) => void): string => {
+    const existing = listenerIdentities.get(listener);
+    if (existing) return existing;
+    wsListenerIdentitySequence += 1;
+    const identity = listener.name || `listener-${String(wsListenerIdentitySequence)}`;
+    listenerIdentities.set(listener, identity);
+    return identity;
+  };
+  const deliver = (listener: (payload: T) => void, payload: T, phase: "live" | "replay") => {
+    try {
+      listener(payload);
+    } catch (cause) {
+      recordWsListenerDeliveryFault({
+        channel,
+        listener: listenerIdentity(listener),
+        phase,
+        cause,
+      });
+    }
+  };
   return {
     get size() {
       return listeners.size;
@@ -95,13 +181,10 @@ function createListenerRegistry<T>() {
     },
     emit(payload: T) {
       for (const listener of listeners) {
-        try {
-          listener(payload);
-        } catch {
-          // A listener must not prevent delivery to the remaining subscribers.
-        }
+        deliver(listener, payload, "live");
       }
     },
+    deliver,
     clear() {
       listeners.clear();
     },
@@ -111,31 +194,40 @@ function createListenerRegistry<T>() {
 function subscribeWithReplay<T>(input: {
   readonly registry: {
     subscribe: (listener: (payload: T) => void) => () => unknown;
+    deliver: (listener: (payload: T) => void, payload: T, phase: "live" | "replay") => void;
   };
   readonly listener: (payload: T) => void;
   readonly latest: T | null;
 }): () => void {
   const unsubscribe = input.registry.subscribe(input.listener);
   if (input.latest) {
-    try {
-      input.listener(input.latest);
-    } catch {
-      // Replay follows the same listener isolation as live delivery.
-    }
+    input.registry.deliver(input.listener, input.latest, "replay");
   }
   return () => void unsubscribe();
 }
 
-const welcomeListeners = createListenerRegistry<WsWelcomePayload>();
-const serverConfigUpdatedListeners = createListenerRegistry<ServerConfigUpdatedPayload>();
+const welcomeListeners = createListenerRegistry<WsWelcomePayload>(WS_CHANNELS.serverWelcome);
+const serverConfigUpdatedListeners = createListenerRegistry<ServerConfigUpdatedPayload>(
+  WS_CHANNELS.serverConfigUpdated,
+);
 const serverProviderStatusesUpdatedListeners =
-  createListenerRegistry<ServerProviderStatusesUpdatedPayload>();
-const serverMaintenanceUpdatedListeners = createListenerRegistry<ServerLifecycleStreamEvent>();
-const serverSettingsUpdatedListeners = createListenerRegistry<ServerSettingsUpdatedPayload>();
-const gitActionProgressListeners = createListenerRegistry<GitActionProgressEvent>();
-const gitWorktreeSetupProgressListeners = createListenerRegistry<GitWorktreeSetupProgressEvent>();
+  createListenerRegistry<ServerProviderStatusesUpdatedPayload>(
+    WS_CHANNELS.serverProviderStatusesUpdated,
+  );
+const serverMaintenanceUpdatedListeners = createListenerRegistry<ServerLifecycleStreamEvent>(
+  WS_CHANNELS.serverMaintenanceUpdated,
+);
+const serverSettingsUpdatedListeners = createListenerRegistry<ServerSettingsUpdatedPayload>(
+  WS_CHANNELS.serverSettingsUpdated,
+);
+const gitActionProgressListeners = createListenerRegistry<GitActionProgressEvent>(
+  WS_CHANNELS.gitActionProgress,
+);
+const gitWorktreeSetupProgressListeners = createListenerRegistry<GitWorktreeSetupProgressEvent>(
+  WS_CHANNELS.gitWorktreeSetupProgress,
+);
 const projectProvisionProgressListeners =
-  createListenerRegistry<GitHubProjectProvisionProgressEvent>();
+  createListenerRegistry<GitHubProjectProvisionProgressEvent>(WS_CHANNELS.projectProvisionProgress);
 
 function omitNullUserInputAnswers(
   command: Parameters<NativeApi["orchestration"]["dispatchCommand"]>[0],
@@ -153,15 +245,27 @@ function omitNullUserInputAnswers(
     ),
   };
 }
-const terminalEventListeners = createListenerRegistry<TerminalEvent>();
-const projectDevServerEventListeners = createListenerRegistry<ProjectDevServerEvent>();
-const automationEventListeners = createListenerRegistry<AutomationStreamEvent>();
-const deviceEventListeners = createListenerRegistry<DeviceEvent>();
-const orchestrationDomainEventListeners = createListenerRegistry<OrchestrationEvent>();
-const orchestrationShellEventListeners = createListenerRegistry<OrchestrationShellStreamItem>();
-const orchestrationThreadEventListeners = createListenerRegistry<OrchestrationThreadStreamItem>();
-const threadStreamFailureListeners = createListenerRegistry<WsThreadStreamFailure>();
-const fallbackBrowserStateListeners = createListenerRegistry<ThreadBrowserState>();
+const terminalEventListeners = createListenerRegistry<TerminalEvent>(WS_CHANNELS.terminalEvent);
+const projectDevServerEventListeners = createListenerRegistry<ProjectDevServerEvent>(
+  WS_CHANNELS.projectDevServerEvent,
+);
+const automationEventListeners = createListenerRegistry<AutomationStreamEvent>(
+  WS_CHANNELS.automationEvent,
+);
+const deviceEventListeners = createListenerRegistry<DeviceEvent>(DEVICE_WS_CHANNELS.event);
+const orchestrationDomainEventListeners = createListenerRegistry<OrchestrationEvent>(
+  ORCHESTRATION_WS_CHANNELS.domainEvent,
+);
+const orchestrationShellEventListeners = createListenerRegistry<OrchestrationShellStreamItem>(
+  ORCHESTRATION_WS_CHANNELS.shellEvent,
+);
+const orchestrationThreadEventListeners = createListenerRegistry<OrchestrationThreadStreamItem>(
+  ORCHESTRATION_WS_CHANNELS.threadEvent,
+);
+const threadStreamFailureListeners = createListenerRegistry<WsThreadStreamFailure>(
+  "orchestration.thread.failure",
+);
+const fallbackBrowserStateListeners = createListenerRegistry<ThreadBrowserState>("browser.state");
 const fallbackBrowserStates = new Map<ThreadId, ThreadBrowserState>();
 
 function clearWsNativeApiListeners(): void {
@@ -206,13 +310,14 @@ function defaultBrowserTitle(url: string): string {
   }
 }
 
-async function requestAuthJson<T>(
+async function requestAuthJson<S extends Schema.Top & { readonly DecodingServices: never }>(
   path: string,
+  schema: S,
   options: {
     readonly method?: "GET" | "POST";
     readonly body?: unknown;
   } = {},
-): Promise<T> {
+): Promise<S["Type"]> {
   const hasBody = options.body !== undefined;
   const response = await fetch(path, {
     method: options.method ?? "GET",
@@ -235,7 +340,11 @@ async function requestAuthJson<T>(
         : `Auth request failed with status ${response.status}`;
     throw new Error(message);
   }
-  return payload as T;
+  try {
+    return Schema.decodeSync(schema)(payload as S["Encoded"]);
+  } catch (cause) {
+    throw new Error(`Auth response from ${path} did not match the client protocol.`, { cause });
+  }
 }
 
 async function requestVoiceTranscriptionUpload(
@@ -636,43 +745,43 @@ export function createWsNativeApi(): NativeApi {
       getEnvironment: () => transport.request(WS_METHODS.serverGetEnvironment),
       getSettings: () => transport.request(WS_METHODS.serverGetSettings),
       updateSettings: (input) => transport.request(WS_METHODS.serverUpdateSettings, input),
-      getAuthSession: () => requestAuthJson<AuthSessionState>("/api/auth/session"),
+      getAuthSession: () => requestAuthJson("/api/auth/session", AuthSessionState),
       bootstrapAuth: (input: AuthBootstrapInput) =>
-        requestAuthJson<AuthBootstrapResult>("/api/auth/bootstrap", {
+        requestAuthJson("/api/auth/bootstrap", AuthBootstrapResult, {
           method: "POST",
           body: input,
         }),
       bootstrapBearerAuth: (input: AuthBootstrapInput) =>
-        requestAuthJson<AuthBearerBootstrapResult>("/api/auth/bootstrap/bearer", {
+        requestAuthJson("/api/auth/bootstrap/bearer", AuthBearerBootstrapResult, {
           method: "POST",
           body: input,
         }),
       issueAuthWebSocketToken: () =>
-        requestAuthJson<AuthWebSocketTokenResult>("/api/auth/ws-token", { method: "POST" }),
+        requestAuthJson("/api/auth/ws-token", AuthWebSocketTokenResult, { method: "POST" }),
       createAuthPairingToken: (input?: AuthCreatePairingCredentialInput) =>
-        requestAuthJson<AuthPairingCredentialResult>("/api/auth/pairing-token", {
+        requestAuthJson("/api/auth/pairing-token", AuthPairingCredentialResult, {
           method: "POST",
           ...(input ? { body: input } : {}),
         }),
       listAuthPairingLinks: () =>
-        requestAuthJson<ReadonlyArray<AuthPairingLink>>("/api/auth/pairing-links"),
+        requestAuthJson("/api/auth/pairing-links", Schema.Array(AuthPairingLink)),
       revokeAuthPairingLink: (input: AuthRevokePairingLinkInput) =>
-        requestAuthJson<{ revoked: boolean }>("/api/auth/pairing-links/revoke", {
+        requestAuthJson("/api/auth/pairing-links/revoke", AuthLogoutResult, {
           method: "POST",
           body: input,
         }),
-      listAuthClients: () => requestAuthJson<ReadonlyArray<AuthClientSession>>("/api/auth/clients"),
+      listAuthClients: () => requestAuthJson("/api/auth/clients", Schema.Array(AuthClientSession)),
       revokeAuthClient: (input: AuthRevokeClientSessionInput) =>
-        requestAuthJson<{ revoked: boolean }>("/api/auth/clients/revoke", {
+        requestAuthJson("/api/auth/clients/revoke", AuthLogoutResult, {
           method: "POST",
           body: input,
         }),
       revokeOtherAuthClients: () =>
-        requestAuthJson<{ revokedCount: number }>("/api/auth/clients/revoke-others", {
+        requestAuthJson("/api/auth/clients/revoke-others", AuthRevokeOtherClientsResult, {
           method: "POST",
         }),
       logoutAuthSession: async () => {
-        const result = await requestAuthJson<AuthLogoutResult>("/api/auth/logout", {
+        const result = await requestAuthJson("/api/auth/logout", AuthLogoutResult, {
           method: "POST",
         });
         await transport.dispose();
@@ -1100,6 +1209,7 @@ export async function resetWsNativeApiForTest(): Promise<void> {
   instance = null;
   clearWsNativeApiListeners();
   fallbackBrowserStates.clear();
+  wsListenerDeliveryFaults.length = 0;
   await transport?.dispose();
 }
 

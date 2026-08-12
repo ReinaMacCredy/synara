@@ -1,6 +1,16 @@
 import { useEffect } from "react";
 import { useRouter } from "@tanstack/react-router";
 
+import type { AppRouter } from "../router";
+
+type PreloadableRoutePath = "/$threadId" | "/settings";
+
+export function preloadRouteChunk(router: AppRouter, path: PreloadableRoutePath): Promise<void> {
+  const route = router.routesByPath[path];
+  if (!route) return Promise.resolve();
+  return Promise.resolve(router.loadRouteChunk(route));
+}
+
 /** Warms code-split route chunks once the browser is idle.
  *
  *  Settings and thread routes are reached through programmatic `navigate()`
@@ -17,12 +27,12 @@ export function usePreloadRouteChunks() {
     // New-task navigation is a primary startup action. Warm that route as soon
     // as the root commits so an immediate click never waits for the browser's
     // idle callback (which can be delayed for several seconds during hydration).
-    router.preloadRoute({ to: "/$threadId", params: { threadId: "chunk-preload" } }).catch(() => {
+    preloadRouteChunk(router, "/$threadId").catch(() => {
       // Preloading is best-effort; navigation falls back to loading on demand.
     });
 
     const preloadSettings = () => {
-      router.preloadRoute({ to: "/settings" }).catch(() => {
+      preloadRouteChunk(router, "/settings").catch(() => {
         // Preloading is best-effort; navigation falls back to loading on demand.
       });
     };

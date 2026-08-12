@@ -980,12 +980,21 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("veylen-message-ide
         const readRows = () =>
           sql<{ readonly threadId: string; readonly text: string; readonly attachments: string }>`
           SELECT
-            thread_id AS "threadId",
-            text,
-            attachments_json AS attachments
-          FROM projection_thread_messages
-          WHERE message_id = ${messageId}
-          ORDER BY thread_id ASC
+            message.thread_id AS "threadId",
+            message.text || COALESCE((
+              SELECT GROUP_CONCAT(ordered.delta, '')
+              FROM (
+                SELECT delta.delta
+                FROM projection_thread_message_deltas AS delta
+                WHERE delta.thread_id = message.thread_id
+                  AND delta.message_id = message.message_id
+                ORDER BY delta.event_sequence ASC
+              ) AS ordered
+            ), '') AS text,
+            message.attachments_json AS attachments
+          FROM projection_thread_messages AS message
+          WHERE message.message_id = ${messageId}
+          ORDER BY message.thread_id ASC
         `;
         const expectedRows = [
           {
@@ -2874,6 +2883,7 @@ it.layer(
 
       const streamedRows = yield* sql<{
         readonly text: string;
+        readonly baseText: string;
         readonly turnId: string | null;
         readonly dispatchOrigin: string | null;
         readonly isStreaming: unknown;
@@ -2882,24 +2892,41 @@ it.layer(
         readonly updatedAt: string;
       }>`
         SELECT
-          text,
+          message.text || COALESCE((
+            SELECT GROUP_CONCAT(ordered.delta, '')
+            FROM (
+              SELECT delta.delta
+              FROM projection_thread_message_deltas AS delta
+              WHERE delta.thread_id = message.thread_id
+                AND delta.message_id = message.message_id
+              ORDER BY delta.event_sequence ASC
+            ) AS ordered
+          ), '') AS text,
+          message.text AS "baseText",
           turn_id AS "turnId",
           dispatch_origin AS "dispatchOrigin",
           is_streaming AS "isStreaming",
           sequence,
           created_at AS "createdAt",
           updated_at AS "updatedAt"
-        FROM projection_thread_messages
-        WHERE thread_id = ${threadId} AND message_id = ${messageId}
+        FROM projection_thread_messages AS message
+        WHERE message.thread_id = ${threadId} AND message.message_id = ${messageId}
       `;
       const streamed = streamedRows[0];
       assert.lengthOf(streamedRows, 1);
       assert.equal(streamed?.text, deltas.join(""));
+      assert.equal(streamed?.baseText, "");
       assert.equal(streamed?.turnId, turnId);
       assert.equal(streamed?.dispatchOrigin, "agent");
       assert.isTrue(Boolean(streamed?.isStreaming));
       assert.equal(streamed?.createdAt, iso(1));
       assert.equal(streamed?.updatedAt, iso(deltas.length));
+      const deltaCount = yield* sql<{ readonly count: number }>`
+        SELECT COUNT(*) AS count
+        FROM projection_thread_message_deltas
+        WHERE thread_id = ${threadId} AND message_id = ${messageId}
+      `;
+      assert.equal(deltaCount[0]?.count, deltas.length);
 
       const firstDeltaSequence = yield* sql<{ readonly sequence: number }>`
         SELECT sequence FROM orchestration_events
@@ -2981,6 +3008,12 @@ it.layer(
       assert.isFalse(Boolean(settledRows[0]?.isStreaming));
       assert.equal(settledRows[0]?.sequence, firstDeltaSequence[0]?.sequence);
       assert.equal(settledRows[0]?.createdAt, iso(1));
+      const compactedDeltaCount = yield* sql<{ readonly count: number }>`
+        SELECT COUNT(*) AS count
+        FROM projection_thread_message_deltas
+        WHERE thread_id = ${threadId} AND message_id = ${messageId}
+      `;
+      assert.equal(compactedDeltaCount[0]?.count, 0);
     }),
   );
 
@@ -3070,8 +3103,19 @@ it.layer(
       yield* projectionPipeline.bootstrap;
 
       const rows = yield* sql<{ readonly text: string }>`
-        SELECT text FROM projection_thread_messages
-        WHERE thread_id = ${threadId} AND message_id = ${messageId}
+        SELECT
+          message.text || COALESCE((
+            SELECT GROUP_CONCAT(ordered.delta, '')
+            FROM (
+              SELECT delta.delta
+              FROM projection_thread_message_deltas AS delta
+              WHERE delta.thread_id = message.thread_id
+                AND delta.message_id = message.message_id
+              ORDER BY delta.event_sequence ASC
+            ) AS ordered
+          ), '') AS text
+        FROM projection_thread_messages AS message
+        WHERE message.thread_id = ${threadId} AND message.message_id = ${messageId}
       `;
       assert.lengthOf(rows, 1);
       assert.equal(rows[0]?.text, "first second third");
@@ -3692,7 +3736,19 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       yield* projectionPipeline.bootstrap;
 
       const messageRows = yield* sql<{ readonly text: string }>`
-        SELECT text FROM projection_thread_messages WHERE message_id = 'message-a'
+        SELECT
+          message.text || COALESCE((
+            SELECT GROUP_CONCAT(ordered.delta, '')
+            FROM (
+              SELECT delta.delta
+              FROM projection_thread_message_deltas AS delta
+              WHERE delta.thread_id = message.thread_id
+                AND delta.message_id = message.message_id
+              ORDER BY delta.event_sequence ASC
+            ) AS ordered
+          ), '') AS text
+        FROM projection_thread_messages AS message
+        WHERE message.message_id = 'message-a'
       `;
       assert.deepEqual(messageRows, [{ text: "hello world" }]);
 

@@ -18,6 +18,7 @@ import { MessagesTimeline } from "./MessagesTimeline";
 import type { deriveTimelineEntries } from "../../session-logic";
 
 type TimelineEntries = ReturnType<typeof deriveTimelineEntries>;
+type MessageTimelineEntry = Extract<TimelineEntries[number], { kind: "message" }>;
 
 const VIEWPORT_HEIGHT_PX = 420;
 const BASE_BOTTOM_INSET_PX = 64;
@@ -35,7 +36,7 @@ function messageEntry(
   role: "user" | "assistant",
   text: string,
   streaming = false,
-): TimelineEntries[number] {
+): MessageTimelineEntry {
   return {
     id: `entry-${id}`,
     kind: "message",
@@ -162,11 +163,7 @@ function InterleavedToolTailTimeline({
       setEntries((current) =>
         current.map((entry) =>
           entry.kind === "message" && entry.message.id === FIRST_STREAMING_MESSAGE_ID
-            ? interleavedAssistantEntry(
-                FIRST_STREAMING_MESSAGE_ID,
-                entry.message.text,
-                false,
-              )
+            ? interleavedAssistantEntry(FIRST_STREAMING_MESSAGE_ID, entry.message.text, false)
             : entry,
         ),
       );

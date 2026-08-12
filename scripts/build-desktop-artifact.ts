@@ -30,6 +30,7 @@ import {
   RELEASE_PATCHES_PATH,
   RELEASE_WORKSPACE_MANIFEST_PATHS,
 } from "./lib/release-workspace-manifests.ts";
+import { resolveGitHubPublishConfig } from "./lib/desktop-publish-config.ts";
 import { resolveCatalogDependencies } from "./lib/resolve-catalog.ts";
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
@@ -532,31 +533,6 @@ function resolveDesktopRuntimeDependencies(
   return resolveCatalogDependencies(runtimeDependencies, catalog, "apps/desktop");
 }
 
-function resolveGitHubPublishConfig():
-  | {
-      readonly provider: "github";
-      readonly owner: string;
-      readonly repo: string;
-      readonly releaseType: "release";
-    }
-  | undefined {
-  const rawRepo =
-    process.env.VEYLEN_DESKTOP_UPDATE_REPOSITORY?.trim() ||
-    process.env.GITHUB_REPOSITORY?.trim() ||
-    "";
-  if (!rawRepo) return undefined;
-
-  const [owner, repo, ...rest] = rawRepo.split("/");
-  if (!owner || !repo || rest.length > 0) return undefined;
-
-  return {
-    provider: "github",
-    owner,
-    repo,
-    releaseType: "release",
-  };
-}
-
 const verifyStagedNodePty = Effect.fn("verifyStagedNodePty")(function* (
   stageAppDir: string,
   verbose: boolean,
@@ -733,16 +709,19 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     },
     forceCodeSigning: signed,
   };
-  const publishConfig = resolveGitHubPublishConfig();
-  if (publishConfig) {
-    buildConfig.publish = [publishConfig];
-  } else if (mockUpdates) {
+  const publishConfig = resolveGitHubPublishConfig({
+    VEYLEN_DESKTOP_UPDATE_REPOSITORY: process.env.VEYLEN_DESKTOP_UPDATE_REPOSITORY,
+    GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY,
+  });
+  if (mockUpdates) {
     buildConfig.publish = [
       {
         provider: "generic",
         url: `http://localhost:${mockUpdateServerPort ?? 3000}`,
       },
     ];
+  } else if (publishConfig) {
+    buildConfig.publish = [publishConfig];
   }
 
   const windowsSigningConfig =

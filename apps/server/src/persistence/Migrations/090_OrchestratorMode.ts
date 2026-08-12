@@ -4,7 +4,7 @@ import type { SqlError } from "effect/unstable/sql/SqlError";
 
 import { columnExists } from "./schemaHelpers.ts";
 
-const MIGRATION_ID = 88;
+const MIGRATION_ID = 90;
 
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -29,74 +29,74 @@ export default Effect.gen(function* () {
         )
       `;
 
-      yield* sql`DROP TABLE IF EXISTS temp.migration_088_studio_projects`;
-      yield* sql`DROP TABLE IF EXISTS temp.migration_088_studio_threads`;
-      yield* sql`DROP TABLE IF EXISTS temp.migration_088_studio_events`;
-      yield* sql`DROP TABLE IF EXISTS temp.migration_088_studio_commands`;
-      yield* sql`DROP TABLE IF EXISTS temp.migration_088_external_operations`;
+      yield* sql`DROP TABLE IF EXISTS temp.migration_090_studio_projects`;
+      yield* sql`DROP TABLE IF EXISTS temp.migration_090_studio_threads`;
+      yield* sql`DROP TABLE IF EXISTS temp.migration_090_studio_events`;
+      yield* sql`DROP TABLE IF EXISTS temp.migration_090_studio_commands`;
+      yield* sql`DROP TABLE IF EXISTS temp.migration_090_external_operations`;
 
       yield* sql`
-        CREATE TEMP TABLE migration_088_studio_projects (
+        CREATE TEMP TABLE migration_090_studio_projects (
           project_id TEXT PRIMARY KEY
         )
       `;
       yield* sql`
-        INSERT INTO migration_088_studio_projects (project_id)
+        INSERT INTO migration_090_studio_projects (project_id)
         SELECT project_id
         FROM projection_projects
         WHERE kind = 'studio'
       `;
       yield* sql`
-        CREATE TEMP TABLE migration_088_studio_threads (
+        CREATE TEMP TABLE migration_090_studio_threads (
           thread_id TEXT PRIMARY KEY
         )
       `;
       yield* sql`
-        INSERT INTO migration_088_studio_threads (thread_id)
+        INSERT INTO migration_090_studio_threads (thread_id)
         SELECT thread_id
         FROM projection_threads
-        WHERE project_id IN (SELECT project_id FROM migration_088_studio_projects)
+        WHERE project_id IN (SELECT project_id FROM migration_090_studio_projects)
       `;
       yield* sql`
-        CREATE TEMP TABLE migration_088_studio_events (
+        CREATE TEMP TABLE migration_090_studio_events (
           sequence INTEGER PRIMARY KEY
         )
       `;
       yield* sql`
-        INSERT INTO migration_088_studio_events (sequence)
+        INSERT INTO migration_090_studio_events (sequence)
         SELECT sequence
         FROM orchestration_events
         WHERE (
           aggregate_kind = 'project'
-          AND stream_id IN (SELECT project_id FROM migration_088_studio_projects)
+          AND stream_id IN (SELECT project_id FROM migration_090_studio_projects)
         ) OR (
           aggregate_kind = 'thread'
-          AND stream_id IN (SELECT thread_id FROM migration_088_studio_threads)
+          AND stream_id IN (SELECT thread_id FROM migration_090_studio_threads)
         )
       `;
       yield* sql`
-        CREATE TEMP TABLE migration_088_studio_commands (
+        CREATE TEMP TABLE migration_090_studio_commands (
           command_id TEXT PRIMARY KEY
         )
       `;
       yield* sql`
-        INSERT OR IGNORE INTO migration_088_studio_commands (command_id)
+        INSERT OR IGNORE INTO migration_090_studio_commands (command_id)
         SELECT command_id
         FROM orchestration_events
-        WHERE sequence IN (SELECT sequence FROM migration_088_studio_events)
+        WHERE sequence IN (SELECT sequence FROM migration_090_studio_events)
           AND command_id IS NOT NULL
       `;
       yield* sql`
-        CREATE TEMP TABLE migration_088_external_operations (
+        CREATE TEMP TABLE migration_090_external_operations (
           operation_id TEXT PRIMARY KEY
         )
       `;
       yield* sql`
-        INSERT INTO migration_088_external_operations (operation_id)
+        INSERT INTO migration_090_external_operations (operation_id)
         SELECT operation_id
         FROM external_mcp_tasks
-        WHERE project_id IN (SELECT project_id FROM migration_088_studio_projects)
-           OR thread_id IN (SELECT thread_id FROM migration_088_studio_threads)
+        WHERE project_id IN (SELECT project_id FROM migration_090_studio_projects)
+           OR thread_id IN (SELECT thread_id FROM migration_090_studio_threads)
       `;
 
       const purge = (
@@ -115,7 +115,7 @@ export default Effect.gen(function* () {
             )
             ON CONFLICT (migration_id, table_name) DO NOTHING
           `;
-          yield* Effect.logInfo("Migration 088 purged Studio-owned rows", {
+          yield* Effect.logInfo("Migration 090 purged Studio-owned rows", {
             tableName,
             removedCount,
           });
@@ -125,55 +125,55 @@ export default Effect.gen(function* () {
         "provider_delivery_reconciliations",
         sql`
           DELETE FROM provider_delivery_reconciliations
-          WHERE thread_id IN (SELECT thread_id FROM migration_088_studio_threads)
-             OR event_sequence IN (SELECT sequence FROM migration_088_studio_events)
+          WHERE thread_id IN (SELECT thread_id FROM migration_090_studio_threads)
+             OR event_sequence IN (SELECT sequence FROM migration_090_studio_events)
         `,
       );
       yield* purge(
         "orchestration_event_deliveries",
         sql`
           DELETE FROM orchestration_event_deliveries
-          WHERE thread_id IN (SELECT thread_id FROM migration_088_studio_threads)
-             OR event_sequence IN (SELECT sequence FROM migration_088_studio_events)
+          WHERE thread_id IN (SELECT thread_id FROM migration_090_studio_threads)
+             OR event_sequence IN (SELECT sequence FROM migration_090_studio_events)
         `,
       );
       yield* purge(
         "queued_turn_promotions",
         sql`
           DELETE FROM queued_turn_promotions
-          WHERE thread_id IN (SELECT thread_id FROM migration_088_studio_threads)
-             OR queued_event_sequence IN (SELECT sequence FROM migration_088_studio_events)
+          WHERE thread_id IN (SELECT thread_id FROM migration_090_studio_threads)
+             OR queued_event_sequence IN (SELECT sequence FROM migration_090_studio_events)
         `,
       );
       yield* purge(
         "managed_attachment_blobs",
         sql`
           DELETE FROM managed_attachment_blobs
-          WHERE owner_thread_id IN (SELECT thread_id FROM migration_088_studio_threads)
+          WHERE owner_thread_id IN (SELECT thread_id FROM migration_090_studio_threads)
         `,
       );
       yield* purge(
         "projection_pending_interactions",
         sql`
           DELETE FROM projection_pending_interactions
-          WHERE thread_id IN (SELECT thread_id FROM migration_088_studio_threads)
+          WHERE thread_id IN (SELECT thread_id FROM migration_090_studio_threads)
         `,
       );
       yield* purge(
         "projection_thread_proposed_plans",
         sql`
           DELETE FROM projection_thread_proposed_plans
-          WHERE thread_id IN (SELECT thread_id FROM migration_088_studio_threads)
-             OR implementation_thread_id IN (SELECT thread_id FROM migration_088_studio_threads)
+          WHERE thread_id IN (SELECT thread_id FROM migration_090_studio_threads)
+             OR implementation_thread_id IN (SELECT thread_id FROM migration_090_studio_threads)
         `,
       );
       yield* purge(
         "projection_turns",
         sql`
           DELETE FROM projection_turns
-          WHERE thread_id IN (SELECT thread_id FROM migration_088_studio_threads)
+          WHERE thread_id IN (SELECT thread_id FROM migration_090_studio_threads)
              OR source_proposed_plan_thread_id IN (
-               SELECT thread_id FROM migration_088_studio_threads
+               SELECT thread_id FROM migration_090_studio_threads
              )
         `,
       );
@@ -181,107 +181,107 @@ export default Effect.gen(function* () {
         "projection_thread_sessions",
         sql`
           DELETE FROM projection_thread_sessions
-          WHERE thread_id IN (SELECT thread_id FROM migration_088_studio_threads)
+          WHERE thread_id IN (SELECT thread_id FROM migration_090_studio_threads)
         `,
       );
       yield* purge(
         "projection_thread_activities",
         sql`
           DELETE FROM projection_thread_activities
-          WHERE thread_id IN (SELECT thread_id FROM migration_088_studio_threads)
+          WHERE thread_id IN (SELECT thread_id FROM migration_090_studio_threads)
         `,
       );
       yield* purge(
         "projection_thread_messages",
         sql`
           DELETE FROM projection_thread_messages
-          WHERE thread_id IN (SELECT thread_id FROM migration_088_studio_threads)
+          WHERE thread_id IN (SELECT thread_id FROM migration_090_studio_threads)
         `,
       );
       yield* purge(
         "checkpoint_diff_blobs",
         sql`
           DELETE FROM checkpoint_diff_blobs
-          WHERE thread_id IN (SELECT thread_id FROM migration_088_studio_threads)
+          WHERE thread_id IN (SELECT thread_id FROM migration_090_studio_threads)
         `,
       );
       yield* purge(
         "provider_session_runtime",
         sql`
           DELETE FROM provider_session_runtime
-          WHERE thread_id IN (SELECT thread_id FROM migration_088_studio_threads)
+          WHERE thread_id IN (SELECT thread_id FROM migration_090_studio_threads)
         `,
       );
       yield* purge(
         "provider_runtime_open_turns",
         sql`
           DELETE FROM provider_runtime_open_turns
-          WHERE thread_id IN (SELECT thread_id FROM migration_088_studio_threads)
+          WHERE thread_id IN (SELECT thread_id FROM migration_090_studio_threads)
         `,
       );
       yield* purge(
         "provider_runtime_events",
         sql`
           DELETE FROM provider_runtime_events
-          WHERE thread_id IN (SELECT thread_id FROM migration_088_studio_threads)
+          WHERE thread_id IN (SELECT thread_id FROM migration_090_studio_threads)
         `,
       );
       yield* purge(
         "git_handoff_operations",
         sql`
           DELETE FROM git_handoff_operations
-          WHERE thread_id IN (SELECT thread_id FROM migration_088_studio_threads)
+          WHERE thread_id IN (SELECT thread_id FROM migration_090_studio_threads)
         `,
       );
       yield* purge(
         "agent_gateway_operations",
         sql`
           DELETE FROM agent_gateway_operations
-          WHERE caller_thread_id IN (SELECT thread_id FROM migration_088_studio_threads)
+          WHERE caller_thread_id IN (SELECT thread_id FROM migration_090_studio_threads)
         `,
       );
       yield* purge(
         "operational_diagnostics",
         sql`
           DELETE FROM operational_diagnostics
-          WHERE thread_id IN (SELECT thread_id FROM migration_088_studio_threads)
+          WHERE thread_id IN (SELECT thread_id FROM migration_090_studio_threads)
         `,
       );
       yield* purge(
         "profile_stats_deleted_prompts",
         sql`
           DELETE FROM profile_stats_deleted_prompts
-          WHERE thread_id IN (SELECT thread_id FROM migration_088_studio_threads)
-             OR project_id IN (SELECT project_id FROM migration_088_studio_projects)
+          WHERE thread_id IN (SELECT thread_id FROM migration_090_studio_threads)
+             OR project_id IN (SELECT project_id FROM migration_090_studio_projects)
         `,
       );
       yield* purge(
         "profile_stats_deleted_skills",
         sql`
           DELETE FROM profile_stats_deleted_skills
-          WHERE thread_id IN (SELECT thread_id FROM migration_088_studio_threads)
+          WHERE thread_id IN (SELECT thread_id FROM migration_090_studio_threads)
         `,
       );
       yield* purge(
         "profile_stats_deleted_tokens",
         sql`
           DELETE FROM profile_stats_deleted_tokens
-          WHERE thread_id IN (SELECT thread_id FROM migration_088_studio_threads)
+          WHERE thread_id IN (SELECT thread_id FROM migration_090_studio_threads)
         `,
       );
       yield* purge(
         "profile_stats_deleted_turns",
         sql`
           DELETE FROM profile_stats_deleted_turns
-          WHERE thread_id IN (SELECT thread_id FROM migration_088_studio_threads)
+          WHERE thread_id IN (SELECT thread_id FROM migration_090_studio_threads)
         `,
       );
       yield* purge(
         "profile_stats_deleted_threads",
         sql`
           DELETE FROM profile_stats_deleted_threads
-          WHERE thread_id IN (SELECT thread_id FROM migration_088_studio_threads)
-             OR project_id IN (SELECT project_id FROM migration_088_studio_projects)
+          WHERE thread_id IN (SELECT thread_id FROM migration_090_studio_threads)
+             OR project_id IN (SELECT project_id FROM migration_090_studio_projects)
         `,
       );
       yield* purge(
@@ -290,7 +290,7 @@ export default Effect.gen(function* () {
           DELETE FROM automation_memory
           WHERE automation_id IN (
             SELECT automation_id FROM automation_definitions
-            WHERE project_id IN (SELECT project_id FROM migration_088_studio_projects)
+            WHERE project_id IN (SELECT project_id FROM migration_090_studio_projects)
           )
         `,
       );
@@ -298,64 +298,64 @@ export default Effect.gen(function* () {
         "automation_runs",
         sql`
           DELETE FROM automation_runs
-          WHERE project_id IN (SELECT project_id FROM migration_088_studio_projects)
-             OR thread_id IN (SELECT thread_id FROM migration_088_studio_threads)
+          WHERE project_id IN (SELECT project_id FROM migration_090_studio_projects)
+             OR thread_id IN (SELECT thread_id FROM migration_090_studio_threads)
         `,
       );
       yield* purge(
         "automation_definitions",
         sql`
           DELETE FROM automation_definitions
-          WHERE project_id IN (SELECT project_id FROM migration_088_studio_projects)
+          WHERE project_id IN (SELECT project_id FROM migration_090_studio_projects)
         `,
       );
       yield* purge(
         "external_mcp_audit_log",
         sql`
           DELETE FROM external_mcp_audit_log
-          WHERE project_id IN (SELECT project_id FROM migration_088_studio_projects)
+          WHERE project_id IN (SELECT project_id FROM migration_090_studio_projects)
         `,
       );
       yield* purge(
         "external_mcp_integration_projects",
         sql`
           DELETE FROM external_mcp_integration_projects
-          WHERE project_id IN (SELECT project_id FROM migration_088_studio_projects)
+          WHERE project_id IN (SELECT project_id FROM migration_090_studio_projects)
         `,
       );
       yield* purge(
         "external_mcp_tasks",
         sql`
           DELETE FROM external_mcp_tasks
-          WHERE operation_id IN (SELECT operation_id FROM migration_088_external_operations)
+          WHERE operation_id IN (SELECT operation_id FROM migration_090_external_operations)
         `,
       );
       yield* purge(
         "external_mcp_operations",
         sql`
           DELETE FROM external_mcp_operations
-          WHERE operation_id IN (SELECT operation_id FROM migration_088_external_operations)
+          WHERE operation_id IN (SELECT operation_id FROM migration_090_external_operations)
         `,
       );
       yield* purge(
         "project_pull_request_pins",
         sql`
           DELETE FROM project_pull_request_pins
-          WHERE project_id IN (SELECT project_id FROM migration_088_studio_projects)
+          WHERE project_id IN (SELECT project_id FROM migration_090_studio_projects)
         `,
       );
       yield* purge(
         "orchestration_command_receipts",
         sql`
           DELETE FROM orchestration_command_receipts
-          WHERE command_id IN (SELECT command_id FROM migration_088_studio_commands)
+          WHERE command_id IN (SELECT command_id FROM migration_090_studio_commands)
              OR (
                aggregate_kind = 'project'
-               AND aggregate_id IN (SELECT project_id FROM migration_088_studio_projects)
+               AND aggregate_id IN (SELECT project_id FROM migration_090_studio_projects)
              )
              OR (
                aggregate_kind = 'thread'
-               AND aggregate_id IN (SELECT thread_id FROM migration_088_studio_threads)
+               AND aggregate_id IN (SELECT thread_id FROM migration_090_studio_threads)
              )
         `,
       );
@@ -363,21 +363,21 @@ export default Effect.gen(function* () {
         "orchestration_events",
         sql`
           DELETE FROM orchestration_events
-          WHERE sequence IN (SELECT sequence FROM migration_088_studio_events)
+          WHERE sequence IN (SELECT sequence FROM migration_090_studio_events)
         `,
       );
       yield* purge(
         "projection_threads",
         sql`
           DELETE FROM projection_threads
-          WHERE thread_id IN (SELECT thread_id FROM migration_088_studio_threads)
+          WHERE thread_id IN (SELECT thread_id FROM migration_090_studio_threads)
         `,
       );
       yield* purge(
         "projection_projects",
         sql`
           DELETE FROM projection_projects
-          WHERE project_id IN (SELECT project_id FROM migration_088_studio_projects)
+          WHERE project_id IN (SELECT project_id FROM migration_090_studio_projects)
         `,
       );
 
@@ -816,11 +816,11 @@ export default Effect.gen(function* () {
         END
       `;
 
-      yield* sql`DROP TABLE migration_088_external_operations`;
-      yield* sql`DROP TABLE migration_088_studio_commands`;
-      yield* sql`DROP TABLE migration_088_studio_events`;
-      yield* sql`DROP TABLE migration_088_studio_threads`;
-      yield* sql`DROP TABLE migration_088_studio_projects`;
+      yield* sql`DROP TABLE migration_090_external_operations`;
+      yield* sql`DROP TABLE migration_090_studio_commands`;
+      yield* sql`DROP TABLE migration_090_studio_events`;
+      yield* sql`DROP TABLE migration_090_studio_threads`;
+      yield* sql`DROP TABLE migration_090_studio_projects`;
     }),
   );
 });

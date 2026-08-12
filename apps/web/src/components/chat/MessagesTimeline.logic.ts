@@ -543,11 +543,7 @@ export function deriveMessagesTimelineRows(input: {
     }
   }
   const belongsToActiveTurn = (entry: WorkLogEntry): boolean => {
-    if (
-      input.activeTurnId != null &&
-      entry.turnId != null &&
-      entry.turnId !== input.activeTurnId
-    ) {
+    if (input.activeTurnId != null && entry.turnId != null && entry.turnId !== input.activeTurnId) {
       return false;
     }
     return true;
@@ -798,18 +794,13 @@ export function deriveMessagesTimelineRows(input: {
         return row.groupedEntries.some(isLiveStartedWorkEntry);
       }
       if (row.kind !== "message" || row.message.role !== "assistant") return false;
-      const attached = [
-        ...(row.leadingWorkEntries ?? []),
-        ...(row.inlineWorkEntries ?? []),
-      ];
+      const attached = [...(row.leadingWorkEntries ?? []), ...(row.inlineWorkEntries ?? [])];
       return attached.some(isLiveStartedWorkEntry);
     });
     // ChatGPT `JBn`/`lHn`: Working as soon as hasStartedWork (reasoning OR tools).
     const showWorkingPhase =
       !settledActivityAlreadyOwnsTurn &&
-      (hasLiveStartedWorkAfterUser ||
-        hasActiveAgentWorkAfterUser ||
-        hasStartedWorkOnLiveRows);
+      (hasLiveStartedWorkAfterUser || hasActiveAgentWorkAfterUser || hasStartedWorkOnLiveRows);
     // Live: keep Working (never early Worked-for). ChatGPT only collapses under
     // Worked for after the turn finishes (`wo` needs final assistant + settled
     // turn). Premature collapse made preambles look like the final answer and
@@ -882,11 +873,7 @@ function findEarliestActiveAgentWorkStartedAt(
   for (let index = latestUserMessageEntryIndex + 1; index < timelineEntries.length; index += 1) {
     const entry = timelineEntries[index];
     if (!entry || entry.kind !== "work") continue;
-    if (
-      activeTurnId != null &&
-      entry.entry.turnId != null &&
-      entry.entry.turnId !== activeTurnId
-    ) {
+    if (activeTurnId != null && entry.entry.turnId != null && entry.entry.turnId !== activeTurnId) {
       continue;
     }
     if (!isLiveStartedWorkEntry(entry.entry)) continue;
@@ -904,10 +891,7 @@ function findEarliestActiveAgentWorkStartedAt(
       continue;
     }
     if (row.kind !== "message" || row.message.role !== "assistant") continue;
-    for (const workEntry of [
-      ...(row.leadingWorkEntries ?? []),
-      ...(row.inlineWorkEntries ?? []),
-    ]) {
+    for (const workEntry of [...(row.leadingWorkEntries ?? []), ...(row.inlineWorkEntries ?? [])]) {
       if (isLiveStartedWorkEntry(workEntry)) consider(workEntry.createdAt);
     }
   }

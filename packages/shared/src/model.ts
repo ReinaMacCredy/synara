@@ -23,19 +23,6 @@ import {
   CodexReasoningEffort,
 } from "@veylen/contracts";
 
-const MODEL_SLUG_SET_BY_PROVIDER: Record<ProviderKind, ReadonlySet<ModelSlug>> = {
-  claudeAgent: new Set(MODEL_OPTIONS_BY_PROVIDER.claudeAgent.map((option) => option.slug)),
-  codex: new Set(MODEL_OPTIONS_BY_PROVIDER.codex.map((option) => option.slug)),
-  cursor: new Set(MODEL_OPTIONS_BY_PROVIDER.cursor.map((option) => option.slug)),
-  // Antigravity's built-in list is intentionally empty; its CLI supplies the live catalog.
-  antigravity: new Set<ModelSlug>(),
-  grok: new Set(MODEL_OPTIONS_BY_PROVIDER.grok.map((option) => option.slug)),
-  droid: new Set(MODEL_OPTIONS_BY_PROVIDER.droid.map((option) => option.slug)),
-  kilo: new Set(MODEL_OPTIONS_BY_PROVIDER.kilo.map((option) => option.slug)),
-  opencode: new Set(MODEL_OPTIONS_BY_PROVIDER.opencode.map((option) => option.slug)),
-  pi: new Set<ModelSlug>(),
-};
-
 export interface SelectableModelOption {
   slug: string;
   name: string;
@@ -496,16 +483,10 @@ export function resolveModelSlug(
   provider: ProviderKind = "codex",
 ): ModelSlug | null {
   const normalized = normalizeModelSlug(model, provider);
-  if (provider === "pi") {
-    return normalized;
-  }
   if (!normalized) {
-    return DEFAULT_MODEL_BY_PROVIDER[provider];
+    return hasDefaultModel(provider) ? DEFAULT_MODEL_BY_PROVIDER[provider] : null;
   }
-
-  return MODEL_SLUG_SET_BY_PROVIDER[provider].has(normalized)
-    ? normalized
-    : DEFAULT_MODEL_BY_PROVIDER[provider];
+  return normalized;
 }
 
 export function resolveModelSlugForProvider(

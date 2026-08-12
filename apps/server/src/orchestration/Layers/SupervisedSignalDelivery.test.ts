@@ -14,7 +14,7 @@ import {
   type SubscriptionDelivery,
 } from "@veylen/contracts";
 import { it } from "@effect/vitest";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
@@ -23,6 +23,7 @@ import { SupervisedGovernanceRepository } from "../../persistence/Services/Super
 import { SupervisedRuntimeRepository } from "../../persistence/Services/SupervisedRuntimeRepository.ts";
 import { builtInSubscriptions } from "../../supervised/signal/BuiltInSubscriptions.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { SupervisedSignalDelivery } from "../Services/SupervisedSignalDelivery.ts";
 import {
   subscriptionAllowsPluginRequest,
@@ -353,6 +354,10 @@ const engineLayer = Layer.succeed(OrchestrationEngineService, {
 const governanceLayer = Layer.succeed(SupervisedGovernanceRepository, {
   getSnapshot: () => Effect.succeed(governanceSnapshot as never),
 } as never);
+const snapshotQueryLayer = Layer.succeed(ProjectionSnapshotQuery, {
+  getCommandReadModel: () => Effect.succeed(readModel as never),
+  getThreadDetailById: () => Effect.succeed(Option.none()),
+} as never);
 const repositoryLayer = SupervisedRuntimeRepositoryLive.pipe(
   Layer.provideMerge(SqlitePersistenceMemory),
 );
@@ -360,6 +365,7 @@ const deliveryLayer = SupervisedSignalDeliveryLive.pipe(
   Layer.provideMerge(repositoryLayer),
   Layer.provideMerge(engineLayer),
   Layer.provideMerge(governanceLayer),
+  Layer.provideMerge(snapshotQueryLayer),
 );
 const layer = it.layer(
   Layer.mergeAll(
@@ -367,6 +373,7 @@ const layer = it.layer(
     repositoryLayer,
     engineLayer,
     governanceLayer,
+    snapshotQueryLayer,
     deliveryLayer,
   ),
 );

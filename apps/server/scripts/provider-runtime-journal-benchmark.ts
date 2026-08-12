@@ -1,10 +1,14 @@
 import { performance } from "node:perf_hooks";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { EventId, ThreadId, TurnId, type ProviderRuntimeEvent } from "@veylen/contracts";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, Layer, ManagedRuntime } from "effect";
 
 import { ProviderRuntimeEventRepositoryLive } from "../src/persistence/Layers/ProviderRuntimeEvents.ts";
-import { SqlitePersistenceMemory } from "../src/persistence/Layers/Sqlite.ts";
+import { makeSqlitePersistenceLive } from "../src/persistence/Layers/Sqlite.ts";
 import { ProviderRuntimeEventRepository } from "../src/persistence/Services/ProviderRuntimeEvents.ts";
 
 type BenchmarkMode = "once" | "duplicate";
@@ -85,8 +89,14 @@ async function runSample(input: {
   readonly eventCount: number;
   readonly threadCount: number;
 }): Promise<Sample> {
+  const tempDirectory = await mkdtemp(join(tmpdir(), "veylen-runtime-journal-e2e-"));
+  const databasePath = join(tempDirectory, "state.sqlite");
   const runtime = ManagedRuntime.make(
-    ProviderRuntimeEventRepositoryLive.pipe(Layer.provide(SqlitePersistenceMemory)),
+    ProviderRuntimeEventRepositoryLive.pipe(
+      Layer.provide(
+        makeSqlitePersistenceLive(databasePath).pipe(Layer.provide(NodeServices.layer)),
+      ),
+    ),
   );
   try {
     const repository = await runtime.runPromise(Effect.service(ProviderRuntimeEventRepository));
@@ -124,6 +134,7 @@ async function runSample(input: {
     };
   } finally {
     await runtime.dispose();
+    await rm(tempDirectory, { recursive: true, force: true });
   }
 }
 
@@ -160,7 +171,7 @@ async function run(): Promise<void> {
       warmups,
       samples: sampleCount,
       payload: "provider-neutral assistant text delta",
-      persistence: "SQLite in-memory with production migrations and repository",
+      persistence: "file-backed SQLite WAL/NORMAL with production migrations and repository",
     },
     summary: {
       wallMs: wall,

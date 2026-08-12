@@ -36,12 +36,21 @@ export interface SupervisedGovernanceRepositoryShape {
     PersistedModelRoutingState,
     ProjectionRepositoryError
   >;
+  readonly getProjectionSnapshot: () => Effect.Effect<
+    SupervisedGovernanceSnapshot,
+    ProjectionRepositoryError
+  >;
   readonly replaceSnapshot: (
     snapshot: SupervisedGovernanceSnapshot,
   ) => Effect.Effect<void, ProjectionRepositoryError>;
   readonly replaceOrchestration: (input: {
     readonly expectedRevision: number;
     readonly orchestration: SupervisedOrchestrationSnapshot;
+    readonly updatedAt: string;
+  }) => Effect.Effect<void, ProjectionRepositoryError>;
+  readonly applyProjectionDelta: (input: {
+    readonly previous: SupervisedGovernanceSnapshot;
+    readonly next: SupervisedGovernanceSnapshot;
     readonly updatedAt: string;
   }) => Effect.Effect<void, ProjectionRepositoryError>;
   readonly getNotebookState: (input: {

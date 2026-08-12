@@ -89,6 +89,7 @@ describe("LeadRotationReactor", () => {
     );
     const layer = LeadRotationReactorLive.pipe(
       Layer.provideMerge(orchestrationLayer),
+      Layer.provideMerge(OrchestrationProjectionSnapshotQueryLive),
       Layer.provideMerge(
         ServerConfig.layerTest(process.cwd(), { prefix: "veylen-lead-rotation-test-" }),
       ),

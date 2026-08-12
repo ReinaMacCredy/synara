@@ -37,9 +37,12 @@ const runtimeEvent = (eventId: string, delta: string): ProviderRuntimeEvent => (
 });
 
 layer("ProviderRuntimeEventRepository", (it) => {
-  it.effect("journals exact events and advances its consumer cursor contiguously", () =>
+  it.effect("journals exact events and compacts its cursor across out-of-order acceptance", () =>
     Effect.gen(function* () {
       const repository = yield* ProviderRuntimeEventRepository;
+      const baselineCursor = yield* repository.getConsumerCursor(
+        PROVIDER_RUNTIME_INGESTION_CONSUMER,
+      );
       const first = yield* repository.append(runtimeEvent("runtime-event-1", "hello"));
       const duplicate = yield* repository.append(runtimeEvent("runtime-event-1", "hello"));
       const second = yield* repository.append(runtimeEvent("runtime-event-2", " world"));
@@ -89,12 +92,16 @@ layer("ProviderRuntimeEventRepository", (it) => {
         ["runtime-event-1"],
       );
 
-      const skipped = yield* repository.advanceConsumerCursor({
+      const acceptedOutOfOrder = yield* repository.advanceConsumerCursor({
         consumerName: PROVIDER_RUNTIME_INGESTION_CONSUMER,
         eventSequence: second.sequence,
         updatedAt: "2026-07-14T00:00:01.000Z",
       });
-      assert.isFalse(skipped);
+      assert.isTrue(acceptedOutOfOrder);
+      assert.strictEqual(
+        yield* repository.getConsumerCursor(PROVIDER_RUNTIME_INGESTION_CONSUMER),
+        baselineCursor,
+      );
       const advanced = yield* repository.advanceConsumerCursor({
         consumerName: PROVIDER_RUNTIME_INGESTION_CONSUMER,
         eventSequence: first.sequence,
@@ -103,9 +110,9 @@ layer("ProviderRuntimeEventRepository", (it) => {
       assert.isTrue(advanced);
       assert.strictEqual(
         yield* repository.getConsumerCursor(PROVIDER_RUNTIME_INGESTION_CONSUMER),
-        first.sequence,
+        second.sequence,
       );
-      assert.isTrue(
+      assert.isFalse(
         yield* repository.hasPendingEventsForThreads({
           consumerName: PROVIDER_RUNTIME_INGESTION_CONSUMER,
           threadIds: ["thread-runtime-journal"],
@@ -117,7 +124,7 @@ layer("ProviderRuntimeEventRepository", (it) => {
           sequenceExclusive: 0,
           limit: 10,
         })).map((row) => row.event.eventId),
-        ["runtime-event-1"],
+        ["runtime-event-1", "runtime-event-2"],
       );
 
       assert.isTrue(
@@ -162,6 +169,91 @@ layer("ProviderRuntimeEventRepository", (it) => {
         repository.append(runtimeEvent("runtime-event-1", "different")),
       );
       assert.strictEqual(conflict._tag, "PersistenceDecodeError");
+    }),
+  );
+
+  it.effect("accepts an unrelated lane while an earlier event remains retryable", () =>
+    Effect.gen(function* () {
+      const repository = yield* ProviderRuntimeEventRepository;
+      const sql = yield* SqlClient.SqlClient;
+      const baselineCursor = yield* repository.getConsumerCursor(
+        PROVIDER_RUNTIME_INGESTION_CONSUMER,
+      );
+      const blocked = yield* repository.append({
+        ...runtimeEvent("runtime-event-blocked", "blocked"),
+        threadId: ThreadId.makeUnsafe("thread-blocked"),
+      });
+      const healthy = yield* repository.append({
+        ...runtimeEvent("runtime-event-healthy", "healthy"),
+        threadId: ThreadId.makeUnsafe("thread-healthy"),
+      });
+
+      const failure = yield* repository.recordConsumerFailure({
+        consumerName: PROVIDER_RUNTIME_INGESTION_CONSUMER,
+        eventSequence: blocked.sequence,
+        failedAt: "2026-07-14T00:10:00.000Z",
+        error: "deterministic fixture failure",
+      });
+      assert.strictEqual(failure.status, "retry");
+      assert.isTrue(
+        yield* repository.advanceConsumerCursor({
+          consumerName: PROVIDER_RUNTIME_INGESTION_CONSUMER,
+          eventSequence: healthy.sequence,
+          updatedAt: "2026-07-14T00:10:01.000Z",
+        }),
+      );
+      assert.strictEqual(
+        yield* repository.getConsumerCursor(PROVIDER_RUNTIME_INGESTION_CONSUMER),
+        baselineCursor,
+      );
+      assert.isFalse(
+        yield* repository.hasPendingEventsForThreads({
+          consumerName: PROVIDER_RUNTIME_INGESTION_CONSUMER,
+          threadIds: ["thread-healthy"],
+        }),
+      );
+      assert.deepStrictEqual(
+        (yield* repository.readPending({
+          consumerName: PROVIDER_RUNTIME_INGESTION_CONSUMER,
+          throughSequenceInclusive: healthy.sequence,
+          limit: 10,
+        })).map((row) => row.sequence),
+        [blocked.sequence],
+      );
+
+      yield* sql`
+        UPDATE provider_runtime_event_deliveries
+        SET attempt_count = 239
+        WHERE consumer_name = ${PROVIDER_RUNTIME_INGESTION_CONSUMER}
+          AND event_sequence = ${blocked.sequence}
+      `;
+      const terminalFailure = yield* repository.recordConsumerFailure({
+        consumerName: PROVIDER_RUNTIME_INGESTION_CONSUMER,
+        eventSequence: blocked.sequence,
+        failedAt: "2026-07-14T00:11:01.000Z",
+        error: "fixture poison confirmed",
+      });
+      assert.strictEqual(terminalFailure.status, "dead_letter");
+      assert.strictEqual(
+        yield* repository.getConsumerCursor(PROVIDER_RUNTIME_INGESTION_CONSUMER),
+        healthy.sequence,
+      );
+      const terminal = yield* repository.append({
+        type: "turn.completed",
+        eventId: EventId.makeUnsafe("runtime-event-healthy-terminal"),
+        provider: "codex",
+        createdAt: "2026-07-14T00:11:02.000Z",
+        threadId: ThreadId.makeUnsafe("thread-healthy"),
+        turnId: TurnId.makeUnsafe("turn-runtime-journal"),
+        payload: { state: "completed" },
+      });
+      assert.isTrue(
+        yield* repository.advanceConsumerCursor({
+          consumerName: PROVIDER_RUNTIME_INGESTION_CONSUMER,
+          eventSequence: terminal.sequence,
+          updatedAt: "2026-07-14T00:11:02.000Z",
+        }),
+      );
     }),
   );
 
