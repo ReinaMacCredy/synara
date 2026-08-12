@@ -93,16 +93,7 @@ const make = Effect.gen(function* () {
       const persistable = yield* encodePersistableEvent(event);
       const persistedEvent = persistable.event;
       const eventJson = persistable.eventJson;
-      const rows = yield* sql
-        .withTransaction(
-          Effect.gen(function* () {
-            const existing = yield* sql<Record<string, unknown>>`
-            SELECT sequence, event_json AS "eventJson"
-            FROM provider_runtime_events
-            WHERE event_id = ${event.eventId}
-          `;
-            if (existing.length > 0) return existing;
-            return yield* sql<Record<string, unknown>>`
+      const rows = yield* sql<Record<string, unknown>>`
             INSERT INTO provider_runtime_events (
               event_id, thread_id, turn_id, lifecycle_generation, event_type,
               event_json, persisted_at
@@ -111,10 +102,9 @@ const make = Effect.gen(function* () {
               ${event.lifecycleGeneration ?? null},
               ${event.type}, ${eventJson}, ${new Date().toISOString()}
             )
+            ON CONFLICT(event_id) DO UPDATE SET event_id = excluded.event_id
             RETURNING sequence, event_json AS "eventJson"
-          `;
-          }),
-        )
+          `
         .pipe(Effect.mapError(toPersistenceSqlError("ProviderRuntimeEvent.append")));
       const row = yield* decodeStoredRow(rows[0]).pipe(
         Effect.mapError(toPersistenceDecodeError("ProviderRuntimeEvent.append.row")),
