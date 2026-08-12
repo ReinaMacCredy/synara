@@ -1,20 +1,20 @@
-# Browser test quarantine
+# Browser geometry verification
 
-The blocking browser suite selects every test whose full name does not contain
-`[geometry:linux]`. Adding that marker is therefore a reviewed quarantine
-change, not a broad file exclusion. Runtime, event-stream, teardown, and
-unhandled errors must never be added here.
+The browser suite keeps pixel/font/layout tests in a separate `[geometry:linux]`
+group so failures remain attributable, but both stable and geometry groups are
+blocking CI gates. Runtime, event-stream, teardown, and unhandled errors remain
+in the stable group.
 
 Owner for every entry: `web/transcript`.
 
-Removal criterion: remove an entry after the underlying estimator, font, or
-layout behavior is corrected and the untagged test passes in three consecutive
-blocking Ubuntu CI runs.
+The former `continue-on-error` quarantine ended on 2026-08-12 after the suite's
+virtualization oracle was restored to the current LegendList DOM contract. Keep
+this inventory as the ownership and scope record for the separate blocking job.
 
 The original Linux failure evidence is commit `7c80c0dee`, whose CI run reported
 12+ ChatView geometry failures after browser tests first moved to hosted Ubuntu.
-The current quarantine is intentionally narrower and contains only assertions
-whose result depends directly on pixel/font/layout measurements.
+The current geometry group contains only assertions whose result depends
+directly on pixel/font/layout measurements.
 
 | Full test name                                                                                                                                                        | Cases | Reason                                                                                           |
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----: | ------------------------------------------------------------------------------------------------ |
@@ -25,9 +25,9 @@ whose result depends directly on pixel/font/layout measurements.
 | `ChatView timeline estimator parity (full app) [geometry:linux] keeps the composer visible while a long assistant response forces a viewport relayout`                |     1 | Compares composer, host, and scroll-container geometry across viewport sizes.                    |
 | `ChatView timeline estimator parity (full app) [geometry:linux] keeps user attachment estimate close at the $name viewport`                                           |     3 | Compares rendered attachment-row height with an estimator at desktop, mobile, and narrow widths. |
 
-Total quarantined cases: **11**.
+Total blocking geometry cases: **11**.
 
-Explicitly not quarantined:
+Explicitly retained in the stable blocking group:
 
 - delayed attachment loading must remain bottom-stuck;
 - optimistic user sends must re-stick to the bottom, and the sent message must
