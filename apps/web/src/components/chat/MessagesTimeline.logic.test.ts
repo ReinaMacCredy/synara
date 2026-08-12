@@ -1308,7 +1308,7 @@ describe("deriveMessagesTimelineRows", () => {
   it("flips to Working when reasoning starts (ChatGPT hasStartedWork / lHn)", () => {
     // ChatGPT `lHn`: any non-user item (including reasoning) = hasStartedWork →
     // Working header. Bug Image: phrase + answer text with NO Working because
-    // Synara treated reasoning as Thinking-only.
+    // Earlier behavior treated reasoning as Thinking-only.
     const rows = deriveMessagesTimelineRows({
       ...baseInput,
       isWorking: true,

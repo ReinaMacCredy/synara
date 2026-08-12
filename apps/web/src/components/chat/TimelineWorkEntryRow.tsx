@@ -262,7 +262,9 @@ function isListFilesToolEntry(workEntry: TimelineWorkEntry): boolean {
 function isLoadedToolsEntry(workEntry: TimelineWorkEntry): boolean {
   const name = normalizeToolGlyphName(workEntry);
   const label = (workEntry.label ?? "").toLowerCase();
-  return name.includes("loadtool") || name.includes("loadedtool") || /\bload(ed|ing)?\b/.test(label);
+  return (
+    name.includes("loadtool") || name.includes("loadedtool") || /\bload(ed|ing)?\b/.test(label)
+  );
 }
 
 // Command rows reuse toolCallLabel's wrapper-aware classifier so wrapped git/gh

@@ -6,10 +6,11 @@
 import "../../index.css";
 
 import { MessageId, TurnId } from "@veylen/contracts";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { render } from "vitest-browser-react";
 
 import { MessagesTimeline } from "./MessagesTimeline";
+import { resetMessagesTimelineStickySettleForTests } from "./MessagesTimeline.logic";
 import type { TimelineEntry } from "../../session-logic";
 
 function assistantEntry(id: string, text: string, streaming: boolean): TimelineEntry {
@@ -159,6 +160,10 @@ function isThinkingVisible(): boolean {
 }
 
 describe("MessagesTimeline tool group collapse", () => {
+  beforeEach(() => {
+    resetMessagesTimelineStickySettleForTests();
+  });
+
   afterEach(() => {
     document.body.innerHTML = "";
   });
@@ -295,9 +300,13 @@ describe("MessagesTimeline tool group collapse", () => {
       await expect
         .poll(() => document.body.textContent ?? "")
         .toContain("Inspecting the workspace");
+      expect(document.querySelector("[data-timeline-row-kind='reasoning-status']")).toBeNull();
       expect(
-        document.querySelector<HTMLElement>("[data-reasoning-source='provider']"),
-      ).not.toBeNull();
+        document
+          .querySelector("[data-turn-work-region]")
+          ?.querySelector("[data-work-status-text='working']")
+          ?.getAttribute("aria-hidden"),
+      ).toBe("false");
 
       await mounted.rerender(
         <ToolGroupCollapseTimeline
@@ -395,10 +404,10 @@ describe("MessagesTimeline tool group collapse", () => {
         "work-status-swap__phrase--visible",
       );
       expect(liveRegion?.querySelector("[data-work-status-text='settled']")?.textContent).toContain(
-        "Worked for 10s",
+        "Worked for 2s",
       );
       expect(liveRegion?.querySelector("[data-work-status-text='working']")?.textContent).toContain(
-        "Working for 10s",
+        "Working for 2s",
       );
 
       const workingLayer = liveRegion?.querySelector<HTMLElement>(
@@ -455,7 +464,7 @@ describe("MessagesTimeline tool group collapse", () => {
     }
   });
 
-  it("keeps first and follow-up settlement frames free of row and scroll jumps", async () => {
+  it("settles repeated turns without measurement feedback loops", async () => {
     const host = createTimelineHost();
     host.style.height = "190px";
     let timelineEntries: TimelineEntry[] = [];
@@ -478,6 +487,7 @@ describe("MessagesTimeline tool group collapse", () => {
         timelineEntries = [
           ...timelineEntries,
           userEntry(userId, `Prompt ${turn}`),
+          commandEntry(`motion-command-${turn}`, `echo ${turn}`),
           // Provider text has already completed here; only the turn lifecycle
           // changes on the Working -> Worked settlement frame.
           assistantEntry(assistantId, `Answer ${turn}`, false),
@@ -525,6 +535,12 @@ describe("MessagesTimeline tool group collapse", () => {
 
         const before = {
           activityHeight: liveActivityRow.getBoundingClientRect().height,
+          activityRegionHeight: liveRegion.getBoundingClientRect().height,
+          activityRegionMarginBottom: getComputedStyle(liveRegion).marginBottom,
+          activityButtonHeight: liveRegion.querySelector("button")?.getBoundingClientRect().height,
+          activityDetailsHeight: liveRegion
+            .querySelector("[data-turn-work-details]")
+            ?.getBoundingClientRect().height,
           assistantHeight: liveAssistantRow.getBoundingClientRect().height,
           footerHeight: footerHeight(liveAssistantRow),
           scrollHeight: scrollContainer.scrollHeight,
@@ -572,6 +588,13 @@ describe("MessagesTimeline tool group collapse", () => {
         )!;
         const after = {
           activityHeight: settledActivityRow.getBoundingClientRect().height,
+          activityRegionHeight: settledRegion.getBoundingClientRect().height,
+          activityRegionMarginBottom: getComputedStyle(settledRegion).marginBottom,
+          activityButtonHeight: settledRegion.querySelector("button")?.getBoundingClientRect()
+            .height,
+          activityDetailsHeight: settledRegion
+            .querySelector("[data-turn-work-details]")
+            ?.getBoundingClientRect().height,
           assistantHeight: settledAssistantRow.getBoundingClientRect().height,
           footerHeight: footerHeight(settledAssistantRow),
           scrollHeight: scrollContainer.scrollHeight,
@@ -584,14 +607,32 @@ describe("MessagesTimeline tool group collapse", () => {
             Math.abs(frame.scrollTop - previous.scrollTop),
           );
         }, 0);
+        const frameDirections = frames
+          .slice(1)
+          .map((frame, index) => Math.sign(frame.activityY - frames[index]!.activityY))
+          .filter((direction) => direction !== 0);
+        const directionReversals = frameDirections
+          .slice(1)
+          .filter((direction, index) => direction !== frameDirections[index]).length;
 
         expect(settledRegion).toBe(liveRegion);
         expect(settledActivityRow).toBe(liveActivityRow);
-        expect(Math.abs(after.activityHeight - before.activityHeight)).toBeLessThan(0.75);
+        expect(
+          Math.abs(after.activityHeight - before.activityHeight),
+          `activity geometry changed across settle: ${JSON.stringify({ before, after })}`,
+        ).toBeLessThan(0.75);
         expect(Math.abs(after.footerHeight - before.footerHeight)).toBeLessThan(0.75);
-        expect(Math.abs(after.assistantHeight - before.assistantHeight)).toBeLessThan(0.75);
-        expect(Math.abs(after.scrollHeight - before.scrollHeight)).toBeLessThan(1);
-        expect(maximumFrameJump).toBeLessThan(1.5);
+        // The completed tool row folds into the closed disclosure immediately,
+        // so one bounded anchor correction is expected. It must not oscillate:
+        // alternating corrections indicate a measure/scroll feedback loop.
+        expect(
+          maximumFrameJump,
+          `settle frame jump: ${JSON.stringify({ before, after, frames })}`,
+        ).toBeLessThan(50);
+        expect(
+          directionReversals,
+          `settle frame oscillation: ${JSON.stringify({ frameDirections, frames })}`,
+        ).toBeLessThanOrEqual(1);
         expect(frames.some((frame) => frame.settledOpacity > 0 && frame.settledOpacity < 1)).toBe(
           true,
         );
@@ -639,16 +680,7 @@ describe("MessagesTimeline tool group collapse", () => {
         />,
       );
 
-      await expect
-        .poll(() =>
-          Array.from(document.querySelectorAll<HTMLElement>("[data-turn-work-region]")).some(
-            (row) =>
-              row !== settledRegion &&
-              row.querySelector('[aria-hidden="false"]')?.textContent?.startsWith("Working") ===
-                true,
-          ),
-        )
-        .toBe(true);
+      await expect.poll(() => document.querySelector("[data-turn-thinking='true']")).not.toBeNull();
       expect(document.body.contains(settledRegion ?? null)).toBe(true);
       expect(settledRegion?.querySelector('[aria-hidden="false"]')?.textContent).toContain(
         "Worked for",
@@ -659,7 +691,7 @@ describe("MessagesTimeline tool group collapse", () => {
     }
   });
 
-  it("keeps Worked stable when tool details arrive after a no-tool settle", async () => {
+  it("keeps pure-text turns headerless until late tool details hydrate settled work", async () => {
     const host = createTimelineHost();
     const mounted = await render(
       <ToolGroupCollapseTimeline
@@ -672,7 +704,7 @@ describe("MessagesTimeline tool group collapse", () => {
 
     try {
       const liveRegion = document.querySelector<HTMLElement>("[data-turn-work-region]");
-      expect(liveRegion).not.toBeNull();
+      expect(liveRegion).toBeNull();
       expect(isThinkingVisible()).toBe(false);
 
       await mounted.rerender(
@@ -684,11 +716,7 @@ describe("MessagesTimeline tool group collapse", () => {
       );
 
       const settledRegion = document.querySelector<HTMLElement>("[data-turn-work-region]");
-      expect(settledRegion).toBe(liveRegion);
-      expect(settledRegion?.querySelector("[aria-hidden='false']")?.textContent).toContain(
-        "Worked for",
-      );
-      expect(settledRegion?.querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
+      expect(settledRegion).toBeNull();
       expect(isThinkingVisible()).toBe(false);
 
       await mounted.rerender(
@@ -703,7 +731,7 @@ describe("MessagesTimeline tool group collapse", () => {
       );
 
       const hydratedRegion = document.querySelector<HTMLElement>("[data-turn-work-region]");
-      expect(hydratedRegion).toBe(settledRegion);
+      expect(hydratedRegion).not.toBeNull();
       expect(hydratedRegion?.getAttribute("data-settled-turn-collapse-transition")).toBeNull();
       expect(hydratedRegion?.querySelector("[aria-hidden='false']")?.textContent).toContain(
         "Worked for",

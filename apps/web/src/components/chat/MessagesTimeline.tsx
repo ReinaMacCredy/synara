@@ -561,8 +561,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const [settledTailAnchorMessageId, setSettledTailAnchorMessageId] = useState<MessageId | null>(
     () => inheritedTailAnchorMessageId,
   );
-  const [releasedTailAnchorMessageId, setReleasedTailAnchorMessageId] =
-    useState<MessageId | null>(null);
+  const [releasedTailAnchorMessageId, setReleasedTailAnchorMessageId] = useState<MessageId | null>(
+    null,
+  );
   const handleTailAnchorSlideFinished = useCallback((messageId: MessageId) => {
     setSettledTailAnchorMessageId((current) => (current === messageId ? current : messageId));
   }, []);
@@ -707,8 +708,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           row.message.role === "assistant" &&
           row.message.streaming &&
           row.message.text.length > 0 &&
-          ((row.leadingWorkEntries?.length ?? 0) > 0 ||
-            (row.inlineWorkEntries?.length ?? 0) > 0),
+          ((row.leadingWorkEntries?.length ?? 0) > 0 || (row.inlineWorkEntries?.length ?? 0) > 0),
       ),
     [followLiveOutput, rows],
   );
@@ -723,8 +723,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   }, [shouldReleaseTailAnchorToLiveOutput, tailAnchorMessageId]);
   const activeTailAnchorMessageId = tailAnchorReleased ? null : tailAnchorMessageId;
   const tailAnchorSlideInFlight =
-    activeTailAnchorMessageId !== null &&
-    activeTailAnchorMessageId !== settledTailAnchorMessageId;
+    activeTailAnchorMessageId !== null && activeTailAnchorMessageId !== settledTailAnchorMessageId;
   useLayoutEffect(() => {
     if (!tailAnchorReleased || tailAnchorMessageId === null) {
       if (liveWorkViewportTargetRef.current) {
@@ -742,9 +741,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     const root = timelineRootRef.current;
     if (!(container instanceof HTMLElement) || !root) return;
 
-    const workGroups = [
-      ...root.querySelectorAll<HTMLElement>("[data-live-work-group-id]"),
-    ].filter((element) => element.getClientRects().length > 0);
+    const workGroups = [...root.querySelectorAll<HTMLElement>("[data-live-work-group-id]")].filter(
+      (element) => element.getClientRects().length > 0,
+    );
     const target = workGroups.at(-1);
     const workGroupId = target?.dataset.liveWorkGroupId;
     if (!target || !workGroupId) {
@@ -761,8 +760,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       if (liveWorkViewportAnchorSuspendedRef.current || !target.isConnected) return;
       const previous = liveWorkViewportAnchorRef.current;
       const sameAnchor =
-        previous?.sessionId === tailAnchorMessageId &&
-        previous.workGroupId === workGroupId;
+        previous?.sessionId === tailAnchorMessageId && previous.workGroupId === workGroupId;
       const sameTarget = sameAnchor && liveWorkViewportTargetRef.current === target;
       const currentVisualOffset = sameTarget ? previous.visualOffset : 0;
       const currentLayoutTop = target.getBoundingClientRect().top - currentVisualOffset;
@@ -774,8 +772,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         container.scrollTop += delta;
         const appliedScrollDelta = container.scrollTop - previousScrollTop;
         visualOffset = -(delta - appliedScrollDelta);
-        target.style.translate =
-          Math.abs(visualOffset) >= 0.5 ? `0 ${String(visualOffset)}px` : "";
+        target.style.translate = Math.abs(visualOffset) >= 0.5 ? `0 ${String(visualOffset)}px` : "";
       } else if (Math.abs(currentVisualOffset) >= 0.5) {
         target.style.translate = "";
       }
@@ -1921,11 +1918,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                             summary={summary}
                             headline={chunk.headline}
                             // ChatGPT: collapsed until user expands (defaults false).
-                        // Summary click sets override; "show more" can expand too.
-                        open={
-                          display.toolExpanded ||
-                          (toolGroupSummaryOverrides[summaryOverrideKey] ?? false)
-                        }
+                            // Summary click sets override; "show more" can expand too.
+                            open={
+                              display.toolExpanded ||
+                              (toolGroupSummaryOverrides[summaryOverrideKey] ?? false)
+                            }
                             onToggle={(open) => setToolGroupSummaryOpen(summaryOverrideKey, open)}
                             fontSizePx={normalizedChatFontSizePx}
                             live={chunk.live}
@@ -2833,7 +2830,7 @@ function TurnActivityRegion(props: {
           // No-tool settled turns have no details to expand; keep aria-expanded="false"
           // so assistive tech and tests still see a settled, non-expandable control.
           aria-expanded={live ? undefined : props.hasDetails ? detailsOpen : false}
-          className="-ml-0.5 inline-flex items-center gap-1 pb-2 text-left text-muted-foreground/70 transition-colors duration-200 hover:text-muted-foreground/90 disabled:pointer-events-none"
+          className="-ml-0.5 flex w-fit items-center gap-1 pb-2 text-left text-muted-foreground/70 transition-colors duration-200 hover:text-muted-foreground/90 disabled:pointer-events-none"
           style={{ fontSize: props.fontSize }}
           onClick={() => {
             if (live || !props.hasDetails) return;

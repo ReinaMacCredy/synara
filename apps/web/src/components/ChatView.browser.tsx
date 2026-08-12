@@ -70,9 +70,11 @@ import { useTerminalStateStore } from "../terminalStateStore";
 import { resetRetainedThreadDetailSubscriptionsForTests } from "../threadDetailSubscriptionRetention";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
 import { resetWsNativeApiForTest } from "../wsNativeApi";
+import { resetTurnWorkStatusForTests } from "../turnWorkStatus";
 // Pre-transform the compiler-heavy component outside the first case's timeout.
 // The router's auto-split route otherwise requests this module on first mount.
 import "./ChatView";
+import { resetMessagesTimelineStickySettleForTests } from "./chat/MessagesTimeline.logic";
 import { estimateTimelineMessageHeight } from "./timelineHeight";
 
 const THREAD_ID = "thread-browser-test" as ThreadId;
@@ -1997,7 +1999,11 @@ async function measureUserRow(options: {
       expect(measuredRow, "Unable to measure targeted user row height.").toBeTruthy();
       timelineWidthMeasuredPx = measuredRow!.getBoundingClientRect().width;
       measuredRowHeightPx = measuredRow!.getBoundingClientRect().height;
-      renderedInVirtualizedRegion = measuredRow!.closest("[data-index]") instanceof HTMLElement;
+      const virtualizedRow = measuredRow!.parentElement;
+      renderedInVirtualizedRegion =
+        virtualizedRow instanceof HTMLElement &&
+        virtualizedRow.style.position === "absolute" &&
+        virtualizedRow.style.contain.includes("layout");
       expect(timelineWidthMeasuredPx, "Unable to measure timeline width.").toBeGreaterThan(0);
       expect(measuredRowHeightPx, "Unable to measure targeted user row height.").toBeGreaterThan(0);
     },
@@ -2166,6 +2172,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
   beforeEach(async () => {
     await resetWsNativeApiForTest();
+    resetTurnWorkStatusForTests();
+    resetMessagesTimelineStickySettleForTests();
     resetRetainedThreadDetailSubscriptionsForTests();
     await resetHomeChatProjectPrewarmStateForTests();
     await setViewport(DEFAULT_VIEWPORT);
@@ -7213,14 +7221,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(settledActivityRow?.querySelector('[aria-hidden="false"]')?.textContent).toContain(
             "Worked for",
           );
-          expect(
-            activityRows.some(
-              (row) =>
-                row !== settledActivityRow &&
-                row.querySelector('[aria-hidden="false"]')?.textContent?.startsWith("Working") ===
-                  true,
-            ),
-          ).toBe(true);
+          expect(document.querySelector("[data-turn-thinking='true']")).not.toBeNull();
         },
         { timeout: 8_000, interval: 16 },
       );
@@ -7272,14 +7273,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(settledActivityRow?.querySelector('[aria-hidden="false"]')?.textContent).toContain(
             "Worked for",
           );
-          expect(
-            activityRows.some(
-              (row) =>
-                row !== settledActivityRow &&
-                row.querySelector('[aria-hidden="false"]')?.textContent?.startsWith("Working") ===
-                  true,
-            ),
-          ).toBe(true);
+          expect(document.querySelector("[data-turn-thinking='true']")).not.toBeNull();
         },
         { timeout: 8_000, interval: 16 },
       );
