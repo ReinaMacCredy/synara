@@ -15,6 +15,7 @@ import { Cause, Effect, Layer, Option, Semaphore, Stream } from "effect";
 import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
 import { SupervisedGovernanceRepository } from "../../persistence/Services/SupervisedGovernanceRepository.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import {
   SupervisedWakeReactor,
   type SupervisedWakeReactorShape,
@@ -109,12 +110,13 @@ const wakeText = (wake: SupervisionWake, lead: CanonicalLeadView): string =>
 
 export const makeSupervisedWakeReactor = Effect.gen(function* () {
   const engine = yield* OrchestrationEngineService;
+  const snapshotQuery = yield* ProjectionSnapshotQuery;
   const governanceRepository = yield* SupervisedGovernanceRepository;
   const commandReceiptRepository = yield* OrchestrationCommandReceiptRepository;
   const lock = yield* Semaphore.make(1);
   const loadState = Effect.fnUntraced(function* () {
     const [readModel, governance] = yield* Effect.all([
-      engine.getReadModel(),
+      snapshotQuery.getCommandReadModel(),
       governanceRepository.getSnapshot(),
     ]);
     return {

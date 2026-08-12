@@ -15,6 +15,7 @@ import {
 import { Cause, Effect, Exit, Layer, Semaphore, Stream } from "effect";
 
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import {
   LeadRotationReactor,
   type LeadRotationReactorShape,
@@ -91,10 +92,11 @@ const causeDetail = (cause: Cause.Cause<unknown>) => {
 
 export const makeLeadRotationReactor = Effect.gen(function* () {
   const engine = yield* OrchestrationEngineService;
+  const snapshotQuery = yield* ProjectionSnapshotQuery;
   const lock = yield* Semaphore.make(1);
 
   const load = Effect.fnUntraced(function* (rotationId: LeadRotationId) {
-    const readModel = yield* engine.getReadModel();
+    const readModel = yield* snapshotQuery.getCommandReadModel();
     return {
       readModel,
       rotation:
@@ -345,7 +347,7 @@ export const makeLeadRotationReactor = Effect.gen(function* () {
     lock.withPermits(1)(reconcileRotationUnlocked(rotationId));
 
   const reconcilePendingUnlocked = Effect.gen(function* () {
-    const readModel = yield* engine.getReadModel();
+    const readModel = yield* snapshotQuery.getCommandReadModel();
     for (const rotation of readModel.supervisedOrchestration.rotations) {
       if (rotation.state !== "completed") {
         if (rotation.state === "failed") {
@@ -387,7 +389,7 @@ export const makeLeadRotationReactor = Effect.gen(function* () {
           return;
         }
         if (event.aggregateKind !== "thread") return;
-        const readModel = yield* engine.getReadModel();
+        const readModel = yield* snapshotQuery.getCommandReadModel();
         const rotations = readModel.supervisedOrchestration.rotations.filter(
           (rotation) =>
             rotation.state !== "completed" &&

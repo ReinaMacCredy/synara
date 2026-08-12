@@ -11,6 +11,7 @@ import { Effect, Option } from "effect";
 import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
 import { SupervisedGovernanceRepository } from "../../persistence/Services/SupervisedGovernanceRepository.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { makeSupervisedWakeReactor } from "./SupervisedWakeReactor.ts";
 
 const now = "2026-08-09T12:00:00.000Z";
@@ -110,6 +111,9 @@ it.effect("recovers a wake after turn acceptance without resending the external 
   const receiptRepository = OrchestrationCommandReceiptRepository.of({
     getByCommandId: () => Effect.succeed(turnReceipt),
   } as never);
+  const snapshotQuery = ProjectionSnapshotQuery.of({
+    getCommandReadModel: () => engine.getReadModel(),
+  } as never);
 
   return Effect.gen(function* () {
     const reactor = yield* makeSupervisedWakeReactor;
@@ -129,5 +133,6 @@ it.effect("recovers a wake after turn acceptance without resending the external 
     Effect.provideService(OrchestrationEngineService, engine),
     Effect.provideService(SupervisedGovernanceRepository, governanceRepository),
     Effect.provideService(OrchestrationCommandReceiptRepository, receiptRepository),
+    Effect.provideService(ProjectionSnapshotQuery, snapshotQuery),
   );
 });

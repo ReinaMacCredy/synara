@@ -1725,6 +1725,7 @@ const scenarioJDeliveryLayer = SupervisedSignalDeliveryLive.pipe(
   Layer.provideMerge(scenarioJRepositoryLayer),
   Layer.provideMerge(scenarioJGovernanceRepositoryLayer),
   Layer.provideMerge(scenarioJEngineLayer),
+  Layer.provideMerge(scenarioJSnapshotQueryLayer),
 );
 const scenarioJDaemonLayer = SupervisedRuntimeDaemonLive.pipe(
   Layer.provideMerge(scenarioJRepositoryLayer),

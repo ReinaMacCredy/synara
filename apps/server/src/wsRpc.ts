@@ -58,7 +58,6 @@ import { SessionCredentialService } from "./auth/Services/SessionCredentialServi
 import { CheckpointDiffQuery } from "./checkpointing/Services/CheckpointDiffQuery";
 import { ServerConfig, type ServerConfigShape } from "./config";
 import { realpathNearestExisting } from "./realpathNearestExisting";
-import { workspaceRootsEqual } from "@veylen/shared/threadWorkspace";
 import {
   isThreadDetailEventFor,
   THREAD_DETAIL_EVENT_TYPES,
@@ -689,13 +688,14 @@ const makeWsRpcHandlersLayer = () =>
         terminalId: string;
         data: string;
       }) {
-        const readModel = yield* orchestrationEngine.getReadModel();
-        const thread = readModel.threads.find((entry) => entry.id === input.threadId);
-        if (!thread) {
+        const thread = yield* projectionReadModelQuery.getThreadShellById(
+          ThreadId.makeUnsafe(input.threadId),
+        );
+        if (Option.isNone(thread)) {
           return;
         }
         const nextTitle = terminalTitleTracker.consumeWrite({
-          currentTitle: thread.title,
+          currentTitle: thread.value.title,
           data: input.data,
           terminalId: input.terminalId,
           threadId: input.threadId,
@@ -901,19 +901,10 @@ const makeWsRpcHandlersLayer = () =>
           : toWsRpcError(cause, "Failed to clone and add the GitHub project");
 
       const findRegisteredProjectId = (workspaceRoot: string) =>
-        orchestrationEngine
-          .getReadModel()
-          .pipe(
-            Effect.map(
-              (readModel) =>
-                readModel.projects.find(
-                  (project) =>
-                    project.kind === "project" &&
-                    project.deletedAt === null &&
-                    workspaceRootsEqual(project.workspaceRoot, workspaceRoot),
-                )?.id ?? null,
-            ),
-          );
+        projectionReadModelQuery.getActiveProjectByWorkspaceRoot(workspaceRoot).pipe(
+          Effect.map(Option.getOrNull),
+          Effect.map((project) => project?.id ?? null),
+        );
 
       const requireOwner = Effect.gen(function* () {
         if (!canManageExternalMcp(yield* CurrentWsSessionRole)) {

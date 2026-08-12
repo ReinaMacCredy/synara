@@ -561,12 +561,9 @@ const make = Effect.gen(function* () {
   // against the old subprocess configuration before the next turn starts.
   const threadSessionModelSelections = new Map<string, ModelSelection>();
   const threadSessionSupervisedContexts = new Map<string, ProviderSupervisedSessionContext>();
-  // Seeded from the engine's in-memory command read model, not a second snapshot query.
-  // The engine loads that model once after the projection bootstrap and keeps it current
-  // as commands commit, so reading it here is both free and strictly fresher than
-  // re-running the eight-query snapshot load on the blocking startup path (~150ms on a
-  // large database). It cannot fail, so there is no failure mode left to log.
-  const seedThreadModelSelections = orchestrationEngine.getReadModel().pipe(
+  // Seeded once from the canonical projected command model. Runtime updates keep the
+  // local per-session cache current without preserving a second global read authority.
+  const seedThreadModelSelections = projectionSnapshotQuery.getCommandReadModel().pipe(
     Effect.map((snapshot) => {
       for (const thread of snapshot.threads) {
         threadSessionModelSelections.set(thread.id, thread.modelSelection);

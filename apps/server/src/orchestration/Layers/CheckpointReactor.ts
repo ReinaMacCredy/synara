@@ -948,7 +948,7 @@ const make = Effect.gen(function* () {
         ? [event.payload.threadId]
         : [event.payload.threadId, sessionThreadId];
     const [commandReadModel, pendingTurnStarts, providerSessions] = yield* Effect.all([
-      orchestrationEngine.getReadModel(),
+      projectionSnapshotQuery.getCommandReadModel(),
       Effect.forEach(relevantThreadIds, (threadId) =>
         projectionTurnRepository.getPendingTurnStartByThreadId({ threadId }),
       ),
