@@ -1015,6 +1015,15 @@ function installInteractionListeners(): void {
       // During IME composition Enter confirms the candidate and Escape abandons
       // it; neither is a picker command.
       if (event.isComposing) return;
+      if (overlayTarget && event.key === "Tab") {
+        event.preventDefault();
+        if (shadow?.activeElement === textarea) {
+          submitButton?.focus({ preventScroll: true });
+        } else {
+          textarea?.focus({ preventScroll: true });
+        }
+        return;
+      }
       if (event.key === "Escape") {
         if (overlayTarget) event.preventDefault();
         endInteractiveSession(true);
