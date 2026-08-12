@@ -13,8 +13,8 @@ import type {
   AgentDefinition,
   HookInput,
   HookJSONOutput,
-  Options as ClaudeQueryOptions,
   ModelInfo,
+  Options as ClaudeQueryOptions,
   PermissionMode,
   PermissionResult,
   PermissionUpdate,
@@ -24,8 +24,8 @@ import type {
   SDKControlGetContextUsageResponse,
   Settings,
   SettingSource,
-  SDKUserMessage,
   SlashCommand,
+  SDKUserMessage,
   SpawnOptions as ClaudeSpawnOptions,
   SpawnedProcess as ClaudeSpawnedProcess,
 } from "@anthropic-ai/claude-agent-sdk";
@@ -150,6 +150,13 @@ import {
 } from "../claudeCliVersion.ts";
 import { parseGenericCliVersion } from "../providerMaintenance.ts";
 import { makeKeyedLock } from "../keyedLock.ts";
+import {
+  ClaudeNativeDiscoveryState,
+  mapClaudeAgentInfo,
+  mapClaudeCommands,
+  mapClaudeModelInfo,
+  neverResolvingClaudeDiscoveryStream,
+} from "../claudeNativeDiscovery.ts";
 import {
   ProviderAdapterProcessError,
   ProviderAdapterRequestError,
@@ -579,27 +586,6 @@ export interface ClaudeAdapterLiveOptions {
   }) => Promise<string | null>;
 }
 
-function mapSupportedCommands(commands: SlashCommand[]): ProviderListCommandsResult {
-  return {
-    commands: commands.map((cmd) => ({
-      name: cmd.name,
-      description: cmd.description || undefined,
-    })),
-    source: "claudeAgent",
-    cached: false,
-  };
-}
-
-function neverResolvingUserMessageStream(): AsyncIterable<SDKUserMessage> {
-  return {
-    [Symbol.asyncIterator](): AsyncIterator<SDKUserMessage> {
-      return {
-        next: async () => new Promise<IteratorResult<SDKUserMessage>>(() => {}),
-      };
-    },
-  };
-}
-
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
@@ -848,26 +834,6 @@ function toPermissionMode(value: unknown): PermissionMode | undefined {
     default:
       return undefined;
   }
-}
-
-function mapClaudeModelInfo(model: ModelInfo): ProviderListModelsResult["models"][number] {
-  return {
-    slug: model.value,
-    ...(model.resolvedModel ? { resolvedModel: model.resolvedModel } : {}),
-    name: model.displayName,
-    ...(typeof model.supportsAutoMode === "boolean"
-      ? { supportsAutoMode: model.supportsAutoMode }
-      : {}),
-  };
-}
-
-function mapClaudeAgentInfo(agent: AgentInfo): ProviderListAgentsResult["agents"][number] {
-  return {
-    name: agent.name,
-    displayName: agent.name,
-    ...(agent.description ? { description: agent.description } : {}),
-    ...(agent.model ? { model: agent.model } : {}),
-  };
 }
 
 function readClaudeResumeState(resumeCursor: unknown): ClaudeResumeState | undefined {
@@ -1796,8 +1762,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
     const failedStartupProcessOwners = new Map<ThreadId, ClaudeProcessOwner>();
     const failedDiscoveryProcessOwners = new Set<ClaudeProcessOwner>();
     const sessionLifecycleLock = makeKeyedLock<ThreadId>();
-    let cachedModels: ProviderListModelsResult | null = null;
-    let cachedAgents: ProviderListAgentsResult | null = null;
+    const nativeDiscovery = new ClaudeNativeDiscoveryState();
     const verifyClaudeAutoModelSupport = (input: {
       readonly queryRuntime: ClaudeQueryRuntime;
       readonly selectedModel: string | undefined;
@@ -1832,11 +1797,11 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                 }),
           ),
         );
-        cachedModels = {
+        nativeDiscovery.setModels({
           models: discoveredModels.map(mapClaudeModelInfo),
           source: "sdk",
           cached: false,
-        };
+        });
         const requestedModels = new Set(
           [input.selectedModel, input.apiModelId].filter(
             (model): model is string => model !== undefined,
@@ -5279,16 +5244,16 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               apiModelId,
               operation: "startSession",
             });
-          } else if (!cachedModels) {
+          } else if (!nativeDiscovery.getModels()) {
             // Populate model cache in the background from the first non-Auto session.
             queryRuntime
               .supportedModels()
               .then((models) => {
-                cachedModels = {
+                nativeDiscovery.setModels({
                   models: models.map(mapClaudeModelInfo),
                   source: "sdk",
                   cached: false,
-                };
+                });
               })
               .catch(() => {
                 /* ignore discovery failures */
@@ -5296,15 +5261,15 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           }
 
           // Populate agent cache in background from first session
-          if (!cachedAgents) {
+          if (!nativeDiscovery.getAgents()) {
             queryRuntime
               .supportedAgents()
               .then((agents) => {
-                cachedAgents = {
+                nativeDiscovery.setAgents({
                   agents: agents.map(mapClaudeAgentInfo),
                   source: "sdk",
                   cached: false,
-                };
+                });
               })
               .catch((cause) => {
                 Effect.runFork(
@@ -6102,11 +6067,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       });
 
     // Native discovery caches — avoid spawning a process per query.
-    let commandsCache: { result: ProviderListCommandsResult; cwd: string } | null = null;
-    let pendingCommandDiscovery: Promise<ProviderListCommandsResult> | null = null;
-    let pendingModelDiscovery: Promise<ProviderListModelsResult> | null = null;
-    let pendingAgentDiscovery: Promise<ProviderListAgentsResult> | null = null;
-
     async function discoverViaTemporaryProcess<T>(
       cwd: string,
       env: NodeJS.ProcessEnv,
@@ -6127,7 +6087,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         // Query construction itself may invoke the spawn callback before
         // throwing, so it belongs inside the same ownership boundary.
         tempQuery = await createQuery({
-          prompt: neverResolvingUserMessageStream(),
+          prompt: neverResolvingClaudeDiscoveryStream(),
           options: {
             cwd,
             pathToClaudeCodeExecutable: binaryPath,
@@ -6165,7 +6125,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       binaryPath: string,
     ): Promise<ProviderListCommandsResult> =>
       discoverViaTemporaryProcess(cwd, env, binaryPath, (queryRuntime) =>
-        queryRuntime.supportedCommands().then(mapSupportedCommands),
+        queryRuntime.supportedCommands().then(mapClaudeCommands),
       );
 
     const discoverModelsViaTemporaryProcess = (
@@ -6204,26 +6164,23 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             try: () => context.query.supportedCommands(),
             catch: (cause) => toRequestError(context.session.threadId, "listCommands", cause),
           });
-          const result = mapSupportedCommands(commands);
-          commandsCache = { result, cwd: input.cwd };
+          const result = mapClaudeCommands(commands);
+          nativeDiscovery.setCommands(input.cwd, result);
           return result;
         }
 
-        // 2. Return from cache if valid and not force-reloading.
-        if (commandsCache && commandsCache.cwd === input.cwd && !input.forceReload) {
-          return { ...commandsCache.result, cached: true } satisfies ProviderListCommandsResult;
-        }
+        const cachedCommands = nativeDiscovery.getCommands(input.cwd, input.forceReload);
+        if (cachedCommands) return cachedCommands;
 
         // 3. Spawn a temporary process for discovery (deduplicating concurrent requests).
         const claudeSdkEnv = yield* resolveClaudeSdkEnv;
-        const discoveryPromise =
-          pendingCommandDiscovery ??
+        const discoveryPromise = nativeDiscovery.discoverCommands(() =>
           discoverCommandsViaTemporaryProcess(
             input.cwd,
             claudeSdkEnv,
             input.binaryPath ?? "claude",
-          );
-        pendingCommandDiscovery = discoveryPromise;
+          ),
+        );
 
         const result = yield* Effect.tryPromise({
           try: () => discoveryPromise,
@@ -6234,20 +6191,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               detail: toMessage(cause, "Failed to discover Claude commands."),
               cause,
             }),
-        }).pipe(
-          Effect.tap(() =>
-            Effect.sync(() => {
-              pendingCommandDiscovery = null;
-            }),
-          ),
-          Effect.tapError(() =>
-            Effect.sync(() => {
-              pendingCommandDiscovery = null;
-            }),
-          ),
-        );
+        });
 
-        commandsCache = { result, cwd: input.cwd };
+        nativeDiscovery.setCommands(input.cwd, result);
         return result;
       });
 
@@ -6315,9 +6261,8 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
 
     const listModels: NonNullable<ClaudeAdapterShape["listModels"]> = (input) =>
       Effect.gen(function* () {
-        if (cachedModels) {
-          return { ...cachedModels, cached: true };
-        }
+        const cachedModels = nativeDiscovery.getModels();
+        if (cachedModels) return cachedModels;
 
         // Prefer an active session so discovery does not spawn another process.
         for (const [, context] of sessions) {
@@ -6330,7 +6275,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               }),
               catch: (cause) => toRequestError(context.session.threadId, "listModels", cause),
             });
-            cachedModels = result;
+            nativeDiscovery.setModels(result);
             return result;
           }
         }
@@ -6339,14 +6284,13 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         // short-lived SDK process so the UI receives model capability flags on
         // its first request instead of caching an empty "pending" catalog.
         const claudeSdkEnv = yield* resolveClaudeSdkEnv;
-        const discoveryPromise =
-          pendingModelDiscovery ??
+        const discoveryPromise = nativeDiscovery.discoverModels(() =>
           discoverModelsViaTemporaryProcess(
             input.cwd ?? serverConfig.cwd,
             claudeSdkEnv,
             input.binaryPath ?? "claude",
-          );
-        pendingModelDiscovery = discoveryPromise;
+          ),
+        );
 
         const result = yield* Effect.tryPromise({
           try: () => discoveryPromise,
@@ -6357,28 +6301,16 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               detail: toMessage(cause, "Failed to discover Claude models."),
               cause,
             }),
-        }).pipe(
-          Effect.tap(() =>
-            Effect.sync(() => {
-              pendingModelDiscovery = null;
-            }),
-          ),
-          Effect.tapError(() =>
-            Effect.sync(() => {
-              pendingModelDiscovery = null;
-            }),
-          ),
-        );
+        });
 
-        cachedModels = result;
+        nativeDiscovery.setModels(result);
         return result;
       });
 
     const listAgents: NonNullable<ClaudeAdapterShape["listAgents"]> = (input) =>
       Effect.gen(function* () {
-        if (cachedAgents) {
-          return { ...cachedAgents, cached: true };
-        }
+        const cachedAgents = nativeDiscovery.getAgents();
+        if (cachedAgents) return cachedAgents;
 
         for (const [, context] of sessions) {
           if (!context.stopped && context.query) {
@@ -6390,20 +6322,19 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               }),
               catch: (cause) => toRequestError(context.session.threadId, "listAgents", cause),
             });
-            cachedAgents = result;
+            nativeDiscovery.setAgents(result);
             return result;
           }
         }
 
         const claudeSdkEnv = yield* resolveClaudeSdkEnv;
-        const discoveryPromise =
-          pendingAgentDiscovery ??
+        const discoveryPromise = nativeDiscovery.discoverAgents(() =>
           discoverAgentsViaTemporaryProcess(
             input.cwd ?? serverConfig.cwd,
             claudeSdkEnv,
             input.binaryPath ?? "claude",
-          );
-        pendingAgentDiscovery = discoveryPromise;
+          ),
+        );
 
         const result = yield* Effect.tryPromise({
           try: () => discoveryPromise,
@@ -6414,20 +6345,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               detail: toMessage(cause, "Failed to discover Claude agents."),
               cause,
             }),
-        }).pipe(
-          Effect.tap(() =>
-            Effect.sync(() => {
-              pendingAgentDiscovery = null;
-            }),
-          ),
-          Effect.tapError(() =>
-            Effect.sync(() => {
-              pendingAgentDiscovery = null;
-            }),
-          ),
-        );
+        });
 
-        cachedAgents = result;
+        nativeDiscovery.setAgents(result);
         return result;
       });
 

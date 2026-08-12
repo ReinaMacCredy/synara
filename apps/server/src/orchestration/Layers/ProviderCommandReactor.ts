@@ -129,6 +129,7 @@ import {
   type ProviderIntentEvent,
 } from "../providerIntentClassification.ts";
 import { deriveTurnStartSession } from "../turnStartSession.ts";
+import { classifyProviderInteractionFailure } from "../providerInteractionSettlement.ts";
 import { TurnCheckpointCoordinator } from "../Services/TurnCheckpointCoordinator.ts";
 import { resolveProviderSessionThread as resolveProviderSessionThreadFromProjection } from "../providerSessionThread.ts";
 import {
@@ -353,72 +354,6 @@ function availableThreadMentionContextChars(messageText: string): number {
       PROVIDER_INPUT_SAFETY_MARGIN_CHARS -
       THREAD_MENTION_CONTEXT_SUFFIX_PREFIX_CHARS,
   );
-}
-
-function isUnknownPendingApprovalRequestError(cause: Cause.Cause<ProviderServiceError>): boolean {
-  const error = Cause.squash(cause);
-  if (Schema.is(ProviderAdapterRequestError)(error)) {
-    const detail = error.detail.toLowerCase();
-    return (
-      detail.includes("unknown pending approval request") ||
-      detail.includes("unknown pending permission request")
-    );
-  }
-  const message = Cause.pretty(cause);
-  return (
-    message.includes("unknown pending approval request") ||
-    message.includes("unknown pending permission request")
-  );
-}
-
-function isUnknownPendingUserInputRequestError(cause: Cause.Cause<ProviderServiceError>): boolean {
-  const error = Cause.squash(cause);
-  if (Schema.is(ProviderAdapterRequestError)(error)) {
-    return error.detail.toLowerCase().includes("unknown pending user-input request");
-  }
-  return Cause.pretty(cause).toLowerCase().includes("unknown pending user-input request");
-}
-
-function isClaudeContextWindowUserInputRejection(error: ProviderServiceError): boolean {
-  if (
-    error._tag !== "ProviderAdapterRequestError" ||
-    error.provider !== "claudeAgent" ||
-    error.method !== "item/tool/respondToUserInput"
-  ) {
-    return false;
-  }
-  const detail = error.detail.toLowerCase();
-  return (
-    detail.includes("context window") ||
-    detail.includes("context limit") ||
-    detail.includes("context length") ||
-    detail.includes("context_length_exceeded") ||
-    detail.includes("prompt is too long") ||
-    detail.includes("input_length and max_tokens")
-  );
-}
-
-function interactionFailureSettlementStatus(
-  cause: Cause.Cause<ProviderServiceError>,
-  isUnknownPendingRequest: boolean,
-): "retryable" | "uncertain" {
-  return Option.match(Cause.findErrorOption(cause), {
-    onNone: () => "uncertain" as const,
-    onSome: (error) => {
-      if (
-        (error._tag === "ProviderAdapterRequestError" &&
-          error.method === "permission.reply.acknowledge") ||
-        isClaudeContextWindowUserInputRejection(error)
-      ) {
-        return "retryable" as const;
-      }
-      return isUnknownPendingRequest ||
-        error._tag === "ProviderAdapterRequestError" ||
-        error._tag === "ProviderAdapterProcessError"
-        ? ("uncertain" as const)
-        : ("retryable" as const);
-    },
-  });
 }
 
 function isStaleCodexResumeError(error: unknown): boolean {
@@ -3018,13 +2953,16 @@ const make = Effect.gen(function* () {
       .pipe(
         Effect.asVoid,
         Effect.catchCause((cause) => {
-          const unknownPendingRequest = isUnknownPendingApprovalRequestError(cause);
+          const { unknownPendingRequest, settlementStatus } = classifyProviderInteractionFailure(
+            "approval",
+            cause,
+          );
           return appendInteractionResponseFailure(event, {
             interactionKind: "approval",
             detail: unknownPendingRequest
               ? buildStalePendingRequestFailureDetail("approval", event.payload.requestId)
               : Cause.pretty(cause),
-            settlementStatus: interactionFailureSettlementStatus(cause, unknownPendingRequest),
+            settlementStatus,
           });
         }),
       );
@@ -3052,13 +2990,16 @@ const make = Effect.gen(function* () {
       .pipe(
         Effect.asVoid,
         Effect.catchCause((cause) => {
-          const unknownPendingRequest = isUnknownPendingUserInputRequestError(cause);
+          const { unknownPendingRequest, settlementStatus } = classifyProviderInteractionFailure(
+            "userInput",
+            cause,
+          );
           return appendInteractionResponseFailure(event, {
             interactionKind: "userInput",
             detail: unknownPendingRequest
               ? buildStalePendingRequestFailureDetail("user-input", event.payload.requestId)
               : Cause.pretty(cause),
-            settlementStatus: interactionFailureSettlementStatus(cause, unknownPendingRequest),
+            settlementStatus,
           });
         }),
       );

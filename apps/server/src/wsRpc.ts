@@ -1,4 +1,3 @@
-import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
 import {
@@ -107,7 +106,10 @@ import { ProviderService } from "./provider/Services/ProviderService";
 import { listProviderUsage } from "./providerUsage";
 import { getProviderUsageSnapshot } from "./providerUsageSnapshot";
 import { ProfileStatsQuery } from "./profileStats";
-import { redactSensitiveProcessArgs } from "./processArgumentRedaction";
+import {
+  MAX_DIAGNOSTIC_CHILD_PROCESSES,
+  readDescendantProcesses,
+} from "./diagnostics/processDiagnostics";
 import { ServerEnvironment } from "./environment/Services/ServerEnvironment";
 import { ExternalMcpService } from "./externalMcp/Services/ExternalMcpService";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
@@ -185,9 +187,6 @@ export const findAcceptedAggregateEvent = <Event extends { readonly commandId: C
   commandId: CommandId,
 ): Event | undefined => events.find((event) => event.commandId === commandId);
 
-const MAX_DIAGNOSTIC_CHILD_PROCESSES = 80;
-const MAX_DIAGNOSTIC_ARGS_CHARS = 500;
-
 // Bounded window a thread subscription waits for the projector to commit the
 // thread's detail read model before failing with THREAD_SNAPSHOT_NOT_FOUND.
 // Covers subscribe-vs-projection races on freshly created threads; a thread
@@ -264,78 +263,6 @@ export function pluginInstallStepIdempotencyKey(input: {
   ].join(":");
 }
 
-interface ProcessTableRow {
-  readonly pid: number;
-  readonly ppid: number;
-  readonly rssBytes: number;
-  readonly virtualSizeBytes: number;
-  readonly command: string;
-  readonly args: string;
-}
-
-function redactAndTruncateProcessArgs(args: string): string {
-  const redacted = redactSensitiveProcessArgs(args);
-  return redacted.length > MAX_DIAGNOSTIC_ARGS_CHARS
-    ? `${redacted.slice(0, Math.max(0, MAX_DIAGNOSTIC_ARGS_CHARS - 15))}... [truncated]`
-    : redacted;
-}
-
-function parseProcessTable(output: string): ProcessTableRow[] {
-  const rows: ProcessTableRow[] = [];
-  for (const line of output.split(/\r?\n/)) {
-    const match = line.trim().match(/^(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\S+)(?:\s+(.*))?$/);
-    if (!match) {
-      continue;
-    }
-    rows.push({
-      pid: Number(match[1]),
-      ppid: Number(match[2]),
-      rssBytes: Number(match[3]) * 1024,
-      virtualSizeBytes: Number(match[4]) * 1024,
-      command: match[5] ?? "",
-      args: redactAndTruncateProcessArgs(match[6] ?? ""),
-    });
-  }
-  return rows;
-}
-
-function collectDescendantProcesses(
-  rows: readonly ProcessTableRow[],
-  rootPid: number,
-): ProcessTableRow[] {
-  const childrenByParent = new Map<number, ProcessTableRow[]>();
-  for (const row of rows) {
-    const children = childrenByParent.get(row.ppid) ?? [];
-    children.push(row);
-    childrenByParent.set(row.ppid, children);
-  }
-
-  const descendants: ProcessTableRow[] = [];
-  const stack = [...(childrenByParent.get(rootPid) ?? [])];
-  while (stack.length > 0) {
-    const row = stack.pop()!;
-    descendants.push(row);
-    stack.push(...(childrenByParent.get(row.pid) ?? []));
-  }
-  return descendants.toSorted((left, right) => right.rssBytes - left.rssBytes);
-}
-
-function readDescendantProcesses(rootPid: number): Promise<ProcessTableRow[]> {
-  if (process.platform === "win32") {
-    return Promise.resolve([]);
-  }
-  return new Promise((resolve) => {
-    execFile(
-      "ps",
-      ["-axo", "pid=,ppid=,rss=,vsz=,comm=,args="],
-      { maxBuffer: 2 * 1024 * 1024 },
-      (_error, stdout) => {
-        resolve(collectDescendantProcesses(parseProcessTable(stdout), rootPid));
-      },
-    );
-  });
-}
-
 function toWsRpcError(cause: unknown, fallbackMessage: string) {
   return Schema.is(WsRpcError)(cause)
     ? cause
@@ -344,39 +271,6 @@ function toWsRpcError(cause: unknown, fallbackMessage: string) {
           cause instanceof Error && cause.message.length > 0 ? cause.message : fallbackMessage,
         cause,
       });
-}
-
-type OpaquePageCursor = Readonly<Record<string, string | number>>;
-
-function encodeOpaquePageCursor(cursor: OpaquePageCursor): string {
-  return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
-}
-
-function decodeOpaquePageCursor(
-  cursor: string | undefined,
-  requiredFields: ReadonlyArray<string>,
-): OpaquePageCursor | null {
-  if (cursor === undefined) return null;
-  try {
-    const value = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as unknown;
-    if (
-      value !== null &&
-      typeof value === "object" &&
-      requiredFields.every((field) => {
-        const item = (value as Record<string, unknown>)[field];
-        return typeof item === "string" || typeof item === "number";
-      })
-    ) {
-      return value as OpaquePageCursor;
-    }
-  } catch {
-    // Converted to a stable public RPC error below.
-  }
-  throw new WsRpcError({ message: "Invalid pagination cursor." });
-}
-
-function boundedRpcLimit(value: number | undefined, fallback = 50): number {
-  return Math.max(1, Math.min(100, Math.floor(value ?? fallback)));
 }
 
 const failLiveUiStreamForSnapshotResync = (report: LiveUiStreamDropReport) =>
