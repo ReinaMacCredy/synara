@@ -2347,9 +2347,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   it("hydrates an existing Primary Supervisor conversation on the Supervised index route", async () => {
+    const targetMessageId = "msg-user-existing-primary-supervisor" as MessageId;
     const targetText = "existing Primary Supervisor transcript";
     const snapshot = createSnapshotForTargetUser({
-      targetMessageId: "msg-user-existing-primary-supervisor" as MessageId,
+      targetMessageId,
       targetText,
     });
     const supervisedSnapshot: OrchestrationReadModel = {
@@ -2400,7 +2401,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
               request.threadId === THREAD_ID,
           ),
         ).toBe(true);
-        expect(document.body.textContent).toContain(targetText);
+        expect(useStore.getState().messageByThreadId?.[THREAD_ID]?.[targetMessageId]?.text).toBe(
+          targetText,
+        );
+        expect(document.body.textContent).toContain("assistant filler 21");
         expect(document.body.textContent).not.toContain("Loading conversation");
       });
     } finally {

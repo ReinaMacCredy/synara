@@ -113,6 +113,11 @@ app.whenReady().then(async () => {
       webviewTag: true,
     },
   });
+  // Keep ambient workstation input from advancing the human-control epoch
+  // while the automated fixture is visible. The takeover coverage below uses
+  // webContents.sendInputEvent directly, which remains observable by the real
+  // browser runtime without exposing the fixture to unrelated OS pointer use.
+  mainWindow.setIgnoreMouseEvents(true);
   browserManager.setWindow(mainWindow);
   mainWindow.webContents.on("will-attach-webview", (event, webPreferences, params) => {
     if (
