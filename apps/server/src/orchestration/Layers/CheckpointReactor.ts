@@ -874,13 +874,23 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    const pendingTurnStart = yield* projectionTurnRepository.getPendingTurnStartByThreadId({
-      threadId: thread.id,
-    });
+    const [pendingTurnStart, projectedTurn] = yield* Effect.all([
+      projectionTurnRepository.getPendingTurnStartByThreadId({
+        threadId: thread.id,
+      }),
+      projectionTurnRepository.getByTurnId({
+        threadId: thread.id,
+        turnId,
+      }),
+    ]);
     const messageId =
       pendingMessageStartByThread.get(thread.id) ??
       Option.match(pendingTurnStart, {
-        onNone: () => undefined,
+        onNone: () =>
+          Option.match(projectedTurn, {
+            onNone: () => undefined,
+            onSome: (turn) => turn.pendingMessageId ?? undefined,
+          }),
         onSome: (pending) => pending.messageId,
       });
     const turnStartCheckpointRef = checkpointRefForThreadTurnStart(thread.id, turnId);

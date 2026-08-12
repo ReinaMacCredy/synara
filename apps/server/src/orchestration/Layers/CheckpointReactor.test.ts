@@ -772,19 +772,48 @@ describe("CheckpointReactor", () => {
     const messageStartRef = checkpointRefForThreadMessageStart(threadId, messageId);
     await waitForGitRefExists(harness.cwd, messageStartRef);
 
-    // Simulate a missing message-start baseline when the provider's
-    // turn.started arrives, regardless of which startup path dropped it.
-    runGit(harness.cwd, ["update-ref", "-d", messageStartRef]);
-
     harness.provider.emit({
       type: "turn.started",
-      eventId: EventId.makeUnsafe("evt-turn-missing-baseline-started"),
+      eventId: EventId.makeUnsafe("evt-turn-missing-baseline-initial"),
       provider: "codex",
       createdAt: new Date().toISOString(),
       threadId,
       turnId,
     });
     const turnStartRef = checkpointRefForThreadTurnStart(threadId, turnId);
+    await waitForGitRefExists(harness.cwd, turnStartRef);
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-session-set-missing-baseline"),
+        threadId,
+        session: {
+          threadId,
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: turnId,
+          lastError: null,
+          updatedAt: new Date().toISOString(),
+        },
+        createdAt: new Date().toISOString(),
+      }),
+    );
+    await waitForThread(harness.engine, (entry) => entry.latestTurn?.turnId === turnId);
+
+    // Simulate both refs disappearing after the projection has transferred the
+    // pending message association into the durable turn row.
+    runGit(harness.cwd, ["update-ref", "-d", messageStartRef]);
+    runGit(harness.cwd, ["update-ref", "-d", turnStartRef]);
+
+    harness.provider.emit({
+      type: "turn.started",
+      eventId: EventId.makeUnsafe("evt-turn-missing-baseline-recovery"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId,
+      turnId,
+    });
     await waitForGitRefExists(harness.cwd, turnStartRef);
 
     // The reactor must re-establish the message-start baseline and alias the
