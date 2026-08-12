@@ -129,6 +129,7 @@ import Migration0110 from "./Migrations/110_ProviderRuntimeDeliveryIsolation.ts"
 import Migration0111 from "./Migrations/111_ProjectionMessageDeltas.ts";
 import Migration0112 from "./Migrations/112_ProviderModelCatalogCache.ts";
 import Migration0113 from "./Migrations/113_CheckpointRefRetention.ts";
+import Migration0114 from "./Migrations/114_RuntimeReconciliationCandidateIndexes.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -257,6 +258,7 @@ export const migrationEntries = [
   [111, "ProjectionMessageDeltas", Migration0111],
   [112, "ProviderModelCatalogCache", Migration0112],
   [113, "CheckpointRefRetention", Migration0113],
+  [114, "RuntimeReconciliationCandidateIndexes", Migration0114],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>
