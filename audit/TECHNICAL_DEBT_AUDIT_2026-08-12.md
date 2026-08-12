@@ -11,7 +11,7 @@
 ## Audit method and terminology
 
 This report is based on current source, configuration, tests, migrations, repository history, and
-durable design/audit records. Historical Synara/Veylen audits were treated as leads and reconciled
+durable design/audit records. Historical pre-rebrand and Veylen audits were treated as leads and reconciled
 against the audited revision rather than copied forward.
 
 Confidence means:
@@ -66,20 +66,20 @@ new stable seams.
 
 ## 2. Repository health assessment
 
-| Dimension | Assessment | Evidence-based interpretation |
-| --- | --- | --- |
-| Architecture | **Amber** | Package roles are clear, but production still crosses a declared compatibility read-model boundary and several central owners contain many unrelated lifecycles. |
-| Runtime correctness | **Amber** | Lifecycle, admission, recovery, and idempotency work is strong; global journal blocking and Claude agent discovery still expose common-path correctness/availability problems. |
-| Persistence | **Amber-red under growth** | SQLite lifecycle and migration discipline are strong. Per-delta row rewrites, broad Supervised snapshots, and retained Git checkpoint refs scale with accumulated history. |
-| API and contracts | **Amber** | Effect RPC schemas protect the main socket path. Static/runtime model catalogs coexist, auth HTTP responses bypass schema decoding, and the orchestration contract aggregate is oversized. |
-| Tests | **Amber** | The unit/browser corpus is broad, but critical live-provider and Electron E2E scenarios do not gate CI, and 11 geometry cases are explicitly non-blocking. |
-| Frontend | **Amber** | Transcript behavior has careful performance guardrails, but `ChatView` and `Sidebar` remain coordination hubs for many unrelated domains. |
-| Performance | **Amber-red under long-lived use** | Common paths are bounded, but two confirmed algorithms are proportional to accumulated content/state rather than the change. |
-| Reliability and observability | **Amber** | Server-side failure handling is generally explicit. Some client subscriber and discovery failures are intentionally swallowed, making faults indistinguishable from empty state. |
-| Security and trust boundaries | **Green-amber** | Desktop, child process, outbound HTTP, and WebSocket boundaries are materially hardened. Auth JSON still relies on TypeScript casts, and the preview framework source raises supply-chain/upgrade exposure. |
-| Build and dependencies | **Amber-red** | Locking is reproducible, but core Effect packages come from `pkg.pr.new` at an unreleased commit and require a local runtime patch. |
-| Maintainability | **Amber-red** | Prior pruning removed duplicate authorities, yet change blast radius remains high in the largest client/server owners and compatibility fan-out. |
-| Documentation | **Red** | Several durable documents describe already-shipped work as future or unchecked, and workflow/audit status records contradict current source. |
+| Dimension                     | Assessment                         | Evidence-based interpretation                                                                                                                                                                               |
+| ----------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Architecture                  | **Amber**                          | Package roles are clear, but production still crosses a declared compatibility read-model boundary and several central owners contain many unrelated lifecycles.                                            |
+| Runtime correctness           | **Amber**                          | Lifecycle, admission, recovery, and idempotency work is strong; global journal blocking and Claude agent discovery still expose common-path correctness/availability problems.                              |
+| Persistence                   | **Amber-red under growth**         | SQLite lifecycle and migration discipline are strong. Per-delta row rewrites, broad Supervised snapshots, and retained Git checkpoint refs scale with accumulated history.                                  |
+| API and contracts             | **Amber**                          | Effect RPC schemas protect the main socket path. Static/runtime model catalogs coexist, auth HTTP responses bypass schema decoding, and the orchestration contract aggregate is oversized.                  |
+| Tests                         | **Amber**                          | The unit/browser corpus is broad, but critical live-provider and Electron E2E scenarios do not gate CI, and 11 geometry cases are explicitly non-blocking.                                                  |
+| Frontend                      | **Amber**                          | Transcript behavior has careful performance guardrails, but `ChatView` and `Sidebar` remain coordination hubs for many unrelated domains.                                                                   |
+| Performance                   | **Amber-red under long-lived use** | Common paths are bounded, but two confirmed algorithms are proportional to accumulated content/state rather than the change.                                                                                |
+| Reliability and observability | **Amber**                          | Server-side failure handling is generally explicit. Some client subscriber and discovery failures are intentionally swallowed, making faults indistinguishable from empty state.                            |
+| Security and trust boundaries | **Green-amber**                    | Desktop, child process, outbound HTTP, and WebSocket boundaries are materially hardened. Auth JSON still relies on TypeScript casts, and the preview framework source raises supply-chain/upgrade exposure. |
+| Build and dependencies        | **Amber-red**                      | Locking is reproducible, but core Effect packages come from `pkg.pr.new` at an unreleased commit and require a local runtime patch.                                                                         |
+| Maintainability               | **Amber-red**                      | Prior pruning removed duplicate authorities, yet change blast radius remains high in the largest client/server owners and compatibility fan-out.                                                            |
+| Documentation                 | **Red**                            | Several durable documents describe already-shipped work as future or unchecked, and workflow/audit status records contradict current source.                                                                |
 
 ## 3. Inventory by category
 
@@ -159,28 +159,28 @@ new stable seams.
 
 ## 4. Prioritized findings
 
-| ID | Finding | Category | Confidence | Severity | Effort | Defect likelihood | Blast radius |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| TD-01 | Compatibility command read model remains a production authority | Architecture / reliability | Confirmed | P1 | L | Medium-high | All orchestration and Supervised consumers that mix read paths |
-| TD-02 | Global runtime-journal cursor couples every provider to one poison row | Runtime / reliability | Confirmed | P1 | L | Medium | All threads and providers until dead-letter recovery |
-| TD-03 | Streaming transcript persistence is quadratic in message length | Persistence / performance | Confirmed | P1 | L | High for long responses | SQLite writer latency, projection lag, transcript freshness |
-| TD-04 | Supervised projection and reconciliation are snapshot-shaped | Persistence / scalability | Confirmed | P1 | XL | Medium, rising with state | Supervised commands, daemon reconciliation, SQLite writer |
-| TD-12 | Critical provider and Electron E2E paths do not gate CI | Tests / reliability | Confirmed | P1 | L | Medium-high | Releases and cross-layer lifecycle changes |
-| TD-14 | Core Effect stack is an unreleased snapshot plus local patch | Build / dependencies / supply chain | Confirmed | P1 | XL | Medium | Nearly every package and process/runtime boundary |
-| TD-05 | Central web and server owners contain unrelated lifecycles | Architecture / maintainability | Confirmed | P2 | XL | Medium | High review and regression radius |
-| TD-06 | Static and runtime model catalogs remain dual authorities | API / contracts | Confirmed | P2 | L | Medium | Provider/model rollout and persisted compatibility |
-| TD-07 | Claude agent discovery returns and caches false-empty pending state | Runtime / observability | Confirmed | P2 | M | High on first discovery | Claude agent/subagent chooser |
-| TD-08 | Auth HTTP response types are asserted, not decoded | Security / contracts | Confirmed | P2 | M | Low-medium | Pairing, sessions, bootstrap, logout |
-| TD-09 | Client subscriber failures are silently discarded | Observability / frontend | Confirmed | P2 | S | Medium | Any WebSocket push subscriber |
-| TD-10 | Legacy and canonical Supervised vocabularies fan out until 2027 | Transitional compatibility | Confirmed | P2 | L | Medium during changes | Contracts, projector, web reducer, imports, replay |
-| TD-11 | Active-thread checkpoint refs have no retention bound | Persistence / repository hygiene | Confirmed | P2 | M | High over time | User Git repositories and checkpoint operations |
-| TD-13 | Browser geometry regression coverage is non-blocking | Tests / frontend | Confirmed | P2 | M | Medium | Responsive transcript and composer layout |
-| TD-15 | Durable engineering documents contradict current source | Documentation / governance | Confirmed | P2 | M | High for planning | Audits, workflow decisions, onboarding, migration work |
-| TD-16 | Orchestration contracts are one broad aggregate | API / maintainability | Confirmed | P2 | L | Medium | Server/web protocol changes and merge conflicts |
-| S-01 | Runtime-event append could benefit from one SQL upsert | Performance | Suspected | P3 | M | Unknown | Provider event ingestion |
-| S-02 | Very long transcript virtualization thresholds may need tuning | Frontend performance | Suspected | P3 | L | Unknown | Long-history threads only |
-| S-03 | Periodic thread-runtime reconciliation may need an index at scale | Persistence performance | Suspected | P3 | M | Unknown | Background SQLite load |
-| S-04 | Long-running provider/ACP process memory needs packaged soak proof | Reliability / performance | Suspected | P3 | M | Unknown | Provider processes and desktop memory |
+| ID    | Finding                                                                | Category                            | Confidence | Severity | Effort | Defect likelihood         | Blast radius                                                   |
+| ----- | ---------------------------------------------------------------------- | ----------------------------------- | ---------- | -------- | ------ | ------------------------- | -------------------------------------------------------------- |
+| TD-01 | Compatibility command read model remains a production authority        | Architecture / reliability          | Confirmed  | P1       | L      | Medium-high               | All orchestration and Supervised consumers that mix read paths |
+| TD-02 | Global runtime-journal cursor couples every provider to one poison row | Runtime / reliability               | Confirmed  | P1       | L      | Medium                    | All threads and providers until dead-letter recovery           |
+| TD-03 | Streaming transcript persistence is quadratic in message length        | Persistence / performance           | Confirmed  | P1       | L      | High for long responses   | SQLite writer latency, projection lag, transcript freshness    |
+| TD-04 | Supervised projection and reconciliation are snapshot-shaped           | Persistence / scalability           | Confirmed  | P1       | XL     | Medium, rising with state | Supervised commands, daemon reconciliation, SQLite writer      |
+| TD-12 | Critical provider and Electron E2E paths do not gate CI                | Tests / reliability                 | Confirmed  | P1       | L      | Medium-high               | Releases and cross-layer lifecycle changes                     |
+| TD-14 | Core Effect stack is an unreleased snapshot plus local patch           | Build / dependencies / supply chain | Confirmed  | P1       | XL     | Medium                    | Nearly every package and process/runtime boundary              |
+| TD-05 | Central web and server owners contain unrelated lifecycles             | Architecture / maintainability      | Confirmed  | P2       | XL     | Medium                    | High review and regression radius                              |
+| TD-06 | Static and runtime model catalogs remain dual authorities              | API / contracts                     | Confirmed  | P2       | L      | Medium                    | Provider/model rollout and persisted compatibility             |
+| TD-07 | Claude agent discovery returns and caches false-empty pending state    | Runtime / observability             | Confirmed  | P2       | M      | High on first discovery   | Claude agent/subagent chooser                                  |
+| TD-08 | Auth HTTP response types are asserted, not decoded                     | Security / contracts                | Confirmed  | P2       | M      | Low-medium                | Pairing, sessions, bootstrap, logout                           |
+| TD-09 | Client subscriber failures are silently discarded                      | Observability / frontend            | Confirmed  | P2       | S      | Medium                    | Any WebSocket push subscriber                                  |
+| TD-10 | Legacy and canonical Supervised vocabularies fan out until 2027        | Transitional compatibility          | Confirmed  | P2       | L      | Medium during changes     | Contracts, projector, web reducer, imports, replay             |
+| TD-11 | Active-thread checkpoint refs have no retention bound                  | Persistence / repository hygiene    | Confirmed  | P2       | M      | High over time            | User Git repositories and checkpoint operations                |
+| TD-13 | Browser geometry regression coverage is non-blocking                   | Tests / frontend                    | Confirmed  | P2       | M      | Medium                    | Responsive transcript and composer layout                      |
+| TD-15 | Durable engineering documents contradict current source                | Documentation / governance          | Confirmed  | P2       | M      | High for planning         | Audits, workflow decisions, onboarding, migration work         |
+| TD-16 | Orchestration contracts are one broad aggregate                        | API / maintainability               | Confirmed  | P2       | L      | Medium                    | Server/web protocol changes and merge conflicts                |
+| S-01  | Runtime-event append could benefit from one SQL upsert                 | Performance                         | Suspected  | P3       | M      | Unknown                   | Provider event ingestion                                       |
+| S-02  | Very long transcript virtualization thresholds may need tuning         | Frontend performance                | Suspected  | P3       | L      | Unknown                   | Long-history threads only                                      |
+| S-03  | Periodic thread-runtime reconciliation may need an index at scale      | Persistence performance             | Suspected  | P3       | M      | Unknown                   | Background SQLite load                                         |
+| S-04  | Long-running provider/ACP process memory needs packaged soak proof     | Reliability / performance           | Suspected  | P3       | M      | Unknown                   | Provider processes and desktop memory                          |
 
 ## 5. Detailed evidence and remediation
 
