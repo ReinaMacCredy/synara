@@ -1,11 +1,16 @@
 import { chromium } from "playwright";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+import { createServer } from "vite";
 
-const DEFAULT_URL = "http://127.0.0.1:59111/";
+const DEFAULT_URL = "http://127.0.0.1:59111/perf/";
 const DEFAULT_MESSAGE_COUNTS = [1_000, 5_000, 10_000];
+const WEB_ROOT = fileURLToPath(new URL("../", import.meta.url));
 
 function parseArguments(argv) {
   const options = {
     url: DEFAULT_URL,
+    urlProvided: false,
     messageCounts: DEFAULT_MESSAGE_COUNTS,
   };
 
@@ -24,16 +29,32 @@ function parseArguments(argv) {
     }
     if (argument.startsWith("--")) throw new Error(`Unknown option: ${argument}`);
     options.url = argument;
+    options.urlProvided = true;
   }
 
   return options;
 }
 
 const options = parseArguments(process.argv.slice(2));
-const browser = await chromium.launch({ headless: true });
+const harnessUrl = new URL(options.url);
+const harnessServer = options.urlProvided
+  ? null
+  : await createServer({
+      configFile: path.join(WEB_ROOT, "vite.config.ts"),
+      root: WEB_ROOT,
+      server: {
+        host: harnessUrl.hostname,
+        port: Number(harnessUrl.port),
+        strictPort: true,
+      },
+    });
+await harnessServer?.listen();
+
+let browser;
 const measurements = [];
 
 try {
+  browser = await chromium.launch({ headless: true });
   for (const messageCount of options.messageCounts) {
     const page = await browser.newPage({ viewport: { width: 1_440, height: 960 } });
     const url = new URL(options.url);
@@ -63,7 +84,8 @@ try {
     await page.close();
   }
 } finally {
-  await browser.close();
+  await browser?.close();
+  await harnessServer?.close();
 }
 
 const failures = measurements.flatMap((measurement) => {

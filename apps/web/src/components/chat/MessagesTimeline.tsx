@@ -189,8 +189,8 @@ const ACTIVE_MARKER_CLASS_NAME = "thread-marker-active";
 const EMPTY_MESSAGE_MARKERS: readonly ThreadMarker[] = [];
 const EMPTY_THREAD_MARKERS_BY_MESSAGE_ID = new Map<MessageId, readonly ThreadMarker[]>();
 const EMPTY_MESSAGE_ID_SET: ReadonlySet<MessageId> = new Set();
-const INITIAL_TRANSCRIPT_WINDOW_ROWS = 300;
-const TRANSCRIPT_WINDOW_PAGE_ROWS = 300;
+const INITIAL_TRANSCRIPT_WINDOW_ROWS = 96;
+const TRANSCRIPT_WINDOW_PAGE_ROWS = 192;
 
 // Imperative LegendList access goes through these module-level helpers instead of
 // inline `ref.current` reads. The timeline's list ref is `listRef ?? fallbackListRef`,

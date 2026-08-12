@@ -3,7 +3,13 @@ import "../../index.css";
 import { MessageId } from "@veylen/contracts";
 import { type LegendListRef } from "@legendapp/list/react";
 import { page } from "vitest/browser";
-import { Profiler, useRef, useState, type ProfilerOnRenderCallback } from "react";
+import {
+  Profiler,
+  useRef,
+  useState,
+  type ComponentProps,
+  type ProfilerOnRenderCallback,
+} from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
@@ -28,6 +34,29 @@ const TIMELINE_ENTRIES = [
     },
   },
 ];
+
+function createWindowedTimelineEntries(
+  count: number,
+): ComponentProps<typeof ChatTranscriptPane>["timelineEntries"] {
+  return Array.from({ length: count }, (_, index) => {
+    const id = MessageId.makeUnsafe(`windowed-message-${index}`);
+    const createdAt = new Date(
+      Date.parse("2026-03-17T19:00:00.000Z") + index * 1_000,
+    ).toISOString();
+    return {
+      id,
+      kind: "message" as const,
+      createdAt,
+      message: {
+        id,
+        role: "user" as const,
+        text: `Windowed message ${index}`,
+        createdAt,
+        streaming: false,
+      },
+    };
+  });
+}
 
 async function settleLayout(): Promise<void> {
   await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
@@ -161,6 +190,78 @@ describe("ChatTranscriptPane", () => {
       expect(transcriptCommitCount).toBe(baselineCommitCount);
     } finally {
       await screen.unmount();
+    }
+  });
+
+  it("bounds the initial transcript window and explicitly loads earlier activity", async () => {
+    const host = document.createElement("div");
+    host.style.cssText = "display:flex;width:700px;height:700px;overflow:hidden;";
+    document.body.append(host);
+
+    const screen = await render(
+      <ChatTranscriptPane
+        activeThreadId="thread-windowed-history"
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        chatFontSizePx={15}
+        emptyStateProjectName={undefined}
+        hasMessages
+        isRevertingCheckpoint={false}
+        isWorking={false}
+        worktreeSetup={null}
+        followLiveOutput={false}
+        listRef={{ current: null }}
+        markdownCwd={undefined}
+        onExpandTimelineImage={NOOP}
+        onMessagesClickCapture={NOOP}
+        onMessagesMouseUp={NOOP}
+        onMessagesPointerCancel={NOOP}
+        onMessagesPointerDown={NOOP}
+        onMessagesPointerUp={NOOP}
+        onMessagesScroll={NOOP}
+        onMessagesTouchEnd={NOOP}
+        onMessagesTouchMove={NOOP}
+        onMessagesTouchStart={NOOP}
+        onMessagesWheel={NOOP}
+        onIsAtEndChange={NOOP}
+        onOpenTurnDiff={NOOP}
+        onOpenThread={NOOP}
+        onRevertUserMessage={NOOP}
+        onScrollToBottom={NOOP}
+        resolvedTheme="dark"
+        revertTurnCountByUserMessageId={EMPTY_REVERT_COUNTS}
+        scrollButtonVisible={false}
+        terminalWorkspaceTerminalTabActive={false}
+        timelineEntries={createWindowedTimelineEntries(140)}
+        timestampFormat="locale"
+        turnDiffSummaryByAssistantMessageId={EMPTY_TURN_DIFFS}
+        workspaceRoot={undefined}
+      />,
+      { container: host },
+    );
+
+    try {
+      await expect.element(page.getByText("Load earlier activity (44 remaining)")).toBeVisible();
+      await expect.element(page.getByText("Windowed message 139")).toBeVisible();
+
+      await page.getByText("Load earlier activity (44 remaining)").click();
+
+      await vi.waitFor(() => {
+        expect(screen.container.textContent).not.toContain("Load earlier activity");
+      });
+      const scrollContainer = screen.container.querySelector<HTMLElement>(
+        "[data-chat-scroll-container='true']",
+      );
+      expect(scrollContainer).not.toBeNull();
+      scrollContainer!.scrollTop = 0;
+      scrollContainer!.dispatchEvent(new Event("scroll"));
+      await vi.waitFor(() => {
+        expect(screen.container.textContent).toContain("Windowed message 0");
+      });
+    } finally {
+      await screen.unmount();
+      host.remove();
+      await settleLayout();
     }
   });
 
