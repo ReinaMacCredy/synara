@@ -189,6 +189,8 @@ const ACTIVE_MARKER_CLASS_NAME = "thread-marker-active";
 const EMPTY_MESSAGE_MARKERS: readonly ThreadMarker[] = [];
 const EMPTY_THREAD_MARKERS_BY_MESSAGE_ID = new Map<MessageId, readonly ThreadMarker[]>();
 const EMPTY_MESSAGE_ID_SET: ReadonlySet<MessageId> = new Set();
+const INITIAL_TRANSCRIPT_WINDOW_ROWS = 300;
+const TRANSCRIPT_WINDOW_PAGE_ROWS = 300;
 
 // Imperative LegendList access goes through these module-level helpers instead of
 // inline `ref.current` reads. The timeline's list ref is `listRef ?? fallbackListRef`,
@@ -698,7 +700,31 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       revertTurnCountByUserMessageId,
     ],
   );
-  const rows = useStableRows(rawRows);
+  const allRows = useStableRows(rawRows);
+  const [visibleRowCount, setVisibleRowCount] = useState(INITIAL_TRANSCRIPT_WINDOW_ROWS);
+  const rows = useMemo(
+    () =>
+      allRows.length <= visibleRowCount
+        ? allRows
+        : allRows.slice(allRows.length - visibleRowCount),
+    [allRows, visibleRowCount],
+  );
+  const hiddenRowCount = allRows.length - rows.length;
+  const loadingEarlierRowsRef = useRef(false);
+  const loadEarlierRows = useCallback(() => {
+    if (loadingEarlierRowsRef.current || hiddenRowCount === 0) return;
+    loadingEarlierRowsRef.current = true;
+    setVisibleRowCount((current) =>
+      Math.min(allRows.length, current + TRANSCRIPT_WINDOW_PAGE_ROWS),
+    );
+  }, [allRows.length, hiddenRowCount]);
+  useLayoutEffect(() => {
+    if (!loadingEarlierRowsRef.current) return;
+    const frameId = window.requestAnimationFrame(() => {
+      loadingEarlierRowsRef.current = false;
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [rows.length]);
   const shouldReleaseTailAnchorToLiveOutput = useMemo(
     () =>
       followLiveOutput &&
@@ -878,6 +904,21 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     return rows[lastImportedMessageIndex + 1]?.id ?? null;
   }, [canRenderForkSourceDivider, rows]);
   const forkDividerAtEnd = canRenderForkSourceDivider && forkDividerBeforeRowId === null;
+  const listHeader = useMemo(
+    () =>
+      hiddenRowCount > 0 ? (
+        <div className={cn(CHAT_COLUMN_FRAME_CLASS_NAME, "flex justify-center px-1 pb-3")}>
+          <button
+            type="button"
+            className="rounded-md border border-border/60 bg-background/80 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            onClick={loadEarlierRows}
+          >
+            Load earlier activity ({hiddenRowCount.toLocaleString()} remaining)
+          </button>
+        </div>
+      ) : null,
+    [hiddenRowCount, loadEarlierRows],
+  );
   // Fixed bottom content inset. The variable space that lets a just-sent
   // message anchor at the viewport top is reserved natively by LegendList's
   // `anchoredEndSpace` below, not by resizing this footer — resizing the footer
@@ -1023,9 +1064,14 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   // Latest rows kept in a ref so the imperative scroll controller can look up a message's
   // index lazily without re-installing the controller on every transcript change.
   const rowsRef = useRef(rows);
+  const allRowsRef = useRef(allRows);
+  const visibleRowCountRef = useRef(visibleRowCount);
+  const pendingScrollMessageIdRef = useRef<MessageId | null>(null);
   useEffect(() => {
     rowsRef.current = rows;
-  }, [rows]);
+    allRowsRef.current = allRows;
+    visibleRowCountRef.current = visibleRowCount;
+  }, [allRows, rows, visibleRowCount]);
   const jumpHighlightTimeoutRef = useRef<number | null>(null);
   const markerFineScrollFrameRef = useRef<number | null>(null);
   // Marker spans currently carrying the deep-link "active" ring, tracked so the decoration can be
@@ -1063,7 +1109,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     if (!controllerRef) {
       return;
     }
-    const scrollToMessage = (messageId: MessageId) => {
+    const scrollVisibleMessage = (messageId: MessageId) => {
       const index = rowsRef.current.findIndex(
         (row) => row.kind === "message" && row.message.id === messageId,
       );
@@ -1075,6 +1121,18 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         animated: true,
         viewPosition: 0.2,
       });
+      return true;
+    };
+    const scrollToMessage = (messageId: MessageId) => {
+      if (scrollVisibleMessage(messageId)) return true;
+      const allRowIndex = allRowsRef.current.findIndex(
+        (row) => row.kind === "message" && row.message.id === messageId,
+      );
+      if (allRowIndex < 0) return false;
+      pendingScrollMessageIdRef.current = messageId;
+      setVisibleRowCount(
+        Math.max(visibleRowCountRef.current, allRowsRef.current.length - allRowIndex),
+      );
       return true;
     };
     const clearJumpHighlightAfterDelay = () => {
@@ -1140,6 +1198,20 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       }
     };
   }, [controllerRef, resolvedListRef, applyActiveMarkerDecoration, clearActiveMarkerDecoration]);
+  useLayoutEffect(() => {
+    const messageId = pendingScrollMessageIdRef.current;
+    if (messageId === null) return;
+    const index = rows.findIndex(
+      (row) => row.kind === "message" && row.message.id === messageId,
+    );
+    if (index < 0) return;
+    pendingScrollMessageIdRef.current = null;
+    scrollLegendListToIndex(resolvedListRef, {
+      index,
+      animated: true,
+      viewPosition: 0.2,
+    });
+  }, [resolvedListRef, rows]);
   const tailContentRowId = useMemo(() => {
     for (let index = rows.length - 1; index >= 0; index -= 1) {
       const row = rows[index]!;
@@ -2502,6 +2574,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         keyExtractor={(row) => row.id}
         renderItem={({ item }) => renderRowContent(item)}
         estimatedItemSize={90}
+        recycleItems
         // Reserve only the newest turn pair so LegendList cannot recycle the live
         // follow-up's physical DOM before Working transitions to Worked.
         alwaysRender={alwaysRenderedTurnActivityRows}
@@ -2539,6 +2612,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         onTouchStart={onMessagesTouchStart}
         onWheel={onMessagesWheel}
         data-chat-scroll-container="true"
+        ListHeaderComponent={listHeader}
         ListFooterComponent={listFooter}
         // `scroll-fade-b` (vendored shadcn 4.12.0 util in index.css) masks the bottom
         // edge so streamed content dissolves toward the composer. It is scroll-aware

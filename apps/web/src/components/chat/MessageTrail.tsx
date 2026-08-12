@@ -10,6 +10,7 @@
 // Depends on: pure magnification math in messageTrail.logic.ts (unit-tested).
 
 import { type MessageId } from "@veylen/contracts";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   useEffect,
   useId,
@@ -121,6 +122,19 @@ export function MessageTrail({
   // height) — never on the measured viewport — so the capped/scrolling viewport
   // can't feed its height back into the layout (no ResizeObserver loop).
   const geometry = computeTrailGeometry({ count: items.length, spacingPx: TICK_SPACING_PX });
+  const tickVirtualizer = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => viewportRef.current,
+    estimateSize: () => TICK_SPACING_PX,
+    overscan: 12,
+  });
+  const optionVirtualizer = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => listboxRef.current,
+    estimateSize: () => 40,
+    overscan: 8,
+    enabled: navigatorOpen,
+  });
 
   // --- Hot-path refs (read inside rAF; never trigger renders) ---------------
   const rafIdRef = useRef<number | null>(null);
@@ -176,7 +190,8 @@ export function MessageTrail({
   // --- Imperative writers ----------------------------------------------------
   const writeStyles = (styles: readonly TickStyle[]) => {
     const refs = tickRefs.current;
-    for (let i = 0; i < styles.length; i += 1) {
+    for (const virtualItem of tickVirtualizer.getVirtualItems()) {
+      const i = virtualItem.index;
       const el = refs[i];
       if (!el) {
         continue;
@@ -204,9 +219,9 @@ export function MessageTrail({
     if (nextOption) {
       nextOption.dataset.active = "true";
       nextOption.setAttribute("aria-selected", "true");
-      if (scrollIntoView) {
-        nextOption.scrollIntoView?.({ block: "nearest" });
-      }
+    }
+    if (scrollIntoView && normalizedIndex >= 0) {
+      optionVirtualizer.scrollToIndex(normalizedIndex, { align: "auto" });
     }
 
     const listbox = listboxRef.current;
@@ -255,7 +270,8 @@ export function MessageTrail({
       return;
     }
     const refs = tickRefs.current;
-    for (let i = 0; i < refs.length; i += 1) {
+    for (const virtualItem of tickVirtualizer.getVirtualItems()) {
+      const i = virtualItem.index;
       const el = refs[i];
       if (!el) {
         continue;
@@ -679,7 +695,10 @@ export function MessageTrail({
         style={{ maxHeight: `${RAIL_MAX_HEIGHT_RATIO * 100}%` }}
       >
         <div ref={trackRef} className="relative w-full" style={{ height: geometry?.contentHeight }}>
-          {items.map((item, index) => (
+          {tickVirtualizer.getVirtualItems().map((virtualItem) => {
+            const index = virtualItem.index;
+            const item = items[index]!;
+            return (
             <span
               key={item.id}
               ref={(el) => {
@@ -701,7 +720,8 @@ export function MessageTrail({
                 willChange: "transform, opacity",
               }}
             />
-          ))}
+            );
+          })}
         </div>
       </div>
       <div
@@ -732,7 +752,15 @@ export function MessageTrail({
             onKeyDown={handleListboxKeyDown}
             className="scroll-fade-y max-h-[min(72dvh,36rem)] overflow-y-auto overscroll-contain outline-none [scrollbar-width:thin]"
           >
-            {items.map((item, index) => (
+            <div
+              className="relative w-full"
+              style={{ height: optionVirtualizer.getTotalSize() }}
+            >
+              {navigatorOpen
+                ? optionVirtualizer.getVirtualItems().map((virtualItem) => {
+                    const index = virtualItem.index;
+                    const item = items[index]!;
+                    return (
               <button
                 key={item.id}
                 ref={(element) => {
@@ -754,13 +782,17 @@ export function MessageTrail({
                 onPointerMove={() => handleOptionPointer(index)}
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => selectNavigatorIndex(index)}
-                className="flex w-full min-w-0 items-center rounded-xl px-4 py-2.5 text-left text-[15px] leading-5 text-foreground/84 outline-none hover:bg-[var(--color-background-button-secondary-hover)] data-[active=true]:bg-[var(--color-background-button-secondary-hover)]"
+                className="absolute left-0 top-0 flex w-full min-w-0 items-center rounded-xl px-4 py-2.5 text-left text-[15px] leading-5 text-foreground/84 outline-none hover:bg-[var(--color-background-button-secondary-hover)] data-[active=true]:bg-[var(--color-background-button-secondary-hover)]"
+                style={{ transform: `translateY(${virtualItem.start}px)` }}
                 title={item.preview}
               >
                 <span className="min-w-0 flex-1 truncate">{item.preview}</span>
                 <span className="sr-only">Jump to message {item.ordinal}</span>
               </button>
-            ))}
+                    );
+                  })
+                : null}
+            </div>
           </div>
         </div>
       </div>
