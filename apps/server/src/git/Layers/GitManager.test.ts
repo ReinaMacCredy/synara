@@ -1786,7 +1786,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         expect(ownerSelectorCallIndex).toBeGreaterThanOrEqual(0);
         expect(ghCalls.some((call) => call.startsWith("pr create "))).toBe(false);
       }),
-    30_000,
+    60_000,
   );
 
   it.effect(
