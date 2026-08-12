@@ -861,6 +861,15 @@ function mapClaudeModelInfo(model: ModelInfo): ProviderListModelsResult["models"
   };
 }
 
+function mapClaudeAgentInfo(agent: AgentInfo): ProviderListAgentsResult["agents"][number] {
+  return {
+    name: agent.name,
+    displayName: agent.name,
+    ...(agent.description ? { description: agent.description } : {}),
+    ...(agent.model ? { model: agent.model } : {}),
+  };
+}
+
 function readClaudeResumeState(resumeCursor: unknown): ClaudeResumeState | undefined {
   if (!resumeCursor || typeof resumeCursor !== "object") {
     return undefined;
@@ -5292,18 +5301,18 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               .supportedAgents()
               .then((agents) => {
                 cachedAgents = {
-                  agents: agents.map((a) => ({
-                    name: a.name,
-                    displayName: a.name,
-                    ...(a.description ? { description: a.description } : {}),
-                    ...(a.model ? { model: a.model } : {}),
-                  })),
+                  agents: agents.map(mapClaudeAgentInfo),
                   source: "sdk",
                   cached: false,
                 };
               })
-              .catch(() => {
-                /* ignore discovery failures */
+              .catch((cause) => {
+                Effect.runFork(
+                  Effect.logWarning("claude.agents.session_discovery_failed", {
+                    threadId,
+                    detail: toMessage(cause, "Failed to discover Claude agents."),
+                  }),
+                );
               });
           }
 
@@ -6096,6 +6105,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
     let commandsCache: { result: ProviderListCommandsResult; cwd: string } | null = null;
     let pendingCommandDiscovery: Promise<ProviderListCommandsResult> | null = null;
     let pendingModelDiscovery: Promise<ProviderListModelsResult> | null = null;
+    let pendingAgentDiscovery: Promise<ProviderListAgentsResult> | null = null;
 
     async function discoverViaTemporaryProcess<T>(
       cwd: string,
@@ -6165,6 +6175,17 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
     ): Promise<ProviderListModelsResult> =>
       discoverViaTemporaryProcess(cwd, env, binaryPath, async (queryRuntime) => ({
         models: (await queryRuntime.supportedModels()).map(mapClaudeModelInfo),
+        source: "sdk",
+        cached: false,
+      }));
+
+    const discoverAgentsViaTemporaryProcess = (
+      cwd: string,
+      env: NodeJS.ProcessEnv,
+      binaryPath: string,
+    ): Promise<ProviderListAgentsResult> =>
+      discoverViaTemporaryProcess(cwd, env, binaryPath, async (queryRuntime) => ({
+        agents: (await queryRuntime.supportedAgents()).map(mapClaudeAgentInfo),
         source: "sdk",
         cached: false,
       }));
@@ -6353,32 +6374,61 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         return result;
       });
 
-    const listAgents: NonNullable<ClaudeAdapterShape["listAgents"]> = (_input) =>
-      Effect.sync(() => {
+    const listAgents: NonNullable<ClaudeAdapterShape["listAgents"]> = (input) =>
+      Effect.gen(function* () {
         if (cachedAgents) {
           return { ...cachedAgents, cached: true };
         }
+
         for (const [, context] of sessions) {
           if (!context.stopped && context.query) {
-            context.query
-              .supportedAgents()
-              .then((agents) => {
-                cachedAgents = {
-                  agents: agents.map((a) => ({
-                    name: a.name,
-                    displayName: a.name,
-                    ...(a.description ? { description: a.description } : {}),
-                    ...(a.model ? { model: a.model } : {}),
-                  })),
-                  source: "sdk",
-                  cached: false,
-                };
-              })
-              .catch(() => {});
-            break;
+            const result = yield* Effect.tryPromise({
+              try: async () => ({
+                agents: (await context.query.supportedAgents()).map(mapClaudeAgentInfo),
+                source: "sdk",
+                cached: false,
+              }),
+              catch: (cause) => toRequestError(context.session.threadId, "listAgents", cause),
+            });
+            cachedAgents = result;
+            return result;
           }
         }
-        return { agents: [], source: "pending", cached: false };
+
+        const claudeSdkEnv = yield* resolveClaudeSdkEnv;
+        const discoveryPromise =
+          pendingAgentDiscovery ??
+          discoverAgentsViaTemporaryProcess(
+            input.cwd ?? serverConfig.cwd,
+            claudeSdkEnv,
+            input.binaryPath ?? "claude",
+          );
+        pendingAgentDiscovery = discoveryPromise;
+
+        const result = yield* Effect.tryPromise({
+          try: () => discoveryPromise,
+          catch: (cause) =>
+            new ProviderAdapterProcessError({
+              provider: PROVIDER,
+              threadId: CLAUDE_DISCOVERY_THREAD_ID,
+              detail: toMessage(cause, "Failed to discover Claude agents."),
+              cause,
+            }),
+        }).pipe(
+          Effect.tap(() =>
+            Effect.sync(() => {
+              pendingAgentDiscovery = null;
+            }),
+          ),
+          Effect.tapError(() =>
+            Effect.sync(() => {
+              pendingAgentDiscovery = null;
+            }),
+          ),
+        );
+
+        cachedAgents = result;
+        return result;
       });
 
     return {
