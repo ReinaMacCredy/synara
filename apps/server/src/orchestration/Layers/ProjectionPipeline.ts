@@ -1654,7 +1654,9 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             event.payload.checkpointRef.startsWith("provider-diff:");
           const nextState = isProviderDiffPlaceholder
             ? Option.match(existingTurn, {
-                onNone: () => "running" as const,
+                // A sessionless placeholder has no live lifecycle row to preserve.
+                // Match the command projector's terminal missing-checkpoint semantics.
+                onNone: () => "interrupted" as const,
                 onSome: (turn) => turn.state,
               })
             : event.payload.status === "error"

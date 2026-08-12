@@ -174,7 +174,14 @@ async function waitForThread(
       return thread;
     }
     if (Date.now() >= deadline) {
-      throw new Error("Timed out waiting for thread state.");
+      throw new Error(
+        `Timed out waiting for thread state: ${JSON.stringify({
+          latestTurn: thread?.latestTurn ?? null,
+          session: thread?.session ?? null,
+          checkpoints: thread?.checkpoints ?? [],
+          activities: thread?.activities ?? [],
+        })}`,
+      );
     }
     await new Promise((resolve) => setTimeout(resolve, 10));
     return poll();

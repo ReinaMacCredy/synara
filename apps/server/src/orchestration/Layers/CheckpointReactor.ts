@@ -65,6 +65,7 @@ type ReactorInput =
 const CHECKPOINT_REACTOR_CAPACITY = 256;
 
 const REVERT_LEASE_ACQUIRE_TIMEOUT_MS = 15_000;
+const REVERT_PROJECTION_CATCH_UP_TIMEOUT_MS = 15_000;
 
 function toTurnId(value: string | undefined): TurnId | null {
   return value === undefined ? null : TurnId.makeUnsafe(String(value));
@@ -148,6 +149,25 @@ const make = Effect.gen(function* () {
   // thread. The flag is cleared when the worker starts processing the job so an
   // edit arriving during the git work re-schedules and captures the newest tree.
   const liveDiffScheduledThreads = new Set<ThreadId>();
+
+  const awaitProjectionThroughSequence = Effect.fnUntraced(function* (targetSequence: number) {
+    const deadline = Date.now() + REVERT_PROJECTION_CATCH_UP_TIMEOUT_MS;
+    while (true) {
+      const { snapshotSequence } = yield* projectionSnapshotQuery.getSnapshotSequence();
+      if (snapshotSequence >= targetSequence) {
+        return;
+      }
+      if (Date.now() >= deadline) {
+        return yield* new CheckpointInvariantError({
+          operation: "thread revert",
+          detail: `Projection did not reach event sequence ${targetSequence} within ${Math.round(
+            REVERT_PROJECTION_CATCH_UP_TIMEOUT_MS / 1000,
+          )}s. Try again in a moment.`,
+        });
+      }
+      yield* Effect.sleep("10 millis");
+    }
+  });
 
   const enforceCheckpointRefRetention = Effect.fnUntraced(function* (threadId: ThreadId) {
     const thread = yield* getThreadDetail(threadId);
@@ -1004,6 +1024,7 @@ const make = Effect.gen(function* () {
   ) {
     const now = new Date().toISOString();
 
+    yield* awaitProjectionThroughSequence(event.sequence);
     const thread = yield* getThreadDetail(event.payload.threadId);
     if (!thread) {
       yield* appendRevertFailureActivity({

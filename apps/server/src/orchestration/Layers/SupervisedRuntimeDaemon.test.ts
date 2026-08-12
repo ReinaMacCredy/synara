@@ -1712,6 +1712,7 @@ const scenarioJEngineLayer = Layer.succeed(OrchestrationEngineService, {
   streamDomainEvents: Stream.never,
 } as never);
 const scenarioJSnapshotQueryLayer = Layer.succeed(ProjectionSnapshotQuery, {
+  getCommandReadModel: () => Effect.sync(() => scenarioJReadModel),
   getSnapshot: () => Effect.sync(() => scenarioJReadModel),
   getThreadDetailById: () => Effect.succeed(Option.none()),
 } as never);
