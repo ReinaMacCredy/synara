@@ -662,6 +662,16 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
   const getSnapshot: SupervisedRuntimeRepositoryShape["getSnapshot"] = (input = {}) =>
     loadSnapshot(input, 500);
 
+  const getGovernanceRooms: SupervisedRuntimeRepositoryShape["getGovernanceRooms"] = () =>
+    Effect.gen(function* () {
+      const rows = yield* sql<EntityRow>`
+        SELECT entity_json AS "entityJson"
+        FROM projection_supervised_rooms
+        ORDER BY updated_at, room_id
+      `;
+      return yield* decodeRows(Room, "SupervisedRuntime.getGovernanceRooms", rows);
+    }).pipe(Effect.mapError(persistenceError("SupervisedRuntime.getGovernanceRooms")));
+
   const getDaemonSnapshot: SupervisedRuntimeRepositoryShape["getDaemonSnapshot"] = () =>
     loadSnapshot({ limit: 2_147_483_647 } as GetSupervisedRuntimeInput, 2_147_483_647);
 
@@ -1733,11 +1743,13 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
         case "supervised.handoff-requested":
           break;
       }
-      const current = yield* getSnapshot({ includeDisabled: true, limit: 1 });
-      yield* setHealth(
-        { ...current.health, updatedAt: event.occurredAt },
-        Math.max(current.snapshotSequence, event.sequence),
-      );
+      yield* sql`
+        UPDATE supervised_runtime_state
+        SET snapshot_sequence = MAX(snapshot_sequence, ${event.sequence}),
+            health_json = json_set(health_json, '$.updatedAt', ${event.occurredAt}),
+            updated_at = ${event.occurredAt}
+        WHERE singleton_id = 1
+      `;
     }).pipe(Effect.mapError(persistenceError("SupervisedRuntime.applyDomainEvent")));
 
   const replaceSnapshot: SupervisedRuntimeRepositoryShape["replaceSnapshot"] = (snapshot) =>
@@ -2086,6 +2098,7 @@ const makeSupervisedRuntimeRepository = Effect.gen(function* () {
   return {
     applyDomainEvent,
     getSnapshot,
+    getGovernanceRooms,
     getDaemonSnapshot,
     getRlmReconciliationState,
     hasActiveRlmWork,

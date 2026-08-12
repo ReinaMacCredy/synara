@@ -20,6 +20,7 @@ import type {
   SupervisedDomainEvent,
   SupervisedRuntimeHealth,
   SupervisedRuntimeSnapshot,
+  Room,
 } from "@veylen/contracts";
 import { ServiceMap } from "effect";
 import type { Effect } from "effect";
@@ -68,6 +69,7 @@ export interface SupervisedRuntimeRepositoryShape {
     RlmReconciliationState,
     ProjectionRepositoryError
   >;
+  readonly getGovernanceRooms: () => Effect.Effect<ReadonlyArray<Room>, ProjectionRepositoryError>;
   readonly hasActiveRlmWork: () => Effect.Effect<boolean, ProjectionRepositoryError>;
   readonly getIngestionCursor: (key: string) => Effect.Effect<number, ProjectionRepositoryError>;
   readonly putIngestionCursor: (input: {

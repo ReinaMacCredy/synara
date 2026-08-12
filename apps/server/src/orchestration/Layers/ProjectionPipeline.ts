@@ -9,6 +9,7 @@ import {
   SupervisedEventType,
   SupervisedGovernanceDomainEvent,
   SupervisedGovernanceEventType,
+  emptySupervisedRuntimeSnapshot,
   type OrchestrationEvent,
   type SupervisedGovernanceSnapshot,
 } from "@veylen/contracts";
@@ -637,8 +638,9 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
 
   const reconcileGovernance = (at: string) =>
     Effect.gen(function* () {
-      const runtime = yield* supervisedRuntimeRepository.getSnapshot({ includeDisabled: true });
-      const governance = yield* supervisedGovernanceRepository.getSnapshot();
+      const rooms = yield* supervisedRuntimeRepository.getGovernanceRooms();
+      const runtime = { ...emptySupervisedRuntimeSnapshot(at), rooms };
+      const governance = yield* supervisedGovernanceRepository.getProjectionSnapshot();
       const state = governanceDecisionStateFromSnapshot({ governance, runtime });
       const reconciled = reconcileGovernanceProjection({
         governance,
@@ -648,7 +650,11 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
         source: "canonical",
       });
       if (reconciled !== governance) {
-        yield* supervisedGovernanceRepository.replaceSnapshot(reconciled);
+        yield* supervisedGovernanceRepository.applyProjectionDelta({
+          previous: governance,
+          next: reconciled,
+          updatedAt: at,
+        });
       }
     });
 
@@ -665,8 +671,9 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
         Schema.is(SupervisionDomainEvent)(event) ||
         Schema.is(SupervisedGovernanceDomainEvent)(event)
       ) {
-        const runtime = yield* supervisedRuntimeRepository.getSnapshot({ includeDisabled: true });
-        const governance = yield* supervisedGovernanceRepository.getSnapshot();
+        const rooms = yield* supervisedRuntimeRepository.getGovernanceRooms();
+        const runtime = { ...emptySupervisedRuntimeSnapshot(event.occurredAt), rooms };
+        const governance = yield* supervisedGovernanceRepository.getProjectionSnapshot();
         const current = governanceDecisionStateFromSnapshot({ governance, runtime });
         const canonicalEvent = yield* Effect.try({
           try: () => canonicalizeSupervisedGovernanceEvent(event),
@@ -693,7 +700,11 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             updatedAt: canonicalEvent.occurredAt,
           });
         } else {
-          yield* supervisedGovernanceRepository.replaceSnapshot(reconciled);
+          yield* supervisedGovernanceRepository.applyProjectionDelta({
+            previous: governance,
+            next: reconciled,
+            updatedAt: canonicalEvent.occurredAt,
+          });
         }
         return;
       }

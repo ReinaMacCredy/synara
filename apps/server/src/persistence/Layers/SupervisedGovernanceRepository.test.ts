@@ -303,6 +303,53 @@ testLayer("SupervisedGovernanceRepository", (it) => {
     }),
   );
 
+  it.effect("applies projection deltas without rewriting externally managed governance data", () =>
+    Effect.gen(function* () {
+      const repository = yield* SupervisedGovernanceRepository;
+      const sql = yield* SqlClient.SqlClient;
+      const initial = yield* repository.getSnapshot();
+      yield* repository.replaceSnapshot({ ...snapshot, revision: initial.revision });
+      const before = yield* repository.getSnapshot();
+      const projection = yield* repository.getProjectionSnapshot();
+      yield* sql`
+        CREATE TRIGGER reject_notebook_rewrite
+        BEFORE UPDATE ON projection_supervised_notebook_entries
+        BEGIN
+          SELECT RAISE(FAIL, 'projection delta rewrote notebook data');
+        END
+      `;
+      yield* sql`
+        CREATE TRIGGER reject_model_rewrite
+        BEFORE UPDATE ON supervised_model_capability_profiles
+        BEGIN
+          SELECT RAISE(FAIL, 'projection delta rewrote model data');
+        END
+      `;
+
+      yield* repository.applyProjectionDelta({
+        previous: projection,
+        next: {
+          ...projection,
+          workspaces: projection.workspaces.map((workspace) => ({
+            ...workspace,
+            title: "Workspace Updated",
+            revision: workspace.revision + 1,
+            updatedAt: "2026-08-09T00:02:00.000Z",
+          })),
+          updatedAt: "2026-08-09T00:02:00.000Z",
+        },
+        updatedAt: "2026-08-09T00:02:00.000Z",
+      });
+
+      const reloaded = yield* repository.getSnapshot();
+      assert.equal(reloaded.workspaces[0]?.title, "Workspace Updated");
+      assert.deepStrictEqual(reloaded.notebookEntries, before.notebookEntries);
+      assert.deepStrictEqual(reloaded.modelCapabilityProfiles, before.modelCapabilityProfiles);
+      yield* sql`DROP TRIGGER reject_notebook_rewrite`;
+      yield* sql`DROP TRIGGER reject_model_rewrite`;
+    }),
+  );
+
   it.effect("preserves persisted Supervisor profiles while adding missing defaults", () =>
     Effect.gen(function* () {
       const repository = yield* SupervisedGovernanceRepository;
